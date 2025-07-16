@@ -1,0 +1,1237 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+import {
+  Plus, AlertTriangle, Edit2, Trash2, X, Download, Filter,
+  ShoppingCart, ChevronDown, ChevronUp, Package, ArrowUp,
+  ArrowUpRight, Search, Image as ImageIcon, DollarSign,
+  RefreshCw, ArrowLeftRight, Eye, EyeOff, FilePlus, Camera, BarChart2 // Import BarChart2 icon
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
+import ImportInventory from '../components/ImportInventory';
+import { useHotel } from '../context/HotelContext';
+import SyncProductsModal from '../components/SyncProductsModal';
+import NewHotelTransferModal from '../components/NewHotelTransferModal';
+import { searchMatch } from '../utils/search';
+import { useNotification } from '../context/NotificationContext';
+
+interface Product {
+  id: string;
+  name: string;
+  quantity: number;
+  min_quantity: number;
+  max_quantity: number;
+  category: string;
+  updated_at: string;
+  supplier?: string;
+  image_url?: string;
+  description?: string;
+  last_purchase_date?: string;
+  last_purchase_price?: number;
+  average_price?: number;
+  is_active: boolean;
+}
+
+const Inventory = () => {
+  const navigate = useNavigate();
+  const { selectedHotel } = useHotel();
+  const { addNotification } = useNotification(); // Hook de notificações
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [showImportForm, setShowImportForm] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({}); // Estado para controlar erros de imagem
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false); // Estado para loading do snapshot
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false); // Estado para loading do relatório
+  const [weeklyReportData, setWeeklyReportData] = useState<any>(null); // Estado para armazenar dados do relatório
+  const [showWeeklyReport, setShowWeeklyReport] = useState(false); // Estado para exibir o modal/seção do relatório
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    quantity: 0,
+    min_quantity: 0,
+    max_quantity: 100,
+    category: 'Outros',
+    supplier: '',
+    image_url: '',
+    description: ''
+  });
+
+  // Get low stock items
+  const lowStockItems = products.filter(product => product.is_active && product.quantity <= product.min_quantity);
+
+  const fetchProducts = useCallback(async () => {
+    try {
+      if (!selectedHotel?.id) {
+        throw new Error('Hotel não selecionado');
+      }
+      setLoading(true);
+      setError('');
+      setImageErrors({}); // Resetar erros de imagem ao buscar
+
+      const { data, error: fetchError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('hotel_id', selectedHotel.id)
+        .order('name');
+
+      if (fetchError) throw fetchError;
+      setProducts(data || []);
+      
+      // Extract unique categories
+      const uniqueCategories = [...new Set(data?.map(p => p.category) || [])];
+      setCategories(uniqueCategories.sort());
+    } catch (err) {
+      console.error('Error fetching products:', err);
+      const message = err instanceof Error ? err.message : 'Erro desconhecido ao carregar produtos.';
+      setError(`Erro ao carregar produtos: ${message}`);
+      addNotification(`Erro ao carregar produtos: ${message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedHotel, addNotification]);
+
+  useEffect(() => {
+    if (selectedHotel) {
+      fetchProducts();
+    }
+  }, [selectedHotel, fetchProducts]);
+
+  const handleImageError = (productId: string) => {
+    setImageErrors(prev => ({ ...prev, [productId]: true }));
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    let processedValue: string | number = value;
+
+    if (e.target instanceof HTMLInputElement && e.target.type === 'number') {
+      const num = parseInt(value);
+      processedValue = isNaN(num) ? 0 : num; // Garante que seja 0 se não for um número válido
+      if (name === 'max_quantity' && processedValue < 1) processedValue = 1; // Garante que max_quantity seja pelo menos 1
+      if ((name === 'quantity' || name === 'min_quantity') && processedValue < 0) processedValue = 0; // Garante que quantity e min_quantity não sejam negativos
+    }
+
+    setNewProduct(prev => ({ ...prev, [name]: processedValue }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    try {
+      if (!selectedHotel?.id) {
+        throw new Error('Hotel não selecionado');
+      }
+
+      if (newProduct.min_quantity > newProduct.max_quantity) {
+        setError('Quantidade mínima não pode ser maior que a quantidade máxima.');
+        addNotification('Quantidade mínima não pode ser maior que a quantidade máxima.', 'error');
+        return;
+      }
+
+      if (editingProduct) {
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({
+            name: newProduct.name,
+            quantity: newProduct.quantity,
+            min_quantity: newProduct.min_quantity,
+            max_quantity: newProduct.max_quantity,
+            category: newProduct.category,
+            supplier: newProduct.supplier || null, // Salva null se vazio
+            image_url: newProduct.image_url || null, // Salva null se vazio
+            description: newProduct.description || null // Salva null se vazio
+          })
+          .eq('id', editingProduct.id);
+
+        if (updateError) throw updateError;
+        addNotification('Produto atualizado com sucesso!', 'success');
+      } else {
+        const { error: insertError } = await supabase
+          .from('products')
+          .insert([{
+            ...newProduct,
+            hotel_id: selectedHotel.id,
+            is_active: true,
+            supplier: newProduct.supplier || null,
+            image_url: newProduct.image_url || null,
+            description: newProduct.description || null
+          }]);
+
+        if (insertError) throw insertError;
+        addNotification('Produto criado com sucesso!', 'success');
+      }
+
+      setNewProduct({
+        name: '',
+        quantity: 0,
+        min_quantity: 0,
+        max_quantity: 100,
+        category: 'Outros',
+        supplier: '',
+        image_url: '',
+        description: ''
+      });
+      setEditingProduct(null);
+      setShowForm(false);
+      fetchProducts();
+    } catch (err) {
+      console.error('Error saving product:', err);
+      const message = err instanceof Error ? err.message : 'Erro desconhecido ao salvar produto.';
+      setError(`Erro ao salvar produto: ${message}`);
+      addNotification(`Erro ao salvar produto: ${message}`, 'error');
+    }
+  };
+
+  const handleEdit = (product: Product) => {
+    setEditingProduct(product);
+    setNewProduct({
+      name: product.name,
+      quantity: product.quantity,
+      min_quantity: product.min_quantity,
+      max_quantity: product.max_quantity,
+      category: product.category,
+      supplier: product.supplier || '',
+      image_url: product.image_url || '',
+      description: product.description || ''
+    });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    // Usar um modal de confirmação seria ideal aqui, mas por simplicidade, mantemos o confirm
+    if (!confirm(`Tem certeza que deseja excluir o produto "${name}"? Esta ação não pode ser desfeita e removerá o produto apenas se não houver movimentações associadas.`)) return;
+
+    try {
+      const { data, error: rpcError } = await supabase
+        .rpc('safe_delete_product', {
+          p_product_id: id
+        });
+
+      if (rpcError) throw rpcError;
+
+      // A função RPC agora retorna { success: boolean, message: string }
+      if (data && data.success) {
+        addNotification(data.message || 'Produto excluído com sucesso!', 'success');
+        setProducts(prevProducts => prevProducts.filter(p => p.id !== id));
+      } else {
+        // Se data.success for false, exibe a mensagem de erro retornada pela função
+        const message = data?.message || 'Não foi possível excluir o produto. Verifique se existem movimentações associadas.';
+        setError(message);
+        addNotification(message, 'error');
+      }
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      const message = err instanceof Error ? err.message : 'Erro desconhecido ao excluir produto.';
+      setError(`Erro ao excluir produto: ${message}`);
+      addNotification(`Erro ao excluir produto: ${message}`, 'error');
+    }
+  };
+
+  const handleStockAdjustment = async (productId: string, productName: string, adjustment: number) => {
+    try {
+      if (!selectedHotel?.id) {
+        throw new Error('Hotel não selecionado');
+      }
+
+      const { error: movementError } = await supabase
+        .from('inventory_movements')
+        .insert([{
+          product_id: productId,
+          quantity_change: adjustment,
+          movement_type: adjustment > 0 ? 'entrada' : 'ajuste',
+          reason: 'Ajuste manual',
+          hotel_id: selectedHotel.id
+        }]);
+
+      if (movementError) throw movementError;
+
+      addNotification(`Estoque de "${productName}" ajustado com sucesso.`, 'success');
+      fetchProducts(); // Re-fetch para atualizar a lista e o estado (ex: quantidade)
+    } catch (err) {
+      console.error('Error adjusting stock:', err);
+      const message = err instanceof Error ? err.message : 'Erro desconhecido ao ajustar estoque.';
+      setError(`Erro ao ajustar estoque: ${message}`);
+      addNotification(`Erro ao ajustar estoque para "${productName}": ${message}`, 'error');
+    }
+  };
+
+  const toggleActiveStatus = async (productId: string, productName: string, currentStatus: boolean) => {
+    const newStatus = !currentStatus;
+    const actionText = newStatus ? 'ativar' : 'inativar';
+    try {
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({ is_active: newStatus })
+        .eq('id', productId);
+
+      if (updateError) throw updateError;
+      
+      addNotification(`Produto "${productName}" ${newStatus ? 'ativado' : 'inativado'} com sucesso.`, 'success');
+      // Atualiza o estado localmente para refletir a mudança imediatamente
+      setProducts(prevProducts =>
+        prevProducts.map(p =>
+          p.id === productId ? { ...p, is_active: newStatus } : p
+        )
+      );
+    } catch (err) {
+      console.error(`Error toggling product status for ${productName}:`, err);
+      const message = err instanceof Error ? err.message : `Erro desconhecido ao ${actionText} produto.`;
+      setError(`Erro ao ${actionText} produto: ${message}`);
+      addNotification(`Erro ao ${actionText} o produto "${productName}": ${message}`, 'error');
+    }
+  };
+
+  const exportInventory = () => {
+    const dataToExport = filteredProducts.map(product => ({
+      'Nome': product.name,
+      'Categoria': product.category,
+      'Quantidade Atual': product.quantity,
+      'Quantidade Mínima': product.min_quantity,
+      'Quantidade Máxima': product.max_quantity,
+      'Fornecedor': product.supplier || '',
+      'Descrição': product.description || '',
+      'URL da Imagem': product.image_url || '',
+      'Última Atualização': product.updated_at ? new Date(product.updated_at).toLocaleString('pt-BR') : '-',
+      'Última Compra': product.last_purchase_date ? new Date(product.last_purchase_date).toLocaleDateString('pt-BR') : '-',
+      'Último Preço': product.last_purchase_price != null ? `R$ ${product.last_purchase_price.toFixed(2).replace('.', ',')}` : '-',
+      'Preço Médio': product.average_price != null ? `R$ ${product.average_price.toFixed(2).replace('.', ',')}` : '-',
+      'Status': product.is_active ? 'Ativo' : 'Inativo'
+    }));
+
+    if (dataToExport.length === 0) {
+      addNotification('Nenhum produto para exportar com os filtros atuais.', 'warning');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+
+    // Definir larguras das colunas (ajustadas)
+    const colWidths = [
+      { wch: 35 }, // Nome
+      { wch: 20 }, // Categoria
+      { wch: 15 }, // Quantidade Atual
+      { wch: 15 }, // Quantidade Mínima
+      { wch: 15 }, // Quantidade Máxima
+      { wch: 25 }, // Fornecedor
+      { wch: 40 }, // Descrição
+      { wch: 50 }, // URL da Imagem
+      { wch: 20 }, // Última Atualização
+      { wch: 15 }, // Última Compra
+      { wch: 15 }, // Último Preço
+      { wch: 15 }, // Preço Médio
+      { wch: 10 }  // Status
+    ];
+    ws['!cols'] = colWidths;
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventário');
+    try {
+      XLSX.writeFile(wb, `inventario_${selectedHotel?.code || 'geral'}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      addNotification('Inventário exportado com sucesso!', 'success');
+    } catch (exportError) {
+      console.error('Error exporting inventory:', exportError);
+      addNotification('Erro ao exportar inventário.', 'error');
+    }
+  };
+
+  const handleSaveSnapshot = async () => {
+    if (!selectedHotel?.id) {
+      addNotification("Hotel não selecionado.", "error");
+      return;
+    }
+
+    if (!confirm("Tem certeza que deseja salvar o estado atual do inventário? Isso registrará as quantidades atuais de todos os produtos.")) {
+      return;
+    }
+
+    setIsSavingSnapshot(true);
+    setError('');
+
+    try {
+      // 1. Criar o registro do snapshot
+      const { data: snapshotData, error: snapshotError } = await supabase
+        .from('inventory_snapshots')
+        .insert({ hotel_id: selectedHotel.id })
+        .select('id')
+        .single();
+
+      if (snapshotError) throw snapshotError;
+      if (!snapshotData?.id) throw new Error("Falha ao obter ID do snapshot criado.");
+
+      const snapshotId = snapshotData.id;
+
+      // 2. Preparar os itens do snapshot
+      const snapshotItems = products.map(product => ({
+        snapshot_id: snapshotId,
+        product_id: product.id,
+        quantity: product.quantity
+      }));
+
+      if (snapshotItems.length === 0) {
+        addNotification("Nenhum produto no inventário para salvar no snapshot.", "warning");
+        // Opcional: talvez deletar o registro de snapshot vazio?
+        // await supabase.from('inventory_snapshots').delete().eq('id', snapshotId);
+        setIsSavingSnapshot(false);
+        return;
+      }
+
+      // 3. Inserir os itens do snapshot
+      const { error: itemsError } = await supabase
+        .from('inventory_snapshot_items')
+        .insert(snapshotItems);
+
+      if (itemsError) throw itemsError;
+
+      addNotification("Snapshot do inventário salvo com sucesso!", "success");
+
+    } catch (err) {
+      console.error('Error saving inventory snapshot:', err);
+      const message = err instanceof Error ? err.message : 'Erro desconhecido ao salvar snapshot.';
+      setError(`Erro ao salvar snapshot: ${message}`);
+      addNotification(`Erro ao salvar snapshot: ${message}`, 'error');
+      // Opcional: Tentar deletar o registro de snapshot se a inserção dos itens falhar?
+    } finally {
+      setIsSavingSnapshot(false);
+    }
+  };
+
+  const handleGenerateWeeklyReport = async () => {
+    if (!selectedHotel?.id) {
+      addNotification("Hotel não selecionado.", "error");
+      return;
+    }
+
+    setIsGeneratingReport(true);
+    setError("");
+    setWeeklyReportData(null);
+    setShowWeeklyReport(false);
+
+    try {
+      // 1. Buscar os dois últimos snapshots
+      const { data: snapshots, error: snapshotsError } = await supabase
+        .from("inventory_snapshots")
+        .select("id, snapshot_date")
+        .eq("hotel_id", selectedHotel.id)
+        .order("snapshot_date", { ascending: false })
+        .limit(2);
+
+      if (snapshotsError) throw snapshotsError;
+
+      if (!snapshots || snapshots.length < 2) {
+        addNotification("São necessários pelo menos dois snapshots salvos para gerar o relatório.", "warning");
+        setIsGeneratingReport(false);
+        return;
+      }
+
+      const currentSnapshot = snapshots[0];
+      const previousSnapshot = snapshots[1];
+      const startDate = previousSnapshot.snapshot_date;
+      const endDate = currentSnapshot.snapshot_date;
+
+      // 2. Buscar todos os produtos do hotel para mapear IDs para nomes
+      const { data: allProductsData, error: productsError } = await supabase
+        .from("products")
+        .select("id, name")
+        .eq("hotel_id", selectedHotel.id);
+
+      if (productsError) throw productsError;
+      const productMap = new Map(allProductsData?.map(p => [p.id, p.name]) || []);
+
+      // 3. Buscar itens do snapshot anterior (Estoque Inicial)
+      const { data: prevItems, error: prevItemsError } = await supabase
+        .from("inventory_snapshot_items")
+        .select("product_id, quantity")
+        .eq("snapshot_id", previousSnapshot.id);
+
+      if (prevItemsError) throw prevItemsError;
+      const initialStock = new Map(prevItems?.map(item => [item.product_id, item.quantity]) || []);
+
+      // 4. Buscar itens do snapshot atual (Estoque Final)
+      const { data: currentItems, error: currentItemsError } = await supabase
+        .from("inventory_snapshot_items")
+        .select("product_id, quantity")
+        .eq("snapshot_id", currentSnapshot.id);
+
+      if (currentItemsError) throw currentItemsError;
+      const finalStock = new Map(currentItems?.map(item => [item.product_id, item.quantity]) || []);
+
+      // 5. Buscar Entradas (movimentações positivas de ajuste/entrada manual no período)
+      //    Ajuste: Considerar apenas movement_type = 'ajuste' com quantity_change > 0 OU um tipo específico como 'entrada manual'
+      //    Vamos assumir 'ajuste' com positivo por enquanto.
+      const { data: entriesData, error: entriesError } = await supabase
+        .from("inventory_movements")
+        .select("product_id, quantity_change")
+        .eq("hotel_id", selectedHotel.id)
+        .eq("movement_type", "ajuste") // Ou o tipo correto para 'entradas informadas'
+        .gt("quantity_change", 0)
+        .gte("movement_date", startDate)
+        .lt("movement_date", endDate);
+
+      if (entriesError) throw entriesError;
+      const entriesMap = new Map<string, number>();
+      entriesData?.forEach(entry => {
+        entriesMap.set(entry.product_id, (entriesMap.get(entry.product_id) || 0) + entry.quantity_change);
+      });
+
+      // 6. Buscar Entregas (requisições entregues no período)
+      const { data: deliveriesData, error: deliveriesError } = await supabase
+        .from("requisitions")
+        .select("product_id, delivered_quantity, sector_id, substituted_product_id, sectors(name)")
+        .eq("hotel_id", selectedHotel.id)
+        .eq("status", "delivered")
+        .gte("updated_at", startDate) // Usar updated_at ou um campo delivered_at se existir
+        .lt("updated_at", endDate);
+
+      if (deliveriesError) throw deliveriesError;
+
+      const deliveriesBySector: Record<string, Record<string, number>> = {};
+      const totalDeliveredMap = new Map<string, number>();
+
+      deliveriesData?.forEach(delivery => {
+        const deliveredProductId = delivery.substituted_product_id || delivery.product_id;
+        const sectorName = delivery.sectors?.name || "Setor Desconhecido";
+        const productName = productMap.get(deliveredProductId) || "Produto Desconhecido";
+        const quantity = delivery.delivered_quantity || 0;
+
+        if (!deliveriesBySector[sectorName]) {
+          deliveriesBySector[sectorName] = {};
+        }
+        deliveriesBySector[sectorName][productName] = (deliveriesBySector[sectorName][productName] || 0) + quantity;
+        totalDeliveredMap.set(deliveredProductId, (totalDeliveredMap.get(deliveredProductId) || 0) + quantity);
+      });
+
+      // 7. Consolidar os dados
+      const allProductIds = new Set([
+        ...initialStock.keys(),
+        ...finalStock.keys(),
+        ...entriesMap.keys(),
+        ...totalDeliveredMap.keys()
+      ]);
+
+      const consolidatedReport = Array.from(allProductIds).map(productId => {
+        const productName = productMap.get(productId) || "Produto Desconhecido";
+        const initial = initialStock.get(productId) || 0;
+        const entries = entriesMap.get(productId) || 0;
+        const delivered = totalDeliveredMap.get(productId) || 0;
+        const final = finalStock.get(productId) || 0;
+        // Opcional: Calcular consumo = initial + entries - delivered - final
+        return { productId, productName, initial, entries, delivered, final };
+      }).sort((a, b) => a.productName.localeCompare(b.productName)); // Ordenar por nome
+
+      // 8. Montar o objeto final do relatório
+      const reportData = {
+        startDate,
+        endDate,
+        consolidated: consolidatedReport,
+        deliveriesBySector
+      };
+
+      setWeeklyReportData(reportData);
+      setShowWeeklyReport(true);
+
+    } catch (err) {
+      console.error("Error generating weekly report:", err);
+      const message = err instanceof Error ? err.message : "Erro desconhecido ao gerar relatório.";
+      setError(`Erro ao gerar relatório: ${message}`);
+      addNotification(`Erro ao gerar relatório: ${message}`, "error");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = searchMatch(searchTerm, product.name) || 
+                         searchMatch(searchTerm, product.description || '') ||
+                         searchMatch(searchTerm, product.category || '') ||
+                         searchMatch(searchTerm, product.supplier || '');
+    const matchesCategory = !selectedCategory || product.category === selectedCategory;
+    const matchesActiveStatus = showInactive || product.is_active;
+    return matchesSearch && matchesCategory && matchesActiveStatus;
+  });
+
+  if (loading && products.length === 0) { // Mostrar loading apenas na carga inicial
+    return (
+      <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!selectedHotel) {
+    return (
+      <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
+        <div className="text-center p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+          {/* Use um ícone genérico se Hotel não estiver definido */}
+          <Package className="h-12 w-12 text-blue-500 mx-auto mb-4" /> 
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">
+            Nenhum hotel selecionado
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Por favor, selecione um hotel para visualizar o inventário.
+          </p>
+          <button
+            onClick={() => navigate('/select-hotel')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Selecionar Hotel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-full mx-auto px-4">
+      {/* Cabeçalho e Botões de Ação */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 space-y-4 md:space-y-0">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white flex items-center">
+          <Package className="h-8 w-8 text-blue-600 dark:text-blue-400 mr-3 flex-shrink-0" />
+          Inventário - {selectedHotel.name}
+        </h1>
+        <div className="flex items-center flex-wrap gap-2 justify-start md:justify-end">
+          {/* Botão Criar Orçamento (sempre visível) */}
+          <button
+            onClick={() => navigate('/purchases/list')} // Navega diretamente para a criação
+            className="flex items-center px-3 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors text-sm"
+          >
+            <FilePlus className="w-4 h-4 mr-1.5" />
+            Criar Orçamento
+          </button>
+          {/* Link Lista de Compras (condicional) */}
+          {lowStockItems.length > 0 && (
+            <Link
+              to="/shopping-list"
+              className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm"
+            >
+              <ShoppingCart className="w-4 h-4 mr-1.5" />
+              Lista de Compras
+              <span className="ml-2 bg-purple-800 px-1.5 py-0.5 rounded-full text-xs">
+                {lowStockItems.length}
+              </span>
+            </Link>
+          )}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
+          >
+            <Filter className="w-4 h-4 mr-1.5" />
+            Filtros
+            {showFilters ? (
+              <ChevronUp className="w-4 h-4 ml-1.5" />
+            ) : (
+              <ChevronDown className="w-4 h-4 ml-1.5" />
+            )}
+          </button>
+          <button
+            onClick={exportInventory}
+            className="flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm"
+          >
+            <Download className="w-4 h-4 mr-1.5" />
+            Exportar
+          </button>
+          <Link
+            to="/inventory/new-purchase"
+            className="flex items-center px-3 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition-colors text-sm"
+          >
+            <DollarSign className="w-4 h-4 mr-1.5" />
+            Nova Entrada
+          </Link>
+          <button
+            onClick={() => setShowSyncModal(true)}
+            className="flex items-center px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm"
+          >
+            <RefreshCw className="w-4 h-4 mr-1.5" />
+            Sincronizar
+          </button>
+          <button
+            onClick={() => setShowTransferModal(true)}
+            className="flex items-center px-3 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors text-sm"
+          >
+            <ArrowLeftRight className="w-4 h-4 mr-1.5" />
+            Transferir
+          </button>
+          <button
+            onClick={() => {
+              setEditingProduct(null);
+              setNewProduct({
+                name: '',
+                quantity: 0,
+                min_quantity: 0,
+                max_quantity: 100,
+                category: 'Outros',
+                supplier: '',
+                image_url: '',
+                description: ''
+              });
+              setShowForm(true);
+            }}
+            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Novo Item
+          </button>
+          {/* Botão Salvar Snapshot */}
+          <button
+            onClick={handleSaveSnapshot}
+            disabled={isSavingSnapshot}
+            className={`flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm ${isSavingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {isSavingSnapshot ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Camera className="w-4 h-4 mr-1.5" />
+                Salvar Snapshot
+              </>
+            )}
+          </button>
+          {/* Botão Gerar Relatório Semanal */}
+          <button
+            onClick={handleGenerateWeeklyReport}
+            disabled={isGeneratingReport}
+            className={`flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm ml-2 ${isGeneratingReport ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {isGeneratingReport ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>
+                Gerando...
+              </>
+            ) : (
+              <>
+                <BarChart2 className="w-4 h-4 mr-1.5" />
+                Gerar Relatório
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Mensagem de Erro Geral */}
+      {error && (
+        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center">
+          <AlertTriangle className="h-5 w-5 mr-2 flex-shrink-0" />
+          <span>{error}</span>
+          <button onClick={() => setError('')} className="ml-auto text-red-700 hover:text-red-900">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Filtros */}
+      {showFilters && (
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="search-term" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Buscar
+              </label>
+              <div className="relative">
+                <input
+                  id="search-term"
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Nome, descrição, categoria..."
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 pl-10 pr-4 py-2 text-sm"
+                />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="category-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Categoria
+              </label>
+              <select
+                id="category-filter"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 py-2 text-sm"
+              >
+                <option value="">Todas as Categorias</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Status
+              </label>
+              <button
+                onClick={() => setShowInactive(!showInactive)}
+                className={`w-full flex items-center justify-center px-4 py-2 rounded-md transition-colors text-sm ${showInactive
+                    ? 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
+                    : 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'
+                }`}
+              >
+                {showInactive ? (
+                  <>
+                    <EyeOff className="h-4 w-4 mr-1.5" />
+                    Mostrar Inativos
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-4 w-4 mr-1.5" />
+                    Apenas Ativos
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela de Inventário */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+        <div className="overflow-x-auto">
+          {loading && products.length > 0 && (
+            <div className="absolute inset-0 bg-white/50 dark:bg-gray-800/50 flex items-center justify-center z-10">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          )}
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-700">
+              <tr>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-1/3">
+                  Item
+                </th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  Qtd.
+                </th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  Mín.
+                </th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  Máx.
+                </th>
+                <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  Categoria
+                </th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  Status
+                </th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  Ações
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+              {filteredProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    Nenhum produto encontrado com os filtros aplicados.
+                  </td>
+                </tr>
+              ) : (
+                filteredProducts.map((product) => (
+                  <tr key={product.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${!product.is_active ? 'opacity-60' : ''}`}>
+                    {/* Coluna Item */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="h-10 w-10 flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center overflow-hidden">
+                          {product.image_url && !imageErrors[product.id] ? (
+                            <img
+                              src={product.image_url}
+                              alt={product.name}
+                              className="h-full w-full object-contain"
+                              onError={() => handleImageError(product.id)} // Usa o estado para tratar erro
+                              loading="lazy" // Adiciona lazy loading
+                            />
+                          ) : (
+                            <Package className="h-5 w-5 text-gray-400" /> // Ícone padrão
+                          )}
+                        </div>
+                        <div className="ml-3">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-200 truncate" title={product.name}>
+                            {product.name}
+                          </div>
+                          {product.description && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={product.description}>
+                              {product.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    {/* Coluna Quantidade */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-center">
+                      <span className={`font-medium ${product.quantity <= product.min_quantity && product.is_active
+                          ? 'text-red-600 dark:text-red-400 font-bold'
+                          : 'text-gray-900 dark:text-gray-200'
+                      }`}>
+                        {product.quantity}
+                      </span>
+                    </td>
+                    {/* Coluna Mínimo */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                      {product.min_quantity}
+                    </td>
+                    {/* Coluna Máximo */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                      {product.max_quantity}
+                    </td>
+                    {/* Coluna Categoria */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                      {product.category}
+                    </td>
+                    {/* Coluna Status */}
+                    <td className="px-3 py-2 whitespace-nowrap text-center">
+                      <button
+                        onClick={() => toggleActiveStatus(product.id, product.name, product.is_active)}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${product.is_active
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/70'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-900/70'
+                        }`}
+                        title={product.is_active ? 'Clique para inativar' : 'Clique para ativar'}
+                      >
+                        {product.is_active ? (
+                          <>
+                            <Eye className="h-3 w-3 mr-1" />
+                            Ativo
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="h-3 w-3 mr-1" />
+                            Inativo
+                          </>
+                        )}
+                      </button>
+                    </td>
+                    {/* Coluna Ações */}
+                    <td className="px-3 py-2 whitespace-nowrap text-center text-sm font-medium">
+                      <div className="flex items-center justify-center space-x-1">
+                        <button
+                          onClick={() => handleStockAdjustment(product.id, product.name, 1)}
+                          className="p-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 rounded-md hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                          title="Aumentar estoque (+1)"
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleStockAdjustment(product.id, product.name, -1)}
+                          className="p-1 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 rounded-md hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+                          title="Diminuir estoque (-1)"
+                        >
+                          {/* Usando ArrowUpRight rotacionado para representar saída/consumo */} 
+                          <ArrowUpRight className="h-4 w-4 rotate-90" /> 
+                        </button>
+                        <button
+                          onClick={() => handleEdit(product)}
+                          className="p-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                          title="Editar Produto"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(product.id, product.name)}
+                          className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                          title="Excluir Produto"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+            {/* Modal/Seção para exibir o Relatório Semanal */}
+      {showWeeklyReport && weeklyReportData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center p-4 z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">
+                Relatório Consolidado Semanal
+              </h2>
+              <button onClick={() => setShowWeeklyReport(false)} className="text-gray-500 hover:text-gray-700">
+                <X size={24} />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-gray-600">
+              Período: {new Date(weeklyReportData.startDate).toLocaleDateString("pt-BR")} a {new Date(weeklyReportData.endDate).toLocaleDateString("pt-BR")}
+            </p>
+
+            {/* Tabela Consolidada */}
+            <h3 className="text-lg font-medium text-gray-700 mb-2">Resumo por Produto</h3>
+            <div className="overflow-x-auto mb-6">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produto</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Inicial</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Entradas</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Entregas</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Final</th>
+                    {/* Opcional: <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Consumo</th> */}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {weeklyReportData.consolidated.map((item: any) => (
+                    <tr key={item.productId}>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{item.productName}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">{item.initial}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-green-600 text-right">{item.entries > 0 ? `+${item.entries}` : 0}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-red-600 text-right">{item.delivered > 0 ? `-${item.delivered}` : 0}</td>
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">{item.final}</td>
+                      {/* Opcional: <td className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 text-right">{item.initial + item.entries - item.delivered - item.final}</td> */}
+                    </tr>
+                  ))}
+                  {weeklyReportData.consolidated.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-4 text-center text-sm text-gray-500">Nenhum dado encontrado para o período.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Entregas por Setor */}
+            <h3 className="text-lg font-medium text-gray-700 mb-2">Entregas por Setor</h3>
+            {Object.keys(weeklyReportData.deliveriesBySector).length > 0 ? (
+              Object.entries(weeklyReportData.deliveriesBySector).map(([sector, products]: [string, any]) => (
+                <div key={sector} className="mb-4">
+                  <h4 className="text-md font-medium text-gray-600 mb-1">{sector}</h4>
+                  <ul className="list-disc list-inside pl-4 text-sm text-gray-600">
+                    {Object.entries(products).map(([productName, quantity]: [string, any]) => (
+                      <li key={productName}>{productName}: {quantity}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500">Nenhuma entrega registrada no período.</p>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setShowWeeklyReport(false)}
+                className="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 transition-colors text-sm"
+              >
+                Fechar
+              </button>
+              {/* Opcional: Botão para exportar relatório */}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Formulário Novo/Editar Produto */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full my-8">
+            <form onSubmit={handleSubmit} className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  {editingProduct ? 'Editar Produto' : 'Novo Produto'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Mensagem de Erro do Formulário */}
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-800 rounded-md text-sm text-red-800 dark:text-red-200">
+                  {error}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Nome do Produto
+                  </label>
+                  <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    value={newProduct.name}
+                    onChange={handleInputChange}
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Categoria
+                  </label>
+                  <input
+                    id="category"
+                    name="category"
+                    type="text"
+                    value={newProduct.category}
+                    onChange={handleInputChange}
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    required
+                    list="category-suggestions"
+                  />
+                  <datalist id="category-suggestions">
+                    {categories.map(cat => <option key={cat} value={cat} />)}
+                  </datalist>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Qtd. Atual
+                    </label>
+                    <input
+                      id="quantity"
+                      name="quantity"
+                      type="number"
+                      value={newProduct.quantity}
+                      onChange={handleInputChange}
+                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      required
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="min_quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Qtd. Mínima
+                    </label>
+                    <input
+                      id="min_quantity"
+                      name="min_quantity"
+                      type="number"
+                      value={newProduct.min_quantity}
+                      onChange={handleInputChange}
+                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      required
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="max_quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Qtd. Máxima
+                    </label>
+                    <input
+                      id="max_quantity"
+                      name="max_quantity"
+                      type="number"
+                      value={newProduct.max_quantity}
+                      onChange={handleInputChange}
+                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      required
+                      min="1"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Fornecedor (Opcional)
+                  </label>
+                  <input
+                    id="supplier"
+                    name="supplier"
+                    type="text"
+                    value={newProduct.supplier}
+                    onChange={handleInputChange}
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="image_url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    URL da Imagem (Opcional)
+                  </label>
+                  <input
+                    id="image_url"
+                    name="image_url"
+                    type="url"
+                    value={newProduct.image_url}
+                    onChange={handleInputChange}
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Descrição (Opcional)
+                  </label>
+                  <textarea
+                    id="description"
+                    name="description"
+                    value={newProduct.description}
+                    onChange={handleInputChange}
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                >
+                  {editingProduct ? 'Salvar Alterações' : 'Criar Produto'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Sincronizar Produtos */}
+      {showSyncModal && (
+        <SyncProductsModal
+          onClose={() => setShowSyncModal(false)}
+          onSuccess={() => {
+            setShowSyncModal(false);
+            fetchProducts();
+            addNotification('Sincronização iniciada. Os produtos serão atualizados em breve.', 'info');
+          }}
+        />
+      )}
+
+      {/* Modal Transferir Produtos */}
+      {showTransferModal && (
+  <NewHotelTransferModal
+    isOpen={showTransferModal}
+    onClose={() => setShowTransferModal(false)}
+    onSuccess={() => {
+      setShowTransferModal(false);
+      fetchProducts();
+      // A notificação de sucesso já é tratada dentro do novo modal
+    }}
+    products={products.filter(p => p.is_active)} // Passa apenas produtos ativos
+  />
+)}
+    </div>
+  );
+};
+
+export default Inventory;
+

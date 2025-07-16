@@ -1,0 +1,190 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Improved text readability */
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight font-semibold;
+  }
+
+  /* Better focus styles */
+  :focus-visible {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900;
+  }
+
+  /* Improved scrollbar for dark mode */
+  @media (prefers-color-scheme: dark) {
+    ::-webkit-scrollbar {
+      @apply w-2 h-2;
+    }
+    ::-webkit-scrollbar-track {
+      @apply bg-gray-800;
+    }
+    ::-webkit-scrollbar-thumb {
+      @apply bg-gray-600 rounded-full hover:bg-gray-500;
+    }
+  }
+}
+
+@layer components {
+  .table-row-hover {
+    @apply hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors;
+  }
+  
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 sm:p-6;
+  }
+  
+  .input {
+    @apply w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm sm:text-base transition-colors duration-200;
+  }
+  
+  .button-primary {
+    @apply px-3 sm:px-4 py-2 sm:py-2.5 bg-blue-600 text-white text-sm sm:text-base rounded-lg hover:bg-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed transform hover:translate-y-[-1px] active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900;
+  }
+  
+  .button-secondary {
+    @apply px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm sm:text-base rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed transform hover:translate-y-[-1px] active:translate-y-0;
+  }
+
+  /* Responsive table wrapper */
+  .table-responsive {
+    @apply w-full overflow-x-auto -mx-4 sm:mx-0 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600;
+  }
+
+  /* Mobile-friendly table cells */
+  .table-cell-mobile {
+    @apply px-4 py-2 sm:px-6 sm:py-4 text-sm sm:text-base;
+  }
+
+  /* Mobile-friendly buttons */
+  .button-icon {
+    @apply p-1.5 sm:p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700;
+  }
+
+  /* Mobile-friendly form groups */
+  .form-group {
+    @apply space-y-1.5 sm:space-y-2;
+  }
+
+  /* Mobile-friendly labels */
+  .form-label {
+    @apply block text-sm sm:text-base font-medium text-gray-700 dark:text-gray-300;
+  }
+
+  /* Mobile-friendly inputs */
+  .form-input {
+    @apply w-full text-sm sm:text-base rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200;
+  }
+
+  /* Mobile-friendly select */
+  .form-select {
+    @apply w-full text-sm sm:text-base rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200;
+  }
+
+  /* Mobile-friendly cards */
+  .card-responsive {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 sm:p-6 hover:shadow-lg transition-shadow duration-200;
+  }
+
+  /* Mobile-friendly grid */
+  .grid-responsive {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6;
+  }
+
+  /* Better mobile touch targets */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
+}
+
+/* Improved mobile touch targets */
+@media (max-width: 640px) {
+  button, 
+  [role="button"],
+  a.button,
+  input[type="submit"],
+  input[type="reset"],
+  input[type="button"] {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  select,
+  textarea {
+    @apply min-h-[44px];
+  }
+}
+
+/* Better table responsiveness */
+.table-container {
+  @apply w-full overflow-x-auto -mx-4 sm:mx-0;
+}
+
+.table-container table {
+  @apply min-w-full;
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Fade animations */
+.fade-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.fade-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.fade-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.fade-exit-active {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 200ms ease-in, transform 200ms ease-in;
+}
+
+/* Custom scrollbar for light mode */
+@media (prefers-color-scheme: light) {
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full hover:bg-gray-400;
+  }
+}
