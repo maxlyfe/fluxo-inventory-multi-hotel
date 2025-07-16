@@ -143,7 +143,12 @@ const LaundryReport = () => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <h3 className="text-xl font-bold text-gray-800 dark:text-white">Relatório de Lavanderia</h3>
-        <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700"> <PlusCircle className="w-5 h-5"/> Criar Novo Relatório </button>
+        <div className="flex items-center gap-4">
+            <button onClick={() => setShowDefinitionModal(true)} title="Definir Períodos da Quinzena" className="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm px-3">
+                <Settings className="w-4 h-4 text-gray-600 dark:text-gray-300"/> Definir Períodos
+            </button>
+            <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700"> <PlusCircle className="w-5 h-5"/> Criar Relatório </button>
+        </div>
       </div>
 
       <div ref={carouselRef} className="flex items-center gap-2 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
@@ -154,19 +159,20 @@ const LaundryReport = () => {
       : !activeReport ? ( <div className="text-center p-8 bg-gray-50 dark:bg-gray-800 rounded-lg"><h4 className="text-lg font-semibold text-gray-700 dark:text-white">Nenhum Relatório</h4><p className="text-gray-500 dark:text-gray-400 mt-1">Crie seu primeiro relatório para começar.</p></div> ) 
       : (
         <>
-            <div className="overflow-x-auto max-h-[70vh] rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+            {/* CORREÇÃO: A classe 'max-h-[70vh]' foi removida daqui para eliminar a rolagem dupla */}
+            <div className="overflow-x-auto rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
                 <table className="w-full text-sm border-separate border-spacing-0">
-                    <thead className="text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-30">
-                      <tr>
-                        <th className="px-3 py-3 text-left sticky left-0 z-40 bg-gray-100 dark:bg-gray-900">Item</th>
-                        <th className="px-3 py-3 text-center bg-gray-100 dark:bg-gray-900">Valor</th>
+                    <thead className="text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-30 bg-gray-100/80 dark:bg-gray-900/80 backdrop-blur-sm">
+                    <tr>
+                        <th className="px-3 py-3 text-left sticky left-0 bg-inherit z-40">Item</th>
+                        <th className="px-3 py-3 text-center bg-inherit">Valor</th>
                         {daysInPeriod.map(day => {
                             const dateStr = format(day, 'yyyy-MM-dd');
-                            return ( <th key={dateStr} className={`px-2 py-3 text-center w-16 bg-gray-100 dark:bg-gray-900 transition-colors ${focusedCell?.dateStr === dateStr ? 'bg-blue-200 dark:bg-blue-800' : ''}`}> {format(day, 'dd/MM')} </th> )
+                            return ( <th key={dateStr} className={`px-2 py-3 text-center w-16 transition-colors ${focusedCell?.dateStr === dateStr ? 'bg-blue-200 dark:bg-blue-800' : 'bg-inherit'}`}> {format(day, 'dd/MM')} </th> )
                         })}
-                        <th className="px-3 py-3 text-center bg-gray-100 dark:bg-gray-900">QTD</th>
-                        <th className="px-3 py-3 text-right bg-gray-100 dark:bg-gray-900">Valor Total</th>
-                      </tr>
+                        <th className="px-3 py-3 text-center bg-inherit">QTD</th>
+                        <th className="px-3 py-3 text-right bg-inherit">Valor Total</th>
+                    </tr>
                     </thead>
                     <tbody>
                     {[
@@ -179,24 +185,24 @@ const LaundryReport = () => {
                         <tr key={row.id}>
                           <td className={`px-3 py-2 font-bold text-${row.color}-800 dark:text-${row.color}-300 sticky left-0 z-10 flex items-center gap-2 transition-colors ${isRowFocused ? `bg-${row.color}-200 dark:bg-${row.color}-800/50` : `bg-${row.color}-50 dark:bg-${row.color}-900/20`}`}><Icon className="w-4 h-4" /> {row.label}</td>
                           <td className={`px-3 py-2 text-center transition-colors ${isRowFocused ? `bg-${row.color}-100 dark:bg-${row.color}-900/30` : `bg-${row.color}-50 dark:bg-${row.color}-900/20`}`}>-</td>
-                          {daysInPeriod.map(day => { const dateStr = format(day, 'yyyy-MM-dd'); const isCellFocused = focusedCell?.rowId === row.id && focusedCell?.dateStr === dateStr; return ( <td key={dateStr} className={`p-1 transition-colors ${focusedCell?.dateStr === dateStr || isRowFocused ? `bg-${row.color}-100 dark:bg-${row.color}-900/30` : `bg-${row.color}-50 dark:bg-${row.color}-900/20`}`}><input type="number" value={row.state[dateStr] || ''} onFocus={() => setFocusedCell({rowId: row.id, dateStr})} onBlur={() => setFocusedCell(null)} onChange={e => row.handler(dateStr, e.target.value)} className={`w-14 p-1 text-center border rounded-md bg-white dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 ${isCellFocused ? `ring-${row.color}-500` : 'ring-transparent'}`} /></td> )})}
+                          {daysInPeriod.map(day => { const dateStr = format(day, 'yyyy-MM-dd'); const isCellFocused = focusedCell?.rowId === row.id && focusedCell?.dateStr === dateStr; return ( <td key={dateStr} className={`p-1 transition-colors ${focusedCell?.dateStr === dateStr || isRowFocused ? `bg-${row.color}-100 dark:bg-${row.color}-900/30` : `bg-${row.color}-50 dark:bg-${row.color}-900/20`}`}><input type="number" value={row.state[dateStr] || ''} onFocus={() => setFocusedCell({rowId: row.id, dateStr})} onBlur={() => setFocusedCell(null)} onChange={e => row.handler(dateStr, e.target.value)} onWheel={e => e.currentTarget.blur()} className={`w-14 p-1 text-center border rounded-md bg-white dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 ${isCellFocused ? `ring-${row.color}-500` : `focus:ring-${row.color}-500 ring-transparent`}`} /></td> )})}
                           <td className={`px-3 py-2 text-center font-bold text-${row.color}-800 dark:text-${row.color}-300 transition-colors ${isRowFocused ? `bg-${row.color}-100 dark:bg-${row.color}-900/30` : `bg-${row.color}-50 dark:bg-${row.color}-900/20`}`}>{row.total}</td>
-                          <td className={`px-3 py-2 text-right transition-colors ${isRowFocused ? `bg-${row.color}-100 dark:bg-${row.color}-900/30` : `bg-${row.color}-50 dark:bg-${row.color}-900/20`}`}>-</td>
+                          <td className={`px-3 py-2 text-right transition-colors ${isRowFocused ? `bg-${row.color}-100 dark:bg-${row.color}-900/30` : `bg-inherit`}`}>-</td>
                         </tr>
                       )
                     })}
                     {calculations.itemsWithTotals.map(item => {
                       const isRowFocused = focusedCell?.rowId === item.id;
                       return (
-                        <tr key={item.id} className={`border-b dark:border-gray-700 ${isRowFocused ? 'bg-blue-100/50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}>
+                        <tr key={item.id} className={`border-b dark:border-gray-700`}>
                           <td className={`px-3 py-2 font-medium text-gray-900 dark:text-white sticky left-0 transition-colors ${isRowFocused ? 'bg-blue-200 dark:bg-blue-800/50' : 'bg-white dark:bg-gray-800'}`}>{item.name}</td>
                           <td className={`px-3 py-2 text-center text-gray-500 dark:text-gray-400 transition-colors ${isRowFocused ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}>
                             {editingPriceId === item.id ? ( <input type="number" value={currentPriceValue} onChange={handlePriceChange} onBlur={() => handlePriceSave(item.id)} onKeyDown={(e) => { if (e.key === 'Enter') handlePriceSave(item.id); if (e.key === 'Escape') setEditingPriceId(null); }} className="w-20 p-1 text-center border rounded-md bg-white dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-1 focus:ring-blue-500" autoFocus /> ) 
                             : ( <div onClick={() => handlePriceClick(item.id, item.price)} className="cursor-pointer flex items-center justify-center gap-1 hover:text-blue-500 group"> {item.price.toLocaleString('pt-BR', {style:'currency', currency: 'BRL'})} <Edit2 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"/> </div> )}
                           </td>
-                          {daysInPeriod.map(day => { const dateStr = format(day, 'yyyy-MM-dd'); const isCellFocused = focusedCell?.rowId === item.id && focusedCell?.dateStr === dateStr; return ( <td key={dateStr} className={`p-1 transition-colors ${focusedCell?.dateStr === dateStr || isRowFocused ? 'bg-blue-100 dark:bg-blue-900/30' : ''}`}><input type="number" value={entryState[item.id]?.[dateStr] || ''} onFocus={() => setFocusedCell({rowId: item.id, dateStr})} onBlur={() => setFocusedCell(null)} onChange={e => handleEntryChange(item.id, dateStr, e.target.value)} className={`w-14 p-1 text-center border rounded-md bg-transparent dark:border-gray-600 focus:ring-2 ${isCellFocused ? 'ring-blue-500' : 'focus:ring-indigo-500 ring-transparent'}`} /></td> )})}
+                          {daysInPeriod.map(day => { const dateStr = format(day, 'yyyy-MM-dd'); const isCellFocused = focusedCell?.rowId === item.id && focusedCell?.dateStr === dateStr; return ( <td key={dateStr} className={`p-1 transition-colors ${focusedCell?.dateStr === dateStr || isRowFocused ? 'bg-blue-100 dark:bg-blue-900/30' : ''}`}><input type="number" value={entryState[item.id]?.[dateStr] || ''} onFocus={() => setFocusedCell({rowId: item.id, dateStr})} onBlur={() => setFocusedCell(null)} onChange={e => handleEntryChange(item.id, dateStr, e.target.value)} onWheel={e => e.currentTarget.blur()} className={`w-14 p-1 text-center border rounded-md bg-transparent dark:border-gray-600 focus:ring-2 ${isCellFocused ? 'ring-blue-500' : 'focus:ring-indigo-500 ring-transparent'}`} /></td> )})}
                           <td className={`px-3 py-2 text-center font-semibold text-gray-800 dark:text-gray-100 transition-colors ${isRowFocused ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}>{item.quantity}</td>
-                          <td className={`px-3 py-2 text-right font-bold text-gray-900 dark:text-white transition-colors ${isRowFocused ? 'bg-blue-100 dark:bg-blue-900/40' : 'bg-white dark:bg-gray-800'}`}>{item.totalValue.toLocaleString('pt-BR', {style:'currency', currency: 'BRL'})}</td>
+                          <td className={`px-3 py-2 text-right font-bold text-gray-900 dark:text-white transition-colors ${isRowFocused ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}>{item.totalValue.toLocaleString('pt-BR', {style:'currency', currency: 'BRL'})}</td>
                         </tr>
                       )
                     })}
@@ -213,8 +219,15 @@ const LaundryReport = () => {
         </>
       )}
 
-      {selectedHotel && (
-        <CreateLaundryReportModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} hotelId={selectedHotel.id} onReportCreated={handleReportCreated} />
+      {selectedHotel && activeReport && (
+        <FortnightDefinitionModal
+            isOpen={showDefinitionModal}
+            onClose={() => setShowDefinitionModal(false)}
+            hotelId={selectedHotel.id}
+            currentMonth={parseISO(activeReport.start_date)}
+            currentDefinition={reportDetails?.definition || null}
+            onSave={fetchDetails}
+        />
       )}
     </div>
   );
