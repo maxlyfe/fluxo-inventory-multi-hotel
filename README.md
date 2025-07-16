@@ -1,3 +1,2 @@
-# Requisi-es-Costa-do-Sol-Boutique-Hotel
+# Fluxo de controle de Compras, inventario, consumo e requisições para rede Multi Hotel
 
-[Edit in StackBlitz next generation editor ⚡️](https://stackblitz.com/~/github.com/maxlyfe/Requisi-es-Costa-do-Sol-Boutique-Hotel)
