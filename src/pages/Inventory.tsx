@@ -14,6 +14,9 @@ import SyncProductsModal from '../components/SyncProductsModal';
 import NewHotelTransferModal from '../components/NewHotelTransferModal';
 import { searchMatch } from '../utils/search';
 import { useNotification } from '../context/NotificationContext';
+import NewProductModal from '../components/NewProductModal';
+import { useAuth } from '../context/AuthContext';
+import Modal from '../components/Modal';
 
 interface Product {
   id: string;
@@ -33,9 +36,14 @@ interface Product {
 }
 
 const Inventory = () => {
+  
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification(); // Hook de notificações
+  const { user } = useAuth();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [forceDelete, setForceDelete] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -54,16 +62,7 @@ const Inventory = () => {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false); // Estado para loading do relatório
   const [weeklyReportData, setWeeklyReportData] = useState<any>(null); // Estado para armazenar dados do relatório
   const [showWeeklyReport, setShowWeeklyReport] = useState(false); // Estado para exibir o modal/seção do relatório
-  const [newProduct, setNewProduct] = useState({
-    name: '',
-    quantity: 0,
-    min_quantity: 0,
-    max_quantity: 100,
-    category: 'Outros',
-    supplier: '',
-    image_url: '',
-    description: ''
-  });
+
 
   // Get low stock items
   const lowStockItems = products.filter(product => product.is_active && product.quantity <= product.min_quantity);
@@ -109,133 +108,53 @@ const Inventory = () => {
     setImageErrors(prev => ({ ...prev, [productId]: true }));
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    let processedValue: string | number = value;
 
-    if (e.target instanceof HTMLInputElement && e.target.type === 'number') {
-      const num = parseInt(value);
-      processedValue = isNaN(num) ? 0 : num; // Garante que seja 0 se não for um número válido
-      if (name === 'max_quantity' && processedValue < 1) processedValue = 1; // Garante que max_quantity seja pelo menos 1
-      if ((name === 'quantity' || name === 'min_quantity') && processedValue < 0) processedValue = 0; // Garante que quantity e min_quantity não sejam negativos
-    }
-
-    setNewProduct(prev => ({ ...prev, [name]: processedValue }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    try {
-      if (!selectedHotel?.id) {
-        throw new Error('Hotel não selecionado');
-      }
-
-      if (newProduct.min_quantity > newProduct.max_quantity) {
-        setError('Quantidade mínima não pode ser maior que a quantidade máxima.');
-        addNotification('Quantidade mínima não pode ser maior que a quantidade máxima.', 'error');
-        return;
-      }
-
-      if (editingProduct) {
-        const { error: updateError } = await supabase
-          .from('products')
-          .update({
-            name: newProduct.name,
-            quantity: newProduct.quantity,
-            min_quantity: newProduct.min_quantity,
-            max_quantity: newProduct.max_quantity,
-            category: newProduct.category,
-            supplier: newProduct.supplier || null, // Salva null se vazio
-            image_url: newProduct.image_url || null, // Salva null se vazio
-            description: newProduct.description || null // Salva null se vazio
-          })
-          .eq('id', editingProduct.id);
-
-        if (updateError) throw updateError;
-        addNotification('Produto atualizado com sucesso!', 'success');
-      } else {
-        const { error: insertError } = await supabase
-          .from('products')
-          .insert([{
-            ...newProduct,
-            hotel_id: selectedHotel.id,
-            is_active: true,
-            supplier: newProduct.supplier || null,
-            image_url: newProduct.image_url || null,
-            description: newProduct.description || null
-          }]);
-
-        if (insertError) throw insertError;
-        addNotification('Produto criado com sucesso!', 'success');
-      }
-
-      setNewProduct({
-        name: '',
-        quantity: 0,
-        min_quantity: 0,
-        max_quantity: 100,
-        category: 'Outros',
-        supplier: '',
-        image_url: '',
-        description: ''
-      });
-      setEditingProduct(null);
-      setShowForm(false);
-      fetchProducts();
-    } catch (err) {
-      console.error('Error saving product:', err);
-      const message = err instanceof Error ? err.message : 'Erro desconhecido ao salvar produto.';
-      setError(`Erro ao salvar produto: ${message}`);
-      addNotification(`Erro ao salvar produto: ${message}`, 'error');
-    }
-  };
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
-    setNewProduct({
-      name: product.name,
-      quantity: product.quantity,
-      min_quantity: product.min_quantity,
-      max_quantity: product.max_quantity,
-      category: product.category,
-      supplier: product.supplier || '',
-      image_url: product.image_url || '',
-      description: product.description || ''
-    });
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    // Usar um modal de confirmação seria ideal aqui, mas por simplicidade, mantemos o confirm
-    if (!confirm(`Tem certeza que deseja excluir o produto "${name}"? Esta ação não pode ser desfeita e removerá o produto apenas se não houver movimentações associadas.`)) return;
-
-    try {
-      const { data, error: rpcError } = await supabase
-        .rpc('safe_delete_product', {
-          p_product_id: id
-        });
-
-      if (rpcError) throw rpcError;
-
-      // A função RPC agora retorna { success: boolean, message: string }
-      if (data && data.success) {
-        addNotification(data.message || 'Produto excluído com sucesso!', 'success');
-        setProducts(prevProducts => prevProducts.filter(p => p.id !== id));
-      } else {
-        // Se data.success for false, exibe a mensagem de erro retornada pela função
-        const message = data?.message || 'Não foi possível excluir o produto. Verifique se existem movimentações associadas.';
-        setError(message);
-        addNotification(message, 'error');
-      }
-    } catch (err) {
-      console.error('Error deleting product:', err);
-      const message = err instanceof Error ? err.message : 'Erro desconhecido ao excluir produto.';
-      setError(`Erro ao excluir produto: ${message}`);
-      addNotification(`Erro ao excluir produto: ${message}`, 'error');
-    }
+  const handleCreateNew = () => {
+    setEditingProduct(null); // Garante que o formulário estará vazio
+    setShowForm(true);
   };
+
+  // SUBSTITUA A FUNÇÃO ACIMA POR ESTAS DUAS
+const triggerDelete = (product: Product) => {
+  setProductToDelete(product);
+  setForceDelete(false); // Reseta a checkbox toda vez que o modal abre
+  setShowDeleteModal(true);
+};
+
+const handleConfirmDelete = async () => {
+  if (!productToDelete) return;
+
+  try {
+    const { data, error: rpcError } = await supabase
+      .rpc('safe_delete_product', {
+        p_product_id: productToDelete.id,
+        p_force_delete: forceDelete // Passa o novo parâmetro para o banco de dados
+      });
+
+    if (rpcError) throw rpcError;
+
+    if (data && data.success) {
+      addNotification(data.message || 'Ação concluída com sucesso!', 'success');
+      fetchProducts(); // Recarrega a lista de produtos
+    } else {
+      const message = data?.message || 'Não foi possível concluir a ação.';
+      setError(message);
+      addNotification(message, 'error');
+    }
+  } catch (err: any) {
+    setError(`Erro ao excluir produto: ${err.message}`);
+    addNotification(`Erro ao excluir produto: ${err.message}`, 'error');
+  } finally {
+    setShowDeleteModal(false);
+    setProductToDelete(null);
+  }
+};
 
   const handleStockAdjustment = async (productId: string, productName: string, adjustment: number) => {
     try {
@@ -661,24 +580,11 @@ const Inventory = () => {
             Transferir
           </button>
           <button
-            onClick={() => {
-              setEditingProduct(null);
-              setNewProduct({
-                name: '',
-                quantity: 0,
-                min_quantity: 0,
-                max_quantity: 100,
-                category: 'Outros',
-                supplier: '',
-                image_url: '',
-                description: ''
-              });
-              setShowForm(true);
-            }}
-            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+              onClick={handleCreateNew}
+              className="flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 dark:focus:ring-offset-gray-800 transition-all duration-150 ease-in-out text-sm"
           >
-            <Plus className="w-4 h-4 mr-1.5" />
-            Novo Item
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Item
           </button>
           {/* Botão Salvar Snapshot */}
           <button
@@ -936,8 +842,8 @@ const Inventory = () => {
                           <Edit2 className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(product.id, product.name)}
-                          className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                          onClick={() => triggerDelete(product)}
+                          className="p-1 text-red-600 dark:text-red-400 ..."
                           title="Excluir Produto"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1034,174 +940,67 @@ const Inventory = () => {
 
       {/* Modal Formulário Novo/Editar Produto */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full my-8">
-            <form onSubmit={handleSubmit} className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                  {editingProduct ? 'Editar Produto' : 'Novo Produto'}
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+        <NewProductModal
+          isOpen={showForm}
+          onClose={() => setShowForm(false)}
+          onSave={() => {
+            fetchProducts(); // Ação para recarregar a lista quando o modal salva
+          }}
+          editingProduct={editingProduct}
+          categories={categories}
+        />
+      )}
 
-              {/* Mensagem de Erro do Formulário */}
-              {error && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-800 rounded-md text-sm text-red-800 dark:text-red-200">
-                  {error}
+      {/* ADICIONE ESTE BLOCO DE CÓDIGO PARA O NOVO MODAL */}
+      {showDeleteModal && productToDelete && (
+        <Modal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          title="Confirmar Exclusão"
+        >
+          <div className="text-center">
+            <AlertTriangle className="mx-auto h-12 w-12 text-red-500" />
+            <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-gray-100">
+              Excluir "{productToDelete.name}"?
+            </h3>
+            <div className="mt-4 px-7 py-3">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Esta ação não pode ser desfeita.
+              </p>
+              {user?.role === 'admin' && (
+                <div className="mt-4 text-left p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 rounded-md">
+                  <label htmlFor="forceDelete" className="flex items-center">
+                    <input
+                      id="forceDelete"
+                      name="forceDelete"
+                      type="checkbox"
+                      checked={forceDelete}
+                      onChange={(e) => setForceDelete(e.target.checked)}
+                      className="h-4 w-4 rounded text-red-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-red-500"
+                    />
+                    <span className="ml-2 text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                      Forçar exclusão (remove o item e todo o seu histórico).
+                    </span>
+                  </label>
                 </div>
               )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Nome do Produto
-                  </label>
-                  <input
-                    id="name"
-                    name="name"
-                    type="text"
-                    value={newProduct.name}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Categoria
-                  </label>
-                  <input
-                    id="category"
-                    name="category"
-                    type="text"
-                    value={newProduct.category}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    required
-                    list="category-suggestions"
-                  />
-                  <datalist id="category-suggestions">
-                    {categories.map(cat => <option key={cat} value={cat} />)}
-                  </datalist>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Qtd. Atual
-                    </label>
-                    <input
-                      id="quantity"
-                      name="quantity"
-                      type="number"
-                      value={newProduct.quantity}
-                      onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      required
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="min_quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Qtd. Mínima
-                    </label>
-                    <input
-                      id="min_quantity"
-                      name="min_quantity"
-                      type="number"
-                      value={newProduct.min_quantity}
-                      onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      required
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="max_quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Qtd. Máxima
-                    </label>
-                    <input
-                      id="max_quantity"
-                      name="max_quantity"
-                      type="number"
-                      value={newProduct.max_quantity}
-                      onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      required
-                      min="1"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Fornecedor (Opcional)
-                  </label>
-                  <input
-                    id="supplier"
-                    name="supplier"
-                    type="text"
-                    value={newProduct.supplier}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="image_url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    URL da Imagem (Opcional)
-                  </label>
-                  <input
-                    id="image_url"
-                    name="image_url"
-                    type="url"
-                    value={newProduct.image_url}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    placeholder="https://..."
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Descrição (Opcional)
-                  </label>
-                  <textarea
-                    id="description"
-                    name="description"
-                    value={newProduct.description}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    rows={3}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                >
-                  {editingProduct ? 'Salvar Alterações' : 'Criar Produto'}
-                </button>
-              </div>
-            </form>
+            </div>
+            <div className="items-center px-4 py-3 space-x-2">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 text-base font-medium rounded-md w-auto hover:bg-gray-300 dark:hover:bg-gray-500"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md w-auto hover:bg-red-700"
+              >
+                Confirmar Exclusão
+              </button>
+            </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal Sincronizar Produtos */}

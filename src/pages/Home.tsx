@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Package, BarChart3, Building2, ShieldCheck, ChevronDown, ChevronUp, 
   Lock, Boxes, Hotel, ChefHat, UtensilsCrossed, ShoppingCart, DollarSign,
-  FileText, CreditCard
+  FileText, CreditCard, Wrench, GlassWater
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useHotel } from '../context/HotelContext';
@@ -26,11 +26,11 @@ const Home = () => {
 
   React.useEffect(() => {
     const fetchSectors = async () => {
-      if (!selectedHotel?.id) return; // Garante que só busca setores se houver um hotel
+      if (!selectedHotel?.id) return; 
       const { data } = await supabase
         .from('sectors')
         .select('*')
-        .eq('hotel_id', selectedHotel.id); // Filtra os setores pelo hotel selecionado
+        .eq('hotel_id', selectedHotel.id); 
       if (data) setSectors(data);
     };
     fetchSectors();
@@ -100,11 +100,8 @@ const Home = () => {
               </div>
             </Link>
             
-            {/* ================================================================= */}
-            {/* CORREÇÃO APLICADA AQUI                                            */}
-            {/* ================================================================= */}
             <Link
-              to="/reports" // <-- AQUI FOI FEITA A ALTERAÇÃO
+              to="/reports" 
               className="bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
             >
               <div className="flex items-center space-x-3 sm:space-x-4">
@@ -192,22 +189,35 @@ const Home = () => {
   const renderSectorStocks = () => {
     if (!user) return null;
 
+    // ALTERAÇÃO 1: Lista de nomes dos setores que devem aparecer na seção de Estoques.
+    const stockSectorNames = ['Cozinha', 'Restaurante', 'Governança', 'Bar Piscina', 'Manutenção'];
+
     const sectorStocksData = sectors
-      .filter(sector => sector.role === 'kitchen' || sector.role === 'restaurant' || sector.role === 'governance')
+      // Filtra os setores pelo NOME, garantindo que apenas os corretos apareçam.
+      .filter(sector => stockSectorNames.includes(sector.name))
       .map(sector => {
         let icon = Hotel;
-        let color = 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700';
+        let color = 'from-gray-500 to-gray-600';
         
-        if (sector.role === 'kitchen') {
+        if (sector.name === 'Cozinha') {
           icon = ChefHat;
           color = 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700';
-        } else if (sector.role === 'restaurant') {
+        } else if (sector.name === 'Restaurante') {
           icon = UtensilsCrossed;
           color = 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700';
+        } else if (sector.name === 'Governança') {
+            icon = ShieldCheck;
+            color = 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700';
+        } else if (sector.name === 'Bar Piscina') {
+            icon = GlassWater;
+            color = 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700';
+        } else if (sector.name === 'Manutenção') {
+            icon = Wrench;
+            color = 'from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700';
         }
 
         return {
-          id: sector.id,
+          id: sector.id, // O ID correto vem do banco!
           name: `Estoque ${sector.name}`,
           role: sector.role,
           icon,
@@ -217,14 +227,23 @@ const Home = () => {
 
     const userHasAccess = (role: string) => {
       if (user.role === 'admin') return true;
-      if (user.role === 'sup-governanca' && role === 'governance') return true;
-      return false;
+
+      // Simplificado, pois a lógica principal já foi feita no filtro por nome.
+      // Pode ser expandido se houverem mais regras de acesso.
+      const allowedRolesForNonAdmins: { [key: string]: string } = {
+        'sup-governanca': 'governance',
+        'kitchen': 'kitchen',
+        'restaurant': 'restaurant',
+        'bar': 'bar'
+      };
+
+      return allowedRolesForNonAdmins[user.role] === role;
     };
 
     const accessibleStocks = sectorStocksData.filter(stock => userHasAccess(stock.role));
 
     if (accessibleStocks.length === 0) return null;
-
+    
     return (
       <div className="space-y-6">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Estoques Setoriais</h2>
@@ -232,6 +251,7 @@ const Home = () => {
           {accessibleStocks.map((stock) => {
             const Icon = stock.icon;
             return (
+              // ALTERAÇÃO 2: O link agora usa o ID correto do setor (stock.id) que veio do banco.
               <Link
                 key={stock.id}
                 to={`/sector-stock/${stock.id}`}

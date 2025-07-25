@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Package, Plus } from 'lucide-react';
+import { X, Search, Package } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
+import { useNotification } from '../context/NotificationContext'; // Adicionado para notificações
 
 interface Product {
   id: string;
@@ -12,17 +13,21 @@ interface Product {
 }
 
 interface AddInventoryItemModalProps {
+  // 1. ADICIONADO "isOpen" para controlar a visibilidade
+  isOpen: boolean; 
   onClose: () => void;
-  onSuccess: () => void;
+  onItemAdded: () => void; // Renomeado de onSuccess para onItemAdded para consistência
   sectorId: string;
 }
 
 const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
+  isOpen, // Usaremos esta prop
   onClose,
-  onSuccess,
+  onItemAdded,
   sectorId
 }) => {
   const { selectedHotel } = useHotel();
+  const { addNotification } = useNotification(); // Usando o hook de notificação
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -33,54 +38,48 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
   const [addingItem, setAddingItem] = useState(false);
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        if (!selectedHotel?.id) {
-          throw new Error('Hotel não selecionado');
+    if (isOpen) { // Apenas busca os produtos se o modal estiver aberto
+      const fetchProducts = async () => {
+        try {
+          if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
+          setLoading(true);
+          setError(null);
+
+          const { data: existingProducts } = await supabase
+            .from('sector_stock')
+            .select('product_id')
+            .eq('sector_id', sectorId)
+            .eq('hotel_id', selectedHotel.id);
+
+          const existingProductIds = existingProducts?.map(item => item.product_id) || [];
+
+          const { data, error } = await supabase
+            .from('products')
+            .select('id, name, category, quantity, image_url')
+            .eq('hotel_id', selectedHotel.id)
+            .eq('is_active', true)
+            .order('name');
+
+          if (error) throw error;
+
+          const availableProducts = data?.filter(product => 
+            !existingProductIds.includes(product.id)
+          ) || [];
+
+          setProducts(availableProducts);
+          setFilteredProducts(availableProducts);
+        } catch (err: any) {
+          setError('Erro ao carregar produtos: ' + err.message);
+        } finally {
+          setLoading(false);
         }
+      };
 
-        setLoading(true);
-        setError(null);
-
-        // Get products that are not already in the sector stock
-        const { data: existingProducts } = await supabase
-          .from('sector_stock')
-          .select('product_id')
-          .eq('sector_id', sectorId)
-          .eq('hotel_id', selectedHotel.id);
-
-        const existingProductIds = existingProducts?.map(item => item.product_id) || [];
-
-        // Fetch all active products from inventory
-        const { data, error } = await supabase
-          .from('products')
-          .select('id, name, category, quantity, image_url')
-          .eq('hotel_id', selectedHotel.id)
-          .eq('is_active', true)
-          .order('name');
-
-        if (error) throw error;
-
-        // Filter out products that are already in sector stock
-        const availableProducts = data?.filter(product => 
-          !existingProductIds.includes(product.id)
-        ) || [];
-
-        setProducts(availableProducts);
-        setFilteredProducts(availableProducts);
-      } catch (err) {
-        console.error('Error fetching products:', err);
-        setError('Erro ao carregar produtos');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProducts();
-  }, [selectedHotel, sectorId]);
+      fetchProducts();
+    }
+  }, [isOpen, selectedHotel, sectorId]); // Depende de isOpen para re-executar
 
   useEffect(() => {
-    // Filter products based on search term
     const filtered = products.filter(product =>
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       product.category.toLowerCase().includes(searchTerm.toLowerCase())
@@ -90,55 +89,36 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
 
   const handleAddToSector = async () => {
     try {
-      if (!selectedHotel?.id || !selectedProduct) {
-        throw new Error('Selecione um produto');
-      }
-
-      if (quantity <= 0) {
-        throw new Error('A quantidade deve ser maior que zero');
-      }
-
+      if (!selectedHotel?.id || !selectedProduct) throw new Error('Selecione um produto');
+      if (quantity <= 0) throw new Error('A quantidade deve ser maior que zero');
       setError(null);
       setAddingItem(true);
 
-      // Use the record_sector_stock_entry function to add the product to sector stock
-      const { error: rpcError } = await supabase.rpc('record_sector_stock_entry', {
+      const { error: rpcError } = await supabase.rpc('update_sector_stock_on_delivery', {
+        p_hotel_id: selectedHotel.id,
         p_sector_id: sectorId,
         p_product_id: selectedProduct,
-        p_quantity: quantity,
-        p_hotel_id: selectedHotel.id,
-        p_is_custom: false
+        p_quantity: quantity
       });
 
       if (rpcError) throw rpcError;
-
-      // Fetch the updated product to add it to the list
-      const { data: addedProduct } = await supabase
-        .from('products')
-        .select('id, name, category, quantity, image_url')
-        .eq('id', selectedProduct)
-        .single();
-
-      // Call onSuccess to update the parent component
-      onSuccess();
       
-      // Remove the product from the available products list
-      setProducts(prevProducts => prevProducts.filter(p => p.id !== selectedProduct));
-      setFilteredProducts(prevFilteredProducts => prevFilteredProducts.filter(p => p.id !== selectedProduct));
+      addNotification('Item adicionado ao estoque do setor com sucesso!', 'success');
+      onItemAdded(); // Chama a função para recarregar a página pai
+      onClose(); // Fecha o modal
       
-      // Reset selection
-      setSelectedProduct(null);
-      setQuantity(1);
-      
-      // Show success message
-      alert('Item adicionado ao estoque do setor com sucesso!');
-    } catch (err) {
-      console.error('Error adding product to sector:', err);
+    } catch (err: any) {
       setError(err.message || 'Erro ao adicionar produto ao setor');
+      addNotification(err.message || 'Erro ao adicionar produto ao setor', 'error');
     } finally {
       setAddingItem(false);
     }
   };
+  
+  // 2. ADICIONADO: Se o modal não estiver aberto, não renderiza nada.
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -177,7 +157,7 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              {searchTerm ? 'Nenhum produto encontrado com esse termo.' : 'Não há produtos disponíveis para adicionar.'}
+              {searchTerm ? 'Nenhum produto encontrado.' : 'Todos os produtos já estão neste setor.'}
             </div>
           ) : (
             <div className="max-h-80 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -191,25 +171,15 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
                 >
                   <div className="h-16 w-16 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center">
                     {product.image_url ? (
-                      <img
-                        src={product.image_url}
-                        alt={product.name}
-                        className="h-full w-full object-contain"
-                      />
+                      <img src={product.image_url} alt={product.name} className="h-full w-full object-contain" />
                     ) : (
                       <Package className="h-8 w-8 text-gray-400" />
                     )}
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-sm font-medium text-gray-900 dark:text-white">
-                      {product.name}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Categoria: {product.category}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Estoque atual: {product.quantity}
-                    </p>
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-white">{product.name}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Categoria: {product.category}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Estoque Geral: {product.quantity}</p>
                   </div>
                 </div>
               ))}
@@ -219,7 +189,7 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
           {selectedProduct && (
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Quantidade a adicionar
+                Quantidade a adicionar ao setor
               </label>
               <input
                 type="number"

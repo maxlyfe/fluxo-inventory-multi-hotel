@@ -549,8 +549,9 @@ const AdminPanel = () => {
     }
   };
 
+// Dentro do seu arquivo src/pages/AdminPanel.tsx
+
   const handleConfirmDirectDelivery = async (productId: string, sectorId: string, quantity: number, reason: string) => {
-    // ... (Esta função não precisa de alterações)
     if (!selectedHotel?.id) return;
 
     setShowDirectDeliveryModal(false);
@@ -560,33 +561,35 @@ const AdminPanel = () => {
       const sector = allSectors.find(s => s.id === sectorId);
 
       if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
-      if (quantity > product.quantity) throw new Error(`Quantidade insuficiente em estoque. Disponível: ${product.quantity}`);
+      if (quantity > product.quantity) throw new Error(`Quantidade insuficiente no inventário. Disponível: ${product.quantity}`);
       
-      const newRequisitionData = {
-        hotel_id: selectedHotel.id,
-        sector_id: sectorId,
-        product_id: productId,
-        item_name: product.name,
-        quantity: quantity,
-        status: 'delivered' as const,
-        delivered_quantity: quantity,
-        is_custom: false,
-        rejection_reason: `Entrega direta: ${reason || 'N/A'}`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
+      // PASSO 1: Cria uma requisição no histórico para rastreamento (já existia)
       const { data: newRequisition, error: requisitionError } = await supabase
         .from('requisitions')
-        .insert(newRequisitionData)
+        .insert({
+            hotel_id: selectedHotel.id,
+            sector_id: sectorId,
+            product_id: productId,
+            item_name: product.name,
+            quantity: quantity,
+            status: 'delivered' as const,
+            delivered_quantity: quantity,
+            is_custom: false,
+            rejection_reason: `Entrega direta: ${reason || 'N/A'}`,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
         .select('id')
         .single();
         
       if (requisitionError) throw requisitionError;
 
       const fullNewRequestObject: Request = {
-        ...newRequisitionData,
         id: newRequisition.id,
+        item_name: product.name,
+        quantity: quantity,
+        status: 'delivered',
+        created_at: new Date().toISOString(),
         products: product,
         sector: sector,
       };
@@ -597,11 +600,30 @@ const AdminPanel = () => {
         )
       );
 
+      // PASSO 2: Debita a quantidade do inventário principal (já existia)
       await supabase
         .from('products')
         .update({ quantity: product.quantity - quantity, updated_at: new Date().toISOString() })
         .eq('id', productId);
 
+      // ==========================================================
+      // PASSO 3: ADICIONA AO ESTOQUE DO SETOR (LÓGICA ADICIONADA)
+      // ==========================================================
+      const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
+          p_hotel_id: selectedHotel.id,
+          p_sector_id: sectorId,
+          p_product_id: productId,
+          p_quantity: quantity
+      });
+
+      if (sectorStockError) {
+           // Mesmo que isso falhe, o resto do fluxo continua, mas notifica o usuário
+           console.error("CRÍTICO: A atualização do estoque do setor falhou na entrega direta!", sectorStockError);
+           addNotification("Entrega registrada, mas FALHA CRÍTICA ao somar no estoque do setor. Por favor, ajuste manualmente.", "error");
+      }
+      // ==========================================================
+
+      // PASSO 4: Registra a movimentação e finanças (já existia)
       const unitCost = product.average_price || product.last_purchase_price || 0;
       await supabase.from('inventory_movements').insert({
         product_id: productId,
@@ -626,12 +648,12 @@ const AdminPanel = () => {
           delivered_by: 'Administrador (Entrega Direta)'
       });
       
-      addNotification('Item entregue diretamente com sucesso!', 'success');
+      addNotification('Item entregue diretamente e estoque do setor atualizado!', 'success');
 
     } catch (err: any) {
       console.error('Error during direct delivery:', err);
       addNotification(`Erro na entrega direta: ${err.message}`, 'error');
-      fetchHistoryRequestsInternal();
+      fetchHistoryRequestsInternal(); // Recarrega o histórico em caso de erro
     }
   };
 
