@@ -5,7 +5,7 @@ import {
   Plus, AlertTriangle, Edit2, Trash2, X, Download, Filter,
   ShoppingCart, ChevronDown, ChevronUp, Package, ArrowUp,
   ArrowUpRight, Search, Image as ImageIcon, DollarSign,
-  RefreshCw, ArrowLeftRight, Eye, EyeOff, FilePlus, Camera, BarChart2 // Import BarChart2 icon
+  RefreshCw, ArrowLeftRight, Eye, EyeOff, FilePlus, Camera, BarChart2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ImportInventory from '../components/ImportInventory';
@@ -39,7 +39,7 @@ const Inventory = () => {
   
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
-  const { addNotification } = useNotification(); // Hook de notificações
+  const { addNotification } = useNotification();
   const { user } = useAuth();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
@@ -57,14 +57,12 @@ const Inventory = () => {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
-  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({}); // Estado para controlar erros de imagem
-  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false); // Estado para loading do snapshot
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false); // Estado para loading do relatório
-  const [weeklyReportData, setWeeklyReportData] = useState<any>(null); // Estado para armazenar dados do relatório
-  const [showWeeklyReport, setShowWeeklyReport] = useState(false); // Estado para exibir o modal/seção do relatório
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [weeklyReportData, setWeeklyReportData] = useState<any>(null);
+  const [showWeeklyReport, setShowWeeklyReport] = useState(false);
 
-
-  // Get low stock items
   const lowStockItems = products.filter(product => product.is_active && product.quantity <= product.min_quantity);
 
   const fetchProducts = useCallback(async () => {
@@ -74,7 +72,7 @@ const Inventory = () => {
       }
       setLoading(true);
       setError('');
-      setImageErrors({}); // Resetar erros de imagem ao buscar
+      setImageErrors({});
 
       const { data, error: fetchError } = await supabase
         .from('products')
@@ -85,7 +83,6 @@ const Inventory = () => {
       if (fetchError) throw fetchError;
       setProducts(data || []);
       
-      // Extract unique categories
       const uniqueCategories = [...new Set(data?.map(p => p.category) || [])];
       setCategories(uniqueCategories.sort());
     } catch (err) {
@@ -108,53 +105,50 @@ const Inventory = () => {
     setImageErrors(prev => ({ ...prev, [productId]: true }));
   };
 
-
-
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
     setShowForm(true);
   };
 
   const handleCreateNew = () => {
-    setEditingProduct(null); // Garante que o formulário estará vazio
+    setEditingProduct(null);
     setShowForm(true);
   };
 
-  // SUBSTITUA A FUNÇÃO ACIMA POR ESTAS DUAS
-const triggerDelete = (product: Product) => {
-  setProductToDelete(product);
-  setForceDelete(false); // Reseta a checkbox toda vez que o modal abre
-  setShowDeleteModal(true);
-};
+  const triggerDelete = (product: Product) => {
+    setProductToDelete(product);
+    setForceDelete(false);
+    setShowDeleteModal(true);
+  };
 
-const handleConfirmDelete = async () => {
-  if (!productToDelete) return;
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return;
 
-  try {
-    const { data, error: rpcError } = await supabase
-      .rpc('safe_delete_product', {
-        p_product_id: productToDelete.id,
-        p_force_delete: forceDelete // Passa o novo parâmetro para o banco de dados
-      });
+    try {
+      const { data, error: rpcError } = await supabase
+        .rpc('safe_delete_product', {
+          p_product_id: productToDelete.id,
+          p_force_delete: forceDelete
+        });
 
-    if (rpcError) throw rpcError;
+      if (rpcError) throw rpcError;
 
-    if (data && data.success) {
-      addNotification(data.message || 'Ação concluída com sucesso!', 'success');
-      fetchProducts(); // Recarrega a lista de produtos
-    } else {
-      const message = data?.message || 'Não foi possível concluir a ação.';
-      setError(message);
-      addNotification(message, 'error');
+      if (data && data.success) {
+        addNotification(data.message || 'Ação concluída com sucesso!', 'success');
+        fetchProducts();
+      } else {
+        const message = data?.message || 'Não foi possível concluir a ação.';
+        setError(message);
+        addNotification(message, 'error');
+      }
+    } catch (err: any) {
+      setError(`Erro ao excluir produto: ${err.message}`);
+      addNotification(`Erro ao excluir produto: ${err.message}`, 'error');
+    } finally {
+      setShowDeleteModal(false);
+      setProductToDelete(null);
     }
-  } catch (err: any) {
-    setError(`Erro ao excluir produto: ${err.message}`);
-    addNotification(`Erro ao excluir produto: ${err.message}`, 'error');
-  } finally {
-    setShowDeleteModal(false);
-    setProductToDelete(null);
-  }
-};
+  };
 
   const handleStockAdjustment = async (productId: string, productName: string, adjustment: number) => {
     try {
@@ -175,7 +169,7 @@ const handleConfirmDelete = async () => {
       if (movementError) throw movementError;
 
       addNotification(`Estoque de "${productName}" ajustado com sucesso.`, 'success');
-      fetchProducts(); // Re-fetch para atualizar a lista e o estado (ex: quantidade)
+      fetchProducts();
     } catch (err) {
       console.error('Error adjusting stock:', err);
       const message = err instanceof Error ? err.message : 'Erro desconhecido ao ajustar estoque.';
@@ -196,7 +190,6 @@ const handleConfirmDelete = async () => {
       if (updateError) throw updateError;
       
       addNotification(`Produto "${productName}" ${newStatus ? 'ativado' : 'inativado'} com sucesso.`, 'success');
-      // Atualiza o estado localmente para refletir a mudança imediatamente
       setProducts(prevProducts =>
         prevProducts.map(p =>
           p.id === productId ? { ...p, is_active: newStatus } : p
@@ -235,21 +228,10 @@ const handleConfirmDelete = async () => {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(dataToExport);
 
-    // Definir larguras das colunas (ajustadas)
     const colWidths = [
-      { wch: 35 }, // Nome
-      { wch: 20 }, // Categoria
-      { wch: 15 }, // Quantidade Atual
-      { wch: 15 }, // Quantidade Mínima
-      { wch: 15 }, // Quantidade Máxima
-      { wch: 25 }, // Fornecedor
-      { wch: 40 }, // Descrição
-      { wch: 50 }, // URL da Imagem
-      { wch: 20 }, // Última Atualização
-      { wch: 15 }, // Última Compra
-      { wch: 15 }, // Último Preço
-      { wch: 15 }, // Preço Médio
-      { wch: 10 }  // Status
+      { wch: 35 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+      { wch: 25 }, { wch: 40 }, { wch: 50 }, { wch: 20 }, { wch: 15 },
+      { wch: 15 }, { wch: 15 }, { wch: 10 }
     ];
     ws['!cols'] = colWidths;
 
@@ -277,7 +259,6 @@ const handleConfirmDelete = async () => {
     setError('');
 
     try {
-      // 1. Criar o registro do snapshot
       const { data: snapshotData, error: snapshotError } = await supabase
         .from('inventory_snapshots')
         .insert({ hotel_id: selectedHotel.id })
@@ -289,7 +270,6 @@ const handleConfirmDelete = async () => {
 
       const snapshotId = snapshotData.id;
 
-      // 2. Preparar os itens do snapshot
       const snapshotItems = products.map(product => ({
         snapshot_id: snapshotId,
         product_id: product.id,
@@ -298,13 +278,10 @@ const handleConfirmDelete = async () => {
 
       if (snapshotItems.length === 0) {
         addNotification("Nenhum produto no inventário para salvar no snapshot.", "warning");
-        // Opcional: talvez deletar o registro de snapshot vazio?
-        // await supabase.from('inventory_snapshots').delete().eq('id', snapshotId);
         setIsSavingSnapshot(false);
         return;
       }
 
-      // 3. Inserir os itens do snapshot
       const { error: itemsError } = await supabase
         .from('inventory_snapshot_items')
         .insert(snapshotItems);
@@ -318,7 +295,6 @@ const handleConfirmDelete = async () => {
       const message = err instanceof Error ? err.message : 'Erro desconhecido ao salvar snapshot.';
       setError(`Erro ao salvar snapshot: ${message}`);
       addNotification(`Erro ao salvar snapshot: ${message}`, 'error');
-      // Opcional: Tentar deletar o registro de snapshot se a inserção dos itens falhar?
     } finally {
       setIsSavingSnapshot(false);
     }
@@ -336,7 +312,6 @@ const handleConfirmDelete = async () => {
     setShowWeeklyReport(false);
 
     try {
-      // 1. Buscar os dois últimos snapshots
       const { data: snapshots, error: snapshotsError } = await supabase
         .from("inventory_snapshots")
         .select("id, snapshot_date")
@@ -357,7 +332,6 @@ const handleConfirmDelete = async () => {
       const startDate = previousSnapshot.snapshot_date;
       const endDate = currentSnapshot.snapshot_date;
 
-      // 2. Buscar todos os produtos do hotel para mapear IDs para nomes
       const { data: allProductsData, error: productsError } = await supabase
         .from("products")
         .select("id, name")
@@ -366,7 +340,6 @@ const handleConfirmDelete = async () => {
       if (productsError) throw productsError;
       const productMap = new Map(allProductsData?.map(p => [p.id, p.name]) || []);
 
-      // 3. Buscar itens do snapshot anterior (Estoque Inicial)
       const { data: prevItems, error: prevItemsError } = await supabase
         .from("inventory_snapshot_items")
         .select("product_id, quantity")
@@ -375,7 +348,6 @@ const handleConfirmDelete = async () => {
       if (prevItemsError) throw prevItemsError;
       const initialStock = new Map(prevItems?.map(item => [item.product_id, item.quantity]) || []);
 
-      // 4. Buscar itens do snapshot atual (Estoque Final)
       const { data: currentItems, error: currentItemsError } = await supabase
         .from("inventory_snapshot_items")
         .select("product_id, quantity")
@@ -384,14 +356,11 @@ const handleConfirmDelete = async () => {
       if (currentItemsError) throw currentItemsError;
       const finalStock = new Map(currentItems?.map(item => [item.product_id, item.quantity]) || []);
 
-      // 5. Buscar Entradas (movimentações positivas de ajuste/entrada manual no período)
-      //    Ajuste: Considerar apenas movement_type = 'ajuste' com quantity_change > 0 OU um tipo específico como 'entrada manual'
-      //    Vamos assumir 'ajuste' com positivo por enquanto.
       const { data: entriesData, error: entriesError } = await supabase
         .from("inventory_movements")
         .select("product_id, quantity_change")
         .eq("hotel_id", selectedHotel.id)
-        .eq("movement_type", "ajuste") // Ou o tipo correto para 'entradas informadas'
+        .eq("movement_type", "ajuste")
         .gt("quantity_change", 0)
         .gte("movement_date", startDate)
         .lt("movement_date", endDate);
@@ -402,13 +371,12 @@ const handleConfirmDelete = async () => {
         entriesMap.set(entry.product_id, (entriesMap.get(entry.product_id) || 0) + entry.quantity_change);
       });
 
-      // 6. Buscar Entregas (requisições entregues no período)
       const { data: deliveriesData, error: deliveriesError } = await supabase
         .from("requisitions")
         .select("product_id, delivered_quantity, sector_id, substituted_product_id, sectors(name)")
         .eq("hotel_id", selectedHotel.id)
         .eq("status", "delivered")
-        .gte("updated_at", startDate) // Usar updated_at ou um campo delivered_at se existir
+        .gte("updated_at", startDate)
         .lt("updated_at", endDate);
 
       if (deliveriesError) throw deliveriesError;
@@ -429,12 +397,9 @@ const handleConfirmDelete = async () => {
         totalDeliveredMap.set(deliveredProductId, (totalDeliveredMap.get(deliveredProductId) || 0) + quantity);
       });
 
-      // 7. Consolidar os dados
       const allProductIds = new Set([
-        ...initialStock.keys(),
-        ...finalStock.keys(),
-        ...entriesMap.keys(),
-        ...totalDeliveredMap.keys()
+        ...initialStock.keys(), ...finalStock.keys(),
+        ...entriesMap.keys(), ...totalDeliveredMap.keys()
       ]);
 
       const consolidatedReport = Array.from(allProductIds).map(productId => {
@@ -443,14 +408,11 @@ const handleConfirmDelete = async () => {
         const entries = entriesMap.get(productId) || 0;
         const delivered = totalDeliveredMap.get(productId) || 0;
         const final = finalStock.get(productId) || 0;
-        // Opcional: Calcular consumo = initial + entries - delivered - final
         return { productId, productName, initial, entries, delivered, final };
-      }).sort((a, b) => a.productName.localeCompare(b.productName)); // Ordenar por nome
+      }).sort((a, b) => a.productName.localeCompare(b.productName));
 
-      // 8. Montar o objeto final do relatório
       const reportData = {
-        startDate,
-        endDate,
+        startDate, endDate,
         consolidated: consolidatedReport,
         deliveriesBySector
       };
@@ -478,7 +440,7 @@ const handleConfirmDelete = async () => {
     return matchesSearch && matchesCategory && matchesActiveStatus;
   });
 
-  if (loading && products.length === 0) { // Mostrar loading apenas na carga inicial
+  if (loading && products.length === 0) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -490,7 +452,6 @@ const handleConfirmDelete = async () => {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <div className="text-center p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-          {/* Use um ícone genérico se Hotel não estiver definido */}
           <Package className="h-12 w-12 text-blue-500 mx-auto mb-4" /> 
           <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">
             Nenhum hotel selecionado
@@ -511,22 +472,19 @@ const handleConfirmDelete = async () => {
 
   return (
     <div className="max-w-full mx-auto px-4">
-      {/* Cabeçalho e Botões de Ação */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 space-y-4 md:space-y-0">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white flex items-center">
           <Package className="h-8 w-8 text-blue-600 dark:text-blue-400 mr-3 flex-shrink-0" />
           Inventário - {selectedHotel.name}
         </h1>
         <div className="flex items-center flex-wrap gap-2 justify-start md:justify-end">
-          {/* Botão Criar Orçamento (sempre visível) */}
           <button
-            onClick={() => navigate('/purchases/list')} // Navega diretamente para a criação
+            onClick={() => navigate('/purchases/list')}
             className="flex items-center px-3 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors text-sm"
           >
             <FilePlus className="w-4 h-4 mr-1.5" />
             Criar Orçamento
           </button>
-          {/* Link Lista de Compras (condicional) */}
           {lowStockItems.length > 0 && (
             <Link
               to="/shopping-list"
@@ -545,11 +503,7 @@ const handleConfirmDelete = async () => {
           >
             <Filter className="w-4 h-4 mr-1.5" />
             Filtros
-            {showFilters ? (
-              <ChevronUp className="w-4 h-4 ml-1.5" />
-            ) : (
-              <ChevronDown className="w-4 h-4 ml-1.5" />
-            )}
+            {showFilters ? <ChevronUp className="w-4 h-4 ml-1.5" /> : <ChevronDown className="w-4 h-4 ml-1.5" />}
           </button>
           <button
             onClick={exportInventory}
@@ -586,46 +540,31 @@ const handleConfirmDelete = async () => {
               <Plus className="w-4 h-4 mr-2" />
               Novo Item
           </button>
-          {/* Botão Salvar Snapshot */}
           <button
             onClick={handleSaveSnapshot}
             disabled={isSavingSnapshot}
             className={`flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm ${isSavingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isSavingSnapshot ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>
-                Salvando...
-              </>
+              <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>Salvando...</>
             ) : (
-              <>
-                <Camera className="w-4 h-4 mr-1.5" />
-                Salvar Snapshot
-              </>
+              <><Camera className="w-4 h-4 mr-1.5" />Salvar Snapshot</>
             )}
           </button>
-          {/* Botão Gerar Relatório Semanal */}
           <button
             onClick={handleGenerateWeeklyReport}
             disabled={isGeneratingReport}
             className={`flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm ml-2 ${isGeneratingReport ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isGeneratingReport ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>
-                Gerando...
-              </>
+              <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>Gerando...</>
             ) : (
-              <>
-                <BarChart2 className="w-4 h-4 mr-1.5" />
-                Gerar Relatório
-              </>
+              <><BarChart2 className="w-4 h-4 mr-1.5" />Gerar Relatório</>
             )}
           </button>
         </div>
       </div>
 
-      {/* Mensagem de Erro Geral */}
       {error && (
         <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center">
           <AlertTriangle className="h-5 w-5 mr-2 flex-shrink-0" />
@@ -636,7 +575,6 @@ const handleConfirmDelete = async () => {
         </div>
       )}
 
-      {/* Filtros */}
       {showFilters && (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md mb-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -684,15 +622,9 @@ const handleConfirmDelete = async () => {
                 }`}
               >
                 {showInactive ? (
-                  <>
-                    <EyeOff className="h-4 w-4 mr-1.5" />
-                    Mostrar Inativos
-                  </>
+                  <><EyeOff className="h-4 w-4 mr-1.5" />Mostrar Inativos</>
                 ) : (
-                  <>
-                    <Eye className="h-4 w-4 mr-1.5" />
-                    Apenas Ativos
-                  </>
+                  <><Eye className="h-4 w-4 mr-1.5" />Apenas Ativos</>
                 )}
               </button>
             </div>
@@ -700,7 +632,6 @@ const handleConfirmDelete = async () => {
         </div>
       )}
 
-      {/* Tabela de Inventário */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
         <div className="overflow-x-auto">
           {loading && products.length > 0 && (
@@ -711,27 +642,13 @@ const handleConfirmDelete = async () => {
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-1/3">
-                  Item
-                </th>
-                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Qtd.
-                </th>
-                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Mín.
-                </th>
-                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Máx.
-                </th>
-                <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Categoria
-                </th>
-                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Status
-                </th>
-                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                  Ações
-                </th>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-1/3">Item</th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Qtd.</th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Mín.</th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Máx.</th>
+                <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Categoria</th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -744,56 +661,27 @@ const handleConfirmDelete = async () => {
               ) : (
                 filteredProducts.map((product) => (
                   <tr key={product.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${!product.is_active ? 'opacity-60' : ''}`}>
-                    {/* Coluna Item */}
                     <td className="px-4 py-2 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="h-10 w-10 flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center overflow-hidden">
                           {product.image_url && !imageErrors[product.id] ? (
-                            <img
-                              src={product.image_url}
-                              alt={product.name}
-                              className="h-full w-full object-contain"
-                              onError={() => handleImageError(product.id)} // Usa o estado para tratar erro
-                              loading="lazy" // Adiciona lazy loading
-                            />
+                            <img src={product.image_url} alt={product.name} className="h-full w-full object-contain" onError={() => handleImageError(product.id)} loading="lazy" />
                           ) : (
-                            <Package className="h-5 w-5 text-gray-400" /> // Ícone padrão
+                            <Package className="h-5 w-5 text-gray-400" />
                           )}
                         </div>
                         <div className="ml-3">
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-200 truncate" title={product.name}>
-                            {product.name}
-                          </div>
-                          {product.description && (
-                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={product.description}>
-                              {product.description}
-                            </div>
-                          )}
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-200 truncate" title={product.name}>{product.name}</div>
+                          {product.description && (<div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={product.description}>{product.description}</div>)}
                         </div>
                       </div>
                     </td>
-                    {/* Coluna Quantidade */}
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-center">
-                      <span className={`font-medium ${product.quantity <= product.min_quantity && product.is_active
-                          ? 'text-red-600 dark:text-red-400 font-bold'
-                          : 'text-gray-900 dark:text-gray-200'
-                      }`}>
-                        {product.quantity}
-                      </span>
+                      <span className={`font-medium ${product.quantity <= product.min_quantity && product.is_active ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-900 dark:text-gray-200'}`}>{product.quantity}</span>
                     </td>
-                    {/* Coluna Mínimo */}
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
-                      {product.min_quantity}
-                    </td>
-                    {/* Coluna Máximo */}
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
-                      {product.max_quantity}
-                    </td>
-                    {/* Coluna Categoria */}
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                      {product.category}
-                    </td>
-                    {/* Coluna Status */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">{product.min_quantity}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">{product.max_quantity}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{product.category}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-center">
                       <button
                         onClick={() => toggleActiveStatus(product.id, product.name, product.is_active)}
@@ -803,51 +691,15 @@ const handleConfirmDelete = async () => {
                         }`}
                         title={product.is_active ? 'Clique para inativar' : 'Clique para ativar'}
                       >
-                        {product.is_active ? (
-                          <>
-                            <Eye className="h-3 w-3 mr-1" />
-                            Ativo
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="h-3 w-3 mr-1" />
-                            Inativo
-                          </>
-                        )}
+                        {product.is_active ? (<><Eye className="h-3 w-3 mr-1" />Ativo</>) : (<><EyeOff className="h-3 w-3 mr-1" />Inativo</>)}
                       </button>
                     </td>
-                    {/* Coluna Ações */}
                     <td className="px-3 py-2 whitespace-nowrap text-center text-sm font-medium">
                       <div className="flex items-center justify-center space-x-1">
-                        <button
-                          onClick={() => handleStockAdjustment(product.id, product.name, 1)}
-                          className="p-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 rounded-md hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                          title="Aumentar estoque (+1)"
-                        >
-                          <ArrowUp className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleStockAdjustment(product.id, product.name, -1)}
-                          className="p-1 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 rounded-md hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
-                          title="Diminuir estoque (-1)"
-                        >
-                          {/* Usando ArrowUpRight rotacionado para representar saída/consumo */} 
-                          <ArrowUpRight className="h-4 w-4 rotate-90" /> 
-                        </button>
-                        <button
-                          onClick={() => handleEdit(product)}
-                          className="p-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                          title="Editar Produto"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => triggerDelete(product)}
-                          className="p-1 text-red-600 dark:text-red-400 ..."
-                          title="Excluir Produto"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => handleStockAdjustment(product.id, product.name, 1)} className="p-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 rounded-md hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors" title="Aumentar estoque (+1)"><ArrowUp className="h-4 w-4" /></button>
+                        <button onClick={() => handleStockAdjustment(product.id, product.name, -1)} className="p-1 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 rounded-md hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors" title="Diminuir estoque (-1)"><ArrowUpRight className="h-4 w-4 rotate-90" /></button>
+                        <button onClick={() => handleEdit(product)} className="p-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors" title="Editar Produto"><Edit2 className="h-4 w-4" /></button>
+                        <button onClick={() => triggerDelete(product)} className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" title="Excluir Produto"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </td>
                   </tr>
@@ -858,23 +710,14 @@ const handleConfirmDelete = async () => {
         </div>
       </div>
 
-            {/* Modal/Seção para exibir o Relatório Semanal */}
       {showWeeklyReport && weeklyReportData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center p-4 z-50">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">
-                Relatório Consolidado Semanal
-              </h2>
-              <button onClick={() => setShowWeeklyReport(false)} className="text-gray-500 hover:text-gray-700">
-                <X size={24} />
-              </button>
+              <h2 className="text-xl font-semibold text-gray-800">Relatório Consolidado Semanal</h2>
+              <button onClick={() => setShowWeeklyReport(false)} className="text-gray-500 hover:text-gray-700"><X size={24} /></button>
             </div>
-            <p className="mb-4 text-sm text-gray-600">
-              Período: {new Date(weeklyReportData.startDate).toLocaleDateString("pt-BR")} a {new Date(weeklyReportData.endDate).toLocaleDateString("pt-BR")}
-            </p>
-
-            {/* Tabela Consolidada */}
+            <p className="mb-4 text-sm text-gray-600">Período: {new Date(weeklyReportData.startDate).toLocaleDateString("pt-BR")} a {new Date(weeklyReportData.endDate).toLocaleDateString("pt-BR")}</p>
             <h3 className="text-lg font-medium text-gray-700 mb-2">Resumo por Produto</h3>
             <div className="overflow-x-auto mb-6">
               <table className="min-w-full divide-y divide-gray-200">
@@ -885,7 +728,6 @@ const handleConfirmDelete = async () => {
                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Entradas</th>
                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Entregas</th>
                     <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Final</th>
-                    {/* Opcional: <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Consumo</th> */}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -896,19 +738,14 @@ const handleConfirmDelete = async () => {
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-green-600 text-right">{item.entries > 0 ? `+${item.entries}` : 0}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-red-600 text-right">{item.delivered > 0 ? `-${item.delivered}` : 0}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">{item.final}</td>
-                      {/* Opcional: <td className="px-4 py-2 whitespace-nowrap text-sm text-blue-600 text-right">{item.initial + item.entries - item.delivered - item.final}</td> */}
                     </tr>
                   ))}
                   {weeklyReportData.consolidated.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-4 text-center text-sm text-gray-500">Nenhum dado encontrado para o período.</td>
-                    </tr>
+                    <tr><td colSpan={5} className="px-4 py-4 text-center text-sm text-gray-500">Nenhum dado encontrado para o período.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-
-            {/* Entregas por Setor */}
             <h3 className="text-lg font-medium text-gray-700 mb-2">Entregas por Setor</h3>
             {Object.keys(weeklyReportData.deliveriesBySector).length > 0 ? (
               Object.entries(weeklyReportData.deliveriesBySector).map(([sector, products]: [string, any]) => (
@@ -921,37 +758,24 @@ const handleConfirmDelete = async () => {
                   </ul>
                 </div>
               ))
-            ) : (
-              <p className="text-sm text-gray-500">Nenhuma entrega registrada no período.</p>
-            )}
-
+            ) : (<p className="text-sm text-gray-500">Nenhuma entrega registrada no período.</p>)}
             <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => setShowWeeklyReport(false)}
-                className="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 transition-colors text-sm"
-              >
-                Fechar
-              </button>
-              {/* Opcional: Botão para exportar relatório */}
+              <button onClick={() => setShowWeeklyReport(false)} className="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 transition-colors text-sm">Fechar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Formulário Novo/Editar Produto */}
       {showForm && (
         <NewProductModal
           isOpen={showForm}
           onClose={() => setShowForm(false)}
-          onSave={() => {
-            fetchProducts(); // Ação para recarregar a lista quando o modal salva
-          }}
+          onSave={() => { fetchProducts(); }}
           editingProduct={editingProduct}
           categories={categories}
         />
       )}
 
-      {/* ADICIONE ESTE BLOCO DE CÓDIGO PARA O NOVO MODAL */}
       {showDeleteModal && productToDelete && (
         <Modal
           isOpen={showDeleteModal}
@@ -1003,7 +827,6 @@ const handleConfirmDelete = async () => {
         </Modal>
       )}
 
-      {/* Modal Sincronizar Produtos */}
       {showSyncModal && (
         <SyncProductsModal
           onClose={() => setShowSyncModal(false)}
@@ -1015,22 +838,19 @@ const handleConfirmDelete = async () => {
         />
       )}
 
-      {/* Modal Transferir Produtos */}
       {showTransferModal && (
-  <NewHotelTransferModal
-    isOpen={showTransferModal}
-    onClose={() => setShowTransferModal(false)}
-    onSuccess={() => {
-      setShowTransferModal(false);
-      fetchProducts();
-      // A notificação de sucesso já é tratada dentro do novo modal
-    }}
-    products={products.filter(p => p.is_active)} // Passa apenas produtos ativos
-  />
-)}
+        <NewHotelTransferModal
+          isOpen={showTransferModal}
+          onClose={() => setShowTransferModal(false)}
+          onSuccess={() => {
+            setShowTransferModal(false);
+            fetchProducts();
+          }}
+          products={products.filter(p => p.is_active)}
+        />
+      )}
     </div>
   );
 };
 
 export default Inventory;
-
