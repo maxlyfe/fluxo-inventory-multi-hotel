@@ -48,6 +48,7 @@ const LaundryReport = () => {
   const handleReportCreated = useCallback((newReport: LaundryReportType) => {
     setExistingReports(prev => [newReport, ...prev].sort((a,b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime()));
     setActiveReport(newReport);
+    setShowCreateModal(false); // Fecha o modal após a criação
   }, []);
 
   const fetchExistingReports = useCallback(async () => {
@@ -128,7 +129,6 @@ const LaundryReport = () => {
     return { itemsWithTotals, totalValue, totalGuests, totalUhs, costPerGuest, costPerUh };
   }, [reportDetails, guestState, uhState, entryState, daysInPeriod]);
 
-  // --- LÓGICA DE NAVEGAÇÃO POR TECLADO ---
   const navigableRows = useMemo(() => [
     { id: 'guests' },
     { id: 'uhs' },
@@ -249,6 +249,16 @@ const LaundryReport = () => {
                 <button onClick={handleSave} disabled={isSaving || loading} className="flex items-center justify-center px-6 py-3 text-white font-semibold rounded-lg shadow-md bg-green-600 hover:bg-green-700 disabled:opacity-50"> {isSaving ? <Loader2 className="animate-spin w-5 h-5 mr-2" /> : <Save className="w-5 h-5 mr-2" />} Salvar Alterações </button>
             </div>
         </>
+      )}
+
+      {/* ADIÇÃO DO MODAL DE CRIAÇÃO */}
+      {showCreateModal && selectedHotel && (
+        <CreateLaundryReportModal
+            isOpen={showCreateModal}
+            onClose={() => setShowCreateModal(false)}
+            onReportCreated={handleReportCreated}
+            hotelId={selectedHotel.id}
+        />
       )}
 
       {selectedHotel && activeReport && (
