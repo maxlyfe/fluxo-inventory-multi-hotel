@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
@@ -15,6 +15,7 @@ import RequestItem from '../components/RequestItem';
 import Modal from '../components/Modal';
 import { notifyNewRequest, notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
 import DirectDeliveryModal from '../components/DirectDeliveryModal';
+import { searchMatch } from '../utils/search'; // Importar a função de busca
 
 // Interfaces
 export interface Product {
@@ -83,6 +84,10 @@ const AdminPanel = () => {
 
   const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
   const [allSectors, setAllSectors] = useState<{id: string, name: string}[]>([]);
+
+  // --- NOVOS ESTADOS PARA A BUSCA NO HISTÓRICO ---
+  const [showHistorySearch, setShowHistorySearch] = useState(false);
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
 
 
   const fetchPendingRequestsInternal = useCallback(async (isInitialLoad = false) => {
@@ -644,17 +649,13 @@ const AdminPanel = () => {
     }, {} as Record<string, Request[]>);
   };
 
-  // --- FUNÇÃO CORRIGIDA ---
   const groupSelectedSectorByWeek = (requests: Request[], sectorName: string) => {
     const sectorRequests = requests.filter(req => 
       (req.sector?.name || 'Setor Desconhecido') === sectorName
     );
     
     return sectorRequests.reduce((weekAcc, req) => {
-      // ALTERAÇÃO: Agrupar pela data de atualização (entrega/rejeição) em vez da data de criação.
-      // Adicionado um fallback para created_at por segurança, caso updated_at seja nulo.
       const reqDate = parseISO(req.updated_at || req.created_at);
-      
       const weekStart = startOfWeek(reqDate, { weekStartsOn: 1 });
       const weekEnd = endOfWeek(reqDate, { weekStartsOn: 1 });
       const weekKey = format(weekStart, 'yyyy-MM-dd');
@@ -676,6 +677,7 @@ const AdminPanel = () => {
   };
 
   const handleSectorSelection = (sectorName: string) => {
+    setHistorySearchTerm('');
     if (selectedHistorySector === sectorName) {
       setSelectedHistorySector(null);
     } else {
@@ -683,6 +685,16 @@ const AdminPanel = () => {
       setExpandedWeeks({});
     }
   };
+
+  const filteredHistoryItems = useMemo(() => {
+    if (!selectedHistorySector || !historySearchTerm) {
+        return null;
+    }
+    
+    return historyRequestsData
+        .filter(req => (req.sector?.name || 'Setor Desconhecido') === selectedHistorySector)
+        .filter(req => searchMatch(historySearchTerm, req.item_name));
+  }, [historyRequestsData, selectedHistorySector, historySearchTerm]);
 
   if (!selectedHotel) {
     return (
@@ -778,8 +790,15 @@ const AdminPanel = () => {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-4 pb-2 border-b border-gray-300 dark:border-gray-700">
-          Histórico de Requisições ({historyRequestsData.length})
+        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-4 pb-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
+          <span>Histórico de Requisições ({historyRequestsData.length})</span>
+          <button
+            onClick={() => setShowHistorySearch(prev => !prev)}
+            className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            title="Buscar no histórico do setor"
+          >
+            <Search className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+          </button>
         </h2>
         
         {loadingHistory ? (
@@ -809,55 +828,79 @@ const AdminPanel = () => {
 
             {selectedHistorySector && (
               <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg overflow-hidden">
-                <div className="p-4 bg-blue-100 dark:bg-blue-900/30 border-b border-blue-200 dark:border-blue-800">
+                <div className="p-4 bg-blue-100 dark:bg-blue-900/30 border-b border-blue-200 dark:border-blue-800 flex justify-between items-center">
                   <h3 className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-                    � {selectedHistorySector} - Histórico por Semana
+                    📋 {selectedHistorySector} - Histórico
                   </h3>
-                </div>
-                
-                <div className="p-4 space-y-4">
-                  {Object.keys(selectedSectorWeeks).length === 0 ? (
-                    <p className="text-gray-500 dark:text-gray-400 text-center py-6">
-                      Nenhuma requisição encontrada para este setor.
-                    </p>
-                  ) : (
-                    Object.entries(selectedSectorWeeks)
-                      .sort(([keyA], [keyB]) => keyB.localeCompare(keyA))
-                      .map(([weekKey, weekRequests]) => {
-                        const isExpanded = expandedWeeks[weekKey];
-                        const weekLabel = (weekRequests as any).weekLabel || `Semana de ${weekKey}`;
-
-                        return (
-                          <div key={weekKey} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg overflow-hidden">
-                            <button
-                              onClick={() => toggleWeekExpansion(weekKey)}
-                              className="w-full flex justify-between items-center px-4 py-3 bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors focus:outline-none"
-                            >
-                              <h4 className="text-md font-medium text-gray-700 dark:text-gray-200">
-                                📅 {weekLabel} ({weekRequests.length})
-                              </h4>
-                              {isExpanded ? (
-                                <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                              ) : (
-                                <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                              )}
-                            </button>
-                            {isExpanded && (
-                              <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-600/50">
-                                {weekRequests.sort((a,b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime()).map((request) => (
-                                  <RequestItem
-                                    key={request.id}
-                                    request={request}
-                                    isHistoryView={true}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
+                  {showHistorySearch && (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={`Buscar em ${selectedHistorySector}...`}
+                        value={historySearchTerm}
+                        onChange={(e) => setHistorySearchTerm(e.target.value)}
+                        className="w-full sm:w-64 p-2 pl-8 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-gray-200"
+                      />
+                      <Search size={18} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400"/>
+                    </div>
                   )}
                 </div>
+                
+                {filteredHistoryItems ? (
+                  <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-600/50">
+                    {filteredHistoryItems.length > 0 ? (
+                      filteredHistoryItems.map(request => (
+                        <RequestItem key={request.id} request={request} isHistoryView={true} />
+                      ))
+                    ) : (
+                      <p className="text-gray-500 dark:text-gray-400 text-center py-6">Nenhum item encontrado para "{historySearchTerm}".</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 space-y-4">
+                    {Object.keys(selectedSectorWeeks).length === 0 ? (
+                      <p className="text-gray-500 dark:text-gray-400 text-center py-6">
+                        Nenhuma requisição encontrada para este setor.
+                      </p>
+                    ) : (
+                      Object.entries(selectedSectorWeeks)
+                        .sort(([keyA], [keyB]) => keyB.localeCompare(keyA))
+                        .map(([weekKey, weekRequests]) => {
+                          const isExpanded = expandedWeeks[weekKey];
+                          const weekLabel = (weekRequests as any).weekLabel || `Semana de ${weekKey}`;
+
+                          return (
+                            <div key={weekKey} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg overflow-hidden">
+                              <button
+                                onClick={() => toggleWeekExpansion(weekKey)}
+                                className="w-full flex justify-between items-center px-4 py-3 bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors focus:outline-none"
+                              >
+                                <h4 className="text-md font-medium text-gray-700 dark:text-gray-200">
+                                  📅 {weekLabel} ({weekRequests.length})
+                                </h4>
+                                {isExpanded ? (
+                                  <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                                ) : (
+                                  <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                                )}
+                              </button>
+                              {isExpanded && (
+                                <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-600/50">
+                                  {weekRequests.sort((a,b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime()).map((request) => (
+                                    <RequestItem
+                                      key={request.id}
+                                      request={request}
+                                      isHistoryView={true}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
