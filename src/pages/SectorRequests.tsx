@@ -6,11 +6,11 @@ import {
   ShoppingCart, X, Check, Clock, ChevronDown, ChevronUp, ImageIcon 
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
-import { startOfWeek, endOfWeek, format, parseISO, isWithinInterval } from 'date-fns'; // Add isWithinInterval
+import { startOfWeek, endOfWeek, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { searchMatch } from '../utils/search'; // Importar a função de busca
-// ✅ ADICIONE ESTA IMPORTAÇÃO PARA NOTIFICAÇÕES
+import { searchMatch } from '../utils/search';
 import { notifyNewRequest } from '../lib/notificationTriggers';
+import { useNotification } from '../context/NotificationContext'; // Importar o hook de notificação
 
 interface Product {
   id: string;
@@ -47,11 +47,15 @@ interface Requisition {
 }
 
 const SectorRequests = () => {
-  const { id } = useParams();
+  const { id: sectorId } = useParams();
   const { selectedHotel } = useHotel();
-  const [sector, setSector] = useState(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const { addNotification } = useNotification(); // Usar o hook de notificação
+  const [sector, setSector] = useState<any>(null);
+  
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [visibleForSectorIds, setVisibleForSectorIds] = useState<Set<string>>(new Set());
+  const [filterMode, setFilterMode] = useState<'sector' | 'all'>('sector');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
@@ -63,17 +67,15 @@ const SectorRequests = () => {
   const [showCart, setShowCart] = useState(false);
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
-  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({}); // Use Record<string, boolean>
+  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
 
-  // Group requisitions by week
   const groupedHistory = useMemo(() => {
     const history = requisitions.filter(req => req.status !== 'pending');
     const groups: Record<string, Requisition[]> = {};
 
     history.forEach(req => {
       const reqDate = parseISO(req.created_at);
-      const weekStart = startOfWeek(reqDate, { weekStartsOn: 1 }); // Monday
-      const weekEnd = endOfWeek(reqDate, { weekStartsOn: 1 }); // Sunday
+      const weekStart = startOfWeek(reqDate, { weekStartsOn: 1 });
       const weekKey = format(weekStart, 'yyyy-MM-dd');
 
       if (!groups[weekKey]) {
@@ -81,74 +83,59 @@ const SectorRequests = () => {
       }
       groups[weekKey].push(req);
     });
-
-    // Sort weeks chronologically (most recent first)
     return Object.entries(groups).sort(([keyA], [keyB]) => keyB.localeCompare(keyA));
   }, [requisitions]);
 
-  // Function to toggle week expansion
   const toggleWeekExpansion = (weekKey: string) => {
     setExpandedWeeks(prev => ({ ...prev, [weekKey]: !prev[weekKey] }));
   };
 
   useEffect(() => {
-    if (!selectedHotel?.id || !id) return;
+    if (!selectedHotel?.id || !sectorId) return;
 
     const fetchData = async () => {
       try {
         setLoading(true);
-        setError(null);
+        setError('');
 
-        // Fetch sector details
-        const { data: sectorData } = await supabase
-          .from('sectors')
-          .select('*')
-          .eq('id', id)
-          .single();
-
+        const { data: sectorData } = await supabase.from('sectors').select('*').eq('id', sectorId).single();
         setSector(sectorData);
 
-        // Fetch only active products
-        const { data: productsData } = await supabase
+        const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select('*')
           .eq('hotel_id', selectedHotel.id)
           .eq('is_active', true)
-          .order('category')
           .order('name');
+        if (productsError) throw productsError;
+        setAllProducts(productsData || []);
 
+        const { data: visibilityData, error: visibilityError } = await supabase
+          .from('product_sector_visibility')
+          .select('product_id')
+          .eq('sector_id', sectorId);
+        if (visibilityError) throw visibilityError;
+        setVisibleForSectorIds(new Set(visibilityData.map(v => v.product_id)));
+        
         if (productsData) {
-          setProducts(productsData);
-          setFilteredProducts(productsData);
-          
-          // Extract unique categories
           const uniqueCategories = [...new Set(productsData.map(p => p.category))];
           setCategories(uniqueCategories.sort());
         }
 
-        // Fetch requisitions with both main and substituted product images
         const { data: requisitionsData, error: requisitionsError } = await supabase
           .from('requisitions')
-          .select(`
-            *,
-            products!requisitions_product_id_fkey (image_url),
-            substituted_product:products!requisitions_substituted_product_id_fkey (image_url)
-          `)
-          .eq('sector_id', id)
+          .select(`*, products!requisitions_product_id_fkey(image_url), substituted_product:products!requisitions_substituted_product_id_fkey(image_url)`)
+          .eq('sector_id', sectorId)
           .eq('hotel_id', selectedHotel.id)
           .order('created_at', { ascending: false });
-
         if (requisitionsError) throw requisitionsError;
-
         if (requisitionsData) {
           setRequisitions(requisitionsData);
-          const pendingReqs = requisitionsData.filter(req => req.status === 'pending');
-          setPendingCount(pendingReqs.length);
+          setPendingCount(requisitionsData.filter(req => req.status === 'pending').length);
         }
 
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        setError('Erro ao carregar dados');
+      } catch (err: any) {
+        setError('Erro ao carregar dados: ' + err.message);
       } finally {
         setLoading(false);
       }
@@ -156,78 +143,52 @@ const SectorRequests = () => {
 
     fetchData();
 
-    // Subscribe to changes
-    const channel = supabase
-      .channel('custom-all-channel')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'requisitions', filter: `sector_id=eq.${id}` },
+    const channel = supabase.channel(`sector-requests-${sectorId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions', filter: `sector_id=eq.${sectorId}` }, 
         (payload) => {
-          console.log("Change received!", payload);
-          // Handle real-time updates more efficiently
-          const { eventType, new: newRecord, old: oldRecord } = payload;
-
-          setRequisitions(currentRequisitions => {
-            let updatedRequisitions = [...currentRequisitions];
-
-            if (eventType === "INSERT") {
-              // Add the new requisition to the beginning of the list
-              updatedRequisitions = [newRecord as Requisition, ...updatedRequisitions];
-            } else if (eventType === "UPDATE") {
-              // Find and update the existing requisition
-              updatedRequisitions = updatedRequisitions.map(req => 
-                req.id === newRecord.id ? (newRecord as Requisition) : req
-              );
-            } else if (eventType === "DELETE") {
-              // Remove the deleted requisition
-              updatedRequisitions = updatedRequisitions.filter(req => req.id !== oldRecord.id);
-            }
-            
-            // Recalculate pending count after updating requisitions
-            const pendingReqs = updatedRequisitions.filter(req => req.status === "pending");
-            setPendingCount(pendingReqs.length);
-
-            return updatedRequisitions;
-          });
+          fetchData();
         }
-      )
-      .subscribe();
+      ).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedHotel, sectorId]);
 
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [selectedHotel, id]);
-
-  useEffect(() => {
-    const filtered = products.filter(product => {
-      // Usar searchMatch para busca insensível a acentos no nome e descrição
-      const matchesSearch = searchMatch(searchTerm, product.name) || 
-                          searchMatch(searchTerm, product.description || '');
-      const matchesCategory = !selectedCategory || product.category === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
-    setFilteredProducts(filtered);
-  }, [searchTerm, selectedCategory, products]);
+  const filteredProducts = useMemo(() => {
+    let productsToShow = allProducts;
+    if (searchTerm.trim() !== '') {
+      return allProducts.filter(product =>
+        searchMatch(searchTerm, product.name) ||
+        searchMatch(searchTerm, product.description || '')
+      );
+    }
+    if (filterMode === 'sector') {
+      productsToShow = allProducts.filter(product => visibleForSectorIds.has(product.id));
+    }
+    if (selectedCategory) {
+      productsToShow = productsToShow.filter(product => product.category === selectedCategory);
+    }
+    return productsToShow;
+  }, [searchTerm, filterMode, selectedCategory, allProducts, visibleForSectorIds]);
 
   const handleQuantityChange = (productId: string, quantity: number) => {
-    setProducts(prevProducts =>
+    setAllProducts(prevProducts =>
       prevProducts.map(p =>
         p.id === productId ? { ...p, requestQuantity: Math.max(1, quantity) } : p
       )
     );
   };
 
-  // ✅ FUNÇÃO MODIFICADA COM NOTIFICAÇÃO
+  // --- FUNÇÃO ATUALIZADA PARA ATUALIZAÇÃO INSTANTÂNEA ---
   const handleAddToRequest = async (product: Product) => {
     try {
-      if (!selectedHotel?.id) {
-        throw new Error('Hotel não selecionado');
+      if (!selectedHotel?.id || !sectorId) {
+        throw new Error('Hotel ou setor não selecionado');
       }
 
-      const { data, error } = await supabase
+      // Usamos .select().single() para obter o registo recém-criado de volta
+      const { data: newRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
-          sector_id: id,
+          sector_id: sectorId,
           product_id: product.id,
           item_name: product.name,
           quantity: product.requestQuantity || 1,
@@ -235,95 +196,92 @@ const SectorRequests = () => {
           is_custom: false,
           hotel_id: selectedHotel.id
         }])
-        .select();
+        .select(`*, products!requisitions_product_id_fkey(image_url)`) // Pedimos para incluir a imagem
+        .single();
 
       if (error) throw error;
+      if (!newRequisition) throw new Error("Falha ao criar requisição.");
 
-      // ✅ DISPARAR NOTIFICAÇÃO APÓS CRIAR REQUISIÇÃO
+      // --- ATUALIZAÇÃO INSTANTÂNEA DO ESTADO ---
+      // Adicionamos a nova requisição ao início da lista no estado local
+      setRequisitions(currentRequisitions => [newRequisition, ...currentRequisitions]);
+      setPendingCount(currentCount => currentCount + 1); // Incrementamos o contador de pendentes
+
       try {
         await notifyNewRequest({
           hotel_id: selectedHotel.id,
-          sector_id: id,
+          sector_id: sectorId,
           product_name: product.name,
           quantity: product.requestQuantity || 1,
           sector_name: sector?.name || 'Setor',
-          user_name: 'Usuário' // Você pode buscar o nome real do usuário se necessário
+          user_name: 'Usuário'
         });
-        console.log('Notificação enviada com sucesso!');
       } catch (notificationError) {
         console.error('Erro ao enviar notificação:', notificationError);
-        // Não interrompe o fluxo se a notificação falhar
       }
 
-      // Reset request quantity
-      setProducts(prevProducts =>
-        prevProducts.map(p =>
-          p.id === product.id ? { ...p, requestQuantity: 1 } : p
-        )
-      );
+      setAllProducts(prev => prev.map(p => p.id === product.id ? { ...p, requestQuantity: 1 } : p));
+      addNotification('Item adicionado à requisição!', 'success'); // Usando o sistema de notificação
 
-      alert('Item adicionado à requisição com sucesso!');
-    } catch (err) {
-      console.error('Error adding request:', err);
-      setError('Erro ao adicionar requisição');
+    } catch (err: any) {
+      setError('Erro ao adicionar requisição: ' + err.message);
+      addNotification('Erro ao adicionar requisição: ' + err.message, 'error');
     }
   };
 
-  // ✅ FUNÇÃO MODIFICADA COM NOTIFICAÇÃO
+  // --- FUNÇÃO ATUALIZADA PARA ATUALIZAÇÃO INSTANTÂNEA ---
   const handleAddCustomItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (!selectedHotel?.id) {
-        throw new Error('Hotel não selecionado');
+      if (!selectedHotel?.id || !sectorId) {
+        throw new Error('Hotel ou setor não selecionado');
       }
 
-      const { data, error } = await supabase
+      // Usamos .select().single() para obter o registo recém-criado de volta
+      const { data: newCustomRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
-          sector_id: id,
+          sector_id: sectorId,
           item_name: customItem.name,
           quantity: customItem.quantity,
           status: 'pending',
           is_custom: true,
           hotel_id: selectedHotel.id
         }])
-        .select();
+        .select()
+        .single();
 
       if (error) throw error;
+      if (!newCustomRequisition) throw new Error("Falha ao criar requisição personalizada.");
 
-      // ✅ DISPARAR NOTIFICAÇÃO APÓS CRIAR ITEM PERSONALIZADO
+      // --- ATUALIZAÇÃO INSTANTÂNEA DO ESTADO ---
+      setRequisitions(currentRequisitions => [newCustomRequisition, ...currentRequisitions]);
+      setPendingCount(currentCount => currentCount + 1);
+
       try {
         await notifyNewRequest({
           hotel_id: selectedHotel.id,
-          sector_id: id,
+          sector_id: sectorId,
           product_name: customItem.name,
           quantity: customItem.quantity,
           sector_name: sector?.name || 'Setor',
-          user_name: 'Usuário' // Você pode buscar o nome real do usuário se necessário
+          user_name: 'Usuário'
         });
-        console.log('Notificação enviada com sucesso!');
       } catch (notificationError) {
         console.error('Erro ao enviar notificação:', notificationError);
-        // Não interrompe o fluxo se a notificação falhar
       }
 
       setCustomItem({ name: '', quantity: 1 });
       setShowCustomForm(false);
-      alert('Item personalizado adicionado com sucesso!');
-    } catch (err) {
-      console.error('Error adding custom item:', err);
-      setError('Erro ao adicionar item personalizado');
+      addNotification('Item personalizado adicionado com sucesso!', 'success');
+
+    } catch (err: any) {
+      setError('Erro ao adicionar item personalizado: ' + err.message);
+      addNotification('Erro ao adicionar item personalizado: ' + err.message, 'error');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
+  // O resto do seu componente permanece exatamente o mesmo...
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -509,47 +467,27 @@ const SectorRequests = () => {
         </div>
       ) : (
         <div>
-          {/* Search and filter controls */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-            <div className="flex items-center space-x-4">
-              <div className="relative">
+            <div className="flex items-center space-x-2 p-1 bg-gray-200 dark:bg-gray-700 rounded-lg">
+              <button onClick={() => setFilterMode('sector')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${filterMode === 'sector' ? 'bg-white dark:bg-gray-800 shadow text-blue-600' : 'text-gray-600 dark:text-gray-300'}`}>Produtos do Setor</button>
+              <button onClick={() => setFilterMode('all')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${filterMode === 'all' ? 'bg-white dark:bg-gray-800 shadow text-blue-600' : 'text-gray-600 dark:text-gray-300'}`}>Todos os Produtos</button>
+            </div>
+            <div className="flex items-center space-x-4 flex-grow md:flex-grow-0">
+              <div className="relative flex-grow">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Buscar produtos..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                />
+                <input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
               </div>
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              >
+              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
                 <option value="">Todas as categorias</option>
-                {categories.map(category => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
+                {categories.map(category => <option key={category} value={category}>{category}</option>)}
               </select>
             </div>
             <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-lg ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                <Grid className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`p-2 rounded-lg ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                <List className="w-5 h-5" />
-              </button>
+              <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}><Grid className="w-5 h-5" /></button>
+              <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}><List className="w-5 h-5" /></button>
             </div>
           </div>
 
-          {/* Products grid/list */}
           {filteredProducts.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               {searchTerm || selectedCategory ? 'Nenhum produto encontrado com os filtros aplicados.' : 'Nenhum produto disponível.'}
@@ -619,7 +557,6 @@ const SectorRequests = () => {
         </div>
       )}
 
-      {/* Custom item modal */}
       {showCustomForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
@@ -684,4 +621,3 @@ const SectorRequests = () => {
 };
 
 export default SectorRequests;
-
