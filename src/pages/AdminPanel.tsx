@@ -224,7 +224,6 @@ const AdminPanel = () => {
 
 
   const updateFinancialBalance = async (requestForBalance: Request, quantityUsed: number, isSubstitution: boolean = false) => {
-    // ... (Esta função não precisa de alterações)
     try {
       if (!selectedHotel?.id) {
         throw new Error('Hotel não selecionado');
@@ -311,9 +310,6 @@ const AdminPanel = () => {
     setShowSubstituteModal(true);
   };
   
-  // ==================================================================
-  // FUNÇÃO CORRIGIDA
-  // ==================================================================
   const handleConfirmDelivery = async () => {
     if (!selectedRequest) return;
     const deliveredQuantity = typeof deliveryQuantityInput === 'string' 
@@ -376,9 +372,6 @@ const AdminPanel = () => {
 
       if (updateError) throw updateError;
       
-      // =================================================================================
-      // CORREÇÃO ADICIONADA AQUI: ATUALIZAÇÃO DO ESTOQUE
-      // =================================================================================
       if (!requestToProcess.is_custom && productId && typeof currentStock === 'number') {
         const newStock = currentStock - deliveredQuantity;
         const { error: stockUpdateError } = await supabase
@@ -391,9 +384,6 @@ const AdminPanel = () => {
             addNotification("Entrega registrada, mas FALHA ao atualizar o estoque. Verifique o inventário.", "error");
         }
       }
-      // =================================================================================
-      // FIM DA CORREÇÃO
-      // =================================================================================
 
       await notifyItemDelivered({
           hotel_id: selectedHotel?.id || '',
@@ -416,7 +406,6 @@ const AdminPanel = () => {
   };
 
   const handleConfirmRejection = async () => {
-    // ... (Esta função não precisa de alterações)
     if (!selectedRequest || !rejectReasonInput.trim()) {
       addNotification('Motivo da rejeição é obrigatório.', 'error');
       return;
@@ -467,7 +456,6 @@ const AdminPanel = () => {
   };
   
   const handleConfirmSubstitution = async (substitutedProductId: string, deliveredQuantity: number, substitutionReason: string) => {
-    // ... (Esta função não precisa de alterações)
     if (!selectedRequest || !substitutedProductId) {
       addNotification('Produto substituto é obrigatório.', 'error');
       return;
@@ -549,8 +537,6 @@ const AdminPanel = () => {
     }
   };
 
-// Dentro do seu arquivo src/pages/AdminPanel.tsx
-
   const handleConfirmDirectDelivery = async (productId: string, sectorId: string, quantity: number, reason: string) => {
     if (!selectedHotel?.id) return;
 
@@ -563,7 +549,6 @@ const AdminPanel = () => {
       if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
       if (quantity > product.quantity) throw new Error(`Quantidade insuficiente no inventário. Disponível: ${product.quantity}`);
       
-      // PASSO 1: Cria uma requisição no histórico para rastreamento (já existia)
       const { data: newRequisition, error: requisitionError } = await supabase
         .from('requisitions')
         .insert({
@@ -600,15 +585,11 @@ const AdminPanel = () => {
         )
       );
 
-      // PASSO 2: Debita a quantidade do inventário principal (já existia)
       await supabase
         .from('products')
         .update({ quantity: product.quantity - quantity, updated_at: new Date().toISOString() })
         .eq('id', productId);
 
-      // ==========================================================
-      // PASSO 3: ADICIONA AO ESTOQUE DO SETOR (LÓGICA ADICIONADA)
-      // ==========================================================
       const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
           p_hotel_id: selectedHotel.id,
           p_sector_id: sectorId,
@@ -617,13 +598,10 @@ const AdminPanel = () => {
       });
 
       if (sectorStockError) {
-           // Mesmo que isso falhe, o resto do fluxo continua, mas notifica o usuário
            console.error("CRÍTICO: A atualização do estoque do setor falhou na entrega direta!", sectorStockError);
            addNotification("Entrega registrada, mas FALHA CRÍTICA ao somar no estoque do setor. Por favor, ajuste manualmente.", "error");
       }
-      // ==========================================================
 
-      // PASSO 4: Registra a movimentação e finanças (já existia)
       const unitCost = product.average_price || product.last_purchase_price || 0;
       await supabase.from('inventory_movements').insert({
         product_id: productId,
@@ -653,11 +631,10 @@ const AdminPanel = () => {
     } catch (err: any) {
       console.error('Error during direct delivery:', err);
       addNotification(`Erro na entrega direta: ${err.message}`, 'error');
-      fetchHistoryRequestsInternal(); // Recarrega o histórico em caso de erro
+      fetchHistoryRequestsInternal();
     }
   };
 
-  // ... (O resto do arquivo não precisa de alterações)
   const groupRequestsBySector = (requests: Request[]) => {
     return requests.reduce((acc, req) => {
       const sectorName = req.sector?.name || 'Setor Desconhecido';
@@ -667,13 +644,17 @@ const AdminPanel = () => {
     }, {} as Record<string, Request[]>);
   };
 
+  // --- FUNÇÃO CORRIGIDA ---
   const groupSelectedSectorByWeek = (requests: Request[], sectorName: string) => {
     const sectorRequests = requests.filter(req => 
       (req.sector?.name || 'Setor Desconhecido') === sectorName
     );
     
     return sectorRequests.reduce((weekAcc, req) => {
-      const reqDate = parseISO(req.created_at);
+      // ALTERAÇÃO: Agrupar pela data de atualização (entrega/rejeição) em vez da data de criação.
+      // Adicionado um fallback para created_at por segurança, caso updated_at seja nulo.
+      const reqDate = parseISO(req.updated_at || req.created_at);
+      
       const weekStart = startOfWeek(reqDate, { weekStartsOn: 1 });
       const weekEnd = endOfWeek(reqDate, { weekStartsOn: 1 });
       const weekKey = format(weekStart, 'yyyy-MM-dd');
@@ -830,7 +811,7 @@ const AdminPanel = () => {
               <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg overflow-hidden">
                 <div className="p-4 bg-blue-100 dark:bg-blue-900/30 border-b border-blue-200 dark:border-blue-800">
                   <h3 className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-                    📋 {selectedHistorySector} - Histórico por Semana
+                    � {selectedHistorySector} - Histórico por Semana
                   </h3>
                 </div>
                 
