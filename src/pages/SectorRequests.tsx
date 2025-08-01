@@ -10,7 +10,7 @@ import { startOfWeek, endOfWeek, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { searchMatch } from '../utils/search';
 import { notifyNewRequest } from '../lib/notificationTriggers';
-import { useNotification } from '../context/NotificationContext'; // Importar o hook de notificação
+import { useNotification } from '../context/NotificationContext';
 
 interface Product {
   id: string;
@@ -21,6 +21,8 @@ interface Product {
   category: string;
   requestQuantity?: number;
   is_active: boolean;
+  is_portionable?: boolean;
+  is_portion?: boolean;
 }
 
 interface CustomItem {
@@ -49,7 +51,7 @@ interface Requisition {
 const SectorRequests = () => {
   const { id: sectorId } = useParams();
   const { selectedHotel } = useHotel();
-  const { addNotification } = useNotification(); // Usar o hook de notificação
+  const { addNotification } = useNotification();
   const [sector, setSector] = useState<any>(null);
   
   const [allProducts, setAllProducts] = useState<Product[]>([]);
@@ -103,7 +105,7 @@ const SectorRequests = () => {
 
         const { data: productsData, error: productsError } = await supabase
           .from('products')
-          .select('*')
+          .select('*, is_portionable, is_portion')
           .eq('hotel_id', selectedHotel.id)
           .eq('is_active', true)
           .order('name');
@@ -152,22 +154,32 @@ const SectorRequests = () => {
     return () => { supabase.removeChannel(channel); };
   }, [selectedHotel, sectorId]);
 
+  // --- ALTERAÇÃO CORRIGIDA: Esconde APENAS os itens que são "Porções (Filho)" ---
   const filteredProducts = useMemo(() => {
-    let productsToShow = allProducts;
+    // Começa com todos os produtos e filtra APENAS os que são porções (filhos).
+    let productsToShow = allProducts.filter(product => !product.is_portion);
+
+    // Aplica o filtro de visibilidade do setor, se ativo.
+    if (filterMode === 'sector') {
+      productsToShow = productsToShow.filter(product => visibleForSectorIds.has(product.id));
+    }
+
+    // Aplica o filtro de categoria, se selecionada.
+    if (selectedCategory) {
+      productsToShow = productsToShow.filter(product => product.category === selectedCategory);
+    }
+
+    // Finalmente, aplica o filtro de busca sobre o resultado dos filtros anteriores.
     if (searchTerm.trim() !== '') {
-      return allProducts.filter(product =>
+      productsToShow = productsToShow.filter(product =>
         searchMatch(searchTerm, product.name) ||
         searchMatch(searchTerm, product.description || '')
       );
     }
-    if (filterMode === 'sector') {
-      productsToShow = allProducts.filter(product => visibleForSectorIds.has(product.id));
-    }
-    if (selectedCategory) {
-      productsToShow = productsToShow.filter(product => product.category === selectedCategory);
-    }
+
     return productsToShow;
   }, [searchTerm, filterMode, selectedCategory, allProducts, visibleForSectorIds]);
+
 
   const handleQuantityChange = (productId: string, quantity: number) => {
     setAllProducts(prevProducts =>
@@ -177,14 +189,12 @@ const SectorRequests = () => {
     );
   };
 
-  // --- FUNÇÃO ATUALIZADA PARA ATUALIZAÇÃO INSTANTÂNEA ---
   const handleAddToRequest = async (product: Product) => {
     try {
       if (!selectedHotel?.id || !sectorId) {
         throw new Error('Hotel ou setor não selecionado');
       }
 
-      // Usamos .select().single() para obter o registo recém-criado de volta
       const { data: newRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -196,16 +206,14 @@ const SectorRequests = () => {
           is_custom: false,
           hotel_id: selectedHotel.id
         }])
-        .select(`*, products!requisitions_product_id_fkey(image_url)`) // Pedimos para incluir a imagem
+        .select(`*, products!requisitions_product_id_fkey(image_url)`)
         .single();
 
       if (error) throw error;
       if (!newRequisition) throw new Error("Falha ao criar requisição.");
 
-      // --- ATUALIZAÇÃO INSTANTÂNEA DO ESTADO ---
-      // Adicionamos a nova requisição ao início da lista no estado local
       setRequisitions(currentRequisitions => [newRequisition, ...currentRequisitions]);
-      setPendingCount(currentCount => currentCount + 1); // Incrementamos o contador de pendentes
+      setPendingCount(currentCount => currentCount + 1);
 
       try {
         await notifyNewRequest({
@@ -221,7 +229,7 @@ const SectorRequests = () => {
       }
 
       setAllProducts(prev => prev.map(p => p.id === product.id ? { ...p, requestQuantity: 1 } : p));
-      addNotification('Item adicionado à requisição!', 'success'); // Usando o sistema de notificação
+      addNotification('Item adicionado à requisição!', 'success');
 
     } catch (err: any) {
       setError('Erro ao adicionar requisição: ' + err.message);
@@ -229,7 +237,6 @@ const SectorRequests = () => {
     }
   };
 
-  // --- FUNÇÃO ATUALIZADA PARA ATUALIZAÇÃO INSTANTÂNEA ---
   const handleAddCustomItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -237,7 +244,6 @@ const SectorRequests = () => {
         throw new Error('Hotel ou setor não selecionado');
       }
 
-      // Usamos .select().single() para obter o registo recém-criado de volta
       const { data: newCustomRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -254,7 +260,6 @@ const SectorRequests = () => {
       if (error) throw error;
       if (!newCustomRequisition) throw new Error("Falha ao criar requisição personalizada.");
 
-      // --- ATUALIZAÇÃO INSTANTÂNEA DO ESTADO ---
       setRequisitions(currentRequisitions => [newCustomRequisition, ...currentRequisitions]);
       setPendingCount(currentCount => currentCount + 1);
 
@@ -275,13 +280,12 @@ const SectorRequests = () => {
       setShowCustomForm(false);
       addNotification('Item personalizado adicionado com sucesso!', 'success');
 
-    } catch (err: any) {
+    } catch (err: any)      {
       setError('Erro ao adicionar item personalizado: ' + err.message);
       addNotification('Erro ao adicionar item personalizado: ' + err.message, 'error');
     }
   };
 
-  // O resto do seu componente permanece exatamente o mesmo...
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -490,7 +494,7 @@ const SectorRequests = () => {
 
           {filteredProducts.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              {searchTerm || selectedCategory ? 'Nenhum produto encontrado com os filtros aplicados.' : 'Nenhum produto disponível.'}
+              {loading ? 'Carregando produtos...' : (searchTerm || selectedCategory || filterMode === 'sector') ? 'Nenhum produto encontrado com os filtros aplicados.' : 'Nenhum produto disponível para requisição.'}
             </div>
           ) : (
             <div className={viewMode === 'grid' 

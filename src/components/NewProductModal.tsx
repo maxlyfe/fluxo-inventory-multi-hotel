@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { X, Loader2, Check } from 'lucide-react'; // Adicionado o ícone 'Check'
+import { X, Loader2, Check } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 
-// Interfaces
 interface Product {
   id: string;
   name: string;
@@ -17,6 +16,8 @@ interface Product {
   image_url?: string;
   description?: string;
   is_active: boolean;
+  is_portionable?: boolean;
+  is_portion?: boolean;
 }
 
 interface Sector {
@@ -46,7 +47,9 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     category: 'Outros',
     supplier: '',
     image_url: '',
-    description: ''
+    description: '',
+    is_portionable: false,
+    is_portion: false,
   });
 
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -62,7 +65,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           .from('sectors')
           .select('id, name')
           .eq('hotel_id', selectedHotel.id)
-          .order('name'); // Ordenar setores alfabeticamente
+          .order('name');
 
         if (sectorsError) {
           addNotification('Erro ao carregar setores.', 'error');
@@ -102,7 +105,9 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           category: editingProduct.category,
           supplier: editingProduct.supplier || '',
           image_url: editingProduct.image_url || '',
-          description: editingProduct.description || ''
+          description: editingProduct.description || '',
+          is_portionable: editingProduct.is_portionable || false,
+          is_portion: editingProduct.is_portion || false,
         });
       } else {
         setFormData({
@@ -113,16 +118,35 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           category: 'Outros',
           supplier: '',
           image_url: '',
-          description: ''
+          description: '',
+          is_portionable: false,
+          is_portion: false,
         });
       }
     }
   }, [editingProduct, isOpen, selectedHotel, createAsHidden, addNotification]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type } = e.target;
+    
+    if (type === 'checkbox') {
+        const checked = (e.target as HTMLInputElement).checked;
+        setFormData(prev => {
+            const newState = { ...prev, [name]: checked };
+            if (checked) {
+                if (name === 'is_portionable') {
+                    newState.is_portion = false;
+                } else if (name === 'is_portion') {
+                    newState.is_portionable = false;
+                }
+            }
+            return newState;
+        });
+        return;
+    }
+
     let processedValue: string | number = value;
-    if (e.target instanceof HTMLInputElement && e.target.type === 'number') {
+    if (type === 'number') {
       processedValue = parseInt(value) || 0;
     }
     setFormData(prev => ({ ...prev, [name]: processedValue }));
@@ -212,9 +236,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
-      {/* Container principal do modal com altura máxima e layout flexível */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-        {/* Cabeçalho Fixo */}
         <div className="flex-shrink-0 flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
             {editingProduct ? 'Editar Produto' : 'Novo Produto'}
@@ -224,13 +246,11 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           </button>
         </div>
 
-        {/* Corpo do formulário com scroll */}
         <form onSubmit={handleSubmit} className="flex-grow overflow-y-auto">
           <div className="p-6">
             {error && (<div className="mb-4 p-3 bg-red-50 dark:bg-red-900/50 text-red-800 dark:text-red-200 rounded-md text-sm">{error}</div>)}
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Campos existentes do formulário */}
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Produto</label>
                 <input id="name" name="name" type="text" value={formData.name} onChange={handleInputChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" required />
@@ -268,7 +288,40 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
               </div>
             </div>
             
-            {/* --- SECÇÃO DE VISIBILIDADE COM ESTILO MELHORADO E MAIS COMPACTO --- */}
+            {/* --- ALTERAÇÃO: Textos "(Pai)" e "(Filho)" removidos --- */}
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
+                <label htmlFor="is_portionable" className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 ${formData.is_portion ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <input
+                        id="is_portionable"
+                        name="is_portionable"
+                        type="checkbox"
+                        checked={formData.is_portionable}
+                        onChange={handleInputChange}
+                        disabled={formData.is_portion}
+                        className="h-4 w-4 rounded text-blue-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-blue-500"
+                    />
+                    <div>
+                        <span className="font-medium text-gray-800 dark:text-gray-200">Produto Porcionável</span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Marque se este item precisa ser processado pelo setor (ex: peça de carne, caixa de cereal).</p>
+                    </div>
+                </label>
+                <label htmlFor="is_portion" className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 ${formData.is_portionable ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <input
+                        id="is_portion"
+                        name="is_portion"
+                        type="checkbox"
+                        checked={formData.is_portion}
+                        onChange={handleInputChange}
+                        disabled={formData.is_portionable}
+                        className="h-4 w-4 rounded text-green-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-green-500"
+                    />
+                    <div>
+                        <span className="font-medium text-gray-800 dark:text-gray-200">É uma Porção</span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Marque se este item é o resultado do porcionamento de outro item (ex: bife, dose de bebida).</p>
+                    </div>
+                </label>
+            </div>
+
             <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <h3 className="text-md font-medium text-gray-800 dark:text-gray-200 mb-3">Visibilidade por Setor</h3>
               {loadingSectors ? (
@@ -279,16 +332,10 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                 <div className="flex flex-wrap gap-2">
                   {sectors.map(sector => (
                     <button
-                      type="button" // Previne a submissão do formulário
+                      type="button"
                       key={sector.id}
                       onClick={() => handleSectorToggle(sector.id)}
-                      className={`
-                        px-3 py-1.5 rounded-full border text-sm font-medium flex items-center gap-2 transition-colors duration-150
-                        ${selectedSectors.has(sector.id)
-                          ? 'bg-blue-600 border-blue-600 text-white'
-                          : 'bg-gray-100 border-gray-300 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-500 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200'
-                        }
-                      `}
+                      className={`px-3 py-1.5 rounded-full border text-sm font-medium flex items-center gap-2 transition-colors duration-150 ${selectedSectors.has(sector.id) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-100 border-gray-300 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-500 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200'}`}
                     >
                       {selectedSectors.has(sector.id) && <Check size={16} />}
                       {sector.name}
@@ -299,7 +346,6 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
             </div>
           </div>
 
-          {/* Rodapé Fixo */}
           <div className="flex-shrink-0 flex justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
             <button type="button" onClick={onClose} className="px-4 py-2 border dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">Cancelar</button>
             <button type="submit" disabled={isSaving} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center justify-center disabled:opacity-50">
