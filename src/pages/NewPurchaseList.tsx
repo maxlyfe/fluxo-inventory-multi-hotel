@@ -84,8 +84,16 @@ const NewPurchaseList = () => {
   });
   const [searchTerm, setSearchTerm] = useState("");
   
+  // --- ALTERAÇÃO: Lógica de inicialização para aceitar dados pré-preenchidos da análise ---
   const [products, setProducts] = useState<EditableProduct[]>(() => {
     const initialProducts = location.state?.selectedProductDetails || [];
+    
+    // Se os produtos já vierem com os campos 'edited', significa que vieram da página de análise.
+    if (initialProducts.length > 0 && initialProducts[0].editedQuantity !== undefined) {
+        return initialProducts;
+    }
+
+    // Lógica original para quando os produtos vêm da lista de estoque baixo.
     return initialProducts.map((p: Product) => {
       let formattedDate: string | undefined;
       if (p.last_purchase_date) {
@@ -449,7 +457,6 @@ const NewPurchaseList = () => {
       };
     });
 
-    // Adicionar linha de total
     data.push({
       'Item': 'TOTAL GERAL',
       'Quantidade': '',

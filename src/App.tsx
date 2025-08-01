@@ -28,9 +28,12 @@ import { AuthProvider } from './context/AuthContext';
 import { HotelProvider } from './context/HotelContext';
 import { NotificationProvider } from './context/NotificationContext';
 import Toast from './components/ui/Toast';
-import ReportsPage from './pages/ReportsPage'; // Importação da nova página de relatórios
+import ReportsPage from './pages/ReportsPage';
+import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
+import PublicQuotePage from './pages/PublicQuotePage';
+// --- ALTERAÇÃO: Importação da nova página de análise ---
+import BudgetAnalysis from './pages/BudgetAnalysis';
 
-// A importação de WeeklyControl foi removida, pois não é mais uma página.
 
 function App() {
   return (
@@ -44,6 +47,9 @@ function App() {
                 <Routes>
                   <Route path="/login" element={<Login />} />
                   <Route path="/select-hotel" element={<HotelSelection />} />
+                  
+                  <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
+
                   <Route element={<MainLayout />}>
                     <Route path="/" element={<Home />} />
                     <Route path="/sector/:id" element={<SectorRequests />} />
@@ -72,9 +78,6 @@ function App() {
                       }
                     />
                     
-                    {/* ================================================================= */}
-                    {/* NOVA ROTA PARA A CENTRAL DE RELATÓRIOS                          */}
-                    {/* ================================================================= */}
                     <Route
                       path="/reports"
                       element={
@@ -83,7 +86,6 @@ function App() {
                         </PrivateRoute>
                       }
                     />
-                    {/* A ROTA ANTIGA '/weekly-control' FOI REMOVIDA. */}
                     
                     <Route
                       path="/shopping-list"
@@ -141,6 +143,28 @@ function App() {
                         </PrivateRoute>
                       }
                     />
+                    
+                    <Route
+                      path="/purchases/dynamic-budget/new"
+                      element={
+                        <PrivateRoute roles={['admin', 'inventory']}>
+                          <DynamicBudgetCreation />
+                        </PrivateRoute>
+                      }
+                    />
+
+                    {/* ================================================================= */}
+                    {/* NOVA ROTA PARA A ANÁLISE DE ORÇAMENTO DINÂMICO                  */}
+                    {/* ================================================================= */}
+                    <Route
+                      path="/purchases/dynamic-budget/analysis/:budgetId"
+                      element={
+                        <PrivateRoute roles={['admin', 'inventory']}>
+                          <BudgetAnalysis />
+                        </PrivateRoute>
+                      }
+                    />
+
                     <Route
                       path="/purchases/online"
                       element={
