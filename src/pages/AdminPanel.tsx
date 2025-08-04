@@ -13,11 +13,10 @@ import SubstituteProductModal from '../components/SubstituteProductModal';
 import { useNotification } from '../context/NotificationContext';
 import RequestItem from '../components/RequestItem'; 
 import Modal from '../components/Modal';
-import { notifyNewRequest, notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
+import { notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
 import DirectDeliveryModal from '../components/DirectDeliveryModal';
-import { searchMatch } from '../utils/search'; // Importar a função de busca
+import { searchMatch } from '../utils/search';
 
-// --- ALTERAÇÃO: Adicionado 'is_portionable' às interfaces ---
 export interface Product {
   id: string;
   name: string;
@@ -99,7 +98,6 @@ const AdminPanel = () => {
         if (isInitialLoad) setLoadingPending(false);
         return;
       }
-      // --- ALTERAÇÃO: Adicionado 'is_portionable' ao select ---
       const { data, error: reqError } = await supabase
         .from('requisitions')
         .select(`
@@ -137,8 +135,8 @@ const AdminPanel = () => {
         .select(`
           *,
           sector:sectors(id, name),
-          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price)
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, is_portionable),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, is_portionable)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -163,7 +161,7 @@ const AdminPanel = () => {
       }
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, quantity, average_price, last_purchase_price, image_url, is_portionable') // --- ALTERAÇÃO: Adicionado 'is_portionable'
+        .select('id, name, quantity, average_price, last_purchase_price, image_url, is_portionable')
         .eq('hotel_id', selectedHotel.id)
         .eq('is_active', true)
         .gt('quantity', 0)
@@ -230,7 +228,7 @@ const AdminPanel = () => {
   }, [selectedHotel, fetchPendingRequestsInternal, fetchHistoryRequestsInternal, fetchAvailableProducts, fetchSectors]);
 
 
-  const updateFinancialBalance = async (requestForBalance: Request, quantityUsed: number, isSubstitution: boolean = false) => {
+  const updateFinancialBalance = async (requestForBalance: Partial<Request>, quantityUsed: number, isSubstitution: boolean = false) => {
     try {
       if (!selectedHotel?.id) {
         throw new Error('Hotel não selecionado');
@@ -239,39 +237,27 @@ const AdminPanel = () => {
       const productDetails = isSubstitution ? requestForBalance.substituted_product : requestForBalance.products;
       const productIdForBalance = isSubstitution ? requestForBalance.substituted_product_id : requestForBalance.product_id;
 
-      if (!productIdForBalance || !productDetails) {
-        let foundProduct = availableProducts.find(p => p.id === productIdForBalance);
-        if (!foundProduct && requestForBalance.item_name) { 
-            foundProduct = availableProducts.find(p => p.name.toLowerCase() === requestForBalance.item_name.toLowerCase());
-        }
-
-        if (!foundProduct) {
-            console.warn(`Product info not found for item: ${requestForBalance.item_name} (ID: ${productIdForBalance}). Cannot update financial balance.`);
-            addNotification(`Detalhes do produto não encontrados para ${requestForBalance.item_name}. Saldo financeiro não atualizado.`, 'warning');
-            return false; 
-        }
-        const unitValue = foundProduct.average_price || foundProduct.last_purchase_price || 0;
-        const totalValue = unitValue * quantityUsed;
-        if (totalValue <= 0) {
-            console.log('Valor zero ou negativo, não será registrado no financeiro');
-            return true; 
-        }
-        const { error: rpcError } = await supabase.rpc('update_hotel_balance', {
-            p_hotel_id: selectedHotel.id,
-            p_transaction_type: 'debit',
-            p_amount: totalValue,
-            p_reason: `Consumo de ${quantityUsed} unidades de ${isSubstitution ? 'produto substituto' : 'produto'} por setor (${requestForBalance.item_name})`,
-            p_reference_type: 'consumption',
-            p_reference_id: foundProduct.id
-        });
-        if (rpcError) throw rpcError;
-        console.log(`Saldo financeiro atualizado: -R$ ${totalValue.toFixed(2)}`);
-        return true;
+      let unitValue = 0;
+      let productNameForReason = requestForBalance.item_name || 'Produto desconhecido';
+      
+      if (productDetails) {
+          unitValue = productDetails.average_price || productDetails.last_purchase_price || 0;
+      } else if (productIdForBalance) {
+          const foundProduct = availableProducts.find(p => p.id === productIdForBalance);
+          if (foundProduct) {
+              unitValue = foundProduct.average_price || foundProduct.last_purchase_price || 0;
+              productNameForReason = foundProduct.name;
+          } else {
+              console.warn(`Product info not found for item ID: ${productIdForBalance}. Cannot update financial balance.`);
+              addNotification(`Detalhes do produto não encontrados para ${productNameForReason}. Saldo financeiro não atualizado.`, 'warning');
+              return false;
+          }
+      } else {
+          console.warn(`No product details or ID for item: ${productNameForReason}. Cannot update financial balance.`);
+          return false;
       }
 
-      const unitValue = productDetails.average_price || productDetails.last_purchase_price || 0;
       const totalValue = unitValue * quantityUsed;
-      
       if (totalValue <= 0) {
         console.log('Valor zero ou negativo, não será registrado no financeiro');
         return true; 
@@ -281,7 +267,7 @@ const AdminPanel = () => {
         p_hotel_id: selectedHotel.id,
         p_transaction_type: 'debit',
         p_amount: totalValue,
-        p_reason: `Consumo de ${quantityUsed} unidades de ${isSubstitution ? 'produto substituto' : 'produto'} por setor (ID: ${productIdForBalance})`,
+        p_reason: `Consumo de ${quantityUsed} un. de ${productNameForReason} por setor`,
         p_reference_type: 'consumption',
         p_reference_id: productIdForBalance
       });
@@ -317,7 +303,6 @@ const AdminPanel = () => {
     setShowSubstituteModal(true);
   };
   
-  // --- ALTERAÇÃO: Lógica de entrega modificada para lidar com itens porcionáveis ---
   const handleConfirmDelivery = async () => {
     if (!selectedRequest) return;
     const deliveredQuantity = typeof deliveryQuantityInput === 'string' 
@@ -363,11 +348,9 @@ const AdminPanel = () => {
           }
       }
 
-      // 1. Atualiza a requisição para 'delivered'
       const { error: updateError } = await supabase.from('requisitions').update({ status: 'delivered', delivered_quantity: deliveredQuantity, updated_at: new Date().toISOString() }).eq('id', requestToProcess.id);
       if (updateError) throw updateError;
       
-      // 2. Deduz do stock principal (para todos os produtos, porcionáveis ou não)
       if (!requestToProcess.is_custom && productId && typeof currentStock === 'number') {
         const newStock = currentStock - deliveredQuantity;
         const { error: stockUpdateError } = await supabase.from('products').update({ quantity: newStock }).eq('id', productId);
@@ -377,9 +360,7 @@ const AdminPanel = () => {
         }
       }
 
-      // 3. Lógica de decisão baseada em 'is_portionable'
       if (isPortionable && !requestToProcess.is_custom && productId) {
-        // Se for porcionável, cria uma entrada pendente para o setor processar
         const purchaseCost = (productBeingDelivered?.last_purchase_price || productBeingDelivered?.average_price || 0) * deliveredQuantity;
         const { error: pendingError } = await supabase.from('pending_portioning_entries').insert({
             hotel_id: selectedHotel!.id,
@@ -392,7 +373,6 @@ const AdminPanel = () => {
         if (pendingError) throw new Error(`Falha ao criar entrada pendente: ${pendingError.message}`);
         addNotification("Item porcionável enviado ao setor. Aguardando processamento.", "info");
       } else if (!requestToProcess.is_custom && productId) {
-        // Se NÃO for porcionável, adiciona diretamente ao stock do setor (lógica antiga)
         const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
             p_hotel_id: selectedHotel!.id,
             p_sector_id: requestToProcess.sector.id,
@@ -495,7 +475,7 @@ const AdminPanel = () => {
     try {
       const { data: substituteProduct, error: fetchError } = await supabase
         .from('products')
-        .select('quantity, name, average_price, last_purchase_price')
+        .select('quantity, name, average_price, last_purchase_price, is_portionable')
         .eq('id', substitutedProductId)
         .eq('hotel_id', selectedHotel?.id)
         .single();
@@ -517,6 +497,27 @@ const AdminPanel = () => {
           updated_at: new Date().toISOString()
       }).eq('id', substitutedProductId);
 
+      // Lógica para porcionáveis ou não
+      if (substituteProduct.is_portionable) {
+        const purchaseCost = (substituteProduct.last_purchase_price || substituteProduct.average_price || 0) * deliveredQuantity;
+        await supabase.from('pending_portioning_entries').insert({
+            hotel_id: selectedHotel!.id,
+            sector_id: requestToProcess.sector.id,
+            product_id: substitutedProductId,
+            quantity_delivered: deliveredQuantity,
+            purchase_cost: purchaseCost,
+            requisition_id: requestToProcess.id,
+        });
+        addNotification("Item porcionável (substituto) enviado para processamento.", "info");
+      } else {
+        await supabase.rpc('update_sector_stock_on_delivery', {
+            p_hotel_id: selectedHotel!.id,
+            p_sector_id: requestToProcess.sector.id,
+            p_product_id: substitutedProductId,
+            p_quantity: deliveredQuantity
+        });
+      }
+
       await notifyItemSubstituted({
           hotel_id: selectedHotel?.id || '',
           sector_id: requestToProcess.sector.id,
@@ -537,7 +538,7 @@ const AdminPanel = () => {
           total_cost: unitCost * deliveredQuantity
       });
       
-      const requestWithSubstitute = { ...updatedRequest };
+      const requestWithSubstitute = { ...updatedRequest, products: substituteProduct };
       await updateFinancialBalance(requestWithSubstitute, deliveredQuantity, true);
       
       addNotification(`Produto substituído e entregue com sucesso!`, "success");
@@ -549,6 +550,7 @@ const AdminPanel = () => {
     }
   };
 
+  // --- FUNÇÃO MODIFICADA ---
   const handleConfirmDirectDelivery = async (productId: string, sectorId: string, quantity: number, reason: string) => {
     if (!selectedHotel?.id) return;
 
@@ -561,6 +563,7 @@ const AdminPanel = () => {
       if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
       if (quantity > product.quantity) throw new Error(`Quantidade insuficiente no inventário. Disponível: ${product.quantity}`);
       
+      // 1. Cria uma requisição com status 'delivered' para manter o histórico
       const { data: newRequisition, error: requisitionError } = await supabase
         .from('requisitions')
         .insert({
@@ -572,7 +575,7 @@ const AdminPanel = () => {
             status: 'delivered' as const,
             delivered_quantity: quantity,
             is_custom: false,
-            rejection_reason: `Entrega direta: ${reason || 'N/A'}`,
+            rejection_reason: `Entrega direta: ${reason || 'N/A'}`, // Usando campo para motivo
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -581,12 +584,15 @@ const AdminPanel = () => {
         
       if (requisitionError) throw requisitionError;
 
+      // 2. Atualiza a UI com a nova requisição no histórico
       const fullNewRequestObject: Request = {
         id: newRequisition.id,
         item_name: product.name,
         quantity: quantity,
         status: 'delivered',
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        product_id: product.id,
         products: product,
         sector: sector,
       };
@@ -597,23 +603,44 @@ const AdminPanel = () => {
         )
       );
 
+      // 3. Deduz a quantidade do estoque principal
       await supabase
         .from('products')
         .update({ quantity: product.quantity - quantity, updated_at: new Date().toISOString() })
         .eq('id', productId);
 
-      const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
-          p_hotel_id: selectedHotel.id,
-          p_sector_id: sectorId,
-          p_product_id: productId,
-          p_quantity: quantity
-      });
+      // --- INÍCIO DA LÓGICA CORRIGIDA ---
+      // 4. Verifica se o produto é porcionável
+      if (product.is_portionable) {
+        // Se for porcionável, cria uma entrada pendente para o setor processar
+        const purchaseCost = (product.last_purchase_price || product.average_price || 0) * quantity;
+        const { error: pendingError } = await supabase.from('pending_portioning_entries').insert({
+            hotel_id: selectedHotel.id,
+            sector_id: sectorId,
+            product_id: productId,
+            quantity_delivered: quantity,
+            purchase_cost: purchaseCost,
+            requisition_id: newRequisition.id,
+        });
+        if (pendingError) throw new Error(`Falha ao criar entrada de porcionamento pendente: ${pendingError.message}`);
+        addNotification("Item porcionável enviado ao setor para processamento.", "info");
+      } else {
+        // Se NÃO for porcionável, adiciona diretamente ao estoque do setor
+        const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
+            p_hotel_id: selectedHotel.id,
+            p_sector_id: sectorId,
+            p_product_id: productId,
+            p_quantity: quantity
+        });
 
-      if (sectorStockError) {
+        if (sectorStockError) {
            console.error("CRÍTICO: A atualização do estoque do setor falhou na entrega direta!", sectorStockError);
            addNotification("Entrega registrada, mas FALHA CRÍTICA ao somar no estoque do setor. Por favor, ajuste manualmente.", "error");
+        }
       }
+      // --- FIM DA LÓGICA CORRIGIDA ---
 
+      // 5. Registra o movimento no inventário e atualiza o balanço financeiro
       const unitCost = product.average_price || product.last_purchase_price || 0;
       await supabase.from('inventory_movements').insert({
         product_id: productId,
@@ -629,6 +656,7 @@ const AdminPanel = () => {
       
       await updateFinancialBalance(fullNewRequestObject, quantity, false);
 
+      // 6. Notifica o setor
       await notifyItemDelivered({
           hotel_id: selectedHotel.id,
           sector_id: sectorId,
@@ -638,12 +666,15 @@ const AdminPanel = () => {
           delivered_by: 'Administrador (Entrega Direta)'
       });
       
-      addNotification('Item entregue diretamente e estoque do setor atualizado!', 'success');
+      addNotification('Item entregue diretamente com sucesso!', 'success');
+      fetchAvailableProducts();
 
     } catch (err: any) {
       console.error('Error during direct delivery:', err);
       addNotification(`Erro na entrega direta: ${err.message}`, 'error');
+      // Recarrega os dados em caso de erro para garantir consistência
       fetchHistoryRequestsInternal();
+      fetchAvailableProducts();
     }
   };
 
