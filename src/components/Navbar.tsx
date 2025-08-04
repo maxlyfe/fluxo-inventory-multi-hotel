@@ -68,9 +68,11 @@ const Navbar = () => {
     navigate("/select-hotel");
   };
 
+  // --- ALTERAÇÃO: Adicionado o novo item "Compras" na lista de navegação ---
   const navigationItems = [
     { name: "Dashboard", href: "/", icon: DashboardIcon, roles: ["admin", "management", "inventory", "sup-governanca", "almoxarifado", "compras", "financeiro", "recepcao", "restaurante", "governanca", "manutencao"] },
     { name: "Requisições", href: "/admin", icon: RequisicoesIcon, roles: ["admin", "management", "inventory", "sup-governanca", "almoxarifado", "compras", "financeiro", "recepcao", "restaurante", "governanca", "manutencao"] },
+    { name: "Compras", href: "/purchases", icon: ComprasIcon, roles: ["admin", "inventory"] },
     { name: "Orçamentos", href: "/budget-history", icon: OrcamentosIcon, roles: ["admin", "management", "sup-governanca", "compras"] },
     { name: "Aprovações", href: "/authorizations", icon: ComprasIcon, roles: ["admin", "management", "sup-governanca", "compras"] }, 
     { name: "Usuários", href: "/users", icon: UserManagementIcon, roles: ["admin", "sup-governanca"] }, 
@@ -305,4 +307,3 @@ const Navbar = () => {
 };
 
 export default Navbar;
-

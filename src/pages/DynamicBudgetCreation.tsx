@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
@@ -41,24 +41,40 @@ const unitOptions = [
 
 const DynamicBudgetCreation = () => {
   const navigate = useNavigate();
+  const location = useLocation(); // --- ALTERAÇÃO: Adicionado para receber dados
   const { selectedHotel } = useHotel();
   const { user } = useAuth();
   const { addNotification } = useNotification();
 
   const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>([]);
-  const [budgetName, setBudgetName] = useState('');
   
+  // --- ALTERAÇÃO: Lógica para inicializar com itens pré-selecionados ---
+  const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(() => {
+    const initialProducts = location.state?.selectedProductDetails || [];
+    if (initialProducts.length === 0) {
+        return [];
+    }
+    addNotification(`${initialProducts.length} itens pré-selecionados foram adicionados.`, 'info');
+    return initialProducts.map((product: Product) => {
+        const quantityToBuy = Math.max(0, (product.max_quantity ?? 0) - (product.quantity ?? 0));
+        return {
+            product_id: product.id,
+            name: product.name,
+            image_url: product.image_url,
+            requested_quantity: quantityToBuy,
+            requested_unit: product.unit || 'und',
+        };
+    });
+  });
+
+  const [budgetName, setBudgetName] = useState('');
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
-  
   const [generatedLink, setGeneratedLink] = useState('');
   const [isCopied, setIsCopied] = useState(false);
-
   const [view, setView] = useState<'selection' | 'review'>('selection');
 
   useEffect(() => {
@@ -268,7 +284,6 @@ const DynamicBudgetCreation = () => {
                     <img src={product.image_url || 'https://placehold.co/40x40/e2e8f0/a0aec0?text=?'} alt={product.name} className="w-10 h-10 rounded-md object-cover" />
                     <div>
                       <p className="font-medium text-gray-800 dark:text-gray-200">{product.name}</p>
-                      {/* --- CORREÇÃO: Usando '??' para tratar valores nulos --- */}
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         Estoque: <span className="font-semibold">{product.quantity ?? 0}</span> | 
                         Mín: <span className="font-semibold">{product.min_quantity ?? 0}</span> | 
