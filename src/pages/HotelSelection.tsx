@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
+import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle, PlusCircle, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
+import { useAuth } from '../context/AuthContext';
+import { useNotification } from '../context/NotificationContext';
 
 /**
  * Interface para definir a estrutura de um objeto Hotel,
@@ -17,55 +19,114 @@ interface Hotel {
   description: string | null;
 }
 
+/**
+ * Interface para os dados do formulário de novo hotel.
+ */
+interface NewHotelData {
+  name: string;
+  code: string;
+  address: string;
+  description: string;
+  image_url: string;
+}
+
 const HotelSelection = () => {
   const navigate = useNavigate();
   const { setSelectedHotel } = useHotel();
+  const { user } = useAuth();
+  const { addNotification } = useNotification();
 
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [showAddHotelModal, setShowAddHotelModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [newHotel, setNewHotel] = useState<NewHotelData>({
+    name: '',
+    code: '',
+    address: '',
+    description: '',
+    image_url: '',
+  });
+
   /**
-   * Efeito para buscar a lista de hotéis do Supabase quando o componente é montado.
+   * Busca a lista de hotéis do Supabase.
+   * Envolvida em useCallback para ser chamada de forma estável.
    */
-  useEffect(() => {
-    const fetchHotels = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const fetchHotels = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        // --- ALTERAÇÃO: Ordenação por ID ---
-        // A consulta agora ordena os hotéis pela coluna 'id' em ordem ascendente,
-        // em vez de 'name'. Isso garante uma ordem de exibição consistente e previsível.
-        const { data, error: fetchError } = await supabase
-          .from('hotels')
-          .select('*')
-          .order('id', { ascending: true });
+      const { data, error: fetchError } = await supabase
+        .from('hotels')
+        .select('*')
+        .order('id', { ascending: true });
 
-        if (fetchError) {
-          throw fetchError;
-        }
-
-        setHotels(data || []);
-
-      } catch (err: any) {
-        console.error("Erro ao buscar hotéis:", err);
-        setError("Não foi possível carregar a lista de hotéis. Tente novamente mais tarde.");
-      } finally {
-        setLoading(false);
+      if (fetchError) {
+        throw fetchError;
       }
-    };
 
-    fetchHotels();
+      setHotels(data || []);
+
+    } catch (err: any) {
+      console.error("Erro ao buscar hotéis:", err);
+      setError("Não foi possível carregar a lista de hotéis. Tente novamente mais tarde.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    fetchHotels();
+  }, [fetchHotels]);
+
   /**
-   * Salva o hotel selecionado no contexto global e navega para a página inicial.
-   * @param hotel - O objeto do hotel selecionado.
+   * Salva o hotel selecionado no contexto e navega para a home.
    */
   const handleSelectHotel = (hotel: Hotel) => {
     setSelectedHotel(hotel);
     navigate('/');
+  };
+
+  /**
+   * Lida com a mudança nos campos do formulário de novo hotel.
+   */
+  const handleNewHotelChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewHotel(prev => ({ ...prev, [name]: value }));
+  };
+
+  /**
+   * Envia os dados do novo hotel para o Supabase.
+   */
+  const handleCreateHotel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHotel.name || !newHotel.code) {
+      addNotification('error', 'Nome e Código são obrigatórios.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { error: insertError } = await supabase
+        .from('hotels')
+        .insert([newHotel]);
+
+      if (insertError) throw insertError;
+
+      addNotification('success', 'Novo hotel adicionado com sucesso!');
+      setShowAddHotelModal(false);
+      setNewHotel({ name: '', code: '', address: '', description: '', image_url: '' });
+      fetchHotels();
+
+    } catch (err: any) {
+      console.error("Erro ao criar hotel:", err);
+      addNotification('error', `Erro ao criar hotel: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Renderização de estado de carregamento
@@ -90,7 +151,8 @@ const HotelSelection = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
+    // --- ALTERAÇÃO: Adicionado 'relative' ao container principal para posicionar o botão flutuante. ---
+    <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8 sm:mb-12">
           <Building2 className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-400" />
@@ -144,6 +206,68 @@ const HotelSelection = () => {
           ))}
         </div>
       </div>
+
+      {/* --- ALTERAÇÃO: Botão de Adicionar Hotel movido e reestilizado --- */}
+      {/* O botão agora é um Floating Action Button (FAB), posicionado no canto inferior direito. */}
+      {/* Ele é mais sutil e segue um padrão de design moderno para ações de adição. */}
+      {user?.role === 'admin' && (
+        <button
+          onClick={() => setShowAddHotelModal(true)}
+          className="fixed bottom-6 right-6 sm:bottom-8 sm:right-8 flex items-center justify-center w-14 h-14 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all duration-300 transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+          aria-label="Adicionar Novo Hotel"
+          title="Adicionar Novo Hotel"
+        >
+          <PlusCircle className="h-7 w-7" />
+        </button>
+      )}
+
+      {/* O modal de adição de hotel permanece o mesmo */}
+      {showAddHotelModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Cadastrar Novo Hotel
+              </h2>
+              <button onClick={() => setShowAddHotelModal(false)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateHotel} className="flex-grow overflow-y-auto p-6 space-y-4">
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Hotel*</label>
+                <input id="name" name="name" type="text" value={newHotel.name} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" required />
+              </div>
+              <div>
+                <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Código (Ex: CS)*</label>
+                <input id="code" name="code" type="text" value={newHotel.code} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" required />
+              </div>
+              <div>
+                <label htmlFor="address" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Endereço</label>
+                <input id="address" name="address" type="text" value={newHotel.address} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Descrição</label>
+                <textarea id="description" name="description" value={newHotel.description} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" rows={3}></textarea>
+              </div>
+              <div>
+                <label htmlFor="image_url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL da Imagem</label>
+                <input id="image_url" name="image_url" type="url" value={newHotel.image_url} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="https://..." />
+              </div>
+            </form>
+            <div className="flex-shrink-0 flex justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
+              <button type="button" onClick={() => setShowAddHotelModal(false)} className="px-4 py-2 border dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">Cancelar</button>
+              <button type="submit" onClick={handleCreateHotel} disabled={isSaving} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center justify-center disabled:opacity-50">
+                {isSaving && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
+                Salvar Hotel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
