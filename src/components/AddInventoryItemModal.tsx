@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Search, Package } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
-import { useNotification } from '../context/NotificationContext'; // Adicionado para notificações
+import { useNotification } from '../context/NotificationContext';
 
 interface Product {
   id: string;
@@ -13,21 +13,20 @@ interface Product {
 }
 
 interface AddInventoryItemModalProps {
-  // 1. ADICIONADO "isOpen" para controlar a visibilidade
   isOpen: boolean; 
   onClose: () => void;
-  onItemAdded: () => void; // Renomeado de onSuccess para onItemAdded para consistência
+  onItemAdded: () => void;
   sectorId: string;
 }
 
 const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
-  isOpen, // Usaremos esta prop
+  isOpen,
   onClose,
   onItemAdded,
   sectorId
 }) => {
   const { selectedHotel } = useHotel();
-  const { addNotification } = useNotification(); // Usando o hook de notificação
+  const { addNotification } = useNotification();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,13 +37,14 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
   const [addingItem, setAddingItem] = useState(false);
 
   useEffect(() => {
-    if (isOpen) { // Apenas busca os produtos se o modal estiver aberto
+    if (isOpen) {
       const fetchProducts = async () => {
         try {
           if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
           setLoading(true);
           setError(null);
 
+          // Busca os IDs dos produtos que já estão no estoque deste setor
           const { data: existingProducts } = await supabase
             .from('sector_stock')
             .select('product_id')
@@ -53,6 +53,7 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
 
           const existingProductIds = existingProducts?.map(item => item.product_id) || [];
 
+          // Busca todos os produtos ativos do hotel
           const { data, error } = await supabase
             .from('products')
             .select('id, name, category, quantity, image_url')
@@ -62,6 +63,7 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
 
           if (error) throw error;
 
+          // Filtra os produtos para mostrar apenas os que AINDA NÃO estão no estoque do setor
           const availableProducts = data?.filter(product => 
             !existingProductIds.includes(product.id)
           ) || [];
@@ -77,7 +79,7 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
 
       fetchProducts();
     }
-  }, [isOpen, selectedHotel, sectorId]); // Depende de isOpen para re-executar
+  }, [isOpen, selectedHotel, sectorId]);
 
   useEffect(() => {
     const filtered = products.filter(product =>
@@ -87,6 +89,14 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
     setFilteredProducts(filtered);
   }, [searchTerm, products]);
 
+  /**
+   * CORREÇÃO: Função de adicionar item ao setor.
+   * A chamada à função RPC 'update_sector_stock_on_delivery' foi removida,
+   * pois estava causando um erro 404 (Não Encontrado).
+   * Agora, a função realiza uma inserção direta na tabela 'sector_stock',
+   * que é a operação correta para associar (linkar) um produto existente
+   * ao estoque de um setor pela primeira vez.
+   */
   const handleAddToSector = async () => {
     try {
       if (!selectedHotel?.id || !selectedProduct) throw new Error('Selecione um produto');
@@ -94,18 +104,25 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
       setError(null);
       setAddingItem(true);
 
-      const { error: rpcError } = await supabase.rpc('update_sector_stock_on_delivery', {
-        p_hotel_id: selectedHotel.id,
-        p_sector_id: sectorId,
-        p_product_id: selectedProduct,
-        p_quantity: quantity
-      });
+      // Ação correta: Inserir um novo registro na tabela 'sector_stock'
+      // para criar o vínculo entre o produto e o setor.
+      const { error: insertError } = await supabase
+        .from('sector_stock')
+        .insert({
+          hotel_id: selectedHotel.id,
+          sector_id: sectorId,
+          product_id: selectedProduct,
+          quantity: quantity,
+          // Valores padrão para min/max podem ser ajustados conforme necessário
+          min_quantity: 0,
+          max_quantity: 100,
+        });
 
-      if (rpcError) throw rpcError;
+      if (insertError) throw insertError;
       
       addNotification('Item adicionado ao estoque do setor com sucesso!', 'success');
-      onItemAdded(); // Chama a função para recarregar a página pai
-      onClose(); // Fecha o modal
+      onItemAdded();
+      onClose();
       
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar produto ao setor');
@@ -115,7 +132,6 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
     }
   };
   
-  // 2. ADICIONADO: Se o modal não estiver aberto, não renderiza nada.
   if (!isOpen) {
     return null;
   }

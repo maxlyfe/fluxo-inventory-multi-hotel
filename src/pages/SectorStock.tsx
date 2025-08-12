@@ -6,7 +6,7 @@ import {
   Package, Scale, History, ChevronDown, ChevronUp,
   ImageIcon, Trash2,
   CalendarCheck, X, ListChecks, Filter,
-  ChevronLeftSquare, ChevronRightSquare, GitCommit, Loader2
+  ChevronLeftSquare, ChevronRightSquare, GitCommit, Loader2, Edit2 // Adicionado ícone de Edição
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,7 @@ import AddInventoryItemModal from '../components/AddInventoryItemModal';
 import Modal from '../components/Modal';
 import NewProductModal from '../components/NewProductModal';
 
+// Interfaces permanecem as mesmas
 interface Product {
   id: string;
   name: string;
@@ -99,6 +100,13 @@ const SectorStock = () => {
   const [showBalanceHistory, setShowBalanceHistory] = useState(false);
   const [showAddInventoryItemModal, setShowAddInventoryItemModal] = useState(false);
 
+  // --- NOVO: Estados para o modal de edição de quantidade ---
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  const [newQuantity, setNewQuantity] = useState('');
+  const [isUpdatingStock, setIsUpdatingStock] = useState(false);
+  // --- FIM NOVO ---
+
   const [isBalancing, setIsBalancing] = useState(false);
   const [balanceData, setBalanceData] = useState<BalanceItem[]>([]);
   const [loadingBalance, setLoadingBalance] = useState(false);
@@ -126,7 +134,7 @@ const SectorStock = () => {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-
+  // As funções de busca de dados (fetchSectorAndStockData, etc.) permanecem as mesmas
   const fetchSectorAndStockData = useCallback(async () => {
     try {
       if (!selectedHotel?.id || !sectorId) return;
@@ -143,7 +151,7 @@ const SectorStock = () => {
 
       const { data: stockData, error: stockError } = await supabase
         .from('sector_stock')
-        .select(`*, products!inner(id, name, category, image_url, description, is_active, is_portionable, is_portion)`)
+        .select(`*, products!inner(id, name, category, image_url, description, is_active, is_portionable, is_portion, min_quantity, max_quantity)`) // Adicionado min/max quantity
         .eq('sector_id', sectorId)
         .eq('hotel_id', selectedHotel.id);
       
@@ -152,8 +160,8 @@ const SectorStock = () => {
       const processedStock = stockData?.map((item: any) => ({
         ...item.products,
         quantity: item.quantity,
-        min_quantity: item.min_quantity,
-        max_quantity: item.max_quantity,
+        min_quantity: item.products.min_quantity, // Corrigido para pegar do produto
+        max_quantity: item.products.max_quantity, // Corrigido para pegar do produto
       })) || [];
       setProducts(processedStock.sort((a, b) => a.name.localeCompare(b.name)));
     } catch (err: any) {
@@ -543,7 +551,6 @@ const SectorStock = () => {
             p_sector_id: sectorId,
             p_user_id: user.id
         };
-        // --- ADIÇÃO: Log para depuração ---
         console.log("Chamando RPC 'process_multi_portioning' com parâmetros:", params);
 
         const { data, error } = await supabase.rpc('process_multi_portioning', params);
@@ -565,6 +572,53 @@ const SectorStock = () => {
     }
   };
 
+  // --- INÍCIO: Novas funções para o modal de edição ---
+  /**
+   * Abre o modal de edição de quantidade para um produto específico.
+   * @param product O produto a ser editado.
+   */
+  const openEditModal = (product: Product) => {
+    setProductToEdit(product);
+    setNewQuantity(String(product.quantity)); // Preenche o campo com a quantidade atual
+    setShowEditModal(true);
+  };
+
+  /**
+   * Lida com a confirmação da atualização de estoque.
+   * Chama o Supabase para atualizar a quantidade na tabela sector_stock.
+   */
+  const handleUpdateStock = async () => {
+    if (!productToEdit || !selectedHotel || !sectorId) return;
+
+    const quantity = parseFloat(newQuantity.replace(',', '.'));
+    if (isNaN(quantity) || quantity < 0) {
+      addNotification('Por favor, insira uma quantidade válida.', 'error');
+      return;
+    }
+
+    setIsUpdatingStock(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('sector_stock')
+        .update({ quantity: quantity })
+        .eq('hotel_id', selectedHotel.id)
+        .eq('sector_id', sectorId)
+        .eq('product_id', productToEdit.id);
+
+      if (updateError) throw updateError;
+
+      addNotification(`Estoque de "${productToEdit.name}" atualizado com sucesso!`, 'success');
+      setShowEditModal(false);
+      setProductToEdit(null);
+      fetchSectorAndStockData(); // Recarrega os dados para refletir a mudança
+    } catch (err: any) {
+      addNotification(`Erro ao atualizar estoque: ${err.message}`, 'error');
+    } finally {
+      setIsUpdatingStock(false);
+    }
+  };
+  // --- FIM: Novas funções ---
+
   const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredBalanceData = balanceData.filter(item => item.productName.toLowerCase().includes(searchTerm.toLowerCase()));
   
@@ -574,6 +628,7 @@ const SectorStock = () => {
 
   return (
     <div className="container mx-auto p-4 md:p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
+      {/* O cabeçalho e a seção de porcionamento permanecem os mesmos */}
       <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
         <button onClick={() => navigate(-1)} className="flex items-center text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 self-start sm:self-center">
           <ArrowLeft size={20} className="mr-1" /> Voltar
@@ -647,6 +702,7 @@ const SectorStock = () => {
       </div>
       
       {isBalancing && (
+        // A seção de balanço permanece a mesma
         <div className="mb-8 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-purple-200 dark:border-purple-700">
           <h2 className="text-xl font-semibold text-purple-700 dark:text-purple-300 mb-4">Balanço Semanal de Estoque</h2>
           {loadingBalance && <p className="text-center text-purple-600 dark:text-purple-400">Carregando dados para o balanço...</p>}
@@ -734,13 +790,15 @@ const SectorStock = () => {
                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                   <span>Min: {product.min_quantity} / Max: {product.max_quantity}</span>
                 </div>
+                {/* --- ALTERAÇÃO: Botões de ação atualizados --- */}
                 <div className="flex items-center space-x-2">
-                    <Link 
-                        to={`/product-history/${product.id}?sectorId=${sectorId}&sectorName=${encodeURIComponent(sector.name)}&productName=${encodeURIComponent(product.name)}`}
-                        className="flex-1 px-3 py-2 bg-purple-100 dark:bg-purple-800/40 text-purple-700 dark:text-purple-300 text-xs font-medium rounded-md hover:bg-purple-200 dark:hover:bg-purple-700/60 text-center transition-colors flex items-center justify-center"
+                    <button 
+                        onClick={() => openEditModal(product)} 
+                        title="Editar Quantidade"
+                        className="flex-1 px-3 py-2 bg-blue-100 dark:bg-blue-800/40 text-blue-700 dark:text-blue-300 text-xs font-medium rounded-md hover:bg-blue-200 dark:hover:bg-blue-700/60 text-center transition-colors flex items-center justify-center"
                     >
-                        <History size={14} className="mr-1.5"/> Histórico
-                    </Link>
+                        <Edit2 size={14} className="mr-1.5"/> Editar
+                    </button>
                     <button 
                         onClick={() => triggerDeleteModal(product)} 
                         title="Remover do Setor"
@@ -749,6 +807,7 @@ const SectorStock = () => {
                         <Trash2 size={16}/>
                     </button>
                 </div>
+                {/* --- FIM DA ALTERAÇÃO --- */}
               </div>
             </div>
           </div>
@@ -761,6 +820,7 @@ const SectorStock = () => {
         )}
       </div>
 
+      {/* Modais existentes (AddInventoryItemModal, NewProductModal, etc.) */}
       <AddInventoryItemModal 
           isOpen={showAddInventoryItemModal} 
           onClose={() => setShowAddInventoryItemModal(false)} 
@@ -802,6 +862,47 @@ const SectorStock = () => {
           </div>
         </Modal>
       )}
+
+      {/* --- INÍCIO: Novo modal para editar quantidade --- */}
+      {showEditModal && productToEdit && (
+        <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title={`Editar Estoque de ${productToEdit.name}`}>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="editQuantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Nova Quantidade em Estoque
+              </label>
+              <input
+                id="editQuantity"
+                type="number"
+                value={newQuantity}
+                onChange={(e) => setNewQuantity(e.target.value)}
+                className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                placeholder="Digite a nova quantidade"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateStock}
+                disabled={isUpdatingStock}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center"
+              >
+                {isUpdatingStock && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
+                Salvar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {/* --- FIM: Novo modal --- */}
 
       {showPortioningModal && selectedEntry && (
         <Modal isOpen={showPortioningModal} onClose={() => setShowPortioningModal(false)} title="Processar Item Porcionável">
