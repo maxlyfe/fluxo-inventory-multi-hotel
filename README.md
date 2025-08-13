@@ -6,7 +6,7 @@ O Fluxo Inventory é uma aplicação web moderna e robusta, construída para cen
 
 O sistema foi projetado com uma arquitetura escalável e segura, utilizando tecnologias de ponta para fornecer uma experiência de usuário rápida, interativa e em tempo real.
 
-✨ Funcionalidades Principais
+✨ Funcionalidades Principais:
 Este sistema é rico em funcionalidades específicas para o domínio da hotelaria:
 
 🏨 Arquitetura Multi-Hotel: Gerencie múltiplas unidades hoteleiras a partir de uma única interface, com a capacidade de transferir estoque e sincronizar catálogos de produtos entre elas.
