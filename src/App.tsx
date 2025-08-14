@@ -1,3 +1,4 @@
+// Importações de bibliotecas e componentes.
 import React from 'react';
 import {
   BrowserRouter, Routes, Route, Navigate,
@@ -31,10 +32,12 @@ import Toast from './components/ui/Toast';
 import ReportsPage from './pages/ReportsPage';
 import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
 import PublicQuotePage from './pages/PublicQuotePage';
-// --- ALTERAÇÃO: Importação da nova página de análise ---
 import BudgetAnalysis from './pages/BudgetAnalysis';
+// --- NOVO: Importação da nova página de Departamento Pessoal ---
+import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
 
 
+// Componente principal da aplicação que define as rotas.
 function App() {
   return (
     <AuthProvider>
@@ -45,11 +48,12 @@ function App() {
               <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
                 <Toast />
                 <Routes>
+                  {/* Rotas públicas */}
                   <Route path="/login" element={<Login />} />
                   <Route path="/select-hotel" element={<HotelSelection />} />
-                  
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
 
+                  {/* Rotas privadas que usam o MainLayout (com Navbar) */}
                   <Route element={<MainLayout />}>
                     <Route path="/" element={<Home />} />
                     <Route path="/sector/:id" element={<SectorRequests />} />
@@ -77,7 +81,6 @@ function App() {
                         </PrivateRoute>
                       }
                     />
-                    
                     <Route
                       path="/reports"
                       element={
@@ -86,7 +89,6 @@ function App() {
                         </PrivateRoute>
                       }
                     />
-                    
                     <Route
                       path="/shopping-list"
                       element={
@@ -143,7 +145,6 @@ function App() {
                         </PrivateRoute>
                       }
                     />
-                    
                     <Route
                       path="/purchases/dynamic-budget/new"
                       element={
@@ -152,10 +153,6 @@ function App() {
                         </PrivateRoute>
                       }
                     />
-
-                    {/* ================================================================= */}
-                    {/* NOVA ROTA PARA A ANÁLISE DE ORÇAMENTO DINÂMICO                  */}
-                    {/* ================================================================= */}
                     <Route
                       path="/purchases/dynamic-budget/analysis/:budgetId"
                       element={
@@ -164,7 +161,6 @@ function App() {
                         </PrivateRoute>
                       }
                     />
-
                     <Route
                       path="/purchases/online"
                       element={
@@ -205,6 +201,20 @@ function App() {
                         </PrivateRoute>
                       }
                     />
+                    
+                    {/* ================================================================= */}
+                    {/* NOVA ROTA PARA O DEPARTAMENTO PESSOAL                            */}
+                    {/* ================================================================= */}
+                    <Route
+                      path="/personnel-department"
+                      element={
+                        <PrivateRoute roles={['admin', 'management']}>
+                          <PersonnelDepartmentPage />
+                        </PrivateRoute>
+                      }
+                    />
+
+                    {/* Rota de fallback, redireciona para a home se nenhuma outra corresponder */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
                 </Routes>

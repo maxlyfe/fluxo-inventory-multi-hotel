@@ -1,29 +1,35 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Importações de bibliotecas e componentes.
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
   Package, BarChart3, Building2, ShieldCheck, ChevronDown, ChevronUp, 
   Lock, Boxes, Hotel, ChefHat, UtensilsCrossed, ShoppingCart, DollarSign,
-  FileText, CreditCard, Wrench, GlassWater
+  FileText, CreditCard, Wrench, GlassWater,
+  UsersRound // --- NOVO: Ícone para o Departamento Pessoal ---
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useHotel } from '../context/HotelContext';
 
+// Componente da página Home.
 const Home = () => {
+  // Estados para controlar os setores e a visibilidade da lista.
   const [sectors, setSectors] = useState<any[]>([]);
   const [showSectors, setShowSectors] = useState(true);
+  // Hooks para obter informações de autenticação e hotel selecionado.
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
   const navigate = useNavigate();
 
-  // Efeito para redirecionar para select-hotel se não houver hotel selecionado
+  // Efeito para redirecionar para select-hotel se não houver hotel selecionado.
   useEffect(() => {
     if (!selectedHotel) {
       navigate('/select-hotel', { replace: true });
     }
   }, [selectedHotel, navigate]);
 
+  // Efeito para buscar os setores do hotel selecionado.
   React.useEffect(() => {
     const fetchSectors = async () => {
       if (!selectedHotel?.id) return; 
@@ -36,7 +42,9 @@ const Home = () => {
     fetchSectors();
   }, [selectedHotel]);
 
+  // Função para renderizar a seção administrativa.
   const renderAdminSection = () => {
+    // Se não houver usuário logado, mostra um card de login.
     if (!user) {
       return (
         <Link
@@ -66,6 +74,7 @@ const Home = () => {
       );
     }
 
+    // Se o usuário estiver logado, renderiza os botões de acordo com sua role.
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {(user.role === 'admin' || user.role === 'inventory') && (
@@ -167,33 +176,49 @@ const Home = () => {
         )}
 
         {(user.role === 'admin' || user.role === 'management') && (
-          <Link
-            to="/management"
-            className="bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-          >
-            <div className="flex items-center space-x-3 sm:space-x-4">
-              <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+          <>
+            <Link
+              to="/management"
+              className="bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
+            >
+              <div className="flex items-center space-x-3 sm:space-x-4">
+                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
+                  <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-semibold text-white">Gerência</h2>
+                  <p className="text-sm text-green-100 opacity-90">Relatórios e análises</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg sm:text-xl font-semibold text-white">Gerência</h2>
-                <p className="text-sm text-green-100 opacity-90">Relatórios e análises</p>
+            </Link>
+            {/* --- NOVO BOTÃO ADICIONADO AQUI --- */}
+            <Link
+              to="/personnel-department"
+              className="bg-gradient-to-br from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
+            >
+              <div className="flex items-center space-x-3 sm:space-x-4">
+                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
+                  <UsersRound className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-semibold text-white">Departamento Pessoal</h2>
+                  <p className="text-sm text-rose-100 opacity-90">Contratos e colaboradores</p>
+                </div>
               </div>
-            </div>
-          </Link>
+            </Link>
+          </>
         )}
       </div>
     );
   };
 
+  // Função para renderizar os estoques setoriais.
   const renderSectorStocks = () => {
     if (!user) return null;
 
-    // ALTERAÇÃO 1: Lista de nomes dos setores que devem aparecer na seção de Estoques.
     const stockSectorNames = ['Cozinha', 'Restaurante', 'Governança', 'Bar Piscina', 'Manutenção'];
 
     const sectorStocksData = sectors
-      // Filtra os setores pelo NOME, garantindo que apenas os corretos apareçam.
       .filter(sector => stockSectorNames.includes(sector.name))
       .map(sector => {
         let icon = Hotel;
@@ -217,7 +242,7 @@ const Home = () => {
         }
 
         return {
-          id: sector.id, // O ID correto vem do banco!
+          id: sector.id,
           name: `Estoque ${sector.name}`,
           role: sector.role,
           icon,
@@ -227,16 +252,12 @@ const Home = () => {
 
     const userHasAccess = (role: string) => {
       if (user.role === 'admin') return true;
-
-      // Simplificado, pois a lógica principal já foi feita no filtro por nome.
-      // Pode ser expandido se houverem mais regras de acesso.
       const allowedRolesForNonAdmins: { [key: string]: string } = {
         'sup-governanca': 'governance',
         'kitchen': 'kitchen',
         'restaurant': 'restaurant',
         'bar': 'bar'
       };
-
       return allowedRolesForNonAdmins[user.role] === role;
     };
 
@@ -251,7 +272,6 @@ const Home = () => {
           {accessibleStocks.map((stock) => {
             const Icon = stock.icon;
             return (
-              // ALTERAÇÃO 2: O link agora usa o ID correto do setor (stock.id) que veio do banco.
               <Link
                 key={stock.id}
                 to={`/sector-stock/${stock.id}`}
@@ -274,10 +294,12 @@ const Home = () => {
     );
   };
 
+  // Se não houver hotel selecionado, não renderiza nada.
   if (!selectedHotel) {
     return null;
   }
 
+  // Renderização principal do componente.
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       {user ? (

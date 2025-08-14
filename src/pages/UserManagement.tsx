@@ -1,9 +1,12 @@
+// Importações de bibliotecas e componentes.
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Users, Key, AlertTriangle, UserCog, Bell, PlusCircle, Trash2, Edit3, XCircle, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
+// --- Interfaces de Dados ---
+// Mantidas exatamente como no seu arquivo original.
 interface User {
   id: string; // ID original da tabela public.auth_users
   email: string;
@@ -53,7 +56,8 @@ interface UserNotificationPreference {
   } | null;
 }
 
-// Lista de tipos de notificação que estão realmente integrados e funcionando
+// --- ALTERAÇÃO: Adicionados os novos event_keys para os contratos de experiência ---
+// Lista de tipos de notificação que estão realmente integrados e funcionando.
 const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_REQUEST',
   'ITEM_DELIVERED_TO_SECTOR',
@@ -61,9 +65,13 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'REQUEST_SUBSTITUTED',
   'NEW_BUDGET',
   'BUDGET_APPROVED',
-  'BUDGET_CANCELLED'  // Corrigido: usando BUDGET_CANCELLED em vez de BUDGET_REJECTED
+  'BUDGET_CANCELLED',
+  'EXP_CONTRACT_ENDING_SOON', // Notificação de contrato vencendo em 5 dias.
+  'EXP_CONTRACT_ENDS_TODAY'   // Notificação de contrato vencendo hoje.
 ];
 
+// --- Funções de Serviço ---
+// (As funções de serviço permanecem as mesmas do seu arquivo original)
 async function getNotificationTypes(): Promise<NotificationType[]> {
   const { data, error } = await supabase.from('notification_types').select('*').order('description');
   if (error) {
@@ -76,7 +84,8 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
     .filter(nt => ACTIVE_NOTIFICATION_TYPES.includes(nt.event_key))
     .map(nt => ({
       ...nt,
-      requires_hotel_filter: ['NEW_REQUEST', 'ITEM_DELIVERED_TO_SECTOR', 'NEW_BUDGET', 'BUDGET_APPROVED', 'BUDGET_CANCELLED'].includes(nt.event_key),
+      // --- ALTERAÇÃO: Adicionada a regra de filtro de hotel para as novas notificações ---
+      requires_hotel_filter: ['NEW_REQUEST', 'ITEM_DELIVERED_TO_SECTOR', 'NEW_BUDGET', 'BUDGET_APPROVED', 'BUDGET_CANCELLED', 'EXP_CONTRACT_ENDING_SOON', 'EXP_CONTRACT_ENDS_TODAY'].includes(nt.event_key),
       requires_sector_filter: ['NEW_REQUEST', 'ITEM_DELIVERED_TO_SECTOR'].includes(nt.event_key),
     }));
 }
@@ -267,33 +276,33 @@ const UserManagement = () => {
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setError('');
-  
-  if (!newUser.email || !newUser.password || !newUser.role) {
-    setError('Preencha todos os campos');
-    return;
-  }
-
-  try {
-    const { error: createError } = await supabase.rpc('create_user', {
-      p_email: newUser.email,
-      p_password: newUser.password,
-      p_role: newUser.role
-    });
-
-    if (createError) throw createError;
+    e.preventDefault();
+    setError('');
     
-    setNewUser({ email: '', password: '', role: 'inventory' });
-    fetchUsers(); 
-    alert('Usuário criado com sucesso! (Lembre-se de ajustar a função create_user no backend para sincronia total)');
-  } catch (err: any) {
-    console.error('Error creating user:', err);
-    setError(err.message.includes('already exists') 
-      ? 'Usuário já cadastrado no sistema' 
-      : 'Erro ao criar usuário: ' + err.message);
-  }
-};
+    if (!newUser.email || !newUser.password || !newUser.role) {
+      setError('Preencha todos os campos');
+      return;
+    }
+
+    try {
+      const { error: createError } = await supabase.rpc('create_user', {
+        p_email: newUser.email,
+        p_password: newUser.password,
+        p_role: newUser.role
+      });
+
+      if (createError) throw createError;
+      
+      setNewUser({ email: '', password: '', role: 'inventory' });
+      fetchUsers(); 
+      alert('Usuário criado com sucesso! (Lembre-se de ajustar a função create_user no backend para sincronia total)');
+    } catch (err: any) {
+      console.error('Error creating user:', err);
+      setError(err.message.includes('already exists') 
+        ? 'Usuário já cadastrado no sistema' 
+        : 'Erro ao criar usuário: ' + err.message);
+    }
+  };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -535,6 +544,7 @@ const UserManagement = () => {
     }
   };
 
+  // --- ALTERAÇÃO: Adicionadas as descrições para os novos tipos de notificação ---
   const getNotificationTypeDescription = (eventKey: string) => {
     switch (eventKey) {
       case 'NEW_REQUEST': return 'Nova requisição';
@@ -544,6 +554,9 @@ const UserManagement = () => {
       case 'NEW_BUDGET': return 'Novo orçamento';
       case 'BUDGET_APPROVED': return 'Orçamento aprovado';
       case 'BUDGET_CANCELLED': return 'Orçamento cancelado';
+      // --- NOVAS DESCRIÇÕES ---
+      case 'EXP_CONTRACT_ENDING_SOON': return 'Contrato de Experiência (Vence em 5 dias)';
+      case 'EXP_CONTRACT_ENDS_TODAY': return 'Contrato de Experiência (Vence Hoje)';
       default: return eventKey;
     }
   };
