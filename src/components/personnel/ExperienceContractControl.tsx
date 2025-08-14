@@ -3,8 +3,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
-import { PlusCircle, Loader2, Edit, Trash2, Calendar, UserPlus } from 'lucide-react';
-import { format, addDays, isBefore, parseISO } from 'date-fns';
+import { PlusCircle, Loader2, Edit, Trash2, Calendar, UserPlus, Clock } from 'lucide-react';
+import { format, addDays, isBefore, parseISO, intervalToDuration } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import Modal from '../Modal';
 
@@ -134,6 +134,33 @@ const ExperienceContractControl: React.FC = () => {
       }
     }
   };
+  
+  // Função para calcular e formatar o tempo de casa.
+  /**
+   * Calcula a duração entre a data de início e hoje e a formata de forma legível.
+   * @param startDate A data de início do contrato.
+   * @returns Uma string formatada como "X anos, Y meses e Z dias".
+   */
+  const formatTenure = (startDate: string) => {
+    try {
+      const start = parseISO(startDate);
+      const end = new Date(); // Data de hoje
+      
+      // Usa a função 'intervalToDuration' para obter a diferença.
+      const duration = intervalToDuration({ start, end });
+      
+      const parts = [];
+      if (duration.years && duration.years > 0) parts.push(`${duration.years} ano${duration.years > 1 ? 's' : ''}`);
+      if (duration.months && duration.months > 0) parts.push(`${duration.months} ${duration.months > 1 ? 'meses' : 'mês'}`);
+      if (duration.days && duration.days > 0) parts.push(`${duration.days} dia${duration.days > 1 ? 's' : ''}`);
+      
+      // Se não houver partes (menos de um dia), retorna "Recém-contratado".
+      return parts.length > 0 ? parts.join(', ') : 'Recém-contratado';
+    } catch (error) {
+      console.error("Erro ao formatar tempo de casa:", error);
+      return 'N/A'; // Retorna 'N/A' em caso de erro.
+    }
+  };
 
   // --- RENDERIZAÇÃO ---
   return (
@@ -155,11 +182,13 @@ const ExperienceContractControl: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
+              {/* --- ALTERAÇÃO: Ordem das colunas do cabeçalho foi ajustada --- */}
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Colaborador</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Início do Contrato</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Fim 1º Período (30 dias)</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Fim 2º Período (90 dias)</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tempo de Casa</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
@@ -172,16 +201,22 @@ const ExperienceContractControl: React.FC = () => {
                 const today = new Date();
                 
                 // Determina a cor com base na data atual.
-                // isBefore(dataVencimento, hoje) significa que a data já passou.
                 const firstPeriodColor = isBefore(firstEndDate, today) ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
                 const secondPeriodColor = isBefore(secondEndDate, today) ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
 
                 return (
                   <tr key={contract.id} className="table-row-hover">
+                    {/* --- ALTERAÇÃO: Ordem das células de dados foi ajustada --- */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{contract.employee_name}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-gray-500 dark:text-gray-400">{format(startDate, 'dd/MM/yyyy', { locale: ptBR })}</td>
                     <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-semibold ${firstPeriodColor}`}>{format(firstEndDate, 'dd/MM/yyyy', { locale: ptBR })}</td>
                     <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-semibold ${secondPeriodColor}`}>{format(secondEndDate, 'dd/MM/yyyy', { locale: ptBR })}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center justify-center">
+                        <Clock size={14} className="mr-1.5" />
+                        {formatTenure(contract.start_date)}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                       <div className="flex items-center justify-center space-x-3">
                         <button onClick={() => handleEdit(contract)} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300" title="Editar Contrato"><Edit size={18}/></button>
