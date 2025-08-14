@@ -1,22 +1,25 @@
+// Importações de bibliotecas e componentes.
 import React, { useState } from 'react';
-import { useHotel } from '../context/HotelContext'; // Supondo que você queira usar
-import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { useHotel } from '../context/HotelContext';
+import { AlertTriangle, ArrowLeft, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-// Importe todos os seus componentes de relatório
-import StockControlReport from '../components/reports/StockControlReport';
+// Importa os componentes de cada relatório específico.
+import WeeklyReconciliationReport from '../components/reports/WeeklyReconciliationReport';
 import UtilitiesReport from '../components/reports/UtilitiesReport';
 import LaundryReport from '../components/reports/LaundryReport';
 import SurplusReport from '../components/reports/SurplusReport';
 import KitchenLossesReport from '../components/reports/KitchenLossesReport';
 import ExpensesGuestReport from '../components/reports/ExpensesGuestReport';
-import LaundryReport from '../components/reports/LaundryReport'; // 1. ADICIONE ESTA LINHA DE IMPORTAÇÃO
+// --- ALTERAÇÃO: A importação do serviço não é mais necessária aqui. ---
+import StarredItemsReportModal from '../components/reports/StarredItemsReportModal';
 
-// Define os tipos para os relatórios para manter o código limpo
-type ReportKey = 'stockControl' | 'utilities' | 'laundry' | 'surplus' | 'kitchenLosses' | 'expensesGuest';
+// Define um tipo para as chaves de cada relatório.
+type ReportKey = 'reconciliation' | 'utilities' | 'laundry' | 'surplus' | 'kitchenLosses' | 'expensesGuest';
 
+// Array de configuração para a navegação dos relatórios.
 const reports: { key: ReportKey; name: string }[] = [
-  { key: 'stockControl', name: 'Controle de Stock/Vendas' },
+  { key: 'reconciliation', name: 'Reconciliação Semanal' },
   { key: 'utilities', name: 'Enel / Prolagos' },
   { key: 'expensesGuest', name: 'Gastos x Hóspede' },
   { key: 'laundry', name: 'Lavanderia' },
@@ -24,15 +27,39 @@ const reports: { key: ReportKey; name: string }[] = [
   { key: 'kitchenLosses', name: 'Perdas Cozinha' },
 ];
 
+// Componente principal da página de relatórios.
 const ReportsPage = () => {
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
-  const [activeReport, setActiveReport] = useState<ReportKey>('stockControl'); // Inicia com o relatório de stock
+  const [activeReport, setActiveReport] = useState<ReportKey | null>(null); 
 
+  // --- ALTERAÇÃO: Estados para dados e loading foram removidos daqui. ---
+  // O modal agora gerencia seu próprio estado.
+  const [showStarredReportModal, setShowStarredReportModal] = useState(false);
+
+  /**
+   * --- ALTERAÇÃO: Função simplificada. ---
+   * Agora, ela apenas define o estado para ABRIR o modal.
+   * A busca de dados acontecerá dentro do próprio modal.
+   */
+  const handleOpenStarredReport = () => {
+    setShowStarredReportModal(true);
+  };
+
+  // Função para renderizar o componente de relatório ativo.
   const renderActiveReport = () => {
+    if (!activeReport) {
+        return (
+            <div className="text-center py-16">
+                <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-200">Bem-vindo à Central de Relatórios</h3>
+                <p className="mt-2 text-gray-500 dark:text-gray-400">Por favor, selecione um relatório na navegação acima para começar.</p>
+            </div>
+        )
+    }
+
     switch (activeReport) {
-      case 'stockControl':
-        return <StockControlReport />;
+      case 'reconciliation':
+        return <WeeklyReconciliationReport />;
       case 'utilities':
         return <UtilitiesReport />;
       case 'laundry':
@@ -43,13 +70,12 @@ const ReportsPage = () => {
         return <KitchenLossesReport />;
       case 'expensesGuest':
         return <ExpensesGuestReport />;
-      case 'laundry': // 2. ADICIONE ESTE NOVO 'CASE'
-        return <LaundryReport />;
       default:
         return <p>Selecione um relatório.</p>;
     }
   };
 
+  // Se nenhum hotel estiver selecionado, exibe um aviso.
   if (!selectedHotel) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-150px)] p-4 text-center">
@@ -60,6 +86,7 @@ const ReportsPage = () => {
     );
   }
 
+  // Renderização principal do componente.
   return (
     <div className="container mx-auto p-4 md:p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="flex items-center justify-between mb-6">
@@ -67,10 +94,16 @@ const ReportsPage = () => {
           <ArrowLeft className="w-5 h-5 mr-2" />
           Voltar
         </button>
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">
-          Central de Relatórios - {selectedHotel.name}
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white text-center">
+          Central de Relatórios
         </h1>
-        <div className="w-8"></div> 
+        <button
+          onClick={handleOpenStarredReport}
+          className="flex items-center px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm"
+        >
+          <Star className="w-4 h-4 mr-2" />
+          Principais Itens
+        </button>
       </div>
 
       {/* Navegação por Abas/Botões Horizontais */}
@@ -95,9 +128,16 @@ const ReportsPage = () => {
       </div>
 
       {/* Área de Renderização do Relatório Ativo */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg min-h-[400px]">
         {renderActiveReport()}
       </div>
+
+      {/* --- ALTERAÇÃO: Renderização do modal simplificada. --- */}
+      {/* Agora não passamos mais 'reportData' nem 'loading' como props. */}
+      <StarredItemsReportModal
+        isOpen={showStarredReportModal}
+        onClose={() => setShowStarredReportModal(false)}
+      />
     </div>
   );
 };
