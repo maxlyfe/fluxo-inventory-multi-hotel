@@ -1,3 +1,5 @@
+// src/App.tsx
+
 // Importações de bibliotecas e componentes.
 import React from 'react';
 import {
@@ -33,8 +35,10 @@ import ReportsPage from './pages/ReportsPage';
 import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
 import PublicQuotePage from './pages/PublicQuotePage';
 import BudgetAnalysis from './pages/BudgetAnalysis';
-// --- NOVO: Importação da nova página de Departamento Pessoal ---
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
+
+// --- NOVO: Importação do nosso componente de Chatbot ---
+import Chatbot from './components/Chatbot';
 
 
 // Componente principal da aplicação que define as rotas.
@@ -202,9 +206,6 @@ function App() {
                       }
                     />
                     
-                    {/* ================================================================= */}
-                    {/* NOVA ROTA PARA O DEPARTAMENTO PESSOAL                            */}
-                    {/* ================================================================= */}
                     <Route
                       path="/personnel-department"
                       element={
@@ -218,6 +219,9 @@ function App() {
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
                 </Routes>
+                
+                {/* --- NOVO: Chatbot adicionado aqui, fora das rotas --- */}
+                <Chatbot />
               </div>
             </HotelProvider>
           </BrowserRouter>
