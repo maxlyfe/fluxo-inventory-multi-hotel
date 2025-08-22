@@ -44,41 +44,44 @@ serve(async (req) => {
       throw matchError
     }
     
-    const contextText = contextChunks.map((chunk: any) => `-- Trecho do arquivo: ${chunk.file_path}\n${chunk.content}`).join('\n\n');
-
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    // --- PROMPT ATUALIZADO COM INSTRUÇÕES DE FORMATAÇÃO ---
-    const prompt = `
-      Você é um assistente especialista no sistema "hotel-requisition-system".
+    let prompt;
 
-      **VISÃO GERAL DO SISTEMA (SUA FONTE DE VERDADE):**
-      - **Para criar uma requisição de setor:**
-        1. Na página inicial ('/'), o usuário seleciona o setor desejado.
-        2. O sistema o leva para a página daquele setor, que exibe uma lista de produtos disponíveis.
-        3. O usuário informa a quantidade de cada produto que deseja e clica em "Adicionar".
-        4. Ao clicar em "Adicionar", o pedido é enviado automaticamente para o setor de estoque.
+    // --- LÓGICA CONDICIONAL ---
+    // Se encontramos contexto relevante, agimos como um especialista.
+    if (contextChunks && contextChunks.length > 0) {
+      const contextText = contextChunks.map((chunk: any) => `-- Trecho do arquivo: ${chunk.file_path}\n${chunk.content}`).join('\n\n');
       
-      - **Para criar um novo item no inventário:**
-        1. Na página inicial, o usuário clica no botão "Inventário" para ir para a URL '/inventory'.
-        2. Na página de inventário, ele clica no botão "+ Novo Item".
-        3. Um formulário chamado "Novo Produto" aparecerá. O usuário deve preenchê-lo e salvar.
+      prompt = `
+        Você é um assistente especialista no sistema "hotel-requisition-system".
 
-      **SUA TAREFA:**
-      1. Use a **VISÃO GERAL DO SISTEMA** acima como a principal fonte para responder à pergunta do usuário.
-      2. Use o **CONTEXTO DE CÓDIGO** abaixo apenas para obter pequenos detalhes, como o nome exato de um botão ou de um campo de texto.
-      3. Sua resposta DEVE ser um guia passo a passo simples para um usuário final. NÃO use jargão técnico.
-      4. Se a pergunta for sobre algo que não está na VISÃO GERAL DO SISTEMA e nem no CONTEXTO DE CÓDIGO, responda: "Não encontrei informações sobre como fazer isso no sistema."
-      5. Formate o guia como uma lista numerada. **IMPORTANTE: Coloque uma linha em branco entre cada passo para facilitar a leitura.**
+        **VISÃO GERAL DO SISTEMA (SUA FONTE DE VERDADE):**
+        - **Para criar uma requisição de setor:** O usuário seleciona o setor na página inicial, escolhe os produtos e quantidades na página do setor, e clica em "Adicionar" para enviar o pedido ao estoque.
+        - **Para criar um novo item no inventário:** O usuário vai para a página de 'Inventário', clica em "+ Novo Item", e preenche o formulário "Novo Produto".
 
-      **CONTEXTO DE CÓDIGO (para detalhes):**
-      ${contextText}
+        **SUA TAREFA:**
+        1. Use a **VISÃO GERAL DO SISTEMA** e o **CONTEXTO DE CÓDIGO** para criar um guia passo a passo simples para o usuário.
+        2. NÃO use jargão técnico.
+        3. Formate listas com uma linha em branco entre cada passo.
 
-      **PERGUNTA DO USUÁRIO:**
-      ${query}
+        **CONTEXTO DE CÓDIGO (para detalhes):**
+        ${contextText}
 
-      **GUIA PASSO A PASSO PARA O USUÁRIO:**
-    `
+        **PERGUNTA DO USUÁRIO:**
+        ${query}
+
+        **GUIA PASSO A PASSO PARA O USUÁRIO:**
+      `
+    } else {
+      // Se NÃO encontramos contexto, agimos como um assistente de IA geral.
+      prompt = `
+        Você é um assistente de IA prestativo e amigável. Responda à pergunta do usuário da melhor forma possível.
+        
+        PERGUNTA:
+        ${query}
+      `
+    }
+    
     const result = await model.generateContent(prompt)
     const response = result.response
     const text = response.text()
