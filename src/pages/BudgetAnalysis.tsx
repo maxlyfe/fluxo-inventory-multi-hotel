@@ -236,7 +236,7 @@ const BudgetAnalysis = () => {
                 editedStock: fullProduct?.quantity ?? 0,
                 editedLastPrice: fullProduct?.last_purchase_price,
                 editedLastPurchaseDate: formattedDate,
-                editedLastQuantity: fullProduct?.quantity,
+                editedLastQuantity: fullProduct?.last_purchase_quantity,
             };
         });
 
