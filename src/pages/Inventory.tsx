@@ -36,6 +36,7 @@ interface Product {
   description?: string;
   last_purchase_date?: string;
   last_purchase_price?: number;
+  last_purchase_quantity?: number;
   average_price?: number;
   is_active: boolean;
   is_starred?: boolean; // Campo para favoritar
