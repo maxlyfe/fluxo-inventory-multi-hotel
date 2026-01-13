@@ -29,6 +29,7 @@ export interface Product {
   is_portionable?: boolean;
   average_price?: number;
   last_purchase_price?: number;
+  last_purchase_quantity?: number;
 }
 
 export interface Request {
@@ -51,6 +52,7 @@ export interface Request {
     is_portionable?: boolean;
     average_price?: number;
     last_purchase_price?: number;
+    last_purchase_quantity?: number;
   };
   substituted_product?: any;
   sector: {
@@ -103,8 +105,8 @@ const AdminPanel = () => {
         .select(`
           *,
           sector:sectors(id, name),
-          products!requisitions_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price)
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity)
         `)
         .eq('hotel_id', selectedHotel.id)
         .eq('status', 'pending')
@@ -135,8 +137,8 @@ const AdminPanel = () => {
         .select(`
           *,
           sector:sectors(id, name),
-          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, is_portionable),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, is_portionable)
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -161,7 +163,7 @@ const AdminPanel = () => {
       }
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, quantity, average_price, last_purchase_price, image_url, is_portionable')
+        .select('id, name, quantity, average_price, last_purchase_price, last_purchase_quantity, image_url, is_portionable')
         .eq('hotel_id', selectedHotel.id)
         .eq('is_active', true)
         .gt('quantity', 0)
