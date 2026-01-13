@@ -111,7 +111,8 @@ const NewPurchaseList = () => {
         editedName: p.name,
         editedPrice: p.last_purchase_price,
         editedQuantity: Math.max(0, p.max_quantity - p.quantity),
-        editedLastQuantity: p.quantity, 
+        editedLastQuantity: p.last_purchase_quantity, 
+
         editedLastPrice: p.last_purchase_price,
         editedSupplier: p.supplier,
         editedWeight: p.weight,
@@ -503,7 +504,7 @@ const NewPurchaseList = () => {
       editedName: item.name,
       editedPrice: item.last_purchase_price,
       editedQuantity: Math.max(0, item.max_quantity - item.quantity),
-      editedLastQuantity: item.quantity,
+      editedLastQuantity: item.last_purchase_quantity,
       editedLastPrice: item.last_purchase_price,
       editedSupplier: item.supplier,
       editedWeight: item.weight,
