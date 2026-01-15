@@ -621,6 +621,53 @@ export const updateBudgetStatus = async (budgetId: string, newStatus: string, ap
   }
 };
 
+export const updateBudgetItems = async (budgetId: string, items: any[], totalValue: number) => {
+  try {
+    // 1. Deletar itens atuais
+    const { error: deleteError } = await supabase
+      .from("budget_items")
+      .delete()
+      .eq("budget_id", budgetId);
+
+    if (deleteError) throw deleteError;
+
+    // 2. Inserir novos itens
+    const budgetItemsData = items.map((item) => ({
+      budget_id: budgetId,
+      product_id: item.product_id,
+      custom_item_name: item.custom_item_name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      supplier: item.supplier,
+      last_purchase_quantity: item.last_purchase_quantity,
+      last_purchase_price: item.last_purchase_price,
+      last_purchase_date: item.last_purchase_date,
+      weight: item.weight,
+      unit: item.unit,
+      stock_at_creation: item.stock_at_creation,
+    }));
+
+    const { error: insertError } = await supabase
+      .from("budget_items")
+      .insert(budgetItemsData);
+
+    if (insertError) throw insertError;
+
+    // 3. Atualizar valor total do orçamento
+    const { error: updateError } = await supabase
+      .from("budgets")
+      .update({ total_value: totalValue })
+      .eq("id", budgetId);
+
+    if (updateError) throw updateError;
+
+    return { success: true };
+  } catch (err) {
+    console.error("Error updating budget items:", err);
+    return { success: false, error: err instanceof Error ? err.message : "Erro ao atualizar itens do orçamento" };
+  }
+};
+
 // --- Funções para Requisições de Setor ---
 export const getSectorRequests = async (hotelId: string) => {
   try {
