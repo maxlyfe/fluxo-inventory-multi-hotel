@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, Download, ChevronDown, ChevronUp, Box, Package, Truck } from 'lucide-react';
+import { ArrowLeft, Calendar, Download, ChevronDown, ChevronUp, Box, Package, Truck, Trash2, Save } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNotification } from '../context/NotificationContext';
-import { getBudgetDetails } from '../lib/supabase';
+import { getBudgetDetails, updateBudgetItems } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 
 const unitOptions = [
@@ -111,6 +111,57 @@ const BudgetDetail = () => {
     }));
   };
 
+  const handleUpdateItemQuantity = (itemId: string, newQuantity: number) => {
+    if (newQuantity < 0 || !budget) return;
+    
+    const updatedItems = budget.budget_items.map(item => 
+      item.id === itemId ? { ...item, quantity: newQuantity } : item
+    );
+    
+    const newTotalValue = updatedItems.reduce((sum, item) => 
+      sum + (item.quantity * (item.unit_price || 0)), 0
+    );
+    
+    setBudget({ ...budget, budget_items: updatedItems, total_value: newTotalValue });
+  };
+
+  const handleRemoveItem = (itemId: string) => {
+    if (!budget || !window.confirm("Tem certeza que deseja remover este item do orçamento?")) return;
+    
+    const updatedItems = budget.budget_items.filter(item => item.id !== itemId);
+    
+    if (updatedItems.length === 0) {
+      addNotification("O orçamento não pode ficar vazio.", "warning");
+      return;
+    }
+    
+    const newTotalValue = updatedItems.reduce((sum, item) => 
+      sum + (item.quantity * (item.unit_price || 0)), 0
+    );
+    
+    setBudget({ ...budget, budget_items: updatedItems, total_value: newTotalValue });
+  };
+
+  const handleSaveChanges = async () => {
+    if (!budget || !budgetId) return;
+
+    try {
+      setLoading(true);
+      const result = await updateBudgetItems(budgetId, budget.budget_items, budget.total_value);
+      
+      if (result.success) {
+        addNotification("Alterações salvas com sucesso!", "success");
+      } else {
+        throw new Error(result.error || "Falha ao salvar alterações");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro ao salvar alterações.";
+      addNotification(message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getMainSupplier = (): string => {
     if (!budget) return 'Não especificado';
     
@@ -199,28 +250,47 @@ const BudgetDetail = () => {
 
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-3 overflow-hidden">
-        <div 
-          className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700"
-          onClick={() => toggleItemExpand(item.id)}
-        >
-          <div className="flex-1 min-w-0">
+        <div className="p-4 flex justify-between items-center">
+          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleItemExpand(item.id)}>
             <h3 className="text-sm font-medium text-gray-800 dark:text-white truncate">
               {itemName}
             </h3>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-              <span className="text-xs text-gray-600 dark:text-gray-300">
-                {item.quantity} {getUnitLabel(item.unit)}
-              </span>
-              <span className="text-xs font-semibold text-gray-800 dark:text-white">
+              <div className="flex items-center">
+                <input
+                  type="number"
+                  value={item.quantity}
+                  onChange={(e) => handleUpdateItemQuantity(item.id, parseFloat(e.target.value) || 0)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-16 p-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 mr-1"
+                  min="0"
+                  step="any"
+                />
+                <span className="text-xs text-gray-600 dark:text-gray-300">
+                  {getUnitLabel(item.unit)}
+                </span>
+              </div>
+              <span className="text-xs font-semibold text-gray-800 dark:text-white flex items-center">
                 R$ {totalValue.toFixed(2).replace('.', ',')}
               </span>
             </div>
           </div>
-          {isExpanded ? (
-            <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-          ) : (
-            <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-          )}
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => handleRemoveItem(item.id)}
+              className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors"
+              title="Remover item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <div className="cursor-pointer p-1" onClick={() => toggleItemExpand(item.id)}>
+              {isExpanded ? (
+                <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+              )}
+            </div>
+          </div>
         </div>
         
         {isExpanded && (
@@ -351,10 +421,17 @@ const BudgetDetail = () => {
         </div>
 
         {/* Botão de Ação */}
-        <div className="fixed bottom-4 left-0 right-0 px-4">
+        <div className="fixed bottom-4 left-0 right-0 px-4 flex flex-col items-center space-y-2">
+          <button
+            onClick={handleSaveChanges}
+            className="w-full max-w-md px-4 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 transition-colors flex items-center justify-center"
+          >
+            <Save className="h-5 w-5 mr-2" />
+            Salvar Alterações
+          </button>
           <button
             onClick={() => navigate(-1)}
-            className="w-full max-w-md mx-auto px-4 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center"
+            className="w-full max-w-md px-4 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center"
           >
             <ArrowLeft className="h-5 w-5 mr-2" />
             Voltar para a lista
