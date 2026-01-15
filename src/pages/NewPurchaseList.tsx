@@ -416,11 +416,12 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
 `.trim();
 
             // Cria o item da área de transferência com imagem e texto
-            // Nota: Alguns navegadores/aplicativos (como WhatsApp) priorizam a imagem quando ambos estão presentes
+            // Tentamos enviar ambos. O comportamento de "colar" depende do aplicativo de destino.
             const data = [
               new ClipboardItem({
                 'image/png': blob,
-                'text/plain': new Blob([hotelText], { type: 'text/plain' })
+                'text/plain': new Blob([hotelText], { type: 'text/plain' }),
+                'text/html': new Blob([`<img src="cid:budget-image"><br><pre>${hotelText}</pre>`], { type: 'text/html' })
               })
             ];
 
