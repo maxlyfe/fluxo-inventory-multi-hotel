@@ -373,6 +373,12 @@ const NewPurchaseList = () => {
               </tr>
             </tfoot>
           </table>
+          <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; color: #444;">
+            <p style="margin: 0 0 5px 0; font-size: 16px;"><strong>${products.find(p => p.editedSupplier || p.supplier)?.editedSupplier || products.find(p => p.editedSupplier || p.supplier)?.supplier || 'Fornecedor'},</strong></p>
+            <p style="margin: 5px 0; font-size: 14px;">FANTASIA: <strong>${selectedHotel?.fantasy_name || selectedHotel?.name || 'Hotel'}</strong></p>
+            <p style="margin: 5px 0; font-size: 14px;">RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}</p>
+            <p style="margin: 5px 0; font-size: 14px;">CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}</p>
+          </div>
         </div>
       `;
 
