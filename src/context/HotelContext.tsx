@@ -37,7 +37,7 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
           setLoading(true);
           const { data, error } = await supabase
             .from('hotels')
-            .select('id, name, code')
+            .select('id, name, code, fantasy_name, corporate_name, cnpj')
             .eq('id', selectedHotel.id)
             .single();
 
