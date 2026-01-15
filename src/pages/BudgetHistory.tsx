@@ -250,9 +250,6 @@ const BudgetHistory = () => {
                 <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Quantidade</th>
                 <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Unidade</th>
                 <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Fornecedor</th>
-                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Qtd. Últ. Compra</th>
-                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Data Últ. Compra</th>
-                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Últ. Compra</th>
                 <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Unitário</th>
                 <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Total</th>
               </tr>
@@ -283,9 +280,6 @@ const BudgetHistory = () => {
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${quantity}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${unitDisplay}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.supplier || '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.last_purchase_quantity ?? '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${displayDate}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.last_purchase_price != null ? `R$ ${item.last_purchase_price.toFixed(2).replace('.', ',')}` : '-'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${price != null ? `R$ ${price.toFixed(2).replace('.', ',')}` : '-'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">${`R$ ${totalItemValue.toFixed(2).replace('.', ',')}`}</td>
                   </tr>
@@ -294,7 +288,7 @@ const BudgetHistory = () => {
             </tbody>
             <tfoot>
               <tr style="background-color: #f9fafb;">
-                <td colspan="8" style="padding: 12px; border-top: 2px solid #e5e7eb; text-align: right; font-weight: bold;">Total Geral:</td>
+                <td colspan="5" style="padding: 12px; border-top: 2px solid #e5e7eb; text-align: right; font-weight: bold;">Total Geral:</td>
                 <td style="padding: 12px; border-top: 2px solid #e5e7eb; font-weight: bold;">R$ ${budget.total_value.toFixed(2).replace('.', ',')}</td>
               </tr>
             </tfoot>
