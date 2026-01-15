@@ -275,21 +275,21 @@ const BudgetHistory = () => {
                   } catch { /* Ignore */ }
                 }
                 
-                return \`
-                  <tr style="background-color: \${bgColor};">
+                return `
+                  <tr style="background-color: ${bgColor};">
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">
-                      \${item.product?.name || item.custom_item_name || 'Item Desconhecido'}
+                      ${item.product?.name || item.custom_item_name || 'Item Desconhecido'}
                     </td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${quantity}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${unitDisplay}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${item.supplier || '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${item.last_purchase_quantity ?? '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${displayDate}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${item.last_purchase_price != null ? \`R$ \${item.last_purchase_price.toFixed(2).replace('.', ',')}\` : '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${price != null ? \`R$ \${price.toFixed(2).replace('.', ',')}\` : '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">\${\`R$ \${totalItemValue.toFixed(2).replace('.', ',')}\`}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${quantity}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${unitDisplay}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.supplier || '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.last_purchase_quantity ?? '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${displayDate}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${item.last_purchase_price != null ? `R$ ${item.last_purchase_price.toFixed(2).replace('.', ',')}` : '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${price != null ? `R$ ${price.toFixed(2).replace('.', ',')}` : '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">${`R$ ${totalItemValue.toFixed(2).replace('.', ',')}`}</td>
                   </tr>
-                \`;
+                `;
               }).join('')}
             </tbody>
             <tfoot>
@@ -339,7 +339,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
               new ClipboardItem({
                 'image/png': blob,
                 'text/plain': new Blob([hotelText], { type: 'text/plain' }),
-                'text/html': new Blob([\`<img src="cid:budget-image"><br><pre>\${hotelText}</pre>\`], { type: 'text/html' })
+                'text/html': new Blob([`<img src="cid:budget-image"><br><pre>${hotelText}</pre>`], { type: 'text/html' })
               })
             ];
 
