@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { History, ArrowLeft, Download, Calendar, Search, Filter, X, RefreshCw, ChevronDown, Eye, DollarSign, Package, ShoppingBag, Truck, CheckCircle, XCircle, Clock, Ban, ThumbsUp, Send, Archive, ListFilter } from 'lucide-react';
+import { History, ArrowLeft, Download, Calendar, Search, Filter, X, RefreshCw, ChevronDown, Eye, DollarSign, Package, ShoppingBag, Truck, CheckCircle, XCircle, Clock, Ban, ThumbsUp, Send, Archive, ListFilter, Image as ImageIcon } from 'lucide-react';
 import { format, parseISO, isAfter, isBefore, isEqual, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useHotel } from '../context/HotelContext';
@@ -225,6 +225,138 @@ const BudgetHistory = () => {
     return option ? option.label : unitValue;
   };
 
+  const captureAndCopyToClipboard = async (budget: Budget) => {
+    try {
+      if (budget.budget_items.length === 0) {
+        addNotification("Orçamento vazio. Adicione itens para gerar a imagem.", "warning");
+        return;
+      }
+
+      addNotification("Preparando imagem do orçamento...", "info");
+
+      const today = format(new Date(), 'dd/MM/yyyy HH:mm', { locale: ptBR });
+      const mainSupplier = getMainSupplier(budget);
+
+      const tableHTML = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background: white; color: #333; width: 1000px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+            <h2 style="font-size: 24px; margin: 0;">Orçamento - ${selectedHotel?.name || 'Hotel'}</h2>
+            <div>${today}</div>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+              <tr style="background-color: #f9fafb; text-align: left;">
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Item</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Quantidade</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Unidade</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Fornecedor</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Qtd. Últ. Compra</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Data Últ. Compra</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Últ. Compra</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Unitário</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${budget.budget_items.map((item, index) => {
+                const unitDisplay = getUnitLabel(item.unit);
+                const quantity = item.quantity ?? 0;
+                const price = item.unit_price ?? 0;
+                const totalItemValue = quantity * price;
+                const bgColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+                
+                let displayDate = '-';
+                if (item.last_purchase_date) {
+                  try {
+                    const parsedDate = parseISO(item.last_purchase_date);
+                    if (isValid(parsedDate)) {
+                      displayDate = format(parsedDate, 'dd/MM/yyyy', { locale: ptBR });
+                    }
+                  } catch { /* Ignore */ }
+                }
+                
+                return \`
+                  <tr style="background-color: \${bgColor};">
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">
+                      \${item.product?.name || item.custom_item_name || 'Item Desconhecido'}
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${quantity}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${unitDisplay}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${item.supplier || '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${item.last_purchase_quantity ?? '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${displayDate}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${item.last_purchase_price != null ? \`R$ \${item.last_purchase_price.toFixed(2).replace('.', ',')}\` : '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">\${price != null ? \`R$ \${price.toFixed(2).replace('.', ',')}\` : '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">\${\`R$ \${totalItemValue.toFixed(2).replace('.', ',')}\`}</td>
+                  </tr>
+                \`;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="background-color: #f9fafb;">
+                <td colspan="8" style="padding: 12px; border-top: 2px solid #e5e7eb; text-align: right; font-weight: bold;">Total Geral:</td>
+                <td style="padding: 12px; border-top: 2px solid #e5e7eb; font-weight: bold;">R$ ${budget.total_value.toFixed(2).replace('.', ',')}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; color: #444;">
+            <p style="margin: 0 0 5px 0; font-size: 16px;"><strong>${mainSupplier},</strong></p>
+            <p style="margin: 5px 0; font-size: 14px;">FANTASIA: <strong>${selectedHotel?.fantasy_name || selectedHotel?.name || 'Hotel'}</strong></p>
+            <p style="margin: 5px 0; font-size: 14px;">RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}</p>
+            <p style="margin: 5px 0; font-size: 14px;">CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}</p>
+          </div>
+        </div>
+      `;
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = tableHTML;
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px'; 
+      document.body.appendChild(tempDiv);
+
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(tempDiv.firstElementChild as HTMLElement, { 
+        scale: 2, 
+        backgroundColor: null, 
+        logging: false, 
+        useCORS: true 
+      });
+      
+      document.body.removeChild(tempDiv);
+
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          try {
+            const hotelText = `
+${mainSupplier},
+
+FANTASIA: *${selectedHotel?.fantasy_name || selectedHotel?.name || 'Hotel'}*
+RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}
+CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
+`.trim();
+
+            const data = [
+              new ClipboardItem({
+                'image/png': blob,
+                'text/plain': new Blob([hotelText], { type: 'text/plain' }),
+                'text/html': new Blob([\`<img src="cid:budget-image"><br><pre>\${hotelText}</pre>\`], { type: 'text/html' })
+              })
+            ];
+
+            await navigator.clipboard.write(data);
+            addNotification("Imagem e dados do hotel copiados para a área de transferência!", "success");
+          } catch (clipboardError) {
+            console.error('Erro ao copiar para área de transferência:', clipboardError);
+            addNotification("Erro ao copiar imagem. Tente novamente.", "error");
+          }
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error('Error in captureAndCopyToClipboard:', err);
+      addNotification("Erro ao gerar imagem do orçamento.", "error");
+    }
+  };
+
   const exportBudgetToExcel = (budget: Budget) => {
     const listData = budget.budget_items.map(item => {
       const totalItemValue = item.quantity * (item.unit_price || 0);
@@ -306,6 +438,13 @@ const BudgetHistory = () => {
               </>)}
               {isOnTheWay && (<button onClick={() => handleRegisterEntry(budget)} className="flex items-center px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors duration-150"><Truck className="h-4 w-4 mr-1" /> Entrada</button>)}
               {(isPending || isApproved) && (<button onClick={() => handleCancelBudget(budget.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors duration-150"><Ban className="h-4 w-4 mr-1" /> Cancelar</button>)}
+              <button 
+                onClick={() => captureAndCopyToClipboard(budget)} 
+                className="flex items-center px-3 py-1.5 text-sm text-gray-600 hover:text-purple-600 dark:text-gray-300 dark:hover:text-purple-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-150" 
+                title="Copiar Imagem do Orçamento"
+              >
+                <ImageIcon className="h-4 w-4 mr-1" /><span>Copiar Imagem</span>
+              </button>
               <Link to={`/budget/${budget.id}`} state={{ originatingPage: '/budget-history' }} className="flex items-center px-3 py-1.5 text-sm text-gray-600 hover:text-purple-600 dark:text-gray-300 dark:hover:text-purple-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-150" title="Ver Detalhes Completos"><Eye className="h-4 w-4 mr-1" /><span>Detalhes</span></Link>
             </div>
           </div>
