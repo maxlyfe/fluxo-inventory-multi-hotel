@@ -11,12 +11,13 @@ import {
   Check,
   ThumbsUp,
   ShoppingBag,
+  Trash2,
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAuth } from "../context/AuthContext";
 import { useNotification } from "../context/NotificationContext";
-import { getBudgetHistory, updateBudgetStatus, getHotels } from "../lib/supabase"; 
+import { getBudgetHistory, updateBudgetStatus, getHotels, updateBudgetItems } from "../lib/supabase"; 
 import { createNotification } from "../lib/notifications";
 
 const unitOptions = [
@@ -205,6 +206,45 @@ const AuthorizationsPage: React.FC = () => {
     }
   };
 
+  const handleUpdateItemQuantity = (budgetId: string, itemId: string, newQuantity: number) => {
+    if (newQuantity < 0) return;
+    
+    setAllBudgets(prevBudgets => prevBudgets.map(budget => {
+      if (budget.id !== budgetId) return budget;
+      
+      const updatedItems = budget.budget_items.map(item => 
+        item.id === itemId ? { ...item, quantity: newQuantity } : item
+      );
+      
+      const newTotalValue = updatedItems.reduce((sum, item) => 
+        sum + (item.quantity * (item.unit_price || 0)), 0
+      );
+      
+      return { ...budget, budget_items: updatedItems, total_value: newTotalValue };
+    }));
+  };
+
+  const handleRemoveItem = (budgetId: string, itemId: string) => {
+    if (!window.confirm("Tem certeza que deseja remover este item do orçamento?")) return;
+    
+    setAllBudgets(prevBudgets => prevBudgets.map(budget => {
+      if (budget.id !== budgetId) return budget;
+      
+      const updatedItems = budget.budget_items.filter(item => item.id !== itemId);
+      
+      if (updatedItems.length === 0) {
+        addNotification("O orçamento não pode ficar vazio. Cancele o orçamento se desejar removê-lo completamente.", "warning");
+        return budget;
+      }
+      
+      const newTotalValue = updatedItems.reduce((sum, item) => 
+        sum + (item.quantity * (item.unit_price || 0)), 0
+      );
+      
+      return { ...budget, budget_items: updatedItems, total_value: newTotalValue };
+    }));
+  };
+
   const handleApproveBudget = async (budgetId: string) => {
     if (!user || !user.email) {
       addNotification("Usuário não autenticado ou e-mail não disponível.", "error");
@@ -214,35 +254,40 @@ const AuthorizationsPage: React.FC = () => {
 
     try {
       setLoading(true);
+      
+      // Encontrar o orçamento atualizado no estado local
+      const budget = allBudgets.find(b => b.id === budgetId);
+      if (!budget) throw new Error("Orçamento não encontrado.");
+
+      // 1. Salvar as alterações nos itens (se houver)
+      const updateItemsResult = await updateBudgetItems(budgetId, budget.budget_items, budget.total_value);
+      if (!updateItemsResult.success) {
+        throw new Error(updateItemsResult.error || "Falha ao atualizar itens do orçamento");
+      }
+
+      // 2. Atualizar o status para aprovado
       const result = await updateBudgetStatus(budgetId, "approved", approverUserEmail);
       if (result.success) {
         addNotification("Orçamento aprovado com sucesso!", "success");
         
-        // Encontrar o orçamento que foi aprovado para incluir detalhes na notificação
-        const budget = allBudgets.find(b => b.id === budgetId);
-        if (budget) {
-          try {
-            // Criar notificação para o evento BUDGET_APPROVED
-            await createNotification({
-              event_type: 'BUDGET_APPROVED',
-              hotel_id: budget.hotel_id,
-              title: 'Orçamento aprovado',
-              content: `Orçamento de ${getMainSupplier(budget)} no valor de R$ ${budget.total_value.toFixed(2).replace('.', ',')} foi aprovado por ${approverUserEmail.split('@')[0]}`,
-              link: `/budget/${budgetId}`,
-              metadata: {
-                budget_id: budgetId,
-                total_value: budget.total_value,
-                supplier: getMainSupplier(budget),
-                approved_by: approverUserEmail,
-                items_count: budget.budget_items.length
-              }
-            });
-            
-            console.log('Notificação de orçamento aprovado enviada com sucesso');
-          } catch (notificationError) {
-            console.error('Erro ao enviar notificação de orçamento aprovado:', notificationError);
-            // Não interrompe o fluxo principal se a notificação falhar
-          }
+        try {
+          // Criar notificação para o evento BUDGET_APPROVED
+          await createNotification({
+            event_type: 'BUDGET_APPROVED',
+            hotel_id: budget.hotel_id,
+            title: 'Orçamento aprovado',
+            content: `Orçamento de ${getMainSupplier(budget)} no valor de R$ ${budget.total_value.toFixed(2).replace('.', ',')} foi aprovado por ${approverUserEmail.split('@')[0]}`,
+            link: `/budget/${budgetId}`,
+            metadata: {
+              budget_id: budgetId,
+              total_value: budget.total_value,
+              supplier: getMainSupplier(budget),
+              approved_by: approverUserEmail,
+              items_count: budget.budget_items.length
+            }
+          });
+        } catch (notificationError) {
+          console.error('Erro ao enviar notificação de orçamento aprovado:', notificationError);
         }
         
         fetchAllBudgetsAndHotels(activeHotelFilter);
@@ -468,29 +513,49 @@ const AuthorizationsPage: React.FC = () => {
                       <div className="overflow-x-auto">
                         <table className="min-w-full text-sm text-gray-700 dark:text-gray-300">
                           <thead className="bg-gray-50 dark:bg-gray-700">
-                            <tr>
-                              <th className="px-3 py-2 text-left">Item</th>
-                              <th className="px-3 py-2 text-left">Qtd</th>
-                              <th className="px-3 py-2 text-left">Valor</th>
-                            </tr>
+	                            <tr>
+	                              <th className="px-3 py-2 text-left">Item</th>
+	                              <th className="px-3 py-2 text-left">Qtd</th>
+	                              <th className="px-3 py-2 text-left">Valor</th>
+                                <th className="px-3 py-2 text-right">Ações</th>
+	                            </tr>
                           </thead>
-                          <tbody>
-                            {budget.budget_items.map((item) => (
-                              <tr key={item.id} className="border-t border-gray-100 dark:border-gray-700">
-                                <td className="px-3 py-2">
-                                  {item.product?.name || item.custom_item_name || "Item sem nome"}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {item.quantity} {getUnitLabel(item.unit)}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {item.unit_price
-                                    ? `R$ ${(item.quantity * item.unit_price).toFixed(2).replace(".", ",")}`
-                                    : "-"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
+	                          <tbody>
+	                            {budget.budget_items.map((item) => (
+	                              <tr key={item.id} className="border-t border-gray-100 dark:border-gray-700">
+	                                <td className="px-3 py-2">
+	                                  {item.product?.name || item.custom_item_name || "Item sem nome"}
+	                                </td>
+	                                <td className="px-3 py-2">
+                                    <div className="flex items-center">
+                                      <input
+                                        type="number"
+                                        value={item.quantity}
+                                        onChange={(e) => handleUpdateItemQuantity(budget.id, item.id, parseFloat(e.target.value) || 0)}
+                                        className="w-16 p-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 mr-1"
+                                        min="0"
+                                        step="any"
+                                      />
+                                      <span className="text-xs text-gray-500">{getUnitLabel(item.unit)}</span>
+                                    </div>
+	                                </td>
+	                                <td className="px-3 py-2">
+	                                  {item.unit_price
+	                                    ? `R$ ${(item.quantity * item.unit_price).toFixed(2).replace(".", ",")}`
+	                                    : "-"}
+	                                </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <button
+                                      onClick={() => handleRemoveItem(budget.id, item.id)}
+                                      className="text-red-500 hover:text-red-700 transition-colors"
+                                      title="Remover item"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </td>
+	                              </tr>
+	                            ))}
+	                          </tbody>
                         </table>
                       </div>
                     ) : (
