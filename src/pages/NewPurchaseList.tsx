@@ -395,10 +395,31 @@ const NewPurchaseList = () => {
       canvas.toBlob(async (blob) => {
         if (blob) {
           try {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
-            addNotification("Imagem do orçamento copiada para a área de transferência!", "success");
+            // Identifica o fornecedor principal (o primeiro da lista que não seja vazio)
+            const mainSupplier = products.find(p => p.editedSupplier || p.supplier)?.editedSupplier || 
+                               products.find(p => p.editedSupplier || p.supplier)?.supplier || 
+                               'Fornecedor';
+
+            // Monta o texto com os dados do hotel
+            const hotelText = `
+${mainSupplier},
+
+FANTASIA: *${selectedHotel?.fantasy_name || selectedHotel?.name || 'Hotel'}*
+RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}
+CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
+`.trim();
+
+            // Cria o item da área de transferência com imagem e texto
+            // Nota: Alguns navegadores/aplicativos (como WhatsApp) priorizam a imagem quando ambos estão presentes
+            const data = [
+              new ClipboardItem({
+                'image/png': blob,
+                'text/plain': new Blob([hotelText], { type: 'text/plain' })
+              })
+            ];
+
+            await navigator.clipboard.write(data);
+            addNotification("Imagem e dados do hotel copiados para a área de transferência!", "success");
           } catch (clipboardError) {
             console.error('Erro ao copiar para área de transferência:', clipboardError);
             addNotification("Erro ao copiar imagem. Tente novamente.", "error");
