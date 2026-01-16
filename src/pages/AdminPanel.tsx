@@ -355,7 +355,7 @@ const AdminPanel = () => {
       
       if (!requestToProcess.is_custom && productId) {
         // ATUALIZAÇÃO ATÔMICA: Subtrai diretamente no banco para evitar erros de concorrência ou zeramento
-        const { data: updatedProduct, error: stockUpdateError } = await supabase.rpc('decrement_product_stock', {
+        const { data: updatedProduct, error: stockUpdateError } = await supabase.rpc('decrement_product_quantity', {
           p_product_id: productId,
           p_quantity: deliveredQuantity
         });
