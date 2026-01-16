@@ -360,11 +360,17 @@ const AdminPanel = () => {
             console.error("CRITICAL: A atualização do stock falhou após a entrega!", stockUpdateError);
             addNotification("Entrega registada, mas FALHA ao atualizar o stock. Verifique o inventário.", "error");
         } else {
-            // Enviar Broadcast para atualizar outros componentes na mesma tela
-            supabase.channel(`admin-stock-sync-${selectedHotel!.id}`).send({
-              type: 'broadcast',
-              event: 'stock_updated',
-              payload: { productId, newQuantity: newStock }
+            // BROADCAST GLOBAL: Notifica todos os componentes na tela sobre a mudança
+            const syncChannel = supabase.channel(`global-stock-sync-${selectedHotel?.id}`);
+            syncChannel.subscribe((status) => {
+              if (status === 'SUBSCRIBED') {
+                syncChannel.send({
+                  type: 'broadcast',
+                  event: 'stock_updated',
+                  payload: { productId, newQuantity: newStock }
+                });
+                setTimeout(() => supabase.removeChannel(syncChannel), 1000);
+              }
             });
         }
       }
@@ -507,11 +513,17 @@ const AdminPanel = () => {
           updated_at: new Date().toISOString()
       }).eq('id', substitutedProductId);
 
-      // Enviar Broadcast para atualizar outros componentes na mesma tela
-      supabase.channel(`admin-stock-sync-${selectedHotel!.id}`).send({
-        type: 'broadcast',
-        event: 'stock_updated',
-        payload: { productId: substitutedProductId, newQuantity: newStock }
+      // BROADCAST GLOBAL: Notifica todos os componentes na tela sobre a mudança
+      const syncChannel = supabase.channel(`global-stock-sync-${selectedHotel?.id}`);
+      syncChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          syncChannel.send({
+            type: 'broadcast',
+            event: 'stock_updated',
+            payload: { productId: substitutedProductId, newQuantity: newStock }
+          });
+          setTimeout(() => supabase.removeChannel(syncChannel), 1000);
+        }
       });
 
       // Lógica para porcionáveis ou não
@@ -621,10 +633,24 @@ const AdminPanel = () => {
       );
 
       // 3. Deduz a quantidade do estoque principal
+      const newStock = product.quantity - quantity;
       await supabase
         .from('products')
-        .update({ quantity: product.quantity - quantity, updated_at: new Date().toISOString() })
+        .update({ quantity: newStock, updated_at: new Date().toISOString() })
         .eq('id', productId);
+
+      // BROADCAST GLOBAL: Notifica todos os componentes na tela sobre a mudança
+      const syncChannel = supabase.channel(`global-stock-sync-${selectedHotel?.id}`);
+      syncChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          syncChannel.send({
+            type: 'broadcast',
+            event: 'stock_updated',
+            payload: { productId, newQuantity: newStock }
+          });
+          setTimeout(() => supabase.removeChannel(syncChannel), 1000);
+        }
+      });
 
       // --- INÍCIO DA LÓGICA CORRIGIDA ---
       // 4. Verifica se o produto é porcionável
