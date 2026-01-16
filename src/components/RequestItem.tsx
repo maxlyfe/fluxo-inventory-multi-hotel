@@ -57,6 +57,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
   // Fetch current stock for the selected hotel and subscribe to changes
   useEffect(() => {
     let isMounted = true;
+    let productChannel: any = null;
 
     const fetchCurrentStock = async () => {
       if (!selectedHotel?.id || !stockSearchName) {
@@ -66,7 +67,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
 
       if (isMounted) setLoading(true);
       try {
-        // Buscar pelo nome do produto em vez do ID, já que o mesmo produto pode ter IDs diferentes em hotéis diferentes
+        // 1. Buscar o produto para obter o ID correto e a quantidade inicial
         const { data, error } = await supabase
           .from('products')
           .select('id, quantity')
@@ -74,91 +75,76 @@ const RequestItem: React.FC<RequestItemProps> = ({
           .ilike('name', stockSearchName)
           .limit(1);
 
-        if (error) {
-          console.error('Error fetching product stock:', error);
-          if (isMounted) setCurrentStock(null);
-        } else if (data && data.length > 0) {
-          if (isMounted) setCurrentStock(data[0].quantity);
+        if (error) throw error;
+
+        let targetProductId = data && data.length > 0 ? data[0].id : null;
+        let initialQuantity = data && data.length > 0 ? data[0].quantity : null;
+
+        // 2. Se não encontrou por nome exato, tenta busca flexível
+        if (!targetProductId) {
+          const { data: fuzzyData } = await supabase
+            .from('products')
+            .select('id, quantity')
+            .eq('hotel_id', selectedHotel.id)
+            .ilike('name', `%${stockSearchName.split(' ')[0]}%`)
+            .limit(1);
           
-          // Iniciar escuta em tempo real para este produto específico
-          const productChannel = supabase.channel(`stock-update-${data[0].id}`)
-            .on(
-              'postgres_changes',
-              { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'products', 
-                filter: `id=eq.${data[0].id}` 
-              },
-              (payload) => {
+          if (fuzzyData && fuzzyData.length > 0) {
+            targetProductId = fuzzyData[0].id;
+            initialQuantity = fuzzyData[0].quantity;
+          }
+        }
+
+        if (isMounted) {
+          setCurrentStock(initialQuantity);
+          setLoading(false);
+        }
+
+        // 3. Configurar Realtime: Escutar QUALQUER mudança na tabela products para este hotel
+        // Isso é mais robusto do que filtrar por ID, pois garante que o componente reaja
+        productChannel = supabase.channel(`request-item-stock-${request.id}`)
+          .on(
+            'postgres_changes',
+            { 
+              event: 'UPDATE', 
+              schema: 'public', 
+              table: 'products', 
+              filter: `hotel_id=eq.${selectedHotel.id}` 
+            },
+            (payload) => {
+              // Se a mudança foi no produto que este card representa, atualiza o estado
+              if (targetProductId && payload.new.id === targetProductId) {
                 if (isMounted) {
-                  console.log('Stock updated in real-time for:', stockSearchName, payload.new.quantity);
+                  console.log(`Realtime: Estoque de ${stockSearchName} atualizado para ${payload.new.quantity}`);
                   setCurrentStock(payload.new.quantity);
                 }
               }
-            )
-            .subscribe();
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log(`Realtime: Inscrito para atualizações de estoque no hotel ${selectedHotel.id}`);
+            }
+          });
 
-          return () => {
-            supabase.removeChannel(productChannel);
-          };
-        } else {
-          // Tente uma busca mais flexível se não encontrar correspondência exata
-          const { data: fuzzyData, error: fuzzyError } = await supabase
-            .from('products')
-            .select('id, quantity, name')
-            .eq('hotel_id', selectedHotel.id)
-            .ilike('name', `%${stockSearchName.split(' ')[0]}%`) // Busca pelo primeiro termo do nome
-            .limit(1);
-            
-          if (fuzzyError) {
-            console.error('Error in fuzzy search:', fuzzyError);
-            if (isMounted) setCurrentStock(null);
-          } else if (fuzzyData && fuzzyData.length > 0) {
-            if (isMounted) setCurrentStock(fuzzyData[0].quantity);
-            
-            // Iniciar escuta em tempo real para o produto encontrado na busca flexível
-            const fuzzyChannel = supabase.channel(`stock-update-fuzzy-${fuzzyData[0].id}`)
-              .on(
-                'postgres_changes',
-                { 
-                  event: 'UPDATE', 
-                  schema: 'public', 
-                  table: 'products', 
-                  filter: `id=eq.${fuzzyData[0].id}` 
-                },
-                (payload) => {
-                  if (isMounted) {
-                    setCurrentStock(payload.new.quantity);
-                  }
-                }
-              )
-              .subscribe();
-
-            return () => {
-              supabase.removeChannel(fuzzyChannel);
-            };
-          } else {
-            if (isMounted) setCurrentStock(null);
-          }
-        }
       } catch (err) {
         console.error('Error in fetchCurrentStock:', err);
-        if (isMounted) setCurrentStock(null);
-      } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setCurrentStock(null);
+          setLoading(false);
+        }
       }
     };
 
-    const cleanup = fetchCurrentStock();
+    fetchCurrentStock();
     
     return () => {
       isMounted = false;
-      cleanup.then(unsubscribe => {
-        if (unsubscribe) unsubscribe();
-      });
+      if (productChannel) {
+        supabase.removeChannel(productChannel);
+      }
     };
-  }, [stockSearchName, selectedHotel?.id]);
+  }, [stockSearchName, selectedHotel?.id, request.id]);
 
   // Handler functions to stop propagation
   const handleDeliverClick = (event: React.MouseEvent<HTMLButtonElement>) => {
