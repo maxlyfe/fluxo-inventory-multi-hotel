@@ -156,12 +156,17 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       }
 
       // 2. Salva os itens
-      // Simplificando os campos para evitar erro 400 se as colunas não existirem
+      // O erro 23502 indica que 'previous_quantity' é obrigatório (NOT NULL).
+      // Também incluiremos 'difference' para garantir integridade total.
       const countItems = Object.entries(counts).map(([productId, countedQty]) => {
+        const product = products.find(p => p.id === productId);
+        const previousQty = product?.quantity || 0;
         return {
           stock_count_id: countId,
           product_id: productId,
-          counted_quantity: countedQty
+          previous_quantity: previousQty,
+          counted_quantity: countedQty,
+          difference: countedQty - previousQty
         };
       });
 
@@ -173,7 +178,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       
       if (deleteItemsError) throw deleteItemsError;
 
-      // Inserção dos itens
+      // Inserção dos itens com todos os campos obrigatórios
       const { error: itemsError } = await supabase
         .from('stock_count_items')
         .insert(countItems);
