@@ -331,14 +331,12 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
 
             const data = [
               new ClipboardItem({
-                'image/png': blob,
-                'text/plain': new Blob([hotelText], { type: 'text/plain' }),
-                'text/html': new Blob([`<img src="cid:budget-image"><br><pre>${hotelText}</pre>`], { type: 'text/html' })
+                'image/png': blob
               })
             ];
 
             await navigator.clipboard.write(data);
-            addNotification("Imagem e dados do hotel copiados para a área de transferência!", "success");
+            addNotification("Imagem do orçamento copiada com sucesso!", "success");
           } catch (clipboardError) {
             console.error('Erro ao copiar para área de transferência:', clipboardError);
             addNotification("Erro ao copiar imagem. Tente novamente.", "error");
