@@ -370,9 +370,10 @@ const AdminPanel = () => {
       
       if (!requestToProcess.is_custom && productId) {
         // ATUALIZAÇÃO ATÔMICA: Subtrai diretamente no banco para evitar erros de concorrência ou zeramento
-        const { data: updatedProduct, error: stockUpdateError } = await supabase.rpc('decrement_product_quantity', {
+        const { data: updatedProduct, error: stockUpdateError } = await supabase.rpc('decrement_product_stock_quantity', {
+          p_hotel_id: selectedHotel!.id,
           p_product_id: productId,
-          p_quantity: deliveredQuantity
+          p_quantity_to_decrement: deliveredQuantity
         });
         
         if (stockUpdateError) {
