@@ -354,23 +354,19 @@ const AdminPanel = () => {
       if (updateError) throw updateError;
       
       if (!requestToProcess.is_custom && productId) {
-        // BUSCA REAL NO BANCO: Garante que estamos subtraindo do valor mais atualizado
-        const { data: latestProduct, error: fetchError } = await supabase
-          .from('products')
-          .select('quantity')
-          .eq('id', productId)
-          .single();
-        
-        if (fetchError || !latestProduct) throw new Error('Não foi possível verificar o estoque atual antes da entrega.');
-
-        const newStock = latestProduct.quantity - deliveredQuantity;
-        const { error: stockUpdateError } = await supabase.from('products').update({ quantity: newStock }).eq('id', productId);
+        // ATUALIZAÇÃO ATÔMICA: Subtrai diretamente no banco para evitar erros de concorrência ou zeramento
+        const { data: updatedProduct, error: stockUpdateError } = await supabase.rpc('decrement_product_stock', {
+          p_product_id: productId,
+          p_quantity: deliveredQuantity
+        });
         
         if (stockUpdateError) {
-            console.error("CRITICAL: A atualização do stock falhou após a entrega!", stockUpdateError);
-            addNotification("Entrega registada, mas FALHA ao atualizar o stock. Verifique o inventário.", "error");
+            console.error("CRITICAL: A atualização do stock falhou!", stockUpdateError);
+            addNotification("Erro ao atualizar estoque. Verifique se há quantidade suficiente.", "error");
+            throw stockUpdateError;
         } else {
-            // BROADCAST GLOBAL: Notifica todos os componentes na tela sobre a mudança
+            const newStock = updatedProduct;
+            // BROADCAST GLOBAL: Notifica todos os componentes na tela
             const syncChannel = supabase.channel(`global-stock-sync-${selectedHotel?.id}`);
             syncChannel.subscribe((status) => {
               if (status === 'SUBSCRIBED') {
