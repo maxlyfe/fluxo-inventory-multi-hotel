@@ -46,13 +46,11 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   
   const filteredProducts = useMemo(() => {
     if (searchTerm) {
-      // Busca global: ignora categoria se houver termo de busca
       return products.filter(p => 
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (p.category || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-    // Busca por categoria se não houver termo de busca
     return products.filter(p => (p.category || 'Sem Categoria') === currentCategory);
   }, [products, currentCategory, searchTerm]);
 
@@ -61,7 +59,6 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
     if (isOpen) {
       checkExistingDraft();
     } else {
-      // Limpa estados ao fechar
       setCounts({});
       setSearchTerm('');
       setCurrentCategoryIndex(0);
@@ -159,15 +156,12 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       }
 
       // 2. Salva os itens
+      // Simplificando os campos para evitar erro 400 se as colunas não existirem
       const countItems = Object.entries(counts).map(([productId, countedQty]) => {
-        const product = products.find(p => p.id === productId);
-        const previousQty = product?.quantity || 0;
         return {
           stock_count_id: countId,
           product_id: productId,
-          previous_quantity: previousQty,
-          counted_quantity: countedQty,
-          difference: countedQty - previousQty
+          counted_quantity: countedQty
         };
       });
 
@@ -179,6 +173,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       
       if (deleteItemsError) throw deleteItemsError;
 
+      // Inserção dos itens
       const { error: itemsError } = await supabase
         .from('stock_count_items')
         .insert(countItems);
@@ -189,16 +184,18 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       if (isFinal) {
         for (const [productId, newQty] of Object.entries(counts)) {
           if (sectorId) {
-            await supabase
+            const { error: updateStockError } = await supabase
               .from('sector_stock')
               .update({ quantity: newQty })
               .eq('sector_id', sectorId)
               .eq('product_id', productId);
+            if (updateStockError) throw updateStockError;
           } else {
-            await supabase
+            const { error: updateStockError } = await supabase
               .from('products')
               .update({ quantity: newQty })
               .eq('id', productId);
+            if (updateStockError) throw updateStockError;
           }
         }
         addNotification('Conferência finalizada e estoque atualizado!', 'success');
@@ -208,7 +205,8 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
         addNotification('Progresso salvo como rascunho.', 'success');
       }
     } catch (err: any) {
-      addNotification('Erro ao salvar: ' + err.message, 'error');
+      console.error('Erro detalhado ao salvar conferência:', err);
+      addNotification('Erro ao salvar: ' + (err.message || 'Erro desconhecido'), 'error');
     } finally {
       setIsSaving(false);
     }
