@@ -54,67 +54,110 @@ const RequestItem: React.FC<RequestItemProps> = ({
     }
   };
 
-  const formatDateShort = (dateString: string) => {
-    try {
-      const date = parseISO(dateString);
-      return format(date, "dd/MM/yyyy", { locale: ptBR });
-    } catch (error) {
-      console.error('Erro ao formatar data:', error);
-      return 'Data inválida';
-    }
-  };
-
-  // Fetch current stock for the selected hotel
+  // Fetch current stock for the selected hotel and subscribe to changes
   useEffect(() => {
+    let isMounted = true;
+
     const fetchCurrentStock = async () => {
       if (!selectedHotel?.id || !stockSearchName) {
-        setCurrentStock(null);
+        if (isMounted) setCurrentStock(null);
         return;
       }
 
-      setLoading(true);
+      if (isMounted) setLoading(true);
       try {
         // Buscar pelo nome do produto em vez do ID, já que o mesmo produto pode ter IDs diferentes em hotéis diferentes
         const { data, error } = await supabase
           .from('products')
-          .select('quantity')
+          .select('id, quantity')
           .eq('hotel_id', selectedHotel.id)
           .ilike('name', stockSearchName)
           .limit(1);
 
         if (error) {
           console.error('Error fetching product stock:', error);
-          setCurrentStock(null);
+          if (isMounted) setCurrentStock(null);
         } else if (data && data.length > 0) {
-          setCurrentStock(data[0].quantity);
+          if (isMounted) setCurrentStock(data[0].quantity);
+          
+          // Iniciar escuta em tempo real para este produto específico
+          const productChannel = supabase.channel(`stock-update-${data[0].id}`)
+            .on(
+              'postgres_changes',
+              { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'products', 
+                filter: `id=eq.${data[0].id}` 
+              },
+              (payload) => {
+                if (isMounted) {
+                  console.log('Stock updated in real-time for:', stockSearchName, payload.new.quantity);
+                  setCurrentStock(payload.new.quantity);
+                }
+              }
+            )
+            .subscribe();
+
+          return () => {
+            supabase.removeChannel(productChannel);
+          };
         } else {
           // Tente uma busca mais flexível se não encontrar correspondência exata
           const { data: fuzzyData, error: fuzzyError } = await supabase
             .from('products')
-            .select('quantity, name')
+            .select('id, quantity, name')
             .eq('hotel_id', selectedHotel.id)
             .ilike('name', `%${stockSearchName.split(' ')[0]}%`) // Busca pelo primeiro termo do nome
             .limit(1);
             
           if (fuzzyError) {
             console.error('Error in fuzzy search:', fuzzyError);
-            setCurrentStock(null);
+            if (isMounted) setCurrentStock(null);
           } else if (fuzzyData && fuzzyData.length > 0) {
-            console.log(`Found fuzzy match: ${fuzzyData[0].name} for ${stockSearchName}`);
-            setCurrentStock(fuzzyData[0].quantity);
+            if (isMounted) setCurrentStock(fuzzyData[0].quantity);
+            
+            // Iniciar escuta em tempo real para o produto encontrado na busca flexível
+            const fuzzyChannel = supabase.channel(`stock-update-fuzzy-${fuzzyData[0].id}`)
+              .on(
+                'postgres_changes',
+                { 
+                  event: 'UPDATE', 
+                  schema: 'public', 
+                  table: 'products', 
+                  filter: `id=eq.${fuzzyData[0].id}` 
+                },
+                (payload) => {
+                  if (isMounted) {
+                    setCurrentStock(payload.new.quantity);
+                  }
+                }
+              )
+              .subscribe();
+
+            return () => {
+              supabase.removeChannel(fuzzyChannel);
+            };
           } else {
-            setCurrentStock(null);
+            if (isMounted) setCurrentStock(null);
           }
         }
       } catch (err) {
         console.error('Error in fetchCurrentStock:', err);
-        setCurrentStock(null);
+        if (isMounted) setCurrentStock(null);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
-    fetchCurrentStock();
+    const cleanup = fetchCurrentStock();
+    
+    return () => {
+      isMounted = false;
+      cleanup.then(unsubscribe => {
+        if (unsubscribe) unsubscribe();
+      });
+    };
   }, [stockSearchName, selectedHotel?.id]);
 
   // Handler functions to stop propagation
@@ -301,4 +344,3 @@ const calculatePendingTime = (createdAt: string): string => {
 };
 
 export default RequestItem;
-
