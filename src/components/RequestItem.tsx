@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import { Request } from '../pages/AdminPanel';
 import { Check, X, ArrowLeftRight, ImageIcon, Calendar, Clock } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { useHotel } from '../context/HotelContext';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface RequestItemProps {
   request: Request;
+  currentStock?: number | null; // Recebe o estoque centralizado do AdminPanel
   onTriggerDeliver?: (request: Request) => void;
   onTriggerReject?: (request: Request) => void;
   onTriggerSubstitute?: (request: Request) => void;
@@ -16,20 +15,16 @@ interface RequestItemProps {
 
 const RequestItem: React.FC<RequestItemProps> = ({ 
   request, 
+  currentStock,
   onTriggerDeliver, 
   onTriggerReject, 
   onTriggerSubstitute,
   isHistoryView = false 
 }) => {
-  const { selectedHotel } = useHotel();
-  const [currentStock, setCurrentStock] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const product = request.products;
   const substitutedProduct = request.substituted_product;
   const isSubstituted = !!substitutedProduct;
   const displayProduct = substitutedProduct || product;
-  const productId = displayProduct?.id;
   const displayProductName = isHistoryView && isSubstituted 
     ? substitutedProduct?.name || request.item_name 
     : request.item_name;
@@ -42,56 +37,6 @@ const RequestItem: React.FC<RequestItemProps> = ({
       return 'Data inválida';
     }
   };
-
-  // FUNÇÃO PARA BUSCAR ESTOQUE (MEMOIZADA)
-  const fetchStock = useCallback(async () => {
-    if (!productId || isHistoryView) return;
-    
-    const { data, error } = await supabase
-      .from('products')
-      .select('quantity')
-      .eq('id', productId)
-      .single();
-    
-    if (!error && data) {
-      setCurrentStock(data.quantity);
-    }
-  }, [productId, isHistoryView]);
-
-  // SINCRONIZAÇÃO GLOBAL (BROADCAST + REALTIME)
-  useEffect(() => {
-    if (!selectedHotel?.id || !productId || isHistoryView) return;
-
-    const channelName = `global-stock-sync-${selectedHotel.id}`;
-    const channel = supabase.channel(channelName)
-      .on('broadcast', { event: 'stock_updated' }, (payload) => {
-        // Se o broadcast for sobre o meu produto, eu atualizo meu estado
-        if (payload.payload.productId === productId) {
-          console.log(`Broadcast recebido para ${displayProductName}: ${payload.payload.newQuantity}`);
-          setCurrentStock(payload.payload.newQuantity);
-        }
-      })
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'products', 
-        filter: `id=eq.${productId}` 
-      }, (payload) => {
-        // Se o banco mudar, eu também atualizo
-        console.log(`Banco atualizou ${displayProductName}: ${payload.new.quantity}`);
-        setCurrentStock(payload.new.quantity);
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          // Assim que conectar, busca o valor mais recente para garantir
-          fetchStock();
-        }
-      });
-    
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedHotel?.id, productId, isHistoryView, displayProductName, fetchStock]);
 
   const calculatePendingTime = (createdAt: string): string => {
     try {
@@ -134,7 +79,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
           
           {!isHistoryView && (
             <div className="text-xs font-bold text-blue-600 dark:text-blue-400 mt-1">
-              Estoque Atual: {currentStock !== null ? currentStock : '...'}
+              Estoque Atual: {currentStock !== undefined && currentStock !== null ? currentStock : '...'}
             </div>
           )}
           
