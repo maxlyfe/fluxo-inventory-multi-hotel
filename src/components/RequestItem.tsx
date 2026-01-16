@@ -100,9 +100,8 @@ const RequestItem: React.FC<RequestItemProps> = ({
           setLoading(false);
         }
 
-        // 3. Configurar Realtime: Escutar QUALQUER mudança na tabela products para este hotel
-        // Isso é mais robusto do que filtrar por ID, pois garante que o componente reaja
-        productChannel = supabase.channel(`request-item-stock-${request.id}`)
+        // 3. Configurar Realtime com Broadcast (Mais rápido e independente da tabela)
+        productChannel = supabase.channel(`admin-stock-sync-${selectedHotel.id}`)
           .on(
             'postgres_changes',
             { 
@@ -112,20 +111,28 @@ const RequestItem: React.FC<RequestItemProps> = ({
               filter: `hotel_id=eq.${selectedHotel.id}` 
             },
             (payload) => {
-              // Se a mudança foi no produto que este card representa, atualiza o estado
               if (targetProductId && payload.new.id === targetProductId) {
                 if (isMounted) {
-                  console.log(`Realtime: Estoque de ${stockSearchName} atualizado para ${payload.new.quantity}`);
+                  console.log(`Realtime Table: Estoque de ${stockSearchName} atualizado para ${payload.new.quantity}`);
                   setCurrentStock(payload.new.quantity);
                 }
               }
             }
           )
-          .subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              console.log(`Realtime: Inscrito para atualizações de estoque no hotel ${selectedHotel.id}`);
+          .on(
+            'broadcast',
+            { event: 'stock_updated' },
+            (payload) => {
+              // Se o broadcast avisar que este produto mudou, atualiza na hora
+              if (targetProductId && payload.payload.productId === targetProductId) {
+                if (isMounted) {
+                  console.log(`Realtime Broadcast: Sincronizando ${stockSearchName} para ${payload.payload.newQuantity}`);
+                  setCurrentStock(payload.payload.newQuantity);
+                }
+              }
             }
-          });
+          )
+          .subscribe();
 
       } catch (err) {
         console.error('Error in fetchCurrentStock:', err);
