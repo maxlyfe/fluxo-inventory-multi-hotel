@@ -87,6 +87,7 @@ const AdminPanel = () => {
 
   const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
   const [allSectors, setAllSectors] = useState<{id: string, name: string}[]>([]);
+  const [productStocks, setProductStocks] = useState<Record<string, number>>({});
 
   const [showHistorySearch, setShowHistorySearch] = useState(false);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
@@ -166,10 +167,14 @@ const AdminPanel = () => {
         .select('id, name, quantity, average_price, last_purchase_price, last_purchase_quantity, image_url, is_portionable')
         .eq('hotel_id', selectedHotel.id)
         .eq('is_active', true)
-        .gt('quantity', 0)
         .order('name');
       if (error) throw error;
       setAvailableProducts(data || []);
+      
+      // Atualiza o mapa global de estoques
+      const stocks: Record<string, number> = {};
+      data?.forEach(p => { stocks[p.id] = p.quantity; });
+      setProductStocks(stocks);
     } catch (err: any) {
       console.error('Error fetching available products:', err);
     }
@@ -216,10 +221,20 @@ const AdminPanel = () => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'requisitions', filter: `hotel_id=eq.${selectedHotel.id}` },
         (payload) => {
-          console.log('Realtime change received!', payload);
           fetchPendingRequestsInternal();
           fetchHistoryRequestsInternal();
           fetchAvailableProducts();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'products', filter: `hotel_id=eq.${selectedHotel.id}` },
+        (payload) => {
+          // Atualiza o estoque global quando qualquer produto mudar no banco
+          setProductStocks(prev => ({
+            ...prev,
+            [payload.new.id]: payload.new.quantity
+          }));
         }
       )
       .subscribe();
@@ -858,16 +873,17 @@ const AdminPanel = () => {
                 </button>
                 {expandedSectors[sectorName] && (
                   <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-700/50">
-                    {requests.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map(request => (
-                      <RequestItem 
-                        key={request.id} 
-                        request={request} 
-                        onTriggerDeliver={() => triggerDeliveryModal(request)}
-                        onTriggerReject={() => triggerRejectModal(request)}
-                        onTriggerSubstitute={() => triggerSubstituteModal(request)}
-                        isHistoryView={false}
-                      />
-                    ))}
+	                    {requests.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map(request => (
+	                      <RequestItem 
+	                        key={request.id} 
+	                        request={request}
+	                        currentStock={request.product_id ? productStocks[request.product_id] : (request.products?.id ? productStocks[request.products.id] : null)}
+	                        onTriggerDeliver={() => triggerDeliveryModal(request)}
+	                        onTriggerReject={() => triggerRejectModal(request)}
+	                        onTriggerSubstitute={() => triggerSubstituteModal(request)}
+	                        isHistoryView={false}
+	                      />
+	                    ))}
                   </div>
                 )}
               </div>
