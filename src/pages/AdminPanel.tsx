@@ -353,9 +353,19 @@ const AdminPanel = () => {
       const { error: updateError } = await supabase.from('requisitions').update({ status: 'delivered', delivered_quantity: deliveredQuantity, updated_at: new Date().toISOString() }).eq('id', requestToProcess.id);
       if (updateError) throw updateError;
       
-      if (!requestToProcess.is_custom && productId && typeof currentStock === 'number') {
-        const newStock = currentStock - deliveredQuantity;
+      if (!requestToProcess.is_custom && productId) {
+        // BUSCA REAL NO BANCO: Garante que estamos subtraindo do valor mais atualizado
+        const { data: latestProduct, error: fetchError } = await supabase
+          .from('products')
+          .select('quantity')
+          .eq('id', productId)
+          .single();
+        
+        if (fetchError || !latestProduct) throw new Error('Não foi possível verificar o estoque atual antes da entrega.');
+
+        const newStock = latestProduct.quantity - deliveredQuantity;
         const { error: stockUpdateError } = await supabase.from('products').update({ quantity: newStock }).eq('id', productId);
+        
         if (stockUpdateError) {
             console.error("CRITICAL: A atualização do stock falhou após a entrega!", stockUpdateError);
             addNotification("Entrega registada, mas FALHA ao atualizar o stock. Verifique o inventário.", "error");
