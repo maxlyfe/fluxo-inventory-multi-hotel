@@ -369,8 +369,8 @@ const AdminPanel = () => {
       if (updateError) throw updateError;
       
       if (!requestToProcess.is_custom && productId) {
-        // ATUALIZAÇÃO ATÔMICA: Subtrai diretamente no banco para evitar erros de concorrência ou zeramento
-        const { data: updatedProduct, error: stockUpdateError } = await supabase.rpc('decrement_product_stock_quantity', {
+        // ATUALIZAÇÃO ATÔMICA: Subtrai diretamente no banco
+        const { data: newStock, error: stockUpdateError } = await supabase.rpc('decrement_product_stock_quantity', {
           p_hotel_id: selectedHotel!.id,
           p_product_id: productId,
           p_quantity_to_decrement: deliveredQuantity
@@ -378,10 +378,13 @@ const AdminPanel = () => {
         
         if (stockUpdateError) {
             console.error("CRITICAL: A atualização do stock falhou!", stockUpdateError);
-            addNotification("Erro ao atualizar estoque. Verifique se há quantidade suficiente.", "error");
-            throw stockUpdateError;
-        } else {
-            const newStock = updatedProduct;
+            // Se o erro for 404, é porque a função não existe. Vamos alertar o usuário.
+            if (stockUpdateError.code === 'PGRST202') {
+              addNotification("Erro de configuração no banco (RPC 404). Execute o script SQL enviado.", "error");
+            } else {
+              addNotification("Erro ao atualizar estoque.", "error");
+            }
+        } else if (newStock !== null) {
             // BROADCAST GLOBAL: Notifica todos os componentes na tela
             const syncChannel = supabase.channel(`global-stock-sync-${selectedHotel?.id}`);
             syncChannel.subscribe((status) => {
