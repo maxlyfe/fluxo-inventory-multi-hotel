@@ -6,7 +6,7 @@ import {
   ShoppingCart, ChevronDown, ChevronUp, Package, ArrowUp,
   ArrowUpRight, Search, Image as ImageIcon, DollarSign,
   RefreshCw, ArrowLeftRight, Eye, EyeOff, FilePlus, Camera, BarChart2,
-  Star // Ícone de Estrela importado
+  Star, ListChecks // Ícone de Estrela importado
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ImportInventory from '../components/ImportInventory';
