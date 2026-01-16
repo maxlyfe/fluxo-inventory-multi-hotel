@@ -45,12 +45,15 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const currentCategory = categories[currentCategoryIndex];
   
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
-      const cat = p.category || 'Sem Categoria';
-      const matchesCategory = cat === currentCategory;
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchesCategory || (searchTerm && matchesSearch);
-    });
+    if (searchTerm) {
+      // Busca global: ignora categoria se houver termo de busca
+      return products.filter(p => 
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.category || '').toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    // Busca por categoria se não houver termo de busca
+    return products.filter(p => (p.category || 'Sem Categoria') === currentCategory);
   }, [products, currentCategory, searchTerm]);
 
   // Busca rascunho ao abrir
@@ -155,7 +158,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
         if (updateError) throw updateError;
       }
 
-      // 2. Salva os itens (Upsert)
+      // 2. Salva os itens
       const countItems = Object.entries(counts).map(([productId, countedQty]) => {
         const product = products.find(p => p.id === productId);
         const previousQty = product?.quantity || 0;
@@ -238,7 +241,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Procurar item específico..."
+              placeholder="Procurar em todos os itens..."
               className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -277,7 +280,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              Nenhum item encontrado nesta categoria.
+              {searchTerm ? 'Nenhum item encontrado para sua busca.' : 'Nenhum item encontrado nesta categoria.'}
             </div>
           ) : (
             filteredProducts.map(product => (
@@ -292,7 +295,10 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-gray-800 dark:text-gray-200 truncate">{product.name}</h4>
-                    <p className="text-xs text-gray-500">Estoque atual: {product.quantity}</p>
+                    <p className="text-xs text-gray-500">
+                      {searchTerm && <span className="text-indigo-500 font-medium">{product.category} • </span>}
+                      Estoque atual: {product.quantity}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <input
