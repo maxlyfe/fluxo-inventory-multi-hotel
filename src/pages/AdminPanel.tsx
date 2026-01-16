@@ -359,6 +359,13 @@ const AdminPanel = () => {
         if (stockUpdateError) {
             console.error("CRITICAL: A atualização do stock falhou após a entrega!", stockUpdateError);
             addNotification("Entrega registada, mas FALHA ao atualizar o stock. Verifique o inventário.", "error");
+        } else {
+            // Enviar Broadcast para atualizar outros componentes na mesma tela
+            supabase.channel(`admin-stock-sync-${selectedHotel!.id}`).send({
+              type: 'broadcast',
+              event: 'stock_updated',
+              payload: { productId, newQuantity: newStock }
+            });
         }
       }
 
@@ -494,10 +501,18 @@ const AdminPanel = () => {
       }).eq('id', requestToProcess.id);
       if (updateRequisitionError) throw updateRequisitionError;
 
+      const newStock = substituteProduct.quantity - deliveredQuantity;
       await supabase.from('products').update({
-          quantity: substituteProduct.quantity - deliveredQuantity,
+          quantity: newStock,
           updated_at: new Date().toISOString()
       }).eq('id', substitutedProductId);
+
+      // Enviar Broadcast para atualizar outros componentes na mesma tela
+      supabase.channel(`admin-stock-sync-${selectedHotel!.id}`).send({
+        type: 'broadcast',
+        event: 'stock_updated',
+        payload: { productId: substitutedProductId, newQuantity: newStock }
+      });
 
       // Lógica para porcionáveis ou não
       if (substituteProduct.is_portionable) {
