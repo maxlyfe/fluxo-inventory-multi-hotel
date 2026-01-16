@@ -6,7 +6,7 @@ import {
   ShoppingCart, ChevronDown, ChevronUp, Package, ArrowUp,
   ArrowUpRight, Search, Image as ImageIcon, DollarSign,
   RefreshCw, ArrowLeftRight, Eye, EyeOff, FilePlus, Camera, BarChart2,
-  Star, ListChecks // Ícone de Estrela importado
+  Star, ListChecks, History // Ícone de Estrela importado
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ImportInventory from '../components/ImportInventory';
@@ -21,6 +21,7 @@ import Modal from '../components/Modal';
 // --- NOVO: Importa o modal de itens favoritados ---
 import StarredItemsModal from '../components/StarredItemsModal';
 import StockConferenceModal from '../components/StockConferenceModal';
+import StockCountHistoryModal from '../components/StockCountHistoryModal';
 
 // --- ALTERAÇÃO: Adiciona a propriedade opcional 'is_starred' à interface do Produto ---
 // Isso permite que o TypeScript entenda o novo campo que vem do banco de dados.
@@ -74,6 +75,7 @@ const Inventory = () => {
   // --- NOVO: Estado para controlar a visibilidade do modal de itens favoritados ---
   const [showStarredModal, setShowStarredModal] = useState(false);
   const [showConferenceModal, setShowConferenceModal] = useState(false);
+  const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
 
   // Lógica para obter itens com estoque baixo (permanece igual)
   const lowStockItems = products.filter(product => product.is_active && product.quantity <= product.min_quantity);
@@ -438,6 +440,9 @@ const Inventory = () => {
           <button onClick={() => setShowConferenceModal(true)} className="flex items-center px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm">
             <ListChecks className="w-4 h-4 mr-1.5" />Conferência
           </button>
+          <button onClick={() => setShowCountHistoryModal(true)} className="flex items-center px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors text-sm">
+            <History className="w-4 h-4 mr-1.5" />Histórico Conf.
+          </button>
           <button onClick={exportInventory} className="flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm">
             <Download className="w-4 h-4 mr-1.5" />Exportar
           </button>
@@ -569,6 +574,12 @@ const Inventory = () => {
         products={products}
         hotelId={selectedHotel?.id || ''}
         onFinished={fetchProducts}
+      />
+
+      <StockCountHistoryModal
+        isOpen={showCountHistoryModal}
+        onClose={() => setShowCountHistoryModal(false)}
+        hotelId={selectedHotel?.id || ''}
       />
 
       {/* Todos os seus modais existentes são mantidos aqui */}
