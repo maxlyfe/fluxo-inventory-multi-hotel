@@ -16,6 +16,8 @@ import { useNotification } from '../context/NotificationContext';
 import AddInventoryItemModal from '../components/AddInventoryItemModal';
 import Modal from '../components/Modal';
 import NewProductModal from '../components/NewProductModal';
+import StockConferenceModal from '../components/StockConferenceModal';
+import StockCountHistoryModal from '../components/StockCountHistoryModal';
 
 // Interfaces permanecem as mesmas
 interface Product {
@@ -105,6 +107,8 @@ const SectorStock = () => {
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [newQuantity, setNewQuantity] = useState('');
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
+  const [showConferenceModal, setShowConferenceModal] = useState(false);
+  const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
   // --- FIM NOVO ---
 
   const [isBalancing, setIsBalancing] = useState(false);
@@ -648,6 +652,18 @@ const SectorStock = () => {
             <Plus size={18} className="mr-2"/> Criar Novo Item
           </button>
           <button 
+            onClick={() => setShowConferenceModal(true)}
+            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+          >
+            <ListChecks size={18} className="mr-2"/> Conferência
+          </button>
+          <button 
+            onClick={() => setShowCountHistoryModal(true)}
+            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-gray-600 hover:bg-gray-700 text-white transition-colors"
+          >
+            <History size={18} className="mr-2"/> Histórico Conf.
+          </button>
+          <button 
             onClick={() => setIsBalancing(prev => !prev ? (startBalanceProcess(), true) : false)}
             className={`w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center transition-colors ${
               isBalancing ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'
@@ -827,13 +843,29 @@ const SectorStock = () => {
           onItemAdded={fetchSectorAndStockData} 
           sectorId={sectorId}
       />
-      <NewProductModal
+      {showNewProductModal && (
+        <NewProductModal
           isOpen={showNewProductModal}
           onClose={() => setShowNewProductModal(false)}
           onSave={handleNewProductCreatedAndLink}
-          editingProduct={null}
           categories={categories}
-          createAsHidden={true}
+        />
+      )}
+
+      <StockConferenceModal
+        isOpen={showConferenceModal}
+        onClose={() => setShowConferenceModal(false)}
+        products={products}
+        hotelId={selectedHotel?.id || ''}
+        sectorId={sectorId}
+        onFinished={fetchSectorAndStockData}
+      />
+
+      <StockCountHistoryModal
+        isOpen={showCountHistoryModal}
+        onClose={() => setShowCountHistoryModal(false)}
+        hotelId={selectedHotel?.id || ''}
+        sectorId={sectorId}
       />
       {showConfirmDelete && productToDelete && (
         <Modal isOpen={showConfirmDelete} onClose={() => setShowConfirmDelete(false)} title="Confirmar Remoção">
