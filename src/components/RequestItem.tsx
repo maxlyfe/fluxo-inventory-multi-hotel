@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Request } from '../pages/AdminPanel'; // Assuming types are exported
 import { Check, X, ArrowLeftRight, ImageIcon, Calendar, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -24,6 +24,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
   const { selectedHotel } = useHotel();
   const [currentStock, setCurrentStock] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const targetProductIdRef = useRef<string | null>(null);
 
   const product = request.products;
   const substitutedProduct = request.substituted_product;
@@ -54,10 +55,50 @@ const RequestItem: React.FC<RequestItemProps> = ({
     }
   };
 
-  // Fetch current stock for the selected hotel and subscribe to changes
+  // 1. Configurar Canal Global de Sincronização IMEDIATAMENTE
+  useEffect(() => {
+    if (!selectedHotel?.id) return;
+
+    let isMounted = true;
+    const channelName = `global-stock-sync-${selectedHotel.id}`;
+    
+    const channel = supabase.channel(channelName)
+      .on(
+        'postgres_changes',
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'products', 
+          filter: `hotel_id=eq.${selectedHotel.id}` 
+        },
+        (payload) => {
+          if (isMounted && targetProductIdRef.current && payload.new.id === targetProductIdRef.current) {
+            console.log(`Sync (Table): ${stockSearchName} -> ${payload.new.quantity}`);
+            setCurrentStock(payload.new.quantity);
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'stock_updated' },
+        (payload) => {
+          if (isMounted && targetProductIdRef.current && payload.payload.productId === targetProductIdRef.current) {
+            console.log(`Sync (Broadcast): ${stockSearchName} -> ${payload.payload.newQuantity}`);
+            setCurrentStock(payload.payload.newQuantity);
+          }
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [selectedHotel?.id, stockSearchName]);
+
+  // 2. Buscar estoque inicial e identificar o ID do produto
   useEffect(() => {
     let isMounted = true;
-    let productChannel: any = null;
 
     const fetchCurrentStock = async () => {
       if (!selectedHotel?.id || !stockSearchName) {
@@ -67,7 +108,6 @@ const RequestItem: React.FC<RequestItemProps> = ({
 
       if (isMounted) setLoading(true);
       try {
-        // 1. Buscar o produto para obter o ID correto e a quantidade inicial
         const { data, error } = await supabase
           .from('products')
           .select('id, quantity')
@@ -77,11 +117,10 @@ const RequestItem: React.FC<RequestItemProps> = ({
 
         if (error) throw error;
 
-        let targetProductId = data && data.length > 0 ? data[0].id : null;
+        let targetId = data && data.length > 0 ? data[0].id : null;
         let initialQuantity = data && data.length > 0 ? data[0].quantity : null;
 
-        // 2. Se não encontrou por nome exato, tenta busca flexível
-        if (!targetProductId) {
+        if (!targetId) {
           const { data: fuzzyData } = await supabase
             .from('products')
             .select('id, quantity')
@@ -90,50 +129,16 @@ const RequestItem: React.FC<RequestItemProps> = ({
             .limit(1);
           
           if (fuzzyData && fuzzyData.length > 0) {
-            targetProductId = fuzzyData[0].id;
+            targetId = fuzzyData[0].id;
             initialQuantity = fuzzyData[0].quantity;
           }
         }
 
         if (isMounted) {
+          targetProductIdRef.current = targetId;
           setCurrentStock(initialQuantity);
           setLoading(false);
         }
-
-        // 3. Configurar Realtime com Broadcast (Mais rápido e independente da tabela)
-        productChannel = supabase.channel(`admin-stock-sync-${selectedHotel.id}`)
-          .on(
-            'postgres_changes',
-            { 
-              event: 'UPDATE', 
-              schema: 'public', 
-              table: 'products', 
-              filter: `hotel_id=eq.${selectedHotel.id}` 
-            },
-            (payload) => {
-              if (targetProductId && payload.new.id === targetProductId) {
-                if (isMounted) {
-                  console.log(`Realtime Table: Estoque de ${stockSearchName} atualizado para ${payload.new.quantity}`);
-                  setCurrentStock(payload.new.quantity);
-                }
-              }
-            }
-          )
-          .on(
-            'broadcast',
-            { event: 'stock_updated' },
-            (payload) => {
-              // Se o broadcast avisar que este produto mudou, atualiza na hora
-              if (targetProductId && payload.payload.productId === targetProductId) {
-                if (isMounted) {
-                  console.log(`Realtime Broadcast: Sincronizando ${stockSearchName} para ${payload.payload.newQuantity}`);
-                  setCurrentStock(payload.payload.newQuantity);
-                }
-              }
-            }
-          )
-          .subscribe();
-
       } catch (err) {
         console.error('Error in fetchCurrentStock:', err);
         if (isMounted) {
@@ -144,14 +149,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
     };
 
     fetchCurrentStock();
-    
-    return () => {
-      isMounted = false;
-      if (productChannel) {
-        supabase.removeChannel(productChannel);
-      }
-    };
-  }, [stockSearchName, selectedHotel?.id, request.id]);
+  }, [stockSearchName, selectedHotel?.id]);
 
   // Handler functions to stop propagation
   const handleDeliverClick = (event: React.MouseEvent<HTMLButtonElement>) => {
