@@ -415,18 +415,15 @@ RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}
 CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
 `.trim();
 
-            // Cria o item da área de transferência com imagem e texto
-            // Tentamos enviar ambos. O comportamento de "colar" depende do aplicativo de destino.
+            // Copiar apenas a imagem para garantir prioridade absoluta em todos os dispositivos
             const data = [
               new ClipboardItem({
-                'image/png': blob,
-                'text/plain': new Blob([hotelText], { type: 'text/plain' }),
-                'text/html': new Blob([`<img src="cid:budget-image"><br><pre>${hotelText}</pre>`], { type: 'text/html' })
+                'image/png': blob
               })
             ];
 
             await navigator.clipboard.write(data);
-            addNotification("Imagem e dados do hotel copiados para a área de transferência!", "success");
+            addNotification("Imagem do orçamento copiada com sucesso!", "success");
           } catch (clipboardError) {
             console.error('Erro ao copiar para área de transferência:', clipboardError);
             addNotification("Erro ao copiar imagem. Tente novamente.", "error");
