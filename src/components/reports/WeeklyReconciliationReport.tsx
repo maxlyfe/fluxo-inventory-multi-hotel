@@ -39,6 +39,7 @@ const WeeklyReconciliationReport = () => {
   const [loadingCounts, setLoadingCounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'main' | string>('main');
+  const [showOnlyStarred, setShowOnlyStarred] = useState(false);
 
   // Carregar lista de conferências
   useEffect(() => {
@@ -102,12 +103,16 @@ const WeeklyReconciliationReport = () => {
 
   const groupedRows = useMemo(() => {
     if (!reportData) return {};
-    return reportData.rows.reduce((acc, row) => {
+    const filtered = showOnlyStarred 
+      ? reportData.rows.filter(r => r.isStarred)
+      : reportData.rows;
+
+    return filtered.reduce((acc, row) => {
       if (!acc[row.category]) acc[row.category] = [];
       acc[row.category].push(row);
       return acc;
     }, {} as Record<string, any[]>);
-  }, [reportData]);
+  }, [reportData, showOnlyStarred]);
 
   const totalsByProduct = useMemo(() => {
     if (!reportData) return {};
@@ -188,8 +193,8 @@ const WeeklyReconciliationReport = () => {
       {reportData && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-100 dark:border-gray-700">
           {/* Navegação */}
-          <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
-            <nav className="flex space-x-4 px-4 overflow-x-auto">
+          <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col md:flex-row md:items-center justify-between px-4">
+            <nav className="flex space-x-4 overflow-x-auto">
               <button 
                 onClick={() => setActiveView('main')}
                 className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${activeView === 'main' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
@@ -209,6 +214,20 @@ const WeeklyReconciliationReport = () => {
                 );
               })}
             </nav>
+            
+            <div className="py-2 md:py-0">
+              <button
+                onClick={() => setShowOnlyStarred(!showOnlyStarred)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  showOnlyStarred 
+                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' 
+                    : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
+                }`}
+              >
+                <Star className={`w-4 h-4 ${showOnlyStarred ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                {showOnlyStarred ? 'Mostrando Itens Principais' : 'Filtrar Itens Principais'}
+              </button>
+            </div>
           </div>
 
           {/* Tabela */}
