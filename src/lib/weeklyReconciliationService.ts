@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { generateWeeklyReport, WeeklyReportData } from './weeklyReportService';
 
 // --- INTERFACES DE DADOS PARA O RELATÓRIO DINÂMICO ---
 
@@ -31,7 +32,7 @@ export interface DynamicReconciliationData {
   rows: DynamicReconciliationRow[];
 }
 
-// --- INTERFACES DE DADOS PARA O RELATÓRIO DE ITENS FAVORITADOS ---
+// --- INTERFACES DE DADOS PARA O RELATÓRIO DE ITENS FAVORITADOS (ADAPTADAS) ---
 
 export interface ReconciliationReportRow {
   productId: string;
@@ -209,152 +210,95 @@ export const generateDynamicReconciliation = async (
   return { sectors, rows };
 };
 
-// --- FUNÇÕES PARA O RELATÓRIO DE ITENS FAVORITADOS (RESTAURADAS) ---
+// --- FUNÇÕES PARA O RELATÓRIO DE ITENS FAVORITADOS (ATUALIZADAS PARA USAR A NOVA LÓGICA) ---
 
-const generateReconciliationReportBase = async (hotelId: string, weekStartDate: Date, onlyStarred: boolean): Promise<{ success: boolean, data?: ReportData, error?: string }> => {
-  const weekEndDate = endOfWeek(weekStartDate, { locale: ptBR, weekStartsOn: 1 });
-  const startDateStr = format(weekStartDate, 'yyyy-MM-dd');
-  const endDateStr = format(weekEndDate, 'yyyy-MM-dd HH:mm:ss');
-
+export const generateStarredItemsReconciliationReport = async (hotelId: string, weekStartDate: Date): Promise<{ success: boolean, data?: ReportData, error?: string }> => {
   try {
-    let productsQuery = supabase.from('products')
-      .select('id, name, quantity, is_starred, image_url, category')
+    // 1. Gerar o relatório semanal usando a nova lógica robusta
+    const result = await generateWeeklyReport(hotelId, weekStartDate);
+    
+    if (!result.success || !result.data) {
+      return { success: false, error: result.error || 'Erro ao gerar relatório base.' };
+    }
+
+    const weeklyData: WeeklyReportData = result.data;
+    const weekEndDate = endOfWeek(weekStartDate, { locale: ptBR, weekStartsOn: 1 });
+
+    // 2. Buscar informações adicionais dos produtos (is_starred, image_url, category)
+    const { data: productsInfo, error: productsError } = await supabase
+      .from('products')
+      .select('id, is_starred, image_url, category')
       .eq('hotel_id', hotelId)
-      .eq('is_active', true)
-      .order('category', { ascending: true })
-      .order('name', { ascending: true });
+      .eq('is_starred', true);
 
-    if (onlyStarred) {
-      productsQuery = productsQuery.eq('is_starred', true);
-    }
+    if (productsError) throw productsError;
 
-    const [productsRes, sectorsRes, consumptionRes] = await Promise.all([
-      productsQuery,
-      supabase.from('sectors').select('id, name').eq('hotel_id', hotelId),
-      supabase.from('item_consumption')
-        .select('item_name, quantity, sector_id, sectors!inner(hotel_id)')
-        .eq('sectors.hotel_id', hotelId)
-        .gte('consumed_at', startDateStr)
-        .lte('consumed_at', endDateStr)
-    ]);
+    const starredProductsMap = new Map(productsInfo.map(p => [p.id, p]));
 
-    if (productsRes.error) throw productsRes.error;
-    if (sectorsRes.error) throw sectorsRes.error;
-    if (consumptionRes.error) throw consumptionRes.error;
+    // 3. Buscar todos os setores para garantir que o modal tenha a lista completa
+    const { data: sectors, error: sectorsError } = await supabase
+      .from('sectors')
+      .select('id, name')
+      .eq('hotel_id', hotelId);
 
-    const allProducts = productsRes.data || [];
-    const allSectors = sectorsRes.data || [];
-    const allConsumption = consumptionRes.data || [];
+    if (sectorsError) throw sectorsError;
 
-    if (allProducts.length === 0) {
-      return { success: true, data: { weekStartDate, weekEndDate, sectors: allSectors, reportRows: [] } };
-    }
-    
-    const productNameToIdMap = new Map(allProducts.map(p => [p.name, p.id]));
+    // 4. Filtrar apenas os itens favoritados e mapear para o formato esperado pelo modal
+    const reportRows: ReconciliationReportRow[] = weeklyData.items
+      .filter(item => item.product_id && starredProductsMap.has(item.product_id))
+      .map(item => {
+        const info = starredProductsMap.get(item.product_id!)!;
+        
+        // Mapear movimentos de setor
+        const sectorStocks: Record<string, SectorStockData> = {};
+        sectors.forEach(s => {
+          const movement = item.sector_movements.find(sm => sm.sector_name === s.name);
+          sectorStocks[s.id] = {
+            sectorId: s.id,
+            sectorName: s.name,
+            initialStock: 0, // A nova lógica foca em movimentos, o estoque inicial por setor é complexo
+            receivedFromMain: movement?.quantity_moved || 0,
+            consumption: 0,
+            sales: 0,
+            calculatedFinalStock: movement?.quantity_moved || 0
+          };
+        });
 
-    const [purchasesRes, requisitionsRes, sectorBalancesRes] = await Promise.all([
-      supabase.from('purchase_items').select('product_id, quantity, purchases!inner(purchase_date)').eq('purchases.hotel_id', hotelId).gte('purchases.purchase_date', startDateStr).lte('purchases.purchase_date', endDateStr),
-      supabase.from('requisitions').select('product_id, substituted_product_id, delivered_quantity, sector_id').eq('hotel_id', hotelId).eq('status', 'delivered').gte('updated_at', startDateStr).lte('updated_at', endDateStr),
-      supabase.rpc('get_last_sector_balances', { p_hotel_id: hotelId, p_balance_date: startDateStr })
-    ]);
-
-    if (purchasesRes.error) throw purchasesRes.error;
-    if (requisitionsRes.error) throw requisitionsRes.error;
-    if (sectorBalancesRes.error) throw sectorBalancesRes.error;
-
-    const purchasesByProduct = (purchasesRes.data || []).reduce((acc, item) => {
-      if (item.product_id) acc[item.product_id] = (acc[item.product_id] || 0) + item.quantity;
-      return acc;
-    }, {} as Record<string, number>);
-
-    const requisitionsByProduct = (requisitionsRes.data || []).reduce((acc, item) => {
-      const productId = item.substituted_product_id || item.product_id;
-      if (productId) acc[productId] = (acc[productId] || 0) + (item.delivered_quantity || 0);
-      return acc;
-    }, {} as Record<string, number>);
-    
-    const requisitionsBySectorAndProduct = (requisitionsRes.data || []).reduce((acc, item) => {
-        const productId = item.substituted_product_id || item.product_id;
-        if (productId && item.sector_id) {
-            if (!acc[item.sector_id]) acc[item.sector_id] = {};
-            acc[item.sector_id][productId] = (acc[item.sector_id][productId] || 0) + (item.delivered_quantity || 0);
-        }
-        return acc;
-    }, {} as Record<string, Record<string, number>>);
-
-    const lastSectorBalances = (sectorBalancesRes.data || []).reduce((acc, item) => {
-        if (!acc[item.sector_id]) acc[item.sector_id] = {};
-        acc[item.sector_id][item.product_id] = item.current_quantity;
-        return acc;
-    }, {} as Record<string, Record<string, number>>);
-
-    const consumptionBySectorAndProduct = allConsumption.reduce((acc, item) => {
-      const productId = productNameToIdMap.get(item.item_name);
-      if (productId && item.sector_id) {
-        if (!acc[item.sector_id]) acc[item.sector_id] = {};
-        acc[item.sector_id][productId] = (acc[item.sector_id][productId] || 0) + item.quantity;
-      }
-      return acc;
-    }, {} as Record<string, Record<string, number>>);
-
-    const reportRows: ReconciliationReportRow[] = allProducts.map(product => {
-      const purchases = purchasesByProduct[product.id] || 0;
-      const deliveredToSectors = requisitionsByProduct[product.id] || 0;
-      const initialStock = product.quantity - purchases + deliveredToSectors;
-      const calculatedFinalStock = initialStock + purchases - deliveredToSectors;
-      const loss = calculatedFinalStock - product.quantity;
-
-      const mainStock: MainStockData = {
-        initialStock: Math.max(0, initialStock),
-        purchases, deliveredToSectors, calculatedFinalStock,
-        currentActualStock: product.quantity, loss,
-      };
-
-      const sectorStocks: Record<string, SectorStockData> = {};
-      allSectors.forEach(sector => {
-        const initialSectorStock = lastSectorBalances[sector.id]?.[product.id] || 0;
-        const receivedFromMain = requisitionsBySectorAndProduct[sector.id]?.[product.id] || 0;
-        const consumption = consumptionBySectorAndProduct[sector.id]?.[product.id] || 0;
-        const sales = 0;
-        const calculatedSectorFinalStock = initialSectorStock + receivedFromMain - consumption - sales;
-
-        sectorStocks[sector.id] = {
-          sectorId: sector.id,
-          sectorName: sector.name,
-          initialStock: initialSectorStock,
-          receivedFromMain,
-          consumption,
-          sales,
-          calculatedFinalStock: calculatedSectorFinalStock,
+        return {
+          productId: item.product_id!,
+          productName: item.product_name,
+          isStarred: true,
+          imageUrl: info.image_url,
+          category: info.category || 'Sem Categoria',
+          mainStock: {
+            initialStock: item.initial_stock,
+            purchases: item.purchases_in_week,
+            deliveredToSectors: item.sector_movements.reduce((sum, sm) => sum + sm.quantity_moved, 0),
+            calculatedFinalStock: item.final_stock + item.losses_in_week + item.sales_in_week,
+            currentActualStock: item.final_stock,
+            loss: item.losses_in_week
+          },
+          sectorStocks
         };
       });
 
-      return {
-        productId: product.id,
-        productName: product.name,
-        isStarred: product.is_starred || false,
-        imageUrl: product.image_url,
-        category: product.category || 'Sem Categoria',
-        mainStock,
-        sectorStocks,
-      };
-    });
-
     return {
       success: true,
-      data: { weekStartDate, weekEndDate, sectors: allSectors, reportRows },
+      data: {
+        weekStartDate,
+        weekEndDate,
+        sectors: sectors || [],
+        reportRows
+      }
     };
 
   } catch (err: any) {
-    console.error(`Erro ao gerar relatório (onlyStarred: ${onlyStarred}):`, err);
+    console.error('Erro ao gerar relatório de itens principais:', err);
     return { success: false, error: err.message };
   }
 };
 
-export const generateWeeklyReconciliationReport = (hotelId: string, weekStartDate: Date) => {
-  return generateReconciliationReportBase(hotelId, weekStartDate, false);
-};
-
-export const generateStarredItemsReconciliationReport = (hotelId: string, weekStartDate: Date) => {
-  return generateReconciliationReportBase(hotelId, weekStartDate, true);
+// Mantendo para compatibilidade se necessário
+export const generateWeeklyReconciliationReport = async (hotelId: string, weekStartDate: Date) => {
+  return generateStarredItemsReconciliationReport(hotelId, weekStartDate);
 };
