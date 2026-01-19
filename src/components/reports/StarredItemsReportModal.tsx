@@ -1,5 +1,4 @@
 // Importações de bibliotecas e componentes.
-// --- CORREÇÃO: Adicionado 'useMemo' à lista de importações do React. ---
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Modal from '../Modal'; // Reutiliza o componente de modal genérico.
 import { useHotel } from '../../context/HotelContext';
@@ -227,18 +226,14 @@ const StarredItemsReportModal: React.FC<StarredItemsReportModalProps> = ({ isOpe
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky left-0 bg-gray-50 dark:bg-gray-700 z-10">Item</th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Est. Anterior</th>
                     <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Recebidos</th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Consumo (Semana)</th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Vendas (Semana)</th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Est. Final (Calculado)</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {Object.entries(groupedReportRows).map(([category, rows]) => (
                     <React.Fragment key={category}>
                       <tr className="bg-gray-100 dark:bg-gray-700">
-                        <td colSpan={6} className="px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 sticky left-0 bg-gray-100 dark:bg-gray-700 z-10">{category}</td>
+                        <td colSpan={2} className="px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 sticky left-0 bg-gray-100 dark:bg-gray-700 z-10">{category}</td>
                       </tr>
                       {rows.map(row => {
                         const sectorStock = row.sectorStocks[activeView];
@@ -251,11 +246,7 @@ const StarredItemsReportModal: React.FC<StarredItemsReportModalProps> = ({ isOpe
                                 <span>{row.productName}</span>
                               </div>
                             </td>
-                            <td className="px-3 py-3 text-center text-sm">{sectorStock.initialStock}</td>
                             <td className="px-3 py-3 text-center text-sm text-green-600 font-medium">{sectorStock.receivedFromMain > 0 ? `+${sectorStock.receivedFromMain}` : '-'}</td>
-                            <td className="px-3 py-3 text-center text-sm text-red-600 font-medium">{sectorStock.consumption > 0 ? `-${sectorStock.consumption}` : '-'}</td>
-                            <td className="px-3 py-3 text-center text-sm text-red-600 font-medium">{sectorStock.sales > 0 ? `-${sectorStock.sales}` : '-'}</td>
-                            <td className="px-3 py-3 text-center text-sm font-bold">{sectorStock.calculatedFinalStock}</td>
                           </tr>
                         );
                       })}
@@ -271,7 +262,6 @@ const StarredItemsReportModal: React.FC<StarredItemsReportModalProps> = ({ isOpe
   };
 
   return (
-    // Aumentada a largura do modal para '7xl' para caber as novas colunas.
     <Modal isOpen={isOpen} onClose={onClose} title="Reconciliação Semanal de Itens Principais" size="7xl">
       <div className="space-y-4 max-h-[80vh] flex flex-col">
         {renderWeekSelector()}
