@@ -4,7 +4,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { 
   ChevronLeft, ChevronRight, Save, Loader2, AlertCircle, Info, 
   BarChart, RefreshCw, Download, Calendar, TrendingUp, Package,
-  ArrowUpDown, Eye, Trash2
+  ArrowUpDown, Eye, Trash2, Star
 } from 'lucide-react';
 import { 
   startOfWeek, endOfWeek, format, addWeeks, subWeeks, 
