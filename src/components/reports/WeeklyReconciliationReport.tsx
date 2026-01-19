@@ -4,7 +4,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { 
   Loader2, AlertCircle, Calendar, Download, Warehouse, 
   UtensilsCrossed, ChefHat, BedDouble, Boxes, ChevronDown,
-  GlassWater, Package, History, ArrowRight
+  GlassWater, Package, History, ArrowRight, Star
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
