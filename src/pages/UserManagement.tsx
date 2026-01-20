@@ -288,6 +288,10 @@ const UserManagement = () => {
     e.preventDefault();
     setError('');
     
+    // **AVISO:** Esta função usa a RPC 'create_user' que pode exigir a Service Role Key.
+    // Se a criação de usuário falhar, você precisará ajustar a RPC no Supabase.
+    alert('AVISO: A criação de usuário pode falhar se a RPC "create_user" não usar a Service Role Key. Se falhar, você precisará corrigir a RPC no Supabase.');
+
     if (!newUser.email || !newUser.password || !newUser.role) {
       setError('Preencha todos os campos');
       return;
@@ -295,9 +299,6 @@ const UserManagement = () => {
 
     try {
       // Usamos a RPC existente, que deve ser ajustada no backend para usar o novo fluxo
-      // O trigger handle_new_user já deve garantir a criação do perfil com o role padrão.
-      // A RPC 'create_user' deve ser ajustada para usar o role no metadata, que será
-      // sobrescrito pelo update do role logo após a criação.
       const { error: createError, data: createdUser } = await supabase.rpc('create_user', {
         p_email: newUser.email,
         p_password: newUser.password,
@@ -331,6 +332,11 @@ const UserManagement = () => {
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    // **AVISO:** Esta função usa a função de Admin do Supabase (updateUserById) que exige a Service Role Key.
+    // Ela causará erro 403 (Forbidden) se não for chamada de um ambiente seguro (Edge Function/Server).
+    alert('AVISO: A alteração de senha falhará com erro 403 (Forbidden) se não for chamada com a Service Role Key. Você precisa implementar uma Edge Function ou RPC segura para isso.');
+
     if (changePassword.newPassword !== changePassword.confirmPassword) {
       setError('As senhas não coincidem');
       return;
@@ -343,6 +349,7 @@ const UserManagement = () => {
       }
 
       // O ID do usuário na lista (user.id) é o ID do auth.users
+      // ESTA LINHA CAUSA O ERRO 403
       const { error: pwdError } = await supabase.auth.admin.updateUserById(
         userToChange.id, 
         { password: changePassword.newPassword }
@@ -369,7 +376,7 @@ const UserManagement = () => {
         return;
       }
 
-      // 1. Atualiza o role na tabela public.profiles
+      // 1. Atualiza o role na tabela public.profiles (Esta é a parte que funciona com a Public Key)
       const { error: profileRoleError } = await supabase
         .from('profiles')
         .update({ role: changeRole.newRole })
@@ -377,14 +384,7 @@ const UserManagement = () => {
 
       if (profileRoleError) throw profileRoleError;
 
-      // 2. Opcional: Atualiza o metadata no auth.users para manter a compatibilidade
-      // Isso é útil se outras partes do sistema ainda dependem do metadata.
-      // Usamos o ID do auth.users (userToChange.id)
-      const { error: authRoleError } = await supabase.auth.admin.updateUserById(
-        userToChange.id,
-        { user_metadata: { ...userToChange.raw_user_meta_data, role: changeRole.newRole } }
-      );
-      if (authRoleError) console.warn('Aviso: Falha ao atualizar metadata do auth.users:', authRoleError);
+      // 2. REMOVIDO: A tentativa de atualizar o metadata no auth.users (que causava o erro 403)
       
       await fetchUsers();
       setChangeRole({ userId: '', email: '', currentRole: '', newRole: '' });
