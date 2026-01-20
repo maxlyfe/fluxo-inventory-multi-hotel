@@ -6,14 +6,13 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 // --- Interfaces de Dados ---
-// Mantidas exatamente como no seu arquivo original.
+// Interface User atualizada para refletir a junção de auth.users e public.profiles
 interface User {
-  id: string; // ID original da tabela public.auth_users
+  id: string; // ID da tabela auth.users (e public.profiles)
   email: string;
-  role: string;
-  last_login: string;
-  supabase_auth_user_id: string | null; // ID da tabela auth.users (Supabase Auth)
-  raw_user_meta_data?: { role?: string }; 
+  role: string; // Agora vem diretamente de public.profiles
+  last_sign_in_at: string; // Novo campo para último login
+  raw_user_meta_data?: { role?: string }; // Mantido por compatibilidade, mas será ignorado
 }
 
 interface NotificationType {
@@ -71,7 +70,6 @@ const ACTIVE_NOTIFICATION_TYPES = [
 ];
 
 // --- Funções de Serviço ---
-// (As funções de serviço permanecem as mesmas do seu arquivo original)
 async function getNotificationTypes(): Promise<NotificationType[]> {
   const { data, error } = await supabase.from('notification_types').select('*').order('description');
   if (error) {
@@ -197,6 +195,7 @@ async function deleteUserNotificationPreference(id: string): Promise<void> {
 // userAuthId é o ID da tabela auth.users
 async function checkSupabaseAuthUserExists(userAuthId: string): Promise<boolean> {
   if (!userAuthId) return false; // Se não houver ID de autenticação, não existe.
+  // Como não podemos acessar auth.users diretamente, usamos a RPC existente
   const { data, error } = await supabase.rpc('check_supabase_auth_user_exists', { p_user_id: userAuthId });
   if (error) {
     console.error('Error checking user existence in Supabase Auth:', error);
@@ -244,6 +243,7 @@ const UserManagement = () => {
   const [allSectorsSelected, setAllSectorsSelected] = useState(false);
 
   useEffect(() => {
+    // A verificação de role agora deve ser feita no profiles
     const isAdmin = adminUser?.role === 'admin' || supabaseUser?.user_metadata?.role === 'admin';
 
     if (!adminUser || !isAdmin) {
@@ -256,17 +256,26 @@ const UserManagement = () => {
     getSectors().then(setSectors).catch(err => setError('Falha ao carregar setores.'));
   }, [adminUser, supabaseUser, navigate]);
 
+  // --- ALTERAÇÃO PRINCIPAL: fetchUsers para usar a nova View/RPC ---
   const fetchUsers = async () => {
     setLoading(true);
     setError('');
     try {
-      const { data, error: fetchError } = await supabase
-        .from('auth_users') 
-        .select('id, email, role, last_login, supabase_auth_user_id') 
-        .order('email');
+      // Usamos a RPC que criamos para buscar os dados de auth.users + public.profiles
+      const { data, error: fetchError } = await supabase.rpc('get_all_users_with_profile');
 
       if (fetchError) throw fetchError;
-      setUsers(data || []);
+      
+      // Mapeia os dados para a interface User
+      const mappedUsers: User[] = (data || []).map((item: any) => ({
+        id: item.id,
+        email: item.email,
+        role: item.role || 'user', // Pega o role do profiles, default 'user'
+        last_sign_in_at: item.last_sign_in_at,
+        raw_user_meta_data: item.raw_user_meta_data,
+      }));
+
+      setUsers(mappedUsers);
     } catch (err: any) {
       console.error('Error fetching users:', err);
       setError('Erro ao carregar usuários: ' + err.message);
@@ -285,17 +294,32 @@ const UserManagement = () => {
     }
 
     try {
-      const { error: createError } = await supabase.rpc('create_user', {
+      // Usamos a RPC existente, que deve ser ajustada no backend para usar o novo fluxo
+      // O trigger handle_new_user já deve garantir a criação do perfil com o role padrão.
+      // A RPC 'create_user' deve ser ajustada para usar o role no metadata, que será
+      // sobrescrito pelo update do role logo após a criação.
+      const { error: createError, data: createdUser } = await supabase.rpc('create_user', {
         p_email: newUser.email,
         p_password: newUser.password,
-        p_role: newUser.role
+        p_role: newUser.role // Passamos o role para a RPC
       });
 
       if (createError) throw createError;
       
+      // Se a RPC for bem-sucedida, atualizamos o role na tabela profiles
+      if (createdUser && createdUser.id) {
+        const { error: profileUpdateError } = await supabase
+          .from('profiles')
+          .update({ role: newUser.role })
+          .eq('id', createdUser.id);
+
+        if (profileUpdateError) throw profileUpdateError;
+      }
+
+
       setNewUser({ email: '', password: '', role: 'inventory' });
       fetchUsers(); 
-      alert('Usuário criado com sucesso! (Lembre-se de ajustar a função create_user no backend para sincronia total)');
+      alert('Usuário criado com sucesso! (O role foi definido na tabela profiles)');
     } catch (err: any) {
       console.error('Error creating user:', err);
       setError(err.message.includes('already exists') 
@@ -313,13 +337,14 @@ const UserManagement = () => {
     }
     try {
       const userToChange = users.find(u => u.id === changePassword.userId);
-      if (!userToChange || !userToChange.supabase_auth_user_id) {
+      if (!userToChange || !userToChange.id) { // Usamos user.id que é o auth.users.id
         setError('ID de autenticação do usuário não encontrado para alteração de senha.');
         return;
       }
 
+      // O ID do usuário na lista (user.id) é o ID do auth.users
       const { error: pwdError } = await supabase.auth.admin.updateUserById(
-        userToChange.supabase_auth_user_id, 
+        userToChange.id, 
         { password: changePassword.newPassword }
       );
 
@@ -333,33 +358,38 @@ const UserManagement = () => {
     }
   };
 
+  // --- ALTERAÇÃO PRINCIPAL: handleRoleChange para usar a tabela profiles ---
   const handleRoleChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
       const userToChange = users.find(u => u.id === changeRole.userId);
-      if (!userToChange || !userToChange.supabase_auth_user_id) {
-        setError('ID de autenticação do usuário não encontrado para alteração de role.');
+      if (!userToChange || !userToChange.id) {
+        setError('ID de usuário não encontrado para alteração de role.');
         return;
       }
 
-      const { error: authRoleError } = await supabase.auth.admin.updateUserById(
-        userToChange.supabase_auth_user_id,
-        { user_metadata: { ...userToChange.raw_user_meta_data, role: changeRole.newRole } }
-      );
-      if (authRoleError) throw authRoleError;
-
-      const { error: publicRoleError } = await supabase
-        .from('auth_users')
+      // 1. Atualiza o role na tabela public.profiles
+      const { error: profileRoleError } = await supabase
+        .from('profiles')
         .update({ role: changeRole.newRole })
         .eq('id', userToChange.id); 
 
-      if (publicRoleError) throw publicRoleError;
+      if (profileRoleError) throw profileRoleError;
+
+      // 2. Opcional: Atualiza o metadata no auth.users para manter a compatibilidade
+      // Isso é útil se outras partes do sistema ainda dependem do metadata.
+      // Usamos o ID do auth.users (userToChange.id)
+      const { error: authRoleError } = await supabase.auth.admin.updateUserById(
+        userToChange.id,
+        { user_metadata: { ...userToChange.raw_user_meta_data, role: changeRole.newRole } }
+      );
+      if (authRoleError) console.warn('Aviso: Falha ao atualizar metadata do auth.users:', authRoleError);
       
       await fetchUsers();
       setChangeRole({ userId: '', email: '', currentRole: '', newRole: '' });
       setShowChangeRole(false);
-      alert('Role atualizado com sucesso!');
+      alert('Role atualizado com sucesso na tabela profiles!');
     } catch (err: any) {
       console.error('Error changing role:', err);
       setError('Erro ao alterar função do usuário: ' + err.message);
@@ -377,7 +407,7 @@ const UserManagement = () => {
   };
 
   const openNotificationPrefsModal = async (user: User) => {
-    if (!user.supabase_auth_user_id) {
+    if (!user.id) { // Usamos user.id que é o auth.users.id
       setError(`Usuário ${user.email} não possui um ID de autenticação Supabase vinculado. Não é possível gerenciar notificações.`);
       setShowNotificationPrefsModal(false);
       return;
@@ -388,7 +418,7 @@ const UserManagement = () => {
     setShowAddPreferenceForm(false);
     setError('');
     try {
-      const prefs = await getUserNotificationPreferences(user.supabase_auth_user_id);
+      const prefs = await getUserNotificationPreferences(user.id); // Passamos user.id
       setUserPreferences(prefs);
     } catch (err: any) {
       setError('Falha ao carregar preferências do usuário: ' + err.message);
@@ -399,7 +429,7 @@ const UserManagement = () => {
 
   const handleSavePreference = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUserForNotifications || !selectedUserForNotifications.supabase_auth_user_id || !currentPreference.notification_type_id) {
+    if (!selectedUserForNotifications || !selectedUserForNotifications.id || !currentPreference.notification_type_id) {
       setError('Usuário ou Tipo de notificação inválido(s).');
       return;
     }
@@ -407,7 +437,7 @@ const UserManagement = () => {
     setError(''); 
 
     try {
-      const userAuthId = selectedUserForNotifications.supabase_auth_user_id;
+      const userAuthId = selectedUserForNotifications.id; // Usamos user.id
       const userExistsInAuth = await checkSupabaseAuthUserExists(userAuthId);
       if (!userExistsInAuth) {
         setError(`O usuário ${selectedUserForNotifications.email} (ID Auth: ${userAuthId}) não existe na tabela de autenticação principal (auth.users) do Supabase. As preferências não podem ser salvas.`);
@@ -469,13 +499,13 @@ const UserManagement = () => {
   };
 
   const handleDeletePreference = async (preferenceId: string) => {
-    if (!selectedUserForNotifications || !selectedUserForNotifications.supabase_auth_user_id) return;
+    if (!selectedUserForNotifications || !selectedUserForNotifications.id) return; // Usamos user.id
     if (window.confirm('Tem certeza que deseja remover esta preferência de notificação?')) {
       setLoadingPrefs(true);
       setError(''); 
       try {
         await deleteUserNotificationPreference(preferenceId);
-        const prefs = await getUserNotificationPreferences(selectedUserForNotifications.supabase_auth_user_id);
+        const prefs = await getUserNotificationPreferences(selectedUserForNotifications.id); // Usamos user.id
         setUserPreferences(prefs);
       } catch (err: any) {
         setError('Falha ao remover preferência: ' + err.message); 
@@ -550,7 +580,7 @@ const UserManagement = () => {
       case 'NEW_REQUEST': return 'Nova requisição';
       case 'ITEM_DELIVERED_TO_SECTOR': return 'Item entregue';
       case 'REQUEST_REJECTED': return 'Requisição rejeitada';
-      case 'REQUEST_SUBSTITUTED': return 'Produto substituído';
+      case 'REQUEST_SUBSTITUTED': return 'Requisição substituída';
       case 'NEW_BUDGET': return 'Novo orçamento';
       case 'BUDGET_APPROVED': return 'Orçamento aprovado';
       case 'BUDGET_CANCELLED': return 'Orçamento cancelado';
@@ -680,7 +710,7 @@ const UserManagement = () => {
                       {getRoleName(user.role)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
-                      {user.last_login ? new Date(user.last_login).toLocaleString('pt-BR') : 'Nunca'}
+                      {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString('pt-BR') : 'Nunca'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end space-x-2">
