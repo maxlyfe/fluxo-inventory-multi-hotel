@@ -362,11 +362,11 @@ supabase.from('stock_counts')
               </nav>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[70vh]">
               <table className="w-full text-sm text-left">
                 {activeView === 'main' ? (
                   <>
-                    <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 uppercase text-xs font-bold">
+                    <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 uppercase text-xs font-bold sticky top-0 z-20 shadow-sm">
                       <tr>
                         <th className="px-6 py-4 sticky left-0 bg-gray-50 dark:bg-gray-700 z-10">Item</th>
                         <th className="px-4 py-4 text-center">Est. Anterior</th>
@@ -400,7 +400,7 @@ supabase.from('stock_counts')
                   </>
                 ) : (
                   <>
-                    <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 uppercase text-xs font-bold">
+                    <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 uppercase text-xs font-bold sticky top-0 z-20 shadow-sm">
                       <tr>
                         <th className="px-6 py-4 sticky left-0 bg-gray-50 dark:bg-gray-700 z-10">Item</th>
                         <th className="px-4 py-4 text-center">Est. Anterior</th>
