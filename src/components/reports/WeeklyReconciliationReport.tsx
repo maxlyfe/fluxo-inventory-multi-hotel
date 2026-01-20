@@ -51,9 +51,11 @@ const WeeklyReconciliationReport: React.FC = () => {
 supabase.from('stock_counts')
           .select('id, finished_at, hotel_id, sector_id, status')
           .eq('hotel_id', selectedHotel!.id)
-          .eq('status', 'completed')
+          .not('finished_at', 'is', null)
           .order('finished_at', { ascending: false })
       ]);
+      console.log('Hotel ID:', selectedHotel?.id);
+      console.log('Conferências encontradas:', countsRes.data);
       setSavedReports(reports);
       setCounts(countsRes.data || []);
     } catch (err: any) {
