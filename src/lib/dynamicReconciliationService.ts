@@ -4,6 +4,7 @@ export interface DynamicReconciliationRow {
   productId: string;
   productName: string;
   category: string;
+  isStarred: boolean;
   mainStock: {
     initialStock: number;
     purchases: number;
@@ -44,11 +45,12 @@ export const getHotelStockCounts = async (hotelId: string, sectorId?: string) =>
   return data;
 };
 
-export const generateDynamicReconciliation = async (
-  hotelId: string,
-  startCountId: string,
-  endCountId: string
-): Promise<DynamicReconciliationData> => {
+export const dynamicReconciliationService = {
+  generateReport: async (
+    hotelId: string,
+    startCountId: string,
+    endCountId: string
+  ): Promise<DynamicReconciliationData> => {
   // 1. Buscar as duas conferências
   const { data: counts, error: countsError } = await supabase
     .from('stock_counts')
@@ -69,7 +71,7 @@ export const generateDynamicReconciliation = async (
 
   // 2. Buscar todos os produtos e setores
   const [productsRes, sectorsRes] = await Promise.all([
-    supabase.from('products').select('id, name, category').eq('hotel_id', hotelId).eq('is_active', true),
+    supabase.from('products').select('id, name, category, is_starred').eq('hotel_id', hotelId).eq('is_active', true),
     supabase.from('sectors').select('id, name').eq('hotel_id', hotelId)
   ]);
 
@@ -152,6 +154,7 @@ export const generateDynamicReconciliation = async (
       productId: p.id,
       productName: p.name,
       category: p.category || 'Sem Categoria',
+      isStarred: !!p.is_starred,
       mainStock: {
         initialStock,
         purchases,
@@ -164,5 +167,6 @@ export const generateDynamicReconciliation = async (
     };
   });
 
-  return { sectors, rows };
+    return { sectors, rows };
+  }
 };
