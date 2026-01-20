@@ -48,8 +48,8 @@ const WeeklyReconciliationReport: React.FC = () => {
     try {
       const [reports, countsRes] = await Promise.all([
         reconciliationPersistenceService.listReports(selectedHotel!.id),
-        supabase.from('stock_counts')
-          .select('id, finished_at, hotel_id')
+supabase.from('stock_counts')
+          .select('id, finished_at, hotel_id, sector_id, status')
           .eq('hotel_id', selectedHotel!.id)
           .eq('status', 'completed')
           .order('finished_at', { ascending: false })
@@ -261,9 +261,15 @@ const WeeklyReconciliationReport: React.FC = () => {
                 className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="">Selecione a contagem inicial...</option>
-                {counts.map(c => (
-                  <option key={c.id} value={c.id}>{format(new Date(c.finished_at), "dd/MM/yyyy 'às' HH:mm")}</option>
-                ))}
+                {counts.map(c => {
+                  // Tenta encontrar o nome do setor se houver sector_id
+                  const sectorName = c.sector_id ? 'Setor' : 'Principal';
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {format(new Date(c.finished_at), "dd/MM/yyyy 'às' HH:mm")} ({sectorName})
+                    </option>
+                  );
+                })}
               </select>
             </div>
             <div className="space-y-2">
@@ -274,9 +280,15 @@ const WeeklyReconciliationReport: React.FC = () => {
                 className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="">Selecione a contagem final...</option>
-                {counts.map(c => (
-                  <option key={c.id} value={c.id}>{format(new Date(c.finished_at), "dd/MM/yyyy 'às' HH:mm")}</option>
-                ))}
+                {counts.map(c => {
+                  // Tenta encontrar o nome do setor se houver sector_id
+                  const sectorName = c.sector_id ? 'Setor' : 'Principal';
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {format(new Date(c.finished_at), "dd/MM/yyyy 'às' HH:mm")} ({sectorName})
+                    </option>
+                  );
+                })}
               </select>
             </div>
           </div>
