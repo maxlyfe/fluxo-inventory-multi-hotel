@@ -84,24 +84,55 @@ const RequestItem: React.FC<RequestItemProps> = ({
           )}
           
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-400">
-            <div className="flex items-center"><Calendar className="w-3 h-3 mr-1" /> {formatDate(request.created_at)}</div>
-            {!isHistoryView && <div className="flex items-center text-orange-500"><Clock className="w-3 h-3 mr-1" /> Há {calculatePendingTime(request.created_at)}</div>}
+            <div className="flex items-center"><Calendar className="w-3.5 h-3.5 mr-1" /> {formatDate(request.created_at)}</div>
+            {!isHistoryView && <div className="flex items-center text-orange-500"><Clock className="w-3.5 h-3.5 mr-1" /> Há {calculatePendingTime(request.created_at)}</div>}
             <div className="text-blue-500">Setor: {request.sector?.name}</div>
           </div>
         </div>
       </div>
 
       {!isHistoryView && (
-        <div className="flex space-x-2 flex-shrink-0">
-          <button onClick={() => onTriggerDeliver?.(request)} className="p-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200"><Check className="w-4 h-4" /></button>
-          <button onClick={() => onTriggerReject?.(request)} className="p-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"><X className="w-4 h-4" /></button>
-          <button onClick={() => onTriggerSubstitute?.(request)} className="p-2 bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200"><ArrowLeftRight className="w-4 h-4" /></button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Botão Entregar - Verde Esmeralda */}
+          <button 
+            onClick={() => onTriggerDeliver?.(request)} 
+            title="Marcar como entregue"
+            className="flex items-center justify-center p-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white rounded-lg shadow-sm transition-all active:scale-95"
+          >
+            <Check className="w-5 h-5" />
+          </button>
+
+          {/* Botão Substituir - Âmbar/Laranja */}
+          <button 
+            onClick={() => onTriggerSubstitute?.(request)} 
+            title="Entregar outro produto no lugar"
+            className="flex items-center justify-center p-2.5 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white rounded-lg shadow-sm transition-all active:scale-95"
+          >
+            <ArrowLeftRight className="w-5 h-5" />
+          </button>
+
+          {/* Botão Cancelar - Rosa/Vermelho */}
+          <button 
+            onClick={() => onTriggerReject?.(request)} 
+            title="Cancelar requisição"
+            className="flex items-center justify-center p-2.5 bg-rose-500 hover:bg-rose-600 dark:bg-rose-600 dark:hover:bg-rose-700 text-white rounded-lg shadow-sm transition-all active:scale-95"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
       )}
 
       {isHistoryView && (
         <div className="flex-shrink-0 text-sm font-medium">
-          {request.status === 'delivered' ? <span className="text-green-600">Entregue</span> : <span className="text-red-600">Rejeitado</span>}
+          {request.status === 'delivered' ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+              Entregue
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+              Rejeitado
+            </span>
+          )}
         </div>
       )}
     </li>
