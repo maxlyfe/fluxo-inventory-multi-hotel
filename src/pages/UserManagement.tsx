@@ -6,13 +6,12 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 // --- Interfaces de Dados ---
-// Interface User atualizada para refletir a junção de auth.users e public.profiles
 interface User {
-  id: string; // ID da tabela auth.users (e public.profiles)
+  id: string; 
   email: string;
-  role: string; // Agora vem diretamente de public.profiles
-  last_sign_in_at: string; // Novo campo para último login
-  raw_user_meta_data?: { role?: string }; // Mantido por compatibilidade, mas será ignorado
+  role: string; 
+  last_sign_in_at: string; 
+  raw_user_meta_data?: { role?: string };
 }
 
 interface NotificationType {
@@ -37,12 +36,12 @@ interface Sector {
 
 interface UserNotificationPreference {
   id: string;
-  user_id: string; // Deve ser o supabase_auth_user_id
+  user_id: string; 
   notification_type_id: string;
   hotel_id?: string | null;
   sector_id?: string | null;
   is_active: boolean;
-  created_by?: string | null; // Deve ser o supabase_auth_user_id do admin
+  created_by?: string | null; 
   notification_types?: { 
     description: string;
     event_key: string;
@@ -55,8 +54,6 @@ interface UserNotificationPreference {
   } | null;
 }
 
-// --- ALTERAÇÃO: Adicionados os novos event_keys para os contratos de experiência ---
-// Lista de tipos de notificação que estão realmente integrados e funcionando.
 const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_REQUEST',
   'ITEM_DELIVERED_TO_SECTOR',
@@ -65,24 +62,18 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_BUDGET',
   'BUDGET_APPROVED',
   'BUDGET_CANCELLED',
-  'EXP_CONTRACT_ENDING_SOON', // Notificação de contrato vencendo em 5 dias.
-  'EXP_CONTRACT_ENDS_TODAY'   // Notificação de contrato vencendo hoje.
+  'EXP_CONTRACT_ENDING_SOON',
+  'EXP_CONTRACT_ENDS_TODAY'
 ];
 
 // --- Funções de Serviço ---
 async function getNotificationTypes(): Promise<NotificationType[]> {
   const { data, error } = await supabase.from('notification_types').select('*').order('description');
-  if (error) {
-    console.error('Error fetching notification types:', error);
-    throw error;
-  }
-  
-  // Filtra apenas os tipos de notificação que estão realmente integrados e funcionando
+  if (error) throw error;
   return (data || [])
     .filter(nt => ACTIVE_NOTIFICATION_TYPES.includes(nt.event_key))
     .map(nt => ({
       ...nt,
-      // --- ALTERAÇÃO: Adicionada a regra de filtro de hotel para as novas notificações ---
       requires_hotel_filter: ['NEW_REQUEST', 'ITEM_DELIVERED_TO_SECTOR', 'NEW_BUDGET', 'BUDGET_APPROVED', 'BUDGET_CANCELLED', 'EXP_CONTRACT_ENDING_SOON', 'EXP_CONTRACT_ENDS_TODAY'].includes(nt.event_key),
       requires_sector_filter: ['NEW_REQUEST', 'ITEM_DELIVERED_TO_SECTOR'].includes(nt.event_key),
     }));
@@ -90,117 +81,49 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
 
 async function getHotels(): Promise<Hotel[]> {
   const { data, error } = await supabase.from('hotels').select('id, name').order('name');
-  if (error) {
-    console.error('Error fetching hotels:', error);
-    throw error;
-  }
+  if (error) throw error;
   return data || [];
 }
 
 async function getSectors(hotelId?: string): Promise<Sector[]> {
   let query = supabase.from('sectors').select('id, name, hotel_id').order('name');
-  if (hotelId) {
-    query = query.eq('hotel_id', hotelId);
-  }
+  if (hotelId) query = query.eq('hotel_id', hotelId);
   const { data, error } = await query;
-  if (error) {
-    console.error('Error fetching sectors:', error);
-    throw error;
-  }
+  if (error) throw error;
   return data || [];
 }
 
-// userAuthId é o ID da tabela auth.users
 async function getUserNotificationPreferences(userAuthId: string): Promise<UserNotificationPreference[]> {
   const { data, error } = await supabase
     .from('user_notification_preferences')
-    .select(`
-      id,
-      user_id,
-      notification_type_id,
-      hotel_id,
-      sector_id,
-      is_active,
-      created_by,
-      notification_types (description, event_key),
-      hotels (name),
-      sectors (name)
-    `)
-    .eq('user_id', userAuthId) // Filtra pelo ID de auth.users
+    .select(`id, user_id, notification_type_id, hotel_id, sector_id, is_active, created_by, notification_types (description, event_key), hotels (name), sectors (name)`)
+    .eq('user_id', userAuthId)
     .order('created_at');
-  if (error) {
-    console.error('Error fetching user notification preferences:', error);
-    throw error;
-  }
+  if (error) throw error;
   return data || [];
 }
 
-async function addUserNotificationPreference(preference: Omit<UserNotificationPreference, 'id' | 'notification_types' | 'hotels' | 'sectors'>): Promise<UserNotificationPreference | null> {
-  const { data, error } = await supabase
-    .from('user_notification_preferences')
-    .insert(preference)
-    .select(`
-      id,
-      user_id,
-      notification_type_id,
-      hotel_id,
-      sector_id,
-      is_active,
-      created_by,
-      notification_types (description, event_key),
-      hotels (name),
-      sectors (name)
-    `)
-    .single();
-  if (error) {
-    console.error('Error adding user notification preference:', error);
-    throw error;
-  }
+async function addUserNotificationPreference(preference: any) {
+  const { data, error } = await supabase.from('user_notification_preferences').insert(preference).select(`id, user_id, notification_type_id, hotel_id, sector_id, is_active, created_by, notification_types (description, event_key), hotels (name), sectors (name)`).single();
+  if (error) throw error;
   return data;
 }
 
-async function updateUserNotificationPreference(id: string, updates: Partial<UserNotificationPreference>): Promise<UserNotificationPreference | null> {
-  const { data, error } = await supabase
-    .from('user_notification_preferences')
-    .update(updates)
-    .eq('id', id)
-    .select(`
-      id,
-      user_id,
-      notification_type_id,
-      hotel_id,
-      sector_id,
-      is_active,
-      created_by,
-      notification_types (description, event_key),
-      hotels (name),
-      sectors (name)
-    `)
-    .single();
-  if (error) {
-    console.error('Error updating user notification preference:', error);
-    throw error;
-  }
+async function updateUserNotificationPreference(id: string, updates: any) {
+  const { data, error } = await supabase.from('user_notification_preferences').update(updates).eq('id', id).select(`id, user_id, notification_type_id, hotel_id, sector_id, is_active, created_by, notification_types (description, event_key), hotels (name), sectors (name)`).single();
+  if (error) throw error;
   return data;
 }
 
-async function deleteUserNotificationPreference(id: string): Promise<void> {
+async function deleteUserNotificationPreference(id: string) {
   const { error } = await supabase.from('user_notification_preferences').delete().eq('id', id);
-  if (error) {
-    console.error('Error deleting user notification preference:', error);
-    throw error;
-  }
+  if (error) throw error;
 }
 
-// userAuthId é o ID da tabela auth.users
 async function checkSupabaseAuthUserExists(userAuthId: string): Promise<boolean> {
-  if (!userAuthId) return false; // Se não houver ID de autenticação, não existe.
-  // Como não podemos acessar auth.users diretamente, usamos a RPC existente
+  if (!userAuthId) return false;
   const { data, error } = await supabase.rpc('check_supabase_auth_user_exists', { p_user_id: userAuthId });
-  if (error) {
-    console.error('Error checking user existence in Supabase Auth:', error);
-    return false; 
-  }
+  if (error) return false; 
   return data as boolean;
 }
 
@@ -210,24 +133,11 @@ const UserManagement = () => {
   const [error, setError] = useState('');
   const { user: adminUser, supabaseUser } = useAuth(); 
   const navigate = useNavigate();
-  const [newUser, setNewUser] = useState({
-    email: '',
-    password: '',
-    role: 'inventory'
-  });
-  const [changePassword, setChangePassword] = useState({
-    userId: '', 
-    newPassword: '',
-    confirmPassword: ''
-  });
+  const [newUser, setNewUser] = useState({ email: '', password: '', role: 'inventory' });
+  const [changePassword, setChangePassword] = useState({ userId: '', newPassword: '', confirmPassword: '' });
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showChangeRole, setShowChangeRole] = useState(false);
-  const [changeRole, setChangeRole] = useState({
-    userId: '', 
-    email: '',
-    currentRole: '',
-    newRole: ''
-  });
+  const [changeRole, setChangeRole] = useState({ userId: '', email: '', currentRole: '', newRole: '' });
 
   const [showNotificationPrefsModal, setShowNotificationPrefsModal] = useState(false);
   const [selectedUserForNotifications, setSelectedUserForNotifications] = useState<User | null>(null);
@@ -243,41 +153,31 @@ const UserManagement = () => {
   const [allSectorsSelected, setAllSectorsSelected] = useState(false);
 
   useEffect(() => {
-    // A verificação de role agora deve ser feita no profiles
     const isAdmin = adminUser?.role === 'admin' || supabaseUser?.user_metadata?.role === 'admin';
-
     if (!adminUser || !isAdmin) {
       navigate('/');
       return;
     }
     fetchUsers();
-    getNotificationTypes().then(setNotificationTypes).catch(err => setError('Falha ao carregar tipos de notificação.'));
-    getHotels().then(setHotels).catch(err => setError('Falha ao carregar hotéis.'));
-    getSectors().then(setSectors).catch(err => setError('Falha ao carregar setores.'));
+    getNotificationTypes().then(setNotificationTypes).catch(() => setError('Falha ao carregar tipos de notificação.'));
+    getHotels().then(setHotels).catch(() => setError('Falha ao carregar hotéis.'));
+    getSectors().then(setSectors).catch(() => setError('Falha ao carregar setores.'));
   }, [adminUser, supabaseUser, navigate]);
 
-  // --- ALTERAÇÃO PRINCIPAL: fetchUsers para usar a nova View/RPC ---
   const fetchUsers = async () => {
     setLoading(true);
     setError('');
     try {
-      // Usamos a RPC que criamos para buscar os dados de auth.users + public.profiles
       const { data, error: fetchError } = await supabase.rpc('get_all_users_with_profile');
-
       if (fetchError) throw fetchError;
-      
-      // Mapeia os dados para a interface User
-      const mappedUsers: User[] = (data || []).map((item: any) => ({
+      setUsers((data || []).map((item: any) => ({
         id: item.id,
         email: item.email,
-        role: item.role || 'user', // Pega o role do profiles, default 'user'
+        role: item.role || 'user',
         last_sign_in_at: item.last_sign_in_at,
         raw_user_meta_data: item.raw_user_meta_data,
-      }));
-
-      setUsers(mappedUsers);
+      })));
     } catch (err: any) {
-      console.error('Error fetching users:', err);
       setError('Erro ao carregar usuários: ' + err.message);
     } finally {
       setLoading(false);
@@ -287,112 +187,72 @@ const UserManagement = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
-    // **AVISO:** Esta função usa a RPC 'create_user' que pode exigir a Service Role Key.
-    // Se a criação de usuário falhar, você precisará ajustar a RPC no Supabase.
-    alert('AVISO: A criação de usuário pode falhar se a RPC "create_user" não usar a Service Role Key. Se falhar, você precisará corrigir a RPC no Supabase.');
-
     if (!newUser.email || !newUser.password || !newUser.role) {
       setError('Preencha todos os campos');
       return;
     }
 
     try {
-      // Usamos a RPC existente, que deve ser ajustada no backend para usar o novo fluxo
-      const { error: createError, data: createdUser } = await supabase.rpc('create_user', {
+      // Chama a nova RPC create_user_v2 que criamos
+      const { data, error: createError } = await supabase.rpc('create_user_v2', {
         p_email: newUser.email,
         p_password: newUser.password,
-        p_role: newUser.role // Passamos o role para a RPC
+        p_role: newUser.role
       });
 
       if (createError) throw createError;
-      
-      // Se a RPC for bem-sucedida, atualizamos o role na tabela profiles
-      if (createdUser && createdUser.id) {
-        const { error: profileUpdateError } = await supabase
-          .from('profiles')
-          .update({ role: newUser.role })
-          .eq('id', createdUser.id);
-
-        if (profileUpdateError) throw profileUpdateError;
-      }
-
+      if (data && data.error) throw new Error(data.error);
 
       setNewUser({ email: '', password: '', role: 'inventory' });
       fetchUsers(); 
-      alert('Usuário criado com sucesso! (O role foi definido na tabela profiles)');
+      alert('Usuário criado com sucesso!');
     } catch (err: any) {
-      console.error('Error creating user:', err);
-      setError(err.message.includes('already exists') 
-        ? 'Usuário já cadastrado no sistema' 
-        : 'Erro ao criar usuário: ' + err.message);
+      setError('Erro ao criar usuário: ' + err.message);
     }
   };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
-    // **AVISO:** Esta função usa a função de Admin do Supabase (updateUserById) que exige a Service Role Key.
-    // Ela causará erro 403 (Forbidden) se não for chamada de um ambiente seguro (Edge Function/Server).
-    alert('AVISO: A alteração de senha falhará com erro 403 (Forbidden) se não for chamada com a Service Role Key. Você precisa implementar uma Edge Function ou RPC segura para isso.');
-
     if (changePassword.newPassword !== changePassword.confirmPassword) {
       setError('As senhas não coincidem');
       return;
     }
     try {
-      const userToChange = users.find(u => u.id === changePassword.userId);
-      if (!userToChange || !userToChange.id) { // Usamos user.id que é o auth.users.id
-        setError('ID de autenticação do usuário não encontrado para alteração de senha.');
-        return;
-      }
-
-      // O ID do usuário na lista (user.id) é o ID do auth.users
-      // ESTA LINHA CAUSA O ERRO 403
-      const { error: pwdError } = await supabase.auth.admin.updateUserById(
-        userToChange.id, 
-        { password: changePassword.newPassword }
-      );
+      // Chama a nova RPC admin_change_password que criamos
+      const { data, error: pwdError } = await supabase.rpc('admin_change_password', {
+        p_user_id: changePassword.userId,
+        p_new_password: changePassword.newPassword
+      });
 
       if (pwdError) throw pwdError;
+      if (data && data.error) throw new Error(data.error);
+
       setChangePassword({ userId: '', newPassword: '', confirmPassword: '' });
       setShowChangePassword(false);
-      alert('Senha alterada com sucesso no sistema de autenticação!');
+      alert('Senha alterada com sucesso!');
     } catch (err: any) {
-      console.error('Error changing password:', err);
       setError('Erro ao alterar senha: ' + err.message);
     }
   };
 
-  // --- ALTERAÇÃO PRINCIPAL: handleRoleChange para usar a tabela profiles ---
   const handleRoleChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
-      const userToChange = users.find(u => u.id === changeRole.userId);
-      if (!userToChange || !userToChange.id) {
-        setError('ID de usuário não encontrado para alteração de role.');
-        return;
-      }
-
-      // 1. Atualiza o role na tabela public.profiles (Esta é a parte que funciona com a Public Key)
       const { error: profileRoleError } = await supabase
         .from('profiles')
         .update({ role: changeRole.newRole })
-        .eq('id', userToChange.id); 
+        .eq('id', changeRole.userId); 
 
       if (profileRoleError) throw profileRoleError;
 
-      // 2. REMOVIDO: A tentativa de atualizar o metadata no auth.users (que causava o erro 403)
-      
       await fetchUsers();
       setChangeRole({ userId: '', email: '', currentRole: '', newRole: '' });
       setShowChangeRole(false);
-      alert('Role atualizado com sucesso na tabela profiles!');
+      alert('Função atualizada com sucesso!');
     } catch (err: any) {
-      console.error('Error changing role:', err);
-      setError('Erro ao alterar função do usuário: ' + err.message);
+      setError('Erro ao alterar função: ' + err.message);
     }
   };
 
@@ -407,21 +267,16 @@ const UserManagement = () => {
   };
 
   const openNotificationPrefsModal = async (user: User) => {
-    if (!user.id) { // Usamos user.id que é o auth.users.id
-      setError(`Usuário ${user.email} não possui um ID de autenticação Supabase vinculado. Não é possível gerenciar notificações.`);
-      setShowNotificationPrefsModal(false);
-      return;
-    }
     setSelectedUserForNotifications(user);
     setShowNotificationPrefsModal(true);
     setLoadingPrefs(true);
     setShowAddPreferenceForm(false);
     setError('');
     try {
-      const prefs = await getUserNotificationPreferences(user.id); // Passamos user.id
+      const prefs = await getUserNotificationPreferences(user.id);
       setUserPreferences(prefs);
     } catch (err: any) {
-      setError('Falha ao carregar preferências do usuário: ' + err.message);
+      setError('Falha ao carregar preferências: ' + err.message);
     } finally {
       setLoadingPrefs(false);
     }
@@ -429,50 +284,31 @@ const UserManagement = () => {
 
   const handleSavePreference = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUserForNotifications || !selectedUserForNotifications.id || !currentPreference.notification_type_id) {
-      setError('Usuário ou Tipo de notificação inválido(s).');
-      return;
-    }
+    if (!selectedUserForNotifications || !currentPreference.notification_type_id) return;
     setLoadingPrefs(true);
-    setError(''); 
-
     try {
-      const userAuthId = selectedUserForNotifications.id; // Usamos user.id
-      const userExistsInAuth = await checkSupabaseAuthUserExists(userAuthId);
-      if (!userExistsInAuth) {
-        setError(`O usuário ${selectedUserForNotifications.email} (ID Auth: ${userAuthId}) não existe na tabela de autenticação principal (auth.users) do Supabase. As preferências não podem ser salvas.`);
-        setLoadingPrefs(false);
-        return;
-      }
-
-      const adminAuthId = supabaseUser?.id;
-
       const prefToSave: any = {
-        user_id: userAuthId, 
+        user_id: selectedUserForNotifications.id, 
         notification_type_id: currentPreference.notification_type_id,
         hotel_id: currentPreference.hotel_id || null,
         sector_id: allSectorsSelected ? null : currentPreference.sector_id || null,
-        is_active: currentPreference.is_active === undefined ? true : currentPreference.is_active,
-        created_by: adminAuthId || null 
+        is_active: currentPreference.is_active !== false,
+        created_by: supabaseUser?.id || null 
       };
 
-      let savedPreference;
       if (isEditingPreference && currentPreference.id) {
-        savedPreference = await updateUserNotificationPreference(currentPreference.id, prefToSave);
+        await updateUserNotificationPreference(currentPreference.id, prefToSave);
       } else {
-        savedPreference = await addUserNotificationPreference(prefToSave);
+        await addUserNotificationPreference(prefToSave);
       }
 
-      if (savedPreference) {
-        const prefs = await getUserNotificationPreferences(userAuthId);
-        setUserPreferences(prefs);
-      }
+      const prefs = await getUserNotificationPreferences(selectedUserForNotifications.id);
+      setUserPreferences(prefs);
       setShowAddPreferenceForm(false);
       setCurrentPreference({});
       setIsEditingPreference(false);
-      setAllSectorsSelected(false);
     } catch (err: any) {
-      setError('Falha ao salvar preferência: ' + err.message); 
+      setError('Erro ao salvar preferência: ' + err.message); 
     } finally {
       setLoadingPrefs(false);
     }
@@ -483,98 +319,49 @@ const UserManagement = () => {
     if (selectedType?.requires_hotel_filter && preference.hotel_id) {
         getSectors(preference.hotel_id).then(setSectors);
         setSelectedHotelForFilter(preference.hotel_id);
-    } else {
-        getSectors().then(setSectors); 
-        setSelectedHotelForFilter(undefined);
     }
-    setCurrentPreference({
-        ...preference,
-        hotel_id: preference.hotel_id || undefined,
-        sector_id: preference.sector_id || undefined,
-    });
+    setCurrentPreference(preference);
     setIsEditingPreference(true);
     setShowAddPreferenceForm(true);
-    setError(''); 
     setAllSectorsSelected(preference.hotel_id !== null && preference.sector_id === null);
   };
 
-  const handleDeletePreference = async (preferenceId: string) => {
-    if (!selectedUserForNotifications || !selectedUserForNotifications.id) return; // Usamos user.id
-    if (window.confirm('Tem certeza que deseja remover esta preferência de notificação?')) {
-      setLoadingPrefs(true);
-      setError(''); 
-      try {
-        await deleteUserNotificationPreference(preferenceId);
-        const prefs = await getUserNotificationPreferences(selectedUserForNotifications.id); // Usamos user.id
-        setUserPreferences(prefs);
-      } catch (err: any) {
-        setError('Falha ao remover preferência: ' + err.message); 
-      } finally {
-        setLoadingPrefs(false);
-      }
+  const handleDeletePreference = async (id: string) => {
+    if (!window.confirm('Remover esta preferência?')) return;
+    try {
+      await deleteUserNotificationPreference(id);
+      const prefs = await getUserNotificationPreferences(selectedUserForNotifications!.id);
+      setUserPreferences(prefs);
+    } catch (err: any) {
+      setError('Erro ao remover: ' + err.message);
     }
-  };
-
-  const handleAddNewPreference = () => {
-    setCurrentPreference({});
-    setIsEditingPreference(false);
-    setShowAddPreferenceForm(true);
-    setError(''); 
-    setAllSectorsSelected(false);
   };
 
   const handleNotificationTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const typeId = e.target.value;
     const selectedType = notificationTypes.find(nt => nt.id === typeId);
-    
-    setCurrentPreference(prev => ({
-      ...prev,
-      notification_type_id: typeId,
-      hotel_id: selectedType?.requires_hotel_filter ? prev.hotel_id : undefined,
-      sector_id: selectedType?.requires_sector_filter ? prev.sector_id : undefined,
-    }));
-    
-    if (!selectedType?.requires_hotel_filter) {
-      setSelectedHotelForFilter(undefined);
-    }
-    
-    setAllSectorsSelected(false);
+    setCurrentPreference(prev => ({ ...prev, notification_type_id: typeId }));
+    if (!selectedType?.requires_hotel_filter) setSelectedHotelForFilter(undefined);
   };
 
   const handleHotelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const hotelId = e.target.value;
-    setCurrentPreference(prev => ({
-      ...prev,
-      hotel_id: hotelId,
-      sector_id: undefined, // Reset sector when hotel changes
-    }));
+    setCurrentPreference(prev => ({ ...prev, hotel_id: hotelId, sector_id: undefined }));
     setSelectedHotelForFilter(hotelId);
-    if (hotelId) {
-      getSectors(hotelId).then(setSectors);
-    } else {
-      getSectors().then(setSectors);
-    }
-    setAllSectorsSelected(false);
+    if (hotelId) getSectors(hotelId).then(setSectors);
   };
 
   const handleSectorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const sectorId = e.target.value;
-    if (sectorId === "all_sectors") {
+    const val = e.target.value;
+    if (val === "all_sectors") {
       setAllSectorsSelected(true);
-      setCurrentPreference(prev => ({
-        ...prev,
-        sector_id: undefined,
-      }));
+      setCurrentPreference(prev => ({ ...prev, sector_id: undefined }));
     } else {
       setAllSectorsSelected(false);
-      setCurrentPreference(prev => ({
-        ...prev,
-        sector_id: sectorId,
-      }));
+      setCurrentPreference(prev => ({ ...prev, sector_id: val }));
     }
   };
 
-  // --- ALTERAÇÃO: Adicionadas as descrições para os novos tipos de notificação ---
   const getNotificationTypeDescription = (eventKey: string) => {
     switch (eventKey) {
       case 'NEW_REQUEST': return 'Nova requisição';
@@ -584,9 +371,8 @@ const UserManagement = () => {
       case 'NEW_BUDGET': return 'Novo orçamento';
       case 'BUDGET_APPROVED': return 'Orçamento aprovado';
       case 'BUDGET_CANCELLED': return 'Orçamento cancelado';
-      // --- NOVAS DESCRIÇÕES ---
-      case 'EXP_CONTRACT_ENDING_SOON': return 'Contrato de Experiência (Vence em 5 dias)';
-      case 'EXP_CONTRACT_ENDS_TODAY': return 'Contrato de Experiência (Vence Hoje)';
+      case 'EXP_CONTRACT_ENDING_SOON': return 'Contrato de Experiência (5 dias)';
+      case 'EXP_CONTRACT_ENDS_TODAY': return 'Contrato de Experiência (Hoje)';
       default: return eventKey;
     }
   };
@@ -594,159 +380,69 @@ const UserManagement = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-        <div className="flex items-center mb-4 md:mb-0">
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center">
-            <Users className="h-7 w-7 text-blue-600 dark:text-blue-400 mr-3" />
-            Gerenciamento de Usuários
-          </h1>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => navigate("/")}
-            className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
-          >
-            Voltar
-          </button>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center">
+          <Users className="h-7 w-7 text-blue-600 dark:text-blue-400 mr-3" />
+          Gerenciamento de Usuários
+        </h1>
+        <button onClick={() => navigate("/")} className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600">Voltar</button>
       </div>
 
       {error && (
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md dark:bg-red-900 dark:text-red-200 dark:border-red-700" role="alert">
-          <div className="flex items-center">
-            <AlertTriangle className="h-5 w-5 mr-2" />
-            <p>{error}</p>
-          </div>
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md flex items-center">
+          <AlertTriangle className="h-5 w-5 mr-2" />
+          <p>{error}</p>
         </div>
       )}
 
       <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-8">
         <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-6">Criar Novo Usuário</h2>
-        <form onSubmit={handleCreateUser} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-              <input
-                type="email"
-                id="email"
-                value={newUser.email}
-                onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Senha</label>
-              <input
-                type="password"
-                id="password"
-                value={newUser.password}
-                onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Função</label>
-              <select
-                id="role"
-                value={newUser.role}
-                onChange={(e) => setNewUser({...newUser, role: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                required
-              >
-                <option value="inventory">Estoque</option>
-                <option value="management">Gerência</option>
-                <option value="sup-governanca">Supervisão de Governança</option>
-                <option value="admin">Administrador</option>
-              </select>
-            </div>
+        <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+            <input type="email" value={newUser.email} onChange={(e) => setNewUser({...newUser, email: e.target.value})} className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white" required />
           </div>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Criar Usuário
-            </button>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Senha</label>
+            <input type="password" value={newUser.password} onChange={(e) => setNewUser({...newUser, password: e.target.value})} className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white" required />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Função</label>
+            <select value={newUser.role} onChange={(e) => setNewUser({...newUser, role: e.target.value})} className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white">
+              <option value="inventory">Estoque</option>
+              <option value="management">Gerência</option>
+              <option value="sup-governanca">Supervisão de Governança</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Criar Usuário</button>
         </form>
       </div>
 
       <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
         <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-6">Usuários Cadastrados</h2>
         {loading ? (
-          <div className="text-center py-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">Carregando usuários...</p>
-          </div>
-        ) : users.length === 0 ? (
-          <p className="text-gray-600 dark:text-gray-400 text-center py-4">Nenhum usuário encontrado.</p>
+          <div className="text-center py-4"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                    Email
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                    Função
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                    Último Login
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                    Ações
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-300">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-300">Função</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-300">Último Login</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-300">Ações</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {users.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
-                      {user.email}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
-                      {getRoleName(user.role)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
-                      {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString('pt-BR') : 'Nunca'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
-                        <button
-                          onClick={() => {
-                            setChangePassword({userId: user.id, newPassword: '', confirmPassword: ''});
-                            setShowChangePassword(true);
-                          }}
-                          className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
-                          title="Alterar senha"
-                        >
-                          <Key className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setChangeRole({
-                              userId: user.id, 
-                              email: user.email,
-                              currentRole: user.role,
-                              newRole: user.role
-                            });
-                            setShowChangeRole(true);
-                          }}
-                          className="text-amber-600 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
-                          title="Alterar função"
-                        >
-                          <UserCog className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => openNotificationPrefsModal(user)}
-                          className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                          title="Preferências de notificação"
-                        >
-                          <Bell className="h-5 w-5" />
-                        </button>
-                      </div>
+                    <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-200">{user.email}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-200">{getRoleName(user.role)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-200">{user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString('pt-BR') : 'Nunca'}</td>
+                    <td className="px-6 py-4 text-right space-x-2">
+                      <button onClick={() => { setChangePassword({userId: user.id, newPassword: '', confirmPassword: ''}); setShowChangePassword(true); }} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400"><Key className="h-5 w-5" /></button>
+                      <button onClick={() => { setChangeRole({userId: user.id, email: user.email, currentRole: user.role, newRole: user.role}); setShowChangeRole(true); }} className="text-amber-600 hover:text-amber-900 dark:text-amber-400"><UserCog className="h-5 w-5" /></button>
+                      <button onClick={() => openNotificationPrefsModal(user)} className="text-blue-600 hover:text-blue-900 dark:text-blue-400"><Bell className="h-5 w-5" /></button>
                     </td>
                   </tr>
                 ))}
@@ -756,302 +452,96 @@ const UserManagement = () => {
         )}
       </div>
 
-      {/* Modal de alteração de senha */}
+      {/* Modais simplificados */}
       {showChangePassword && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-opacity-75 overflow-y-auto h-full w-full z-50 flex justify-center items-center">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md mx-auto">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Alterar Senha</h3>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4 dark:text-white">Alterar Senha</h3>
             <form onSubmit={handlePasswordChange} className="space-y-4">
-              <div>
-                <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nova Senha</label>
-                <input
-                  type="password"
-                  id="newPassword"
-                  value={changePassword.newPassword}
-                  onChange={(e) => setChangePassword({...changePassword, newPassword: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirmar Senha</label>
-                <input
-                  type="password"
-                  id="confirmPassword"
-                  value={changePassword.confirmPassword}
-                  onChange={(e) => setChangePassword({...changePassword, confirmPassword: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                  required
-                />
-              </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowChangePassword(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Salvar
-                </button>
+              <input type="password" placeholder="Nova Senha" value={changePassword.newPassword} onChange={(e) => setChangePassword({...changePassword, newPassword: e.target.value})} className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white" required />
+              <input type="password" placeholder="Confirmar Senha" value={changePassword.confirmPassword} onChange={(e) => setChangePassword({...changePassword, confirmPassword: e.target.value})} className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white" required />
+              <div className="flex justify-end space-x-2">
+                <button type="button" onClick={() => setShowChangePassword(false)} className="px-4 py-2 bg-gray-300 rounded-md">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md">Salvar</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal de alteração de função */}
       {showChangeRole && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-opacity-75 overflow-y-auto h-full w-full z-50 flex justify-center items-center">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md mx-auto">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Alterar Função</h3>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4 dark:text-white">Alterar Função: {changeRole.email}</h3>
             <form onSubmit={handleRoleChange} className="space-y-4">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Usuário: <span className="font-medium text-gray-900 dark:text-gray-200">{changeRole.email}</span>
-                </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Função atual: <span className="font-medium text-gray-900 dark:text-gray-200">{getRoleName(changeRole.currentRole)}</span>
-                </p>
-              </div>
-              <div>
-                <label htmlFor="newRole" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nova Função</label>
-                <select
-                  id="newRole"
-                  value={changeRole.newRole}
-                  onChange={(e) => setChangeRole({...changeRole, newRole: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                  required
-                >
-                  <option value="inventory">Estoque</option>
-                  <option value="management">Gerência</option>
-                  <option value="sup-governanca">Supervisão de Governança</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowChangeRole(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Salvar
-                </button>
+              <select value={changeRole.newRole} onChange={(e) => setChangeRole({...changeRole, newRole: e.target.value})} className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white">
+                <option value="inventory">Estoque</option>
+                <option value="management">Gerência</option>
+                <option value="sup-governanca">Supervisão de Governança</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <div className="flex justify-end space-x-2">
+                <button type="button" onClick={() => setShowChangeRole(false)} className="px-4 py-2 bg-gray-300 rounded-md">Cancelar</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md">Salvar</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal de preferências de notificação */}
+      {/* Modal de Notificações (Mantido o original) */}
       {showNotificationPrefsModal && selectedUserForNotifications && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-opacity-75 overflow-y-auto h-full w-full z-50 flex justify-center items-start px-4 py-6">
-          <div className="bg-white dark:bg-gray-800 p-6 sm:p-8 rounded-lg shadow-xl w-full max-w-2xl mx-auto my-8 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-start z-50 p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-full max-w-2xl my-8">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                Preferências de Notificação para {selectedUserForNotifications.email}
-              </h3>
-              <button 
-                onClick={() => setShowNotificationPrefsModal(false)} 
-                className="text-gray-400 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <XCircle className="h-6 w-6" />
-              </button>
+              <h3 className="text-xl font-bold dark:text-white">Notificações: {selectedUserForNotifications.email}</h3>
+              <button onClick={() => setShowNotificationPrefsModal(false)}><XCircle className="h-6 w-6 text-gray-400" /></button>
             </div>
             
-            <div className="overflow-y-auto flex-1 pr-1">
-              {loadingPrefs ? (
-                <div className="text-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                  <p className="mt-2 text-gray-600 dark:text-gray-400">Carregando preferências...</p>
+            {showAddPreferenceForm ? (
+              <form onSubmit={handleSavePreference} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md space-y-4 mb-6">
+                <select value={currentPreference.notification_type_id || ''} onChange={handleNotificationTypeChange} className="w-full p-2 border rounded dark:bg-gray-600 dark:text-white" required>
+                  <option value="">Tipo de Notificação</option>
+                  {notificationTypes.map(t => <option key={t.id} value={t.id}>{getNotificationTypeDescription(t.event_key)}</option>)}
+                </select>
+                
+                {notificationTypes.find(t => t.id === currentPreference.notification_type_id)?.requires_hotel_filter && (
+                  <select value={currentPreference.hotel_id || ''} onChange={handleHotelChange} className="w-full p-2 border rounded dark:bg-gray-600 dark:text-white" required>
+                    <option value="">Selecionar Hotel</option>
+                    {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                  </select>
+                )}
+
+                {notificationTypes.find(t => t.id === currentPreference.notification_type_id)?.requires_sector_filter && currentPreference.hotel_id && (
+                  <select value={allSectorsSelected ? "all_sectors" : (currentPreference.sector_id || '')} onChange={handleSectorChange} className="w-full p-2 border rounded dark:bg-gray-600 dark:text-white" required>
+                    <option value="">Selecionar Setor</option>
+                    <option value="all_sectors">Todos os setores</option>
+                    {sectors.filter(s => !selectedHotelForFilter || s.hotel_id === selectedHotelForFilter).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
+
+                <div className="flex justify-end space-x-2">
+                  <button type="button" onClick={() => setShowAddPreferenceForm(false)} className="px-4 py-2 bg-gray-300 rounded-md">Cancelar</button>
+                  <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md">{isEditingPreference ? 'Atualizar' : 'Adicionar'}</button>
                 </div>
-              ) : (
-                <>
-                  {showAddPreferenceForm ? (
-                    <form onSubmit={handleSavePreference} className="space-y-4 bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
-                      <div>
-                        <label htmlFor="notificationType" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Tipo de Notificação:
-                        </label>
-                        <select
-                          id="notificationType"
-                          value={currentPreference.notification_type_id || ''}
-                          onChange={handleNotificationTypeChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                          required
-                        >
-                          <option value="">Selecione um tipo de notificação</option>
-                          {notificationTypes.map(type => (
-                            <option key={type.id} value={type.id}>
-                              {getNotificationTypeDescription(type.event_key)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+              </form>
+            ) : (
+              <button onClick={() => { setCurrentPreference({}); setIsEditingPreference(false); setShowAddPreferenceForm(true); }} className="mb-4 flex items-center px-4 py-2 bg-green-600 text-white rounded-md"><PlusCircle className="h-5 w-5 mr-2" /> Nova Preferência</button>
+            )}
 
-                      {(() => {
-                        const selectedNotificationType = notificationTypes.find(nt => nt.id === currentPreference.notification_type_id);
-                        
-                        return (
-                          <>
-                            {selectedNotificationType?.requires_hotel_filter && (
-                              <div>
-                                <label htmlFor="hotel" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Filtrar por Hotel (Obrigatório para este tipo):
-                                </label>
-                                <select
-                                  id="hotel"
-                                  value={currentPreference.hotel_id || ''}
-                                  onChange={handleHotelChange}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                                  required
-                                >
-                                  <option value="">Selecione um hotel</option>
-                                  {hotels.map(hotel => (
-                                    <option key={hotel.id} value={hotel.id}>{hotel.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-
-                            {selectedNotificationType?.requires_sector_filter && currentPreference.hotel_id && (
-                              <div>
-                                <label htmlFor="sector" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Filtrar por Setor (Obrigatório para este tipo):
-                                </label>
-                                <select
-                                  id="sector"
-                                  value={allSectorsSelected ? "all_sectors" : (currentPreference.sector_id || '')}
-                                  onChange={handleSectorChange}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
-                                  required
-                                >
-                                  <option value="">Selecione um setor</option>
-                                  <option value="all_sectors">Todos os setores</option>
-                                  {sectors
-                                    .filter(sector => !selectedHotelForFilter || sector.hotel_id === selectedHotelForFilter)
-                                    .map(sector => (
-                                      <option key={sector.id} value={sector.id}>{sector.name}</option>
-                                    ))
-                                  }
-                                </select>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-
-                      <div className="flex items-center">
-                        <input
-                          id="isActive"
-                          type="checkbox"
-                          checked={currentPreference.is_active !== false}
-                          onChange={(e) => setCurrentPreference(prev => ({...prev, is_active: e.target.checked}))}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded dark:bg-gray-700 dark:border-gray-600"
-                        />
-                        <label htmlFor="isActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                          Ativa
-                        </label>
-                      </div>
-
-                      <div className="flex justify-end space-x-3 pt-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddPreferenceForm(false);
-                            setCurrentPreference({});
-                            setIsEditingPreference(false);
-                            setAllSectorsSelected(false);
-                          }}
-                          className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500"
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                        >
-                          {isEditingPreference ? 'Atualizar' : 'Adicionar'} Preferência
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="mb-4">
-                      <button
-                        onClick={handleAddNewPreference}
-                        className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-                      >
-                        <PlusCircle className="h-5 w-5 mr-2" />
-                        Adicionar Preferência
-                      </button>
-                    </div>
-                  )}
-
-                  <h4 className="text-lg font-medium text-gray-800 dark:text-white mt-6 mb-3">
-                    Preferências Salvas:
-                  </h4>
-                  
-                  {userPreferences.length === 0 ? (
-                    <p className="text-gray-600 dark:text-gray-400 text-center py-4">
-                      Nenhuma preferência de notificação configurada.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {userPreferences.map(pref => (
-                        <div 
-                          key={pref.id} 
-                          className={`border ${pref.is_active ? 'border-green-300 dark:border-green-700' : 'border-gray-300 dark:border-gray-700'} rounded-md p-3 flex justify-between items-center`}
-                        >
-                          <div>
-                            <div className="flex items-center">
-                              {pref.is_active ? (
-                                <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-                              ) : (
-                                <XCircle className="h-5 w-5 text-gray-400 mr-2" />
-                              )}
-                              <span className="font-medium text-gray-900 dark:text-gray-100">
-                                {getNotificationTypeDescription(pref.notification_types?.event_key || '')}
-                              </span>
-                            </div>
-                            {pref.hotels && (
-                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                Hotel: {pref.hotels.name}
-                                {pref.sectors ? ` / Setor: ${pref.sectors.name}` : (pref.hotel_id && !pref.sector_id ? ' / Todos os setores' : '')}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleEditPreference(pref)}
-                              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                              title="Editar"
-                            >
-                              <Edit3 className="h-5 w-5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeletePreference(pref.id)}
-                              className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                              title="Remover"
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+            <div className="space-y-2">
+              {userPreferences.map(p => (
+                <div key={p.id} className="border p-3 rounded flex justify-between items-center dark:border-gray-700">
+                  <div>
+                    <p className="font-medium dark:text-white">{getNotificationTypeDescription(p.notification_types?.event_key || '')}</p>
+                    <p className="text-sm text-gray-500">{p.hotels?.name} {p.sectors ? `/ ${p.sectors.name}` : (p.hotel_id ? '/ Todos os setores' : '')}</p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button onClick={() => handleEditPreference(p)} className="text-blue-500"><Edit3 className="h-5 w-5" /></button>
+                    <button onClick={() => handleDeletePreference(p.id)} className="text-red-500"><Trash2 className="h-5 w-5" /></button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
