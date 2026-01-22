@@ -38,17 +38,12 @@ export const usePushNotifications = (userId: string | undefined) => {
         if (token) {
           console.log('Token FCM obtido:', token);
           
-          // 4. Salvar token no Supabase (usando a tabela user_devices conforme definido em notifications.ts)
-          await supabase.from('user_devices').upsert({
+          // 4. Salvar token no Supabase (usando a tabela user_fcm_tokens que a Edge Function usa)
+          await supabase.from('user_fcm_tokens').upsert({
             user_id: userId,
-            fcm_token: token,
-            device_info: {
-              type: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'mobile' : 'web',
-              userAgent: navigator.userAgent
-            },
-            is_active: true,
-            last_used_at: new Date().toISOString()
-          }, { onConflict: 'user_id, fcm_token' });
+            token: token,
+            last_seen: new Date().toISOString()
+          }, { onConflict: 'token' });
         }
 
         // 5. Ouvir mensagens em primeiro plano
