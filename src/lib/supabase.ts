@@ -203,7 +203,7 @@ export const saveBudget = async (
       throw itemsError;
     }
 
-    return { success: true, budgetId };
+    return { success: true, budgetId, data: budgetData };
   } catch (err) {
     console.error("Error in saveBudget function:", err);
     let errorMessage = "Ocorreu um erro desconhecido ao salvar o orçamento.";
@@ -605,16 +605,18 @@ export const updateBudgetStatus = async (budgetId: string, newStatus: string, ap
       updateData.approved_at = new Date().toISOString(); // Salva o timestamp atual
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("budgets")
       .update(updateData)
-      .eq("id", budgetId);
+      .eq("id", budgetId)
+      .select()
+      .single();
 
     if (error) {
       console.error("Error updating budget status:", error);
       return { success: false, error: error.message };
     }
-    return { success: true, error: null };
+    return { success: true, error: null, data };
   } catch (error: any) {
     console.error("Unexpected error in updateBudgetStatus:", error);
     return { success: false, error: error.message };
