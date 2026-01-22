@@ -179,15 +179,16 @@ const OnlinePurchaseList = () => {
           await createNotification({
             event_type: 'NEW_BUDGET',
             hotel_id: selectedHotel.id,
-            title: 'Novo orçamento online criado',
-            content: `Novo orçamento online de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')}`,
-            link: `/budget/${result.data.id}`,
+            title: `Novo orçamento - ${selectedHotel.name}`,
+            content: `Novo orçamento online de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')} para o hotel ${selectedHotel.name}`,
+            link: `/authorizations`,
             metadata: {
               budget_id: result.data.id,
               total_value: totalBudgetValue,
               supplier: mainSupplier,
               items_count: budgetItems.length,
-              is_online: true
+              is_online: true,
+              hotel_name: selectedHotel.name
             }
           });
           
