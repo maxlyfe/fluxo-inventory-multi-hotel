@@ -193,16 +193,16 @@ const BudgetDetail = () => {
       const saved = await handleSaveChanges(true);
       if (!saved) return;
       const result = await updateBudgetStatus(budgetId, "approved", user.email);
-      if (result.success) {
+      if (result.success && result.data) {
         addNotification("Orçamento aprovado!", "success");
         try {
           await createNotification({
             event_type: 'BUDGET_APPROVED',
-            hotel_id: budget.hotel_id,
-            title: 'Orçamento aprovado',
-            content: `Orçamento de ${getMainSupplier()} (R$ ${budget.total_value.toFixed(2).replace('.', ',')}) aprovado por ${user.email.split('@')[0]}`,
-            link: `/budget/${budgetId}`,
-            metadata: { budget_id: budgetId, total_value: budget.total_value, supplier: getMainSupplier(), approved_by: user.email, items_count: budget.budget_items.length }
+            hotel_id: result.data.hotel_id,
+            title: `Orçamento Aprovado - ${budget.hotel?.name || 'Hotel'}`,
+            content: `Orçamento de ${getMainSupplier()} (R$ ${budget.total_value.toFixed(2).replace('.', ',')}) aprovado por ${user.email.split('@')[0]} para o hotel ${budget.hotel?.name || ''}`,
+            link: `/budget-history`,
+            metadata: { budget_id: budgetId, total_value: budget.total_value, supplier: getMainSupplier(), approved_by: user.email, items_count: budget.budget_items.length, hotel_name: budget.hotel?.name }
           });
         } catch (nErr) { console.error(nErr); }
         fetchDetails();
@@ -216,16 +216,16 @@ const BudgetDetail = () => {
     try {
       setLoading(true);
       const result = await updateBudgetStatus(budgetId, "cancelled");
-      if (result.success) {
+      if (result.success && result.data) {
         addNotification("Orçamento cancelado.", "success");
         try {
           await createNotification({
             event_type: 'BUDGET_CANCELLED',
-            hotel_id: budget.hotel_id,
-            title: 'Orçamento cancelado',
-            content: `Orçamento de ${getMainSupplier()} (R$ ${budget.total_value.toFixed(2).replace('.', ',')}) cancelado`,
-            link: `/budget/${budgetId}`,
-            metadata: { budget_id: budgetId, total_value: budget.total_value, supplier: getMainSupplier(), cancelled_by: user?.email || 'Sistema' }
+            hotel_id: result.data.hotel_id,
+            title: `Orçamento Cancelado - ${budget.hotel?.name || 'Hotel'}`,
+            content: `Orçamento de ${getMainSupplier()} (R$ ${budget.total_value.toFixed(2).replace('.', ',')}) cancelado para o hotel ${budget.hotel?.name || ''}`,
+            link: `/budget-history`,
+            metadata: { budget_id: budgetId, total_value: budget.total_value, supplier: getMainSupplier(), cancelled_by: user?.email || 'Sistema', hotel_name: budget.hotel?.name }
           });
         } catch (nErr) { console.error(nErr); }
         fetchDetails();
