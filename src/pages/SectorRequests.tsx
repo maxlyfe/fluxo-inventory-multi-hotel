@@ -200,6 +200,7 @@ const SectorRequests = () => {
         throw new Error('Hotel ou setor não selecionado');
       }
 
+      // CORREÇÃO DO ERRO 400: Simplificado o .select() para evitar erros de JOIN no INSERT
       const { data: newRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -211,24 +212,19 @@ const SectorRequests = () => {
           is_custom: false,
           hotel_id: selectedHotel.id
         }])
-        .select(`
-          id, 
-          item_name, 
-          quantity, 
-          status, 
-          created_at, 
-          delivered_quantity, 
-          rejection_reason, 
-          product_id, 
-          substituted_product_id,
-          products:product_id(image_url)
-        `)
+        .select()
         .single();
 
       if (error) throw error;
       if (!newRequisition) throw new Error("Falha ao criar requisição.");
 
-      setRequisitions(currentRequisitions => [newRequisition as any, ...currentRequisitions]);
+      // Como simplificamos o select, adicionamos a imagem manualmente para o estado local
+      const requisitionWithImage = {
+        ...newRequisition,
+        products: { image_url: product.image_url }
+      };
+
+      setRequisitions(currentRequisitions => [requisitionWithImage as any, ...currentRequisitions]);
       setPendingCount(currentCount => currentCount + 1);
 
       try {
@@ -294,7 +290,7 @@ const SectorRequests = () => {
 
       setCustomItem({ name: '', quantity: 1 });
       setShowCustomForm(false);
-      addNotification('Item personalizado adicionado com sucesso!', 'success');
+      addNotification('Item personalizado adicionado!', 'success');
 
     } catch (err: any) {
       setError('Erro ao adicionar item personalizado: ' + err.message);
@@ -520,7 +516,9 @@ const SectorRequests = () => {
                     viewMode === 'list' ? 'flex items-center p-4' : 'p-4'
                   }`}
                 >
-                  <div className={`${viewMode === 'list' ? 'w-24 h-24 mr-4' : 'w-full h-48 mb-4'} bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center relative`}>
+                  <div className={`relative bg-gray-100 dark:bg-gray-700 flex items-center justify-center ${
+                    viewMode === 'list' ? 'w-24 h-24 mr-6 rounded-lg' : 'w-full h-48 mb-4 rounded-lg'
+                  }`}>
                     {product.image_url ? (
                       <img
                         src={product.image_url}
