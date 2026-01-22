@@ -698,34 +698,16 @@ export const sendPushNotificationToUser = async (
       return;
     }
 
-    // Enviar para cada token
+    // Enviar para a função existente send-fcm-notification
     const promises = tokens.map(tokenData => 
-      supabase.functions.invoke('send-push-notification', {
+      supabase.functions.invoke('send-fcm-notification', {
         body: {
-          token: tokenData.fcm_token,
-          notification: {
-            title,
-            body
-          },
+          userId: userId,
+          title: title,
+          body: body,
           data: {
             ...data,
-            click_action: data?.targetPath || '/authorizations'
-          },
-          // Formato específico para garantir exibição em background no Android/iOS
-          android: {
-            priority: "high",
-            notification: {
-              sound: "default",
-              click_action: "FLUTTER_NOTIFICATION_CLICK"
-            }
-          },
-          apns: {
-            payload: {
-              aps: {
-                sound: "default",
-                badge: 1
-              }
-            }
+            target_path: data?.targetPath || '/authorizations'
           }
         }
       })
