@@ -516,16 +516,16 @@ const SectorRequests = () => {
               {filteredProducts.map((product) => (
                 <div
                   key={product.id}
-                  className={`bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden border border-gray-100 dark:border-gray-700 hover:shadow-lg transition-shadow ${
+                  className={`bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden ${
                     viewMode === 'list' ? 'flex items-center p-4' : 'p-4'
                   }`}
                 >
-                  <div className={`${viewMode === 'list' ? 'w-24 h-24 mr-4' : 'w-full h-48 mb-4'} bg-gray-50 dark:bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center relative`}>
+                  <div className={`${viewMode === 'list' ? 'w-24 h-24 mr-4' : 'w-full h-48 mb-4'} bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center relative`}>
                     {product.image_url ? (
                       <img
                         src={product.image_url}
                         alt={product.name}
-                        className="w-full h-full object-contain p-2"
+                        className="w-full h-full object-contain"
                         onError={(e) => {
                           (e.target as any).src = ''; // Limpa o src quebrado
                           (e.target as any).style.display = 'none';
@@ -533,41 +533,41 @@ const SectorRequests = () => {
                         }}
                       />
                     ) : null}
-                    <ImageIcon className={`w-12 h-12 text-gray-300 ${product.image_url ? 'hidden' : 'block'}`} />
+                    <ImageIcon className={`w-12 h-12 text-gray-400 ${product.image_url ? 'hidden' : 'block'}`} />
                   </div>
                   <div className={viewMode === 'list' ? 'flex-grow' : ''}>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 truncate" title={product.name}>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                       {product.name}
                     </h3>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-2 uppercase tracking-wider">
-                      {product.category}
-                    </p>
                     {product.description && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2 h-10">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                         {product.description}
                       </p>
                     )}
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Qtd:</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={product.requestQuantity || 1}
-                          onChange={(e) => handleQuantityChange(product.id, parseInt(e.target.value))}
-                          className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                        />
-                      </div>
-                      <span className={`text-xs font-bold px-2 py-1 rounded ${product.quantity > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        Estoque: {product.quantity}
-                      </span>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      Categoria: {product.category}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Estoque: {product.quantity}
+                    </p>
+                    <div className="flex items-center space-x-2 mb-4">
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Quantidade:
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={product.requestQuantity || 1}
+                        onChange={(e) => handleQuantityChange(product.id, parseInt(e.target.value))}
+                        className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
                     </div>
                     <button
                       onClick={() => handleAddToRequest(product)}
-                      className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
+                      className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Requisitar
+                      Adicionar à Requisição
                     </button>
                   </div>
                 </div>
@@ -578,33 +578,34 @@ const SectorRequests = () => {
       )}
 
       {showCustomForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-full max-w-md border border-gray-200 dark:border-gray-700">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
-                <Plus className="w-6 h-6 mr-2 text-purple-600" />
-                Item Personalizado
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Adicionar Item Personalizado
               </h2>
-              <button onClick={() => setShowCustomForm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <button
+                onClick={() => setShowCustomForm(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <form onSubmit={handleAddCustomItem} className="space-y-5">
+            <form onSubmit={handleAddCustomItem} className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nome do Item
                 </label>
                 <input
                   type="text"
                   value={customItem.name}
                   onChange={(e) => setCustomItem({ ...customItem, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  placeholder="Ex: Caneta Azul"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Quantidade
                 </label>
                 <input
@@ -612,21 +613,21 @@ const SectorRequests = () => {
                   min="1"
                   value={customItem.quantity}
                   onChange={(e) => setCustomItem({ ...customItem, quantity: parseInt(e.target.value) })}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                 />
               </div>
-              <div className="flex space-x-3 pt-4">
+              <div className="flex space-x-3">
                 <button
                   type="button"
                   onClick={() => setShowCustomForm(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-bold shadow-md"
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   Adicionar
                 </button>
