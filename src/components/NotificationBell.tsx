@@ -103,8 +103,6 @@ const NotificationBell: React.FC = () => {
   const handleNotificationClick = async (notification: Notification) => {
     if (user?.id && !notification.is_read) {
       try {
-        // A função markNotificationAsRead em notifications.ts não espera user.id como segundo argumento.
-        // Se for necessário, precisará ser ajustada lá.
         await markNotificationAsRead(notification.id);
         fetchUnreadCount(); 
         setNotifications(prev => 
@@ -114,9 +112,16 @@ const NotificationBell: React.FC = () => {
         console.error('Failed to mark notification as read:', error);
       }
     }
+
+    // Priorizar target_path da notificação
     if (notification.target_path) {
       navigate(notification.target_path);
+    } else if (notification.notification_types?.event_key === 'NEW_BUDGET') {
+      navigate('/authorizations');
+    } else if (['BUDGET_APPROVED', 'BUDGET_CANCELLED'].includes(notification.notification_types?.event_key || '')) {
+      navigate('/budget-history');
     }
+    
     setIsOpen(false);
   };
 
@@ -235,4 +240,3 @@ const NotificationBell: React.FC = () => {
 };
 
 export default NotificationBell;
-
