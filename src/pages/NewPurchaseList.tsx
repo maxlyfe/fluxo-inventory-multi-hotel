@@ -245,7 +245,7 @@ const NewPurchaseList = () => {
 
       const result = await saveBudget(selectedHotel.id, totalBudgetValue, budgetItems);
 
-      if (result.success && result.data?.id) {
+      if (result.success && result.data) {
         addNotification('Orçamento salvo com sucesso!', 'success');
         
         try {
