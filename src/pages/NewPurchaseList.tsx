@@ -254,9 +254,9 @@ const NewPurchaseList = () => {
           await createNotification({
             event_type: 'NEW_BUDGET',
             hotel_id: selectedHotel.id,
-            title: 'Novo orçamento criado',
-            content: `Novo orçamento de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')} para ${selectedHotel.name}`,
-            link: `/budget/${result.data.id}`,
+            title: `Novo orçamento - ${selectedHotel.name}`,
+            content: `Novo orçamento de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')} para o hotel ${selectedHotel.name}`,
+            link: `/authorizations`,
             metadata: {
               budget_id: result.data.id,
               total_value: totalBudgetValue,
