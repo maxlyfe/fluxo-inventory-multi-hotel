@@ -267,23 +267,24 @@ const AuthorizationsPage: React.FC = () => {
 
       // 2. Atualizar o status para aprovado
       const result = await updateBudgetStatus(budgetId, "approved", approverUserEmail);
-      if (result.success) {
+      if (result.success && result.data) {
         addNotification("Orçamento aprovado com sucesso!", "success");
         
         try {
           // Criar notificação para o evento BUDGET_APPROVED
           await createNotification({
             event_type: 'BUDGET_APPROVED',
-            hotel_id: budget.hotel_id,
-            title: 'Orçamento aprovado',
-            content: `Orçamento de ${getMainSupplier(budget)} no valor de R$ ${budget.total_value.toFixed(2).replace('.', ',')} foi aprovado por ${approverUserEmail.split('@')[0]}`,
-            link: `/budget/${budgetId}`,
+            hotel_id: result.data.hotel_id,
+            title: `Orçamento Aprovado - ${budget.hotel?.name || 'Hotel'}`,
+            content: `Orçamento de ${getMainSupplier(budget)} no valor de R$ ${budget.total_value.toFixed(2).replace('.', ',')} foi aprovado por ${approverUserEmail.split('@')[0]} para o hotel ${budget.hotel?.name || ''}`,
+            link: `/budget-history`,
             metadata: {
               budget_id: budgetId,
               total_value: budget.total_value,
               supplier: getMainSupplier(budget),
               approved_by: approverUserEmail,
-              items_count: budget.budget_items.length
+              items_count: budget.budget_items.length,
+              hotel_name: budget.hotel?.name
             }
           });
         } catch (notificationError) {
@@ -313,7 +314,7 @@ const AuthorizationsPage: React.FC = () => {
       const budget = allBudgets.find(b => b.id === budgetId);
       
       const result = await updateBudgetStatus(budgetId, "cancelled");
-      if (result.success) {
+      if (result.success && result.data) {
         addNotification("Orçamento cancelado com sucesso!", "success");
         
         // Disparar notificação de orçamento cancelado
@@ -322,16 +323,17 @@ const AuthorizationsPage: React.FC = () => {
             // Criar notificação para o evento BUDGET_CANCELLED
             await createNotification({
               event_type: 'BUDGET_CANCELLED',
-              hotel_id: budget.hotel_id,
-              title: 'Orçamento cancelado',
-              content: `Orçamento de ${getMainSupplier(budget)} no valor de R$ ${budget.total_value.toFixed(2).replace('.', ',')} foi cancelado`,
-              link: `/budget/${budgetId}`,
+              hotel_id: result.data.hotel_id,
+              title: `Orçamento Cancelado - ${budget.hotel?.name || 'Hotel'}`,
+              content: `Orçamento de ${getMainSupplier(budget)} no valor de R$ ${budget.total_value.toFixed(2).replace('.', ',')} foi cancelado para o hotel ${budget.hotel?.name || ''}`,
+              link: `/budget-history`,
               metadata: {
                 budget_id: budgetId,
                 total_value: budget.total_value,
                 supplier: getMainSupplier(budget),
                 cancelled_by: user?.email || 'Usuário do sistema',
-                items_count: budget.budget_items.length
+                items_count: budget.budget_items.length,
+                hotel_name: budget.hotel?.name
               }
             });
             
