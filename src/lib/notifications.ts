@@ -27,21 +27,82 @@ interface Notification {
 // FUNÇÕES PARA NOTIFICAÇÕES DO SISTEMA (ADAPTADAS)
 // =====================================================
 
+// Interface para os parâmetros da função createNotification
+interface CreateNotificationParams {
+  user_id?: string;
+  userId?: string;
+  message?: string;
+  content?: string;
+  event_key?: string;
+  event_type?: string;
+  related_entity_id?: string | null;
+  related_entity_type?: string | null;
+  hotel_id?: string | null;
+  sector_id?: string | null;
+  created_by?: string | null;
+  sendPush?: boolean;
+  title?: string | null;
+  target_path?: string | null;
+  link?: string | null;
+  metadata?: any;
+}
+
 // Função para criar uma notificação usando suas tabelas existentes
-export const createNotification = async (
-  userId: string,
-  message: string,
-  eventKey: string, // event_key da notification_types
-  relatedEntityId?: string | null, 
-  relatedEntityType?: string | null, 
-  hotelId?: string | null,
-  sectorId?: string | null,
-  createdBy?: string | null,
-  sendPush: boolean = true,
-  title?: string | null,
-  targetPath?: string | null
-) => {
+export const createNotification = async (params: CreateNotificationParams | string, ...args: any[]) => {
   try {
+    let userId: string;
+    let message: string;
+    let eventKey: string;
+    let relatedEntityId: string | null = null;
+    let relatedEntityType: string | null = null;
+    let hotelId: string | null = null;
+    let sectorId: string | null = null;
+    let createdBy: string | null = null;
+    let sendPush: boolean = true;
+    let title: string | null = null;
+    let targetPath: string | null = null;
+
+    // Lógica de sobrecarga para suportar ambos os formatos
+    if (typeof params === 'object') {
+      userId = params.user_id || params.userId || '';
+      message = params.content || params.message || '';
+      eventKey = params.event_type || params.event_key || '';
+      relatedEntityId = params.related_entity_id || (params.metadata?.budget_id || params.metadata?.request_id) || null;
+      relatedEntityType = params.related_entity_type || (params.metadata?.budget_id ? 'budget' : params.metadata?.request_id ? 'requisition' : null);
+      hotelId = params.hotel_id || null;
+      sectorId = params.sector_id || null;
+      createdBy = params.created_by || null;
+      sendPush = params.sendPush !== undefined ? params.sendPush : true;
+      title = params.title || null;
+      targetPath = params.link || params.target_path || null;
+    } else {
+      userId = params;
+      message = args[0];
+      eventKey = args[1];
+      relatedEntityId = args[2] || null;
+      relatedEntityType = args[3] || null;
+      hotelId = args[4] || null;
+      sectorId = args[5] || null;
+      createdBy = args[6] || null;
+      sendPush = args[7] !== undefined ? args[7] : true;
+      title = args[8] || null;
+      targetPath = args[9] || null;
+    }
+
+    // Se não houver userId, precisamos buscar usuários interessados neste evento
+    if (!userId) {
+      console.log("UserId não fornecido, disparando notificações para todos os usuários interessados no evento:", eventKey);
+      return await createNotificationsForEvent(
+        eventKey,
+        { message, title },
+        hotelId,
+        sectorId,
+        relatedEntityId,
+        relatedEntityType,
+        createdBy
+      );
+    }
+
     // Buscar o tipo de notificação pelo event_key
     const { data: notificationType, error: typeError } = await supabase
       .from("notification_types")
@@ -51,14 +112,12 @@ export const createNotification = async (
 
     if (typeError || !notificationType) {
       console.error("Erro ao buscar tipo de notificação:", typeError);
-      throw new Error(
-        typeError?.message || "Tipo de notificação não encontrado."
-      );
+      // Se não encontrar o tipo, ainda tentamos criar a notificação sem o tipo específico
     }
 
     // Usar template padrão se não fornecido
-    const finalMessage = message || notificationType.default_message_template;
-    const finalTargetPath = targetPath || notificationType.target_path_template;
+    const finalMessage = message || notificationType?.default_message_template || '';
+    const finalTargetPath = targetPath || notificationType?.target_path_template || null;
 
     const { data: newNotification, error: insertError } = await supabase
       .from("notifications")
@@ -68,7 +127,7 @@ export const createNotification = async (
           message: finalMessage,
           title: title || null,
           target_path: finalTargetPath || null,
-          notification_type_id: notificationType.id,
+          notification_type_id: notificationType?.id || null,
           related_entity_id: relatedEntityId,
           related_entity_type: relatedEntityType,
           hotel_id: hotelId,
@@ -102,7 +161,6 @@ export const createNotification = async (
         );
       } catch (pushError) {
         console.error("Erro ao enviar notificação push:", pushError);
-        // Não falha a criação da notificação se o push falhar
       }
     }
 
@@ -530,6 +588,33 @@ export const notifyBudgetCancelled = async (
   );
 };
 
+// Notificação para novo orçamento criado
+export const notifyBudgetCreated = async (
+  budgetId: string,
+  supplierName: string,
+  hotelName: string,
+  totalValue: number,
+  hotelId: string,
+  createdBy: string,
+  isOnline: boolean = false
+) => {
+  return await createNotificationsForEvent(
+    'NEW_BUDGET',
+    {
+      budgetId,
+      supplierName,
+      hotelName,
+      totalValue: totalValue.toFixed(2).replace('.', ','),
+      type: isOnline ? 'online' : 'presencial'
+    },
+    hotelId,
+    null,
+    budgetId,
+    'budget',
+    createdBy
+  );
+};
+
 // =====================================================
 // FUNÇÕES PARA TOKENS FCM (NOVAS)
 // =====================================================
@@ -711,4 +796,3 @@ VANTAGENS:
 ✅ Filtros por hotel e setor
 ✅ Mensagens personalizáveis por usuário
 */
-
