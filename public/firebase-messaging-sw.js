@@ -71,4 +71,3 @@ self.addEventListener("notificationclick", function (event) {
 
 //   event.waitUntil(self.registration.showNotification(title, options));
 // });
-
