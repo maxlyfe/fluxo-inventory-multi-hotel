@@ -92,9 +92,18 @@ export const createNotification = async (params: CreateNotificationParams | stri
     // Se não houver userId, precisamos buscar usuários interessados neste evento
     if (!userId) {
       console.log("UserId não fornecido, disparando notificações para todos os usuários interessados no evento:", eventKey);
+      
+      // Preparar dados para o template
+      const templateData: Record<string, any> = { 
+        message, 
+        title,
+        content: message,
+        ...params.metadata 
+      };
+
       return await createNotificationsForEvent(
         eventKey,
-        { message, title },
+        templateData,
         hotelId,
         sectorId,
         relatedEntityId,
@@ -182,7 +191,19 @@ export const createNotificationsForEvent = async (
   createdBy?: string | null
 ) => {
   try {
-    // Buscar usuários que devem receber esta notificação
+    // Buscar o tipo de notificação primeiro para obter o ID
+    const { data: notificationType, error: typeError } = await supabase
+      .from("notification_types")
+      .select("id, default_message_template, target_path_template, description")
+      .eq("event_key", eventKey)
+      .single();
+
+    if (typeError || !notificationType) {
+      console.error("Tipo de notificação não encontrado:", eventKey);
+      return [];
+    }
+
+    // Buscar usuários que devem receber esta notificação filtrando pelo ID do tipo
     const { data: preferences, error: preferencesError } = await supabase
       .from("user_notification_preferences")
       .select(`
@@ -190,12 +211,10 @@ export const createNotificationsForEvent = async (
         hotel_id,
         sector_id,
         user_specific_message_template,
-        user_specific_target_path,
-        auth_users!inner(id, name, email),
-        notification_types!inner(event_key)
+        user_specific_target_path
       `)
       .eq("is_active", true)
-      .eq("notification_types.event_key", eventKey);
+      .eq("notification_type_id", notificationType.id);
 
     if (preferencesError) {
       console.error("Erro ao buscar preferências:", preferencesError);
@@ -207,17 +226,7 @@ export const createNotificationsForEvent = async (
       return [];
     }
 
-    // Buscar template padrão do tipo de notificação
-    const { data: notificationType, error: typeError } = await supabase
-      .from("notification_types")
-      .select("default_message_template, target_path_template")
-      .eq("event_key", eventKey)
-      .single();
-
-    if (typeError || !notificationType) {
-      console.error("Tipo de notificação não encontrado:", eventKey);
-      return [];
-    }
+    // Template já buscado acima
 
     // Filtrar usuários baseado nas preferências de hotel e setor
     const filteredPreferences = preferences.filter(pref => {
@@ -264,7 +273,7 @@ export const createNotificationsForEvent = async (
           sectorId,
           createdBy,
           true, // Enviar push
-          `Nova ${notificationType.description}`,
+          templateData.title || `Nova ${notificationType.description}`,
           finalTargetPath
         );
         
