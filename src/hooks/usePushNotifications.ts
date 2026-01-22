@@ -32,7 +32,7 @@ export const usePushNotifications = (userId: string | undefined) => {
 
         // 3. Obter Token FCM
         const token = await getToken(messaging, {
-          vapidKey: 'BH1Zeaqdm5vCGGJgVhy3M7tV8vptbUbzMMRW_8qzyoJNcPjolb7JqRVvFwUupxnNq152048Rm5iy27eJjMiza5c' // Gerar no Firebase Console -> Cloud Messaging
+          vapidKey: 'YOUR_VAPID_KEY' // Gerar no Firebase Console -> Cloud Messaging
         });
 
         if (token) {
