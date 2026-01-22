@@ -6,7 +6,7 @@ import { ptBR } from 'date-fns/locale';
 
 interface RequestItemProps {
   request: Request;
-  currentStock?: number | null; // Recebe o estoque centralizado do AdminPanel
+  currentStock?: number | null; 
   onTriggerDeliver?: (request: Request) => void;
   onTriggerReject?: (request: Request) => void;
   onTriggerSubstitute?: (request: Request) => void;
@@ -52,86 +52,118 @@ const RequestItem: React.FC<RequestItemProps> = ({
   };
 
   return (
-    <li className="border-b dark:border-gray-700 py-3 px-4 flex flex-col md:flex-row md:items-start md:justify-between space-y-3 md:space-y-0 md:space-x-4">
+    <li className="border-b border-gray-100 dark:border-gray-700/50 py-4 px-4 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 md:space-x-6 hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
       <div className="flex items-center flex-grow min-w-0">
-        {displayProduct?.image_url ? (
-          <img src={displayProduct.image_url} alt={displayProductName} className="w-12 h-12 object-cover rounded mr-4 flex-shrink-0" />
-        ) : (
-          <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded mr-4 flex items-center justify-center flex-shrink-0">
-            <ImageIcon className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+        <div className="relative flex-shrink-0">
+          {displayProduct?.image_url ? (
+            <img 
+              src={displayProduct.image_url} 
+              alt={displayProductName} 
+              className="w-14 h-14 object-contain bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-1" 
+              onError={(e) => {
+                (e.target as any).src = '';
+                (e.target as any).style.display = 'none';
+                (e.target as any).nextSibling.style.display = 'flex';
+              }}
+            />
+          ) : null}
+          <div className={`w-14 h-14 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center ${displayProduct?.image_url ? 'hidden' : 'flex'}`}>
+            <ImageIcon className="w-7 h-7 text-gray-400 dark:text-gray-500" />
           </div>
-        )}
-        <div className="flex-grow min-w-0">
-          <span className="font-medium text-gray-800 dark:text-white break-words block">
-            {displayProductName}
-          </span>
+          {isSubstituted && !isHistoryView && (
+            <div className="absolute -top-2 -right-2 bg-orange-500 text-white p-1 rounded-full shadow-sm">
+              <ArrowLeftRight className="w-3 h-3" />
+            </div>
+          )}
+        </div>
+
+        <div className="ml-4 flex-grow min-w-0">
+          <div className="flex items-center flex-wrap gap-2">
+            <span className="font-bold text-gray-900 dark:text-white text-base truncate">
+              {displayProductName}
+            </span>
+            {request.is_custom && (
+              <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                Personalizado
+              </span>
+            )}
+          </div>
           
           {isSubstituted && (
-            <div className="text-xs text-orange-500 mt-1">
-              {isHistoryView ? `✓ Original: ${request.item_name}` : `⚠ Substituir por: ${substitutedProduct?.name}`}
+            <div className="text-xs font-medium text-orange-600 dark:text-orange-400 mt-0.5 flex items-center">
+              <ArrowLeftRight className="w-3 h-3 mr-1" />
+              {isHistoryView ? `Original: ${request.item_name}` : `Substituir por: ${substitutedProduct?.name}`}
             </div>
           )}
           
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Qtd: {request.quantity}
-            {request.delivered_quantity && <span className="text-green-600 ml-2">(Entregue: {request.delivered_quantity})</span>}
+          <div className="flex items-center flex-wrap gap-x-3 mt-1">
+            <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              Qtd: <span className="text-blue-600 dark:text-blue-400">{request.quantity}</span>
+            </div>
+            {request.delivered_quantity && (
+              <div className="text-sm font-semibold text-green-600 dark:text-green-400">
+                Entregue: {request.delivered_quantity}
+              </div>
+            )}
+            {!isHistoryView && (
+              <div className="text-xs font-bold px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded border border-blue-100 dark:border-blue-800/50">
+                Estoque: {currentStock !== undefined && currentStock !== null ? currentStock : '...'}
+              </div>
+            )}
           </div>
           
-          {!isHistoryView && (
-            <div className="text-xs font-bold text-blue-600 dark:text-blue-400 mt-1">
-              Estoque Atual: {currentStock !== undefined && currentStock !== null ? currentStock : '...'}
-            </div>
-          )}
-          
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-400">
-            <div className="flex items-center"><Calendar className="w-3.5 h-3.5 mr-1" /> {formatDate(request.created_at)}</div>
-            {!isHistoryView && <div className="flex items-center text-orange-500"><Clock className="w-3.5 h-3.5 mr-1" /> Há {calculatePendingTime(request.created_at)}</div>}
-            <div className="text-blue-500">Setor: {request.sector?.name}</div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-medium text-gray-500 dark:text-gray-400">
+            <div className="flex items-center"><Calendar className="w-3 h-3 mr-1" /> {formatDate(request.created_at)}</div>
+            {!isHistoryView && (
+              <div className="flex items-center text-orange-600 dark:text-orange-400">
+                <Clock className="w-3 h-3 mr-1" /> Há {calculatePendingTime(request.created_at)}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {!isHistoryView && (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Botão Entregar - Verde Esmeralda */}
+        <div className="flex items-center space-x-2 flex-shrink-0">
           <button 
             onClick={() => onTriggerDeliver?.(request)} 
+            className="group flex items-center justify-center p-2.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl border border-green-200 dark:border-green-800/50 hover:bg-green-600 hover:text-white dark:hover:bg-green-600 dark:hover:text-white transition-all duration-200 shadow-sm"
             title="Marcar como entregue"
-            className="flex items-center justify-center p-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white rounded-lg shadow-sm transition-all active:scale-95"
           >
             <Check className="w-5 h-5" />
+            <span className="max-w-0 overflow-hidden group-hover:max-w-xs group-hover:ml-2 transition-all duration-300 text-sm font-bold whitespace-nowrap">Entregar</span>
           </button>
-
-          {/* Botão Substituir - Âmbar/Laranja */}
+          
           <button 
             onClick={() => onTriggerSubstitute?.(request)} 
-            title="Entregar outro produto no lugar"
-            className="flex items-center justify-center p-2.5 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white rounded-lg shadow-sm transition-all active:scale-95"
+            className="group flex items-center justify-center p-2.5 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-xl border border-orange-200 dark:border-orange-800/50 hover:bg-orange-500 hover:text-white dark:hover:bg-orange-500 dark:hover:text-white transition-all duration-200 shadow-sm"
+            title="Substituir produto"
           >
             <ArrowLeftRight className="w-5 h-5" />
+            <span className="max-w-0 overflow-hidden group-hover:max-w-xs group-hover:ml-2 transition-all duration-300 text-sm font-bold whitespace-nowrap">Substituir</span>
           </button>
 
-          {/* Botão Cancelar - Rosa/Vermelho */}
           <button 
             onClick={() => onTriggerReject?.(request)} 
+            className="group flex items-center justify-center p-2.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800/50 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white transition-all duration-200 shadow-sm"
             title="Cancelar requisição"
-            className="flex items-center justify-center p-2.5 bg-rose-500 hover:bg-rose-600 dark:bg-rose-600 dark:hover:bg-rose-700 text-white rounded-lg shadow-sm transition-all active:scale-95"
           >
             <X className="w-5 h-5" />
+            <span className="max-w-0 overflow-hidden group-hover:max-w-xs group-hover:ml-2 transition-all duration-300 text-sm font-bold whitespace-nowrap">Cancelar</span>
           </button>
         </div>
       )}
 
       {isHistoryView && (
-        <div className="flex-shrink-0 text-sm font-medium">
+        <div className="flex-shrink-0">
           {request.status === 'delivered' ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-              Entregue
-            </span>
+            <div className="flex items-center px-3 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full text-xs font-bold border border-green-200 dark:border-green-800">
+              <Check className="w-3 h-3 mr-1" /> Entregue
+            </div>
           ) : (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-              Rejeitado
-            </span>
+            <div className="flex items-center px-3 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded-full text-xs font-bold border border-red-200 dark:border-red-800">
+              <X className="w-3 h-3 mr-1" /> Rejeitado
+            </div>
           )}
         </div>
       )}
