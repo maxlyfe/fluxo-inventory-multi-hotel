@@ -124,19 +124,34 @@ const SectorRequests = () => {
           setCategories(uniqueCategories.sort());
         }
 
+        // CORREÇÃO DO ERRO 400: Removida a sintaxe complexa de JOIN que estava causando erro
         const { data: requisitionsData, error: requisitionsError } = await supabase
           .from('requisitions')
-          .select(`*, products!requisitions_product_id_fkey(image_url), substituted_product:products!requisitions_substituted_product_id_fkey(image_url)`)
+          .select(`
+            id, 
+            item_name, 
+            quantity, 
+            status, 
+            created_at, 
+            delivered_quantity, 
+            rejection_reason, 
+            product_id, 
+            substituted_product_id,
+            products:product_id(image_url),
+            substituted_product:substituted_product_id(image_url)
+          `)
           .eq('sector_id', sectorId)
           .eq('hotel_id', selectedHotel.id)
           .order('created_at', { ascending: false });
+          
         if (requisitionsError) throw requisitionsError;
         if (requisitionsData) {
-          setRequisitions(requisitionsData);
+          setRequisitions(requisitionsData as any);
           setPendingCount(requisitionsData.filter(req => req.status === 'pending').length);
         }
 
       } catch (err: any) {
+        console.error('Erro ao carregar dados:', err);
         setError('Erro ao carregar dados: ' + err.message);
       } finally {
         setLoading(false);
@@ -154,32 +169,22 @@ const SectorRequests = () => {
     return () => { supabase.removeChannel(channel); };
   }, [selectedHotel, sectorId]);
 
-  // --- ALTERAÇÃO CORRIGIDA: Esconde APENAS os itens que são "Porções (Filho)" ---
   const filteredProducts = useMemo(() => {
-    // Começa com todos os produtos e filtra APENAS os que são porções (filhos).
     let productsToShow = allProducts.filter(product => !product.is_portion);
-
-    // Aplica o filtro de visibilidade do setor, se ativo.
     if (filterMode === 'sector') {
       productsToShow = productsToShow.filter(product => visibleForSectorIds.has(product.id));
     }
-
-    // Aplica o filtro de categoria, se selecionada.
     if (selectedCategory) {
       productsToShow = productsToShow.filter(product => product.category === selectedCategory);
     }
-
-    // Finalmente, aplica o filtro de busca sobre o resultado dos filtros anteriores.
     if (searchTerm.trim() !== '') {
       productsToShow = productsToShow.filter(product =>
         searchMatch(searchTerm, product.name) ||
         searchMatch(searchTerm, product.description || '')
       );
     }
-
     return productsToShow;
   }, [searchTerm, filterMode, selectedCategory, allProducts, visibleForSectorIds]);
-
 
   const handleQuantityChange = (productId: string, quantity: number) => {
     setAllProducts(prevProducts =>
@@ -206,13 +211,24 @@ const SectorRequests = () => {
           is_custom: false,
           hotel_id: selectedHotel.id
         }])
-        .select(`*, products!requisitions_product_id_fkey(image_url)`)
+        .select(`
+          id, 
+          item_name, 
+          quantity, 
+          status, 
+          created_at, 
+          delivered_quantity, 
+          rejection_reason, 
+          product_id, 
+          substituted_product_id,
+          products:product_id(image_url)
+        `)
         .single();
 
       if (error) throw error;
       if (!newRequisition) throw new Error("Falha ao criar requisição.");
 
-      setRequisitions(currentRequisitions => [newRequisition, ...currentRequisitions]);
+      setRequisitions(currentRequisitions => [newRequisition as any, ...currentRequisitions]);
       setPendingCount(currentCount => currentCount + 1);
 
       try {
@@ -260,7 +276,7 @@ const SectorRequests = () => {
       if (error) throw error;
       if (!newCustomRequisition) throw new Error("Falha ao criar requisição personalizada.");
 
-      setRequisitions(currentRequisitions => [newCustomRequisition, ...currentRequisitions]);
+      setRequisitions(currentRequisitions => [newCustomRequisition as any, ...currentRequisitions]);
       setPendingCount(currentCount => currentCount + 1);
 
       try {
@@ -280,7 +296,7 @@ const SectorRequests = () => {
       setShowCustomForm(false);
       addNotification('Item personalizado adicionado com sucesso!', 'success');
 
-    } catch (err: any)      {
+    } catch (err: any) {
       setError('Erro ao adicionar item personalizado: ' + err.message);
       addNotification('Erro ao adicionar item personalizado: ' + err.message, 'error');
     }
@@ -288,270 +304,270 @@ const SectorRequests = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <Link to="/" className="flex items-center text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white">
-          <ArrowLeft className="w-5 h-5 mr-2" />
-          Voltar
-        </Link>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          {sector?.name || 'Carregando...'}
-        </h1>
-      </div>
-
-      {error && (
-        <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-200 rounded-lg">
-          <AlertTriangle className="w-5 h-5 inline mr-2" />
-          {error}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+        <div className="flex items-center mb-4 md:mb-0">
+          <Link to="/" className="mr-4 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <ArrowLeft className="w-6 h-6 text-gray-600 dark:text-gray-400" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Requisições - {sector?.name || 'Carregando...'}
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              {selectedHotel?.name}
+            </p>
+          </div>
         </div>
-      )}
-
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div className="flex items-center space-x-4">
           <button
             onClick={() => setShowCart(!showCart)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="relative p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors shadow-lg"
           >
-            <ShoppingCart className="w-5 h-5 mr-2" />
-            {showCart ? 'Voltar aos Produtos' : 'Ver Requisições'}
-            {!showCart && pendingCount > 0 && (
-              <span className="ml-2 bg-blue-500 px-2 py-0.5 rounded-full text-sm">
+            <ShoppingCart className="w-6 h-6" />
+            {pendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                 {pendingCount}
               </span>
             )}
           </button>
-          {!showCart && (
-            <button
-              onClick={() => setShowCustomForm(true)}
-              className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Item Personalizado
-            </button>
-          )}
+          <button
+            onClick={() => setShowCustomForm(true)}
+            className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shadow-md"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Item Personalizado
+          </button>
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded shadow-sm flex items-center">
+          <AlertTriangle className="w-5 h-5 mr-2" />
+          <p>{error}</p>
+        </div>
+      )}
+
       {showCart ? (
-        <div className="space-y-6">
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
-            Requisições Pendentes
-          </h2>
-          {requisitions.filter(req => req.status === 'pending').length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              Nenhuma requisição pendente.
-            </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center">
+              <Clock className="w-6 h-6 mr-2 text-blue-600" />
+              Requisições Pendentes
+            </h2>
+            <button onClick={() => setShowCart(false)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          {requisitions.filter(r => r.status === 'pending').length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400 text-center py-8">Nenhuma requisição pendente.</p>
           ) : (
             <div className="space-y-4">
-              {requisitions
-                .filter(req => req.status === 'pending')
-                .map((req) => (
-                  <div
-                    key={req.id}
-                    className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="h-16 w-16 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center">
-                        {req.products?.image_url ? (
-                          <img
-                            src={req.products.image_url}
-                            alt={req.item_name}
-                            className="h-full w-full object-contain"
-                          />
-                        ) : (
-                          <Package className="h-8 w-8 text-gray-400" />
-                        )}
-                      </div>
-                      <div className="flex-grow">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {req.item_name}
-                        </h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Quantidade: {req.quantity}
-                        </p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          Solicitado em: {new Date(req.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-                          <Clock className="h-4 w-4 mr-1" />
-                          Pendente
-                        </span>
-                      </div>
+              {requisitions.filter(r => r.status === 'pending').map((req) => (
+                <div key={req.id} className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                  <div className="flex items-center">
+                    <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded flex items-center justify-center mr-4">
+                      {req.products?.image_url ? (
+                        <img src={req.products.image_url} alt={req.item_name} className="w-full h-full object-contain" />
+                      ) : (
+                        <Package className="w-6 h-6 text-gray-400" />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-gray-900 dark:text-white">{req.item_name}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Quantidade: {req.quantity}</p>
                     </div>
                   </div>
-                ))}
+                  <div className="flex items-center text-blue-600 font-medium">
+                    <Clock className="w-4 h-4 mr-1" />
+                    Pendente
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mt-8 mb-4">
-            Histórico de Requisições
-          </h2>
-          {groupedHistory.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              Nenhuma requisição no histórico.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {groupedHistory.map(([weekKey, weekRequisitions]) => {
-                const weekStartDate = parseISO(weekKey);
-                const weekEndDate = endOfWeek(weekStartDate, { weekStartsOn: 1 });
-                const weekLabel = `Semana de ${format(weekStartDate, "dd/MM")} a ${format(weekEndDate, "dd/MM/yyyy")}`;
-                const isExpanded = expandedWeeks[weekKey];
-
-                return (
-                  <div key={weekKey} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+          <div className="mt-10 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6 flex items-center">
+              <List className="w-6 h-6 mr-2 text-purple-600" />
+              Histórico de Requisições
+            </h2>
+            {groupedHistory.length === 0 ? (
+              <p className="text-gray-500 dark:text-gray-400 text-center py-8">Nenhum histórico disponível.</p>
+            ) : (
+              <div className="space-y-6">
+                {groupedHistory.map(([weekKey, weekRequests]) => (
+                  <div key={weekKey} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                     <button
                       onClick={() => toggleWeekExpansion(weekKey)}
-                      className="w-full flex justify-between items-center px-6 py-4 bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      className="w-full flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     >
-                      <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">{weekLabel}</h3>
-                      {isExpanded ? (
-                        <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                      )}
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        Semana de {format(parseISO(weekKey), "dd/MM/yyyy", { locale: ptBR })}
+                      </span>
+                      {expandedWeeks[weekKey] ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                     </button>
-                    {isExpanded && (
-                      <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                        {weekRequisitions.map((req) => (
-                          <div key={req.id} className="p-6">
-                            <div className="flex items-center space-x-4">
-                              <div className="h-16 w-16 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center">
-                                {(req.substituted_product?.image_url || req.products?.image_url) ? (
-                                  <img
-                                    src={req.substituted_product?.image_url || req.products?.image_url}
-                                    alt={req.item_name}
-                                    className="h-full w-full object-contain"
-                                  />
+                    {expandedWeeks[weekKey] && (
+                      <div className="p-4 space-y-4 bg-white dark:bg-gray-800">
+                        {weekRequests.map((req) => (
+                          <div key={req.id} className="flex items-center justify-between p-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                            <div className="flex items-center">
+                              <div className="w-10 h-10 bg-gray-50 dark:bg-gray-700 rounded flex items-center justify-center mr-3">
+                                {req.status === 'delivered' ? (
+                                  <Check className="w-5 h-5 text-green-500" />
                                 ) : (
-                                  <Package className="h-8 w-8 text-gray-400" />
+                                  <X className="w-5 h-5 text-red-500" />
                                 )}
                               </div>
-                              <div className="flex-grow">
-                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                  {req.item_name}
-                                </h3>
-                                <p className="text-sm text-gray-600 dark:text-gray-400">
-                                  Quantidade: {req.delivered_quantity || req.quantity}
+                              <div>
+                                <h4 className="text-sm font-medium text-gray-900 dark:text-white">{req.item_name}</h4>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {format(parseISO(req.created_at), "dd/MM 'às' HH:mm", { locale: ptBR })}
                                 </p>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                  Solicitado em: {new Date(req.created_at).toLocaleString()}
-                                </p>
-                                {req.status === 'rejected' && req.rejection_reason && (
-                                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                                    Motivo: {req.rejection_reason}
-                                  </p>
-                                )}
                               </div>
-                              <div className="flex items-center">
-                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                                  req.status === 'delivered' 
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                                }`}>
-                                  {req.status === 'delivered' ? (
-                                    <Check className="h-4 w-4 mr-1" />
-                                  ) : (
-                                    <X className="h-4 w-4 mr-1" />
-                                  )}
-                                  {req.status === 'delivered' ? 'Entregue' : 'Rejeitado'}
-                                </span>
-                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-bold ${req.status === 'delivered' ? 'text-green-600' : 'text-red-600'}`}>
+                                {req.status === 'delivered' ? `Entregue: ${req.delivered_quantity}` : 'Rejeitado'}
+                              </p>
+                              {req.rejection_reason && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 italic">Motivo: {req.rejection_reason}</p>
+                              )}
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
-        <div>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-            <div className="flex items-center space-x-2 p-1 bg-gray-200 dark:bg-gray-700 rounded-lg">
-              <button onClick={() => setFilterMode('sector')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${filterMode === 'sector' ? 'bg-white dark:bg-gray-800 shadow text-blue-600' : 'text-gray-600 dark:text-gray-300'}`}>Produtos do Setor</button>
-              <button onClick={() => setFilterMode('all')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${filterMode === 'all' ? 'bg-white dark:bg-gray-800 shadow text-blue-600' : 'text-gray-600 dark:text-gray-300'}`}>Todos os Produtos</button>
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+            <div className="relative flex-grow">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Buscar produtos..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
             </div>
-            <div className="flex items-center space-x-4 flex-grow md:flex-grow-0">
-              <div className="relative flex-grow">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
-              </div>
-              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
-                <option value="">Todas as categorias</option>
-                {categories.map(category => <option key={category} value={category}>{category}</option>)}
-              </select>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            >
+              <option value="">Todas as Categorias</option>
+              {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+            <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setFilterMode('sector')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  filterMode === 'sector' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400'
+                }`}
+              >
+                Setor
+              </button>
+              <button
+                onClick={() => setFilterMode('all')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  filterMode === 'all' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400'
+                }`}
+              >
+                Todos
+              </button>
             </div>
-            <div className="flex items-center space-x-2">
-              <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}><Grid className="w-5 h-5" /></button>
-              <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}><List className="w-5 h-5" /></button>
+            <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400'}`}
+              >
+                <Grid className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400'}`}
+              >
+                <List className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          {filteredProducts.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              {loading ? 'Carregando produtos...' : (searchTerm || selectedCategory || filterMode === 'sector') ? 'Nenhum produto encontrado com os filtros aplicados.' : 'Nenhum produto disponível para requisição.'}
+          {loading ? (
+            <div className="flex justify-center items-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="text-center py-20 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+              <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400">Nenhum produto encontrado.</p>
             </div>
           ) : (
-            <div className={viewMode === 'grid' 
-              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            <div className={
+              viewMode === 'grid' 
+              ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" 
               : "space-y-4"
             }>
               {filteredProducts.map((product) => (
                 <div
                   key={product.id}
-                  className={`bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden ${
+                  className={`bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden border border-gray-100 dark:border-gray-700 hover:shadow-lg transition-shadow ${
                     viewMode === 'list' ? 'flex items-center p-4' : 'p-4'
                   }`}
                 >
-                  <div className={`${viewMode === 'list' ? 'w-24 h-24 mr-4' : 'w-full h-48 mb-4'} bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center`}>
+                  <div className={`${viewMode === 'list' ? 'w-24 h-24 mr-4' : 'w-full h-48 mb-4'} bg-gray-50 dark:bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center relative`}>
                     {product.image_url ? (
                       <img
                         src={product.image_url}
                         alt={product.name}
-                        className="w-full h-full object-contain"
+                        className="w-full h-full object-contain p-2"
+                        onError={(e) => {
+                          (e.target as any).src = ''; // Limpa o src quebrado
+                          (e.target as any).style.display = 'none';
+                          (e.target as any).nextSibling.style.display = 'block';
+                        }}
                       />
-                    ) : (
-                      <ImageIcon className="w-12 h-12 text-gray-400" />
-                    )}
+                    ) : null}
+                    <ImageIcon className={`w-12 h-12 text-gray-300 ${product.image_url ? 'hidden' : 'block'}`} />
                   </div>
                   <div className={viewMode === 'list' ? 'flex-grow' : ''}>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1 truncate" title={product.name}>
                       {product.name}
                     </h3>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-2 uppercase tracking-wider">
+                      {product.category}
+                    </p>
                     {product.description && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2 h-10">
                         {product.description}
                       </p>
                     )}
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                      Categoria: {product.category}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                      Estoque: {product.quantity}
-                    </p>
-                    <div className="flex items-center space-x-2 mb-4">
-                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Quantidade:
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={product.requestQuantity || 1}
-                        onChange={(e) => handleQuantityChange(product.id, parseInt(e.target.value))}
-                        className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      />
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Qtd:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={product.requestQuantity || 1}
+                          onChange={(e) => handleQuantityChange(product.id, parseInt(e.target.value))}
+                          className="w-16 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-1 rounded ${product.quantity > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        Estoque: {product.quantity}
+                      </span>
                     </div>
                     <button
                       onClick={() => handleAddToRequest(product)}
-                      className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
                     >
                       <Plus className="w-4 h-4 mr-2" />
-                      Adicionar à Requisição
+                      Requisitar
                     </button>
                   </div>
                 </div>
@@ -562,34 +578,33 @@ const SectorRequests = () => {
       )}
 
       {showCustomForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Adicionar Item Personalizado
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-full max-w-md border border-gray-200 dark:border-gray-700">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
+                <Plus className="w-6 h-6 mr-2 text-purple-600" />
+                Item Personalizado
               </h2>
-              <button
-                onClick={() => setShowCustomForm(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
+              <button onClick={() => setShowCustomForm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <form onSubmit={handleAddCustomItem} className="space-y-4">
+            <form onSubmit={handleAddCustomItem} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Nome do Item
                 </label>
                 <input
                   type="text"
                   value={customItem.name}
                   onChange={(e) => setCustomItem({ ...customItem, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Ex: Caneta Azul"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Quantidade
                 </label>
                 <input
@@ -597,21 +612,21 @@ const SectorRequests = () => {
                   min="1"
                   value={customItem.quantity}
                   onChange={(e) => setCustomItem({ ...customItem, quantity: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                 />
               </div>
-              <div className="flex space-x-3">
+              <div className="flex space-x-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowCustomForm(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-bold shadow-md"
                 >
                   Adicionar
                 </button>
