@@ -191,7 +191,8 @@ export const createNotificationsForEvent = async (
         sector_id,
         user_specific_message_template,
         user_specific_target_path,
-        auth_users!inner(id, name, email)
+        auth_users!inner(id, name, email),
+        notification_types!inner(event_key)
       `)
       .eq("is_active", true)
       .eq("notification_types.event_key", eventKey);
