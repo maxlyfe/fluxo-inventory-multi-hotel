@@ -124,7 +124,7 @@ const SectorRequests = () => {
           setCategories(uniqueCategories.sort());
         }
 
-        // Busca de requisições simplificada para evitar erros de JOIN complexos
+        // Busca de requisições com JOIN para exibir imagens no histórico
         const { data: requisitionsData, error: requisitionsError } = await supabase
           .from('requisitions')
           .select(`
@@ -199,7 +199,7 @@ const SectorRequests = () => {
         throw new Error('Hotel ou setor não selecionado');
       }
 
-      // CORREÇÃO FINAL: Removido hotel_id do insert pois a coluna não existe na tabela requisitions
+      // CORREÇÃO DEFINITIVA: hotel_id é obrigatório e o select deve ser simples
       const { data: newRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -208,7 +208,8 @@ const SectorRequests = () => {
           item_name: product.name,
           quantity: product.requestQuantity || 1,
           status: 'pending',
-          is_custom: false
+          is_custom: false,
+          hotel_id: selectedHotel.id
         }])
         .select()
         .single();
@@ -253,7 +254,6 @@ const SectorRequests = () => {
         throw new Error('Hotel ou setor não selecionado');
       }
 
-      // CORREÇÃO FINAL: Removido hotel_id do insert
       const { data: newCustomRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -261,7 +261,8 @@ const SectorRequests = () => {
           item_name: customItem.name,
           quantity: customItem.quantity,
           status: 'pending',
-          is_custom: true
+          is_custom: true,
+          hotel_id: selectedHotel.id
         }])
         .select()
         .single();
