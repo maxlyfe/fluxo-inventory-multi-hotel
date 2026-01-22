@@ -33,9 +33,9 @@ self.addEventListener("notificationclick", function (event) {
 
   // Exemplo: Abrir uma URL específica ou focar em uma aba existente
   // A URL pode vir do `click_action` no payload da notificação ou de `event.notification.data.url`
-  const targetUrl = event.notification.data && event.notification.data.url 
-                    ? event.notification.data.url 
-                    : event.action || "/"; // Fallback para a raiz do site
+  const targetUrl = event.notification.data && (event.notification.data.target_path || event.notification.data.url)
+                    ? (event.notification.data.target_path || event.notification.data.url)
+                    : "/"; // Fallback para a raiz do site
   
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clientList) {
