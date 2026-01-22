@@ -124,7 +124,7 @@ const SectorRequests = () => {
           setCategories(uniqueCategories.sort());
         }
 
-        // CORREÇÃO DO ERRO 400: Removida a sintaxe complexa de JOIN que estava causando erro
+        // Busca de requisições simplificada para evitar erros de JOIN complexos
         const { data: requisitionsData, error: requisitionsError } = await supabase
           .from('requisitions')
           .select(`
@@ -141,7 +141,6 @@ const SectorRequests = () => {
             substituted_product:substituted_product_id(image_url)
           `)
           .eq('sector_id', sectorId)
-          .eq('hotel_id', selectedHotel.id)
           .order('created_at', { ascending: false });
           
         if (requisitionsError) throw requisitionsError;
@@ -200,7 +199,7 @@ const SectorRequests = () => {
         throw new Error('Hotel ou setor não selecionado');
       }
 
-      // CORREÇÃO DO ERRO 400: Simplificado o .select() para evitar erros de JOIN no INSERT
+      // CORREÇÃO FINAL: Removido hotel_id do insert pois a coluna não existe na tabela requisitions
       const { data: newRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -209,8 +208,7 @@ const SectorRequests = () => {
           item_name: product.name,
           quantity: product.requestQuantity || 1,
           status: 'pending',
-          is_custom: false,
-          hotel_id: selectedHotel.id
+          is_custom: false
         }])
         .select()
         .single();
@@ -218,7 +216,6 @@ const SectorRequests = () => {
       if (error) throw error;
       if (!newRequisition) throw new Error("Falha ao criar requisição.");
 
-      // Como simplificamos o select, adicionamos a imagem manualmente para o estado local
       const requisitionWithImage = {
         ...newRequisition,
         products: { image_url: product.image_url }
@@ -256,6 +253,7 @@ const SectorRequests = () => {
         throw new Error('Hotel ou setor não selecionado');
       }
 
+      // CORREÇÃO FINAL: Removido hotel_id do insert
       const { data: newCustomRequisition, error } = await supabase
         .from('requisitions')
         .insert([{
@@ -263,8 +261,7 @@ const SectorRequests = () => {
           item_name: customItem.name,
           quantity: customItem.quantity,
           status: 'pending',
-          is_custom: true,
-          hotel_id: selectedHotel.id
+          is_custom: true
         }])
         .select()
         .single();
