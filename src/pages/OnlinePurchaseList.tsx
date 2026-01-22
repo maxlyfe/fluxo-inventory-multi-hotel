@@ -160,7 +160,7 @@ const OnlinePurchaseList = () => {
 
       const result = await saveBudget(selectedHotel.id, totalBudgetValue, budgetItems);
 
-      if (result.success) {
+      if (result.success && result.data) {
         addNotification('Orçamento online salvo com sucesso!', 'success');
         
         // Disparar notificação de novo orçamento para usuários com preferência
@@ -181,9 +181,9 @@ const OnlinePurchaseList = () => {
             hotel_id: selectedHotel.id,
             title: 'Novo orçamento online criado',
             content: `Novo orçamento online de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')}`,
-            link: `/budget/${result.data?.id || ''}`,
+            link: `/budget/${result.data.id}`,
             metadata: {
-              budget_id: result.data?.id || '',
+              budget_id: result.data.id,
               total_value: totalBudgetValue,
               supplier: mainSupplier,
               items_count: budgetItems.length,
