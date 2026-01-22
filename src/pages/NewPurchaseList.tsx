@@ -6,7 +6,8 @@ import { format, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
-import { saveBudget, getHotelInventory, supabase } from '../lib/supabase';
+import { saveBudget, getHotelInventory } from '../lib/supabase';
+import { createNotification } from "../lib/notifications";
 
 interface Product {
   id: string;
@@ -83,13 +84,16 @@ const NewPurchaseList = () => {
   });
   const [searchTerm, setSearchTerm] = useState("");
   
+  // --- ALTERAÇÃO: Lógica de inicialização para aceitar dados pré-preenchidos da análise ---
   const [products, setProducts] = useState<EditableProduct[]>(() => {
     const initialProducts = location.state?.selectedProductDetails || [];
     
+    // Se os produtos já vierem com os campos 'edited', significa que vieram da página de análise.
     if (initialProducts.length > 0 && initialProducts[0].editedQuantity !== undefined) {
         return initialProducts;
     }
 
+    // Lógica original para quando os produtos vêm da lista de estoque baixo.
     return initialProducts.map((p: Product) => {
       let formattedDate: string | undefined;
       if (p.last_purchase_date) {
@@ -247,13 +251,13 @@ const NewPurchaseList = () => {
         try {
           const mainSupplier = budgetItems.find(item => item.supplier && item.supplier !== 'Não especificado')?.supplier || 'Não especificado';
           
-          // CORREÇÃO: Usando a função process_notification_event via RPC para garantir compatibilidade com o banco
-          await supabase.rpc('process_notification_event', {
-            p_hotel_id: selectedHotel.id,
-            p_type: 'NEW_BUDGET',
-            p_title: 'Novo orçamento criado',
-            p_message: `Novo orçamento de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')} para ${selectedHotel.name}`,
-            p_data: {
+          await createNotification({
+            event_type: 'NEW_BUDGET',
+            hotel_id: selectedHotel.id,
+            title: 'Novo orçamento criado',
+            content: `Novo orçamento de ${mainSupplier} no valor de R$ ${totalBudgetValue.toFixed(2).replace('.', ',')} para ${selectedHotel.name}`,
+            link: `/budget/${result.data.id}`,
+            metadata: {
               budget_id: result.data.id,
               total_value: totalBudgetValue,
               supplier: mainSupplier,
@@ -282,20 +286,217 @@ const NewPurchaseList = () => {
   };
 
   const captureAndCopyToClipboard = async () => {
-    addNotification("Funcionalidade de captura de imagem não disponível no navegador.", "info");
+    try {
+      if (!purchaseListRef.current) {
+        setError("Elemento da lista de compras não encontrado");
+        addNotification("Elemento da lista de compras não encontrado", "error");
+        return;
+      }
+      if (products.length === 0) {
+        addNotification("Orçamento vazio. Adicione itens para gerar a imagem.", "warning");
+        return;
+      }
+
+      addNotification("Preparando imagem do orçamento...", "info");
+
+      const tableHTML = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background: white; color: #333;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+            <h2 style="font-size: 24px; margin: 0;">Orçamento - ${selectedHotel?.name || 'Hotel'}</h2>
+            <div>${today}</div>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+              <tr style="background-color: #f9fafb; text-align: left;">
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Item</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Quantidade</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Unidade</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Fornecedor</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Qtd. Últ. Compra</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Data Últ. Compra</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Últ. Compra</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Unitário</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Valor Total</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase;">Estoque (Orçam.)</th>
+                </tr>
+            </thead>
+            <tbody>
+              ${products.map((product, index) => {
+                let unitDisplay = '';
+                const unitValue = product.editedUnit || '';
+                if (unitValue === 'outro') {
+                  unitDisplay = product.editedUnit || 'Outro';
+                } else {
+                  const unitOption = unitOptions.find(opt => opt.value === unitValue);
+                  unitDisplay = unitOption ? unitOption.label : unitValue;
+                }
+                
+                const quantity = product.editedQuantity ?? 0;
+                const price = product.editedPrice ?? 0;
+                const totalItemValue = quantity * price;
+                const bgColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+                
+                let displayDate = '-';
+                if (product.editedLastPurchaseDate) {
+                  try {
+                    const dateString = product.editedLastPurchaseDate;
+                    const parsedDate = new Date(dateString + 'T00:00:00');
+                    if (isValid(parsedDate)) {
+                      displayDate = format(parsedDate, 'dd/MM/yyyy', { locale: ptBR });
+                    }
+                  } catch { /* Ignore */ }
+                }
+                
+                return `
+                  <tr style="background-color: ${bgColor};">
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">
+                      ${product.editedName || product.name} ${product.isCustom ? '<span style="font-size: 10px; background: #e9d5ff; color: #6b21a8; padding: 2px 4px; border-radius: 4px; margin-left: 4px;">Personalizado</span>' : ''}
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${quantity}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${unitDisplay}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${product.editedSupplier || product.supplier || '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${product.editedLastQuantity ?? '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${displayDate}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${product.editedLastPrice != null ? `R$ ${product.editedLastPrice.toFixed(2).replace('.', ',')}` : '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${price != null ? `R$ ${price.toFixed(2).replace('.', ',')}` : '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">${`R$ ${totalItemValue.toFixed(2).replace('.', ',')}`}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${product.isCustom ? '-' : (product.editedStock ?? '-')}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="background-color: #f9fafb;">
+                <td colspan="8" style="padding: 12px; border-top: 2px solid #e5e7eb; text-align: right; font-weight: bold;">Total Geral:</td>
+                <td style="padding: 12px; border-top: 2px solid #e5e7eb; font-weight: bold;">R$ ${totalBudgetValue.toFixed(2).replace('.', ',')}</td>
+                <td colspan="2" style="padding: 12px; border-top: 2px solid #e5e7eb;"></td>
+              </tr>
+            </tfoot>
+          </table>
+          <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; color: #444;">
+            <p style="margin: 0 0 5px 0; font-size: 16px;"><strong>${products.find(p => p.editedSupplier || p.supplier)?.editedSupplier || products.find(p => p.editedSupplier || p.supplier)?.supplier || 'Fornecedor'},</strong></p>
+            <p style="margin: 5px 0; font-size: 14px;">FANTASIA: <strong>${selectedHotel?.fantasy_name || selectedHotel?.name || 'Hotel'}</strong></p>
+            <p style="margin: 5px 0; font-size: 14px;">RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}</p>
+            <p style="margin: 5px 0; font-size: 14px;">CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}</p>
+          </div>
+        </div>
+      `;
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = tableHTML;
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px'; 
+      document.body.appendChild(tempDiv);
+
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(tempDiv.firstElementChild as HTMLElement, { 
+        scale: 2, 
+        backgroundColor: null, 
+        logging: false, 
+        useCORS: true 
+      });
+      
+      document.body.removeChild(tempDiv);
+
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          try {
+            // Identifica o fornecedor principal (o primeiro da lista que não seja vazio)
+            const mainSupplier = products.find(p => p.editedSupplier || p.supplier)?.editedSupplier || 
+                               products.find(p => p.editedSupplier || p.supplier)?.supplier || 
+                               'Fornecedor';
+
+            // Monta o texto com os dados do hotel
+            const hotelText = `
+${mainSupplier},
+
+FANTASIA: *${selectedHotel?.fantasy_name || selectedHotel?.name || 'Hotel'}*
+RAZÃO SOCIAL: ${selectedHotel?.corporate_name || 'Meridiana Turismo LTDA'}
+CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
+`.trim();
+
+            // Copiar apenas a imagem para garantir prioridade absoluta em todos os dispositivos
+            const data = [
+              new ClipboardItem({
+                'image/png': blob
+              })
+            ];
+
+            await navigator.clipboard.write(data);
+            addNotification("Imagem do orçamento copiada com sucesso!", "success");
+          } catch (clipboardError) {
+            console.error('Erro ao copiar para área de transferência:', clipboardError);
+            addNotification("Erro ao copiar imagem. Tente novamente.", "error");
+          }
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error('Error in captureAndCopyToClipboard:', err);
+      const message = err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.';
+      setError(`Erro ao gerar imagem: ${message}`);
+      addNotification(`Erro ao gerar imagem: ${message}`, 'error');
+    }
   };
 
   const exportToExcel = () => {
-    const dataToExport = products.map(p => ({
-      'Item': p.editedName || p.name,
-      'Quantidade': p.editedQuantity,
-      'Unidade': p.editedUnit,
-      'Fornecedor': p.editedSupplier || p.supplier,
-      'Preço Unitário': p.editedPrice,
-      'Total': (p.editedQuantity ?? 0) * (p.editedPrice ?? 0)
-    }));
+    if (products.length === 0) {
+      addNotification("Orçamento vazio. Adicione itens para exportar.", "warning");
+      return;
+    }
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const data = products.map(product => {
+      let unitDisplay = '';
+      const unitValue = product.editedUnit || '';
+      if (unitValue === 'outro') {
+        unitDisplay = product.editedUnit || 'Outro';
+      } else {
+        const unitOption = unitOptions.find(opt => opt.value === unitValue);
+        unitDisplay = unitOption ? unitOption.label : unitValue;
+      }
+
+      let displayDate = '-';
+      if (product.editedLastPurchaseDate) {
+        try {
+          const dateString = product.editedLastPurchaseDate;
+          const parsedDate = new Date(dateString + 'T00:00:00');
+          if (isValid(parsedDate)) {
+            displayDate = format(parsedDate, 'dd/MM/yyyy', { locale: ptBR });
+          }
+        } catch { /* Ignore */ }
+      }
+
+      const quantity = product.editedQuantity ?? 0;
+      const price = product.editedPrice ?? 0;
+      const totalItemValue = quantity * price;
+
+      return {
+        'Item': product.editedName || product.name,
+        'Quantidade': quantity,
+        'Unidade': unitDisplay,
+        'Fornecedor': product.editedSupplier || product.supplier || '-',
+        'Qtd. Últ. Compra': product.editedLastQuantity ?? '-',
+        'Data Últ. Compra': displayDate,
+        'Valor Últ. Compra': product.editedLastPrice != null ? `R$ ${product.editedLastPrice.toFixed(2).replace('.', ',')}` : '-',
+        'Valor Unitário': price != null ? `R$ ${price.toFixed(2).replace('.', ',')}` : '-',
+        'Valor Total': `R$ ${totalItemValue.toFixed(2).replace('.', ',')}`,
+        'Estoque (Orçam.)': product.isCustom ? '-' : (product.editedStock ?? '-'),
+      };
+    });
+
+    data.push({
+      'Item': 'TOTAL GERAL',
+      'Quantidade': '',
+      'Unidade': '',
+      'Fornecedor': '',
+      'Qtd. Últ. Compra': '',
+      'Data Últ. Compra': '',
+      'Valor Últ. Compra': '',
+      'Valor Unitário': '',
+      'Valor Total': `R$ ${totalBudgetValue.toFixed(2).replace('.', ',')}`,
+      'Estoque (Orçam.)': '',
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Orçamento");
 
@@ -531,110 +732,126 @@ const NewPurchaseList = () => {
                         Valor Últ. Compra
                       </th>
                       <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 w-[8%]">
-                        Preço Unit.
+                        Valor Unitário
                       </th>
                       <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 w-[8%]">
-                        Total
+                        Valor Total
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 w-[8%]">
+                        Estoque (Orçam.)
                       </th>
                       <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 w-[5%]">
                         Ações
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                  <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
                     {products.map((product) => (
                       <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {product.isCustom ? (
-                              <input
-                                type="text"
-                                value={product.editedName || ''}
-                                onChange={(e) => handleTextChange(product.id, 'editedName', e.target.value)}
-                                className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:border-blue-500 outline-none"
-                              />
-                            ) : (
-                              product.name
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">{product.category}</div>
+                        <td className="px-6 py-3">
+                          <input 
+                            type="text" 
+                            value={product.editedName || product.name}
+                            onChange={(e) => handleTextChange(product.id, 'editedName', e.target.value)}
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
+                            disabled={!product.isCustom}
+                          />
+                          {product.isCustom && <span className="text-xs text-purple-600 dark:text-purple-400 block mt-1">Personalizado</span>}
                         </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="number"
+                        <td className="px-4 py-3">
+                          <input 
+                            type="number" 
                             value={product.editedQuantity ?? ''}
                             onChange={(e) => handleValueChange(product.id, 'editedQuantity', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            min="0"
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                           />
                         </td>
-                        <td className="px-4 py-4">
-                          <select
-                            value={product.editedUnit || ''}
-                            onChange={(e) => handleUnitChange(product.id, e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
-                          >
-                            {unitOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                          {customUnitOpen[product.id] && (
-                            <input
-                              type="text"
-                              placeholder="Especifique"
-                              onChange={(e) => handleTextChange(product.id, 'editedUnit', e.target.value)}
-                              className="mt-1 w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
-                            />
-                          )}
+                        <td className="px-4 py-3">
+                          <div className="relative">
+                            <select 
+                              value={product.editedUnit || ''}
+                              onChange={(e) => handleUnitChange(product.id, e.target.value)}
+                              className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1 pr-6"
+                            >
+                              {unitOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                            {customUnitOpen[product.id] && (
+                              <input 
+                                type="text" 
+                                placeholder="Unidade" 
+                                value={product.editedUnit === 'outro' ? '' : product.editedUnit}
+                                onChange={(e) => handleTextChange(product.id, 'editedUnit', e.target.value)}
+                                className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg p-1 text-sm z-10"
+                              />
+                            )}
+                          </div>
                         </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="text"
-                            value={product.editedSupplier || ''}
+                        <td className="px-4 py-3">
+                          <input 
+                            type="text" 
+                            value={product.editedSupplier || product.supplier || ''}
                             onChange={(e) => handleTextChange(product.id, 'editedSupplier', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                           />
                         </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="number"
+                        <td className="px-4 py-3">
+                          <input 
+                            type="number" 
                             value={product.editedLastQuantity ?? ''}
                             onChange={(e) => handleValueChange(product.id, 'editedLastQuantity', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
+                            disabled={product.isCustom}
                           />
                         </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="date"
+                        <td className="px-4 py-3">
+                          <input 
+                            type="date" 
                             value={product.editedLastPurchaseDate || ''}
                             onChange={(e) => handleTextChange(product.id, 'editedLastPurchaseDate', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
+                            disabled={product.isCustom}
                           />
                         </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="number"
-                            step="0.01"
+                        <td className="px-4 py-3">
+                          <input 
+                            type="number" 
                             value={product.editedLastPrice ?? ''}
                             onChange={(e) => handleValueChange(product.id, 'editedLastPrice', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            step="0.01"
+                            min="0"
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
+                            disabled={product.isCustom}
                           />
                         </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="number"
-                            step="0.01"
+                        <td className="px-4 py-3">
+                          <input 
+                            type="number" 
                             value={product.editedPrice ?? ''}
                             onChange={(e) => handleValueChange(product.id, 'editedPrice', e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded dark:bg-gray-700 dark:text-white"
+                            step="0.01"
+                            min="0"
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                           />
                         </td>
-                        <td className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-white">
-                          R$ {((product.editedQuantity ?? 0) * (product.editedPrice ?? 0)).toFixed(2).replace('.', ',')}
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                            R$ {((product.editedQuantity ?? 0) * (product.editedPrice ?? 0)).toFixed(2).replace('.', ',')}
+                          </span>
                         </td>
-                        <td className="px-4 py-4 text-center">
+                        <td className="px-4 py-3">
+                          <input 
+                            type="text" 
+                            value={product.editedStock ?? ''}
+                            onChange={(e) => handleTextChange(product.id, 'editedStock', e.target.value)}
+                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
+                            disabled={product.isCustom}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-center">
                           <button
                             onClick={() => removeProductFromList(product.id)}
-                            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 transition-colors"
                           >
                             <X className="h-5 w-5" />
                           </button>
@@ -644,13 +861,13 @@ const NewPurchaseList = () => {
                   </tbody>
                   <tfoot className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                      <td colSpan={8} className="px-6 py-4 text-right text-sm font-bold text-gray-900 dark:text-white">
-                        Total do Orçamento:
+                      <td colSpan={8} className="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-200">
+                        Total Geral:
                       </td>
-                      <td className="px-4 py-4 text-sm font-bold text-blue-600 dark:text-blue-400">
+                      <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-gray-200">
                         R$ {totalBudgetValue.toFixed(2).replace('.', ',')}
                       </td>
-                      <td></td>
+                      <td colSpan={3}></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -658,160 +875,164 @@ const NewPurchaseList = () => {
             )}
           </div>
         </div>
-      </div>
 
-      {/* Add Item Modal */}
-      {showAddItemModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
-              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
-            </div>
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div className="inline-block align-middle bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div className="sm:flex sm:items-start">
-                  <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
-                    <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
-                      Adicionar do Inventário
-                    </h3>
-                    <div className="relative mb-4">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                      <input
-                        type="text"
-                        placeholder="Buscar por nome, categoria ou fornecedor..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      />
-                    </div>
-                    <div className="max-h-60 overflow-y-auto">
-                      {filteredInventory.length === 0 ? (
-                        <p className="text-center text-gray-500 py-4">Nenhum item encontrado.</p>
-                      ) : (
-                        <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {filteredInventory.map(item => (
-                            <li 
-                              key={item.id} 
-                              className="py-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700 px-2 rounded cursor-pointer"
-                              onClick={() => handleAddItem(item)}
-                            >
-                              <div>
-                                <p className="text-sm font-medium text-gray-900 dark:text-white">{item.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">{item.category} | Estoque: {item.quantity}</p>
-                              </div>
-                              <Plus className="h-4 w-4 text-blue-600" />
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+        {/* Modal para adicionar item do inventário */}
+        {showAddItemModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Adicionar Item do Inventário</h3>
                 <button
-                  type="button"
                   onClick={() => setShowAddItemModal(false)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700"
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                 >
-                  Fechar
+                  <X className="h-6 w-6" />
                 </button>
+              </div>
+              
+              <div className="mb-4">
+                <input
+                  type="text"
+                  placeholder="Buscar item..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {filteredInventory.length === 0 ? (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">
+                    {searchTerm ? 'Nenhum item encontrado.' : 'Digite para buscar itens do inventário.'}
+                  </p>
+                ) : (
+                  filteredInventory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex justify-between items-center p-3 border border-gray-200 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      <div>
+                        <h4 className="font-medium text-gray-800 dark:text-white">{item.name}</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          Estoque: {item.quantity} | Categoria: {item.category}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleAddItem(item)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Custom Item Modal */}
-      {showCustomItemModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
-              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
-            </div>
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div className="inline-block align-middle bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
-                  Novo Item Personalizado
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Item</label>
-                    <input
-                      type="text"
-                      value={customItem.name}
-                      onChange={(e) => setCustomItem({...customItem, name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quantidade</label>
-                      <input
-                        type="number"
-                        value={customItem.quantity}
-                        onChange={(e) => setCustomItem({...customItem, quantity: parseInt(e.target.value)})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unidade</label>
-                      <select
-                        value={customItem.unit}
-                        onChange={(e) => setCustomItem({...customItem, unit: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      >
-                        {unitOptions.map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Preço Unitário</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={customItem.price}
-                        onChange={(e) => setCustomItem({...customItem, price: parseFloat(e.target.value)})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fornecedor</label>
-                      <input
-                        type="text"
-                        value={customItem.supplier}
-                        onChange={(e) => setCustomItem({...customItem, supplier: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                  </div>
+        {/* Modal para adicionar item personalizado */}
+        {showCustomItemModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Adicionar Item Personalizado</h3>
+                <button
+                  onClick={() => setShowCustomItemModal(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Nome do Item
+                  </label>
+                  <input
+                    type="text"
+                    value={customItem.name}
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    placeholder="Digite o nome do item"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Quantidade
+                  </label>
+                  <input
+                    type="number"
+                    value={customItem.quantity}
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
+                    min="1"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Unidade
+                  </label>
+                  <select
+                    value={customItem.unit}
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, unit: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  >
+                    {unitOptions.filter(opt => opt.value !== '').map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Preço Unitário (R$)
+                  </label>
+                  <input
+                    type="number"
+                    value={customItem.price}
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                    step="0.01"
+                    min="0"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Fornecedor
+                  </label>
+                  <input
+                    type="text"
+                    value={customItem.supplier}
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, supplier: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    placeholder="Nome do fornecedor"
+                  />
                 </div>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              
+              <div className="flex justify-end space-x-3 mt-6">
                 <button
-                  type="button"
-                  onClick={handleAddCustomItem}
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-                >
-                  Adicionar
-                </button>
-                <button
-                  type="button"
                   onClick={() => setShowCustomItemModal(false)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700"
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   Cancelar
                 </button>
+                <button
+                  onClick={handleAddCustomItem}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Adicionar
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
