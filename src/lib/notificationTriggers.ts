@@ -4,6 +4,7 @@
 // ===========================
 
 import { supabase } from './supabase';
+import { createNotification as createNotificationBase } from './notifications';
 
 // Interfaces adaptadas para estrutura real
 interface NotificationData {
@@ -24,13 +25,16 @@ interface NotificationData {
 interface NotificationEventData {
   hotel_id: string;
   sector_id?: string;
-  product_name: string;
+  product_name?: string;
   quantity?: number;
   sector_name?: string;
   delivered_by?: string;
   reason?: string;
   original_product?: string;
   substitute_product?: string;
+  related_entity_id?: string;
+  related_entity_table?: string;
+  related_entity_type?: string;
 }
 
 // Função para buscar usuários que devem receber notificação
@@ -104,7 +108,7 @@ const getUsersToNotify = async (eventType: string, hotelId: string, sectorId?: s
 };
 
 // Função para criar notificação individual
-const createNotification = async (notificationData: NotificationData) => {
+const createNotificationInternal = async (notificationData: NotificationData) => {
   try {
     console.log('Criando notificação:', notificationData);
     
@@ -172,8 +176,9 @@ const triggerNotification = async (
       title: titleTemplate,
       message: messageTemplate,
       target_path: '/admin',
-      related_entity_table: 'requisitions',
-      related_entity_type: 'requisition',
+      related_entity_id: eventData.related_entity_id || null,
+      related_entity_table: eventData.related_entity_table || 'requisitions',
+      related_entity_type: eventData.related_entity_type || 'requisition',
       hotel_id: eventData.hotel_id,
       sector_id: eventData.sector_id,
       is_read: false
@@ -181,7 +186,7 @@ const triggerNotification = async (
 
     // Inserir todas as notificações
     for (const notification of notifications) {
-      await createNotification(notification);
+      await createNotificationInternal(notification);
     }
 
     console.log('Notificações criadas com sucesso');
@@ -222,9 +227,9 @@ export const notifyItemSubstituted = async (eventData: NotificationEventData) =>
 
 export const notifyBudgetCreated = async (eventData: NotificationEventData) => {
   const title = '💰 Novo Orçamento';
-  const message = `Novo orçamento criado para ${eventData.sector_name}`;
+  const message = `Novo orçamento criado para ${eventData.sector_name || 'o hotel'}`;
   
-  await triggerNotification('BUDGET_PENDING_APPROVAL', eventData, title, message);
+  await triggerNotification('NEW_BUDGET', eventData, title, message);
 };
 
 export const notifyBudgetApproved = async (eventData: NotificationEventData) => {
@@ -326,4 +331,3 @@ export const getUnreadNotificationsCount = async (userId: string) => {
     return 0;
   }
 };
-
