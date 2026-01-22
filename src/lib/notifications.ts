@@ -157,9 +157,12 @@ export const createNotification = async (params: CreateNotificationParams | stri
 
     if (sendPush && newNotification) {
       try {
+        // Garantir que o título do push seja o mesmo da notificação
+        const pushTitle = title || (notificationType?.description ? `Nova ${notificationType.description}` : "Nova Notificação");
+        
         await sendPushNotificationToUser(
           userId, 
-          title || "Nova Notificação", 
+          pushTitle, 
           finalMessage,
           {
             notificationId: newNotification.id,
@@ -169,7 +172,7 @@ export const createNotification = async (params: CreateNotificationParams | stri
           }
         );
       } catch (pushError) {
-        console.error("Erro ao enviar notificação push:", pushError);
+        console.error("Erro ao enviar push:", pushError);
       }
     }
 
