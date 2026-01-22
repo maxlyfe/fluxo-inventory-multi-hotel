@@ -703,9 +703,30 @@ export const sendPushNotificationToUser = async (
       supabase.functions.invoke('send-push-notification', {
         body: {
           token: tokenData.fcm_token,
-          title,
-          body,
-          data
+          notification: {
+            title,
+            body
+          },
+          data: {
+            ...data,
+            click_action: data?.targetPath || '/authorizations'
+          },
+          // Formato específico para garantir exibição em background no Android/iOS
+          android: {
+            priority: "high",
+            notification: {
+              sound: "default",
+              click_action: "FLUTTER_NOTIFICATION_CLICK"
+            }
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+                badge: 1
+              }
+            }
+          }
         }
       })
     );
