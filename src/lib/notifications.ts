@@ -698,20 +698,24 @@ export const sendPushNotificationToUser = async (
       return;
     }
 
-    // Enviar para a função existente send-fcm-notification
-    const promises = tokens.map(tokenData => 
-      supabase.functions.invoke('send-fcm-notification', {
-        body: {
-          userId: userId,
+    // Chamar a função unificada create-notification para processar o push
+    // Nota: Se userId estiver presente, a função criará a notificação e o push para esse usuário específico.
+    const promise = supabase.functions.invoke('create-notification', {
+      body: {
+        eventKey: eventKey,
+        templateData: {
+          ...params.metadata,
           title: title,
-          body: body,
-          data: {
-            ...data,
-            target_path: data?.targetPath || '/authorizations'
-          }
-        }
-      })
-    );
+          message: message
+        },
+        hotelId: hotelId,
+        sectorId: sectorId,
+        relatedEntityId: relatedEntityId,
+        relatedEntityType: relatedEntityType,
+        createdBy: createdBy
+      }
+    });
+    const promises = [promise];
 
     const results = await Promise.allSettled(promises);
     console.log("Resultados do envio de push:", results);
