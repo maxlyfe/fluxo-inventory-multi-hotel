@@ -1,9 +1,7 @@
 import { supabase } from './supabase';
-import { DynamicReconciliationRow } from './dynamicReconciliationService';
 
-// Nova interface para a estrutura de contagens por setor
 export interface SectorCountPair {
-  sector_id: string | null; // null para estoque principal
+  sector_id: string | null;
   start_count_id: string;
   end_count_id: string;
 }
@@ -11,7 +9,6 @@ export interface SectorCountPair {
 export interface SavedReconciliationReport {
   id: string;
   hotel_id: string;
-  // Estas colunas agora são opcionais e serão usadas apenas para relatórios antigos
   start_count_id: string | null;
   end_count_id: string | null;
   status: 'draft' | 'finalized';
@@ -19,7 +16,6 @@ export interface SavedReconciliationReport {
   updated_at: string;
   start_count?: { finished_at: string };
   end_count?: { finished_at: string };
-  // Novo campo para as contagens por setor
   sector_counts?: {
     sector_id: string | null;
     start_count_id: string;
@@ -28,7 +24,7 @@ export interface SavedReconciliationReport {
 }
 
 export const reconciliationPersistenceService = {
-  async listReports(hotelId: string) {
+  async listReports(hotelId: string): Promise<SavedReconciliationReport[]> {
     const { data, error } = await supabase
       .from('reconciliation_reports')
       .select(`
@@ -39,25 +35,16 @@ export const reconciliationPersistenceService = {
       `)
       .eq('hotel_id', hotelId)
       .order('created_at', { ascending: false });
+    
     if (error) throw error;
-    return data as SavedReconciliationReport[];
+    return (data || []) as any[];
   },
 
-  /**
-   * Salva ou atualiza um relatório de reconciliação.
-   * @param hotelId ID do hotel.
-   * @param sectorCountPairs Array de pares de contagens (inicial/final) por setor.
-   * @param items Itens de consumo/venda a serem salvos.
-   * @param reportId ID do relatório a ser atualizado (opcional).
-   * @returns ID do relatório salvo.
-   */
-  async saveReport(hotelId: string, sectorCountPairs: SectorCountPair[], items: any[], reportId?: string) {
-    // 1. Criar ou atualizar o cabeçalho
-    const reportData = {
+  async saveReport(hotelId: string, sectorCountPairs: SectorCountPair[], items: any[], reportId?: string): Promise<string> {
+    const reportData: any = {
       hotel_id: hotelId,
       updated_at: new Date().toISOString(),
-      status: 'draft' as const,
-      // Para novos relatórios, as colunas antigas start_count_id e end_count_id serão nulas
+      status: 'draft',
       start_count_id: null,
       end_count_id: null,
     };
@@ -80,34 +67,29 @@ export const reconciliationPersistenceService = {
       currentReportId = data.id;
     }
 
-    // 2. Salvar os pares de contagens por setor
-    if (currentReportId) {
-      const sectorCountsToSave = sectorCountPairs.map(pair => ({
-        report_id: currentReportId,
-        sector_id: pair.sector_id,
-        start_count_id: pair.start_count_id,
-        end_count_id: pair.end_count_id,
-      }));
+    if (!currentReportId) throw new Error('Falha ao obter ID do relatório');
 
-      // Primeiro, removemos as contagens antigas para evitar conflitos de chave primária
-      // e garantir que apenas as contagens atuais sejam salvas.
-      const { error: deleteError } = await supabase
-        .from('reconciliation_report_sector_counts')
-        .delete()
-        .eq('report_id', currentReportId);
-      
-      if (deleteError) throw deleteError;
+    // Salvar pares de contagens
+    const sectorCountsToSave = sectorCountPairs.map(pair => ({
+      report_id: currentReportId,
+      sector_id: pair.sector_id,
+      start_count_id: pair.start_count_id,
+      end_count_id: pair.end_count_id,
+    }));
 
-      // Em seguida, inserimos as novas contagens
-      const { error: insertError } = await supabase
-        .from('reconciliation_report_sector_counts')
-        .insert(sectorCountsToSave);
-      
-      if (insertError) throw insertError;
-    }
+    await supabase
+      .from('reconciliation_report_sector_counts')
+      .delete()
+      .eq('report_id', currentReportId);
 
-    // 3. Salvar os itens (vendas e consumo)
-    if (items.length > 0 && currentReportId) {
+    const { error: insertError } = await supabase
+      .from('reconciliation_report_sector_counts')
+      .insert(sectorCountsToSave);
+    
+    if (insertError) throw insertError;
+
+    // Salvar itens
+    if (items.length > 0) {
       const reportItems = items.map(item => ({
         report_id: currentReportId,
         product_id: item.productId,
@@ -115,40 +97,39 @@ export const reconciliationPersistenceService = {
         sales: item.sales || 0,
         consumption: item.consumption || 0
       }));
-      const { error } = await supabase
+      
+      const { error: itemsError } = await supabase
         .from('reconciliation_report_items')
         .upsert(reportItems, { onConflict: 'report_id,product_id,sector_id' });
       
-      if (error) throw error;
+      if (itemsError) throw itemsError;
     }
     
     return currentReportId;
   },
 
-  async getSavedItems(reportId: string) {
+  async getSavedItems(reportId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from('reconciliation_report_items')
       .select('*')
       .eq('report_id', reportId);
     if (error) throw error;
-    return data;
+    return data || [];
   },
 
-  async finalizeReport(reportId: string) {
+  async finalizeReport(reportId: string): Promise<void> {
     const { error } = await supabase
       .from('reconciliation_reports')
       .update({ status: 'finalized', updated_at: new Date().toISOString() })
       .eq('id', reportId);
-    
     if (error) throw error;
   },
 
-  async deleteReport(reportId: string) {
+  async deleteReport(reportId: string): Promise<void> {
     const { error } = await supabase
       .from('reconciliation_reports')
       .delete()
       .eq('id', reportId);
-    
     if (error) throw error;
   }
 };
