@@ -9,7 +9,6 @@ import {
   CheckCircle, 
   Clock, 
   Star, 
-  Save, 
   Warehouse, 
   Utensils, 
   Trash2
@@ -80,7 +79,7 @@ const WeeklyReconciliationReport: React.FC = () => {
       const initialSelections: Record<string, any> = {
         'main': { enabled: true, startCountId: '', endCountId: '' }
       };
-      sectorsRes.data?.forEach(s => {
+      (sectorsRes.data || []).forEach((s: any) => {
         initialSelections[s.id] = { enabled: false, startCountId: '', endCountId: '' };
       });
       setSectorSelections(initialSelections);
@@ -110,7 +109,7 @@ const WeeklyReconciliationReport: React.FC = () => {
     sectors.forEach(s => {
       if (sectorSelections[s.id]?.enabled) {
         if (!sectorSelections[s.id].startCountId || !sectorSelections[s.id].endCountId) {
-          setError(`Selecione as contagens inicial e final para o setor ${s.name}.`);
+          setError(\`Selecione as contagens inicial e final para o setor \${s.name}.\`);
           return;
         }
         activeSelections.push({
@@ -165,8 +164,8 @@ const WeeklyReconciliationReport: React.FC = () => {
           sectorItems.push({
             productId: row.productId,
             sectorId: s.id,
-            sales: editableValues[`${s.id}-${row.productId}-sales`] || 0,
-            consumption: editableValues[`${s.id}-${row.productId}-consumption`] || 0
+            sales: editableValues[\`\${s.id}-\${row.productId}-sales\`] || 0,
+            consumption: editableValues[\`\${s.id}-\${row.productId}-consumption\`] || 0
           });
         });
         
@@ -247,8 +246,8 @@ const WeeklyReconciliationReport: React.FC = () => {
       const newEditableValues: Record<string, number> = {};
       savedItems.forEach((item: any) => {
         const key = item.sector_id || 'main';
-        newEditableValues[`${key}-${item.product_id}-sales`] = item.sales;
-        newEditableValues[`${key}-${item.product_id}-consumption`] = item.consumption;
+        newEditableValues[\`\${key}-\${item.product_id}-sales\`] = item.sales;
+        newEditableValues[\`\${key}-\${item.product_id}-consumption\`] = item.consumption;
       });
 
       setReportData(data);
@@ -349,7 +348,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                 className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-lg ${report.status === 'finalized' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                  <div className={\`p-3 rounded-lg \${report.status === 'finalized' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'}\`}>
                     {report.status === 'finalized' ? <CheckCircle className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
                   </div>
                   <div>
@@ -421,7 +420,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                       <option value="">Selecione...</option>
                       {counts.filter(c => !c.sector_id).map(c => (
                         <option key={c.id} value={c.id}>
-                          {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                          {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? \`- \${c.notes}\` : ''}
                         </option>
                       ))}
                     </select>
@@ -439,7 +438,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                       <option value="">Selecione...</option>
                       {counts.filter(c => !c.sector_id).map(c => (
                         <option key={c.id} value={c.id}>
-                          {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                          {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? \`- \${c.notes}\` : ''}
                         </option>
                       ))}
                     </select>
@@ -481,7 +480,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                         <option value="">Selecione...</option>
                         {counts.filter(c => c.sector_id === sector.id).map(c => (
                           <option key={c.id} value={c.id}>
-                            {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                            {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? \`- \${c.notes}\` : ''}
                           </option>
                         ))}
                       </select>
@@ -499,7 +498,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                         <option value="">Selecione...</option>
                         {counts.filter(c => c.sector_id === sector.id).map(c => (
                           <option key={c.id} value={c.id}>
-                            {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                            {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? \`- \${c.notes}\` : ''}
                           </option>
                         ))}
                       </select>
@@ -526,11 +525,11 @@ const WeeklyReconciliationReport: React.FC = () => {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowOnlyStarred(!showOnlyStarred)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                className={\`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all \${
                   showOnlyStarred ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' : 'bg-gray-100 text-gray-600 border border-gray-200'
-                }`}
+                }\`}
               >
-                <Star className={`w-4 h-4 ${showOnlyStarred ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                <Star className={\`w-4 h-4 \${showOnlyStarred ? 'fill-yellow-500 text-yellow-500' : ''}\`} />
                 {showOnlyStarred ? 'Itens Principais' : 'Todos os Itens'}
               </button>
             </div>
@@ -558,7 +557,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                 {sectorSelections['main']?.enabled && (
                   <button 
                     onClick={() => setActiveView('main')}
-                    className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeView === 'main' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    className={\`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap \${activeView === 'main' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}\`}
                   >
                     <Warehouse className="w-5 h-5" /> Estoque Principal
                   </button>
@@ -567,7 +566,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                   <button 
                     key={s.id}
                     onClick={() => setActiveView(s.id)}
-                    className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeView === s.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    className={\`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap \${activeView === s.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}\`}
                   >
                     <Utensils className="w-5 h-5" /> {s.name}
                   </button>
@@ -604,8 +603,8 @@ const WeeklyReconciliationReport: React.FC = () => {
                               <td className="px-4 py-4 text-center font-mono text-red-500">-{row.mainStock.deliveredToSectors}</td>
                               <td className="px-4 py-4 text-center font-mono font-bold text-blue-600">{row.mainStock.calculatedFinalStock}</td>
                               <td className="px-4 py-4 text-center font-mono font-bold">{row.mainStock.actualFinalStock}</td>
-                              <td className={`px-4 py-4 text-center font-mono font-bold ${row.mainStock.loss < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                {row.mainStock.loss > 0 ? `+${row.mainStock.loss}` : row.mainStock.loss}
+                              <td className={\`px-4 py-4 text-center font-mono font-bold \${row.mainStock.loss < 0 ? 'text-red-500' : 'text-green-500'}\`}>
+                                {row.mainStock.loss > 0 ? \`+\${row.mainStock.loss}\` : row.mainStock.loss}
                               </td>
                             </tr>
                           ))}
@@ -634,8 +633,8 @@ const WeeklyReconciliationReport: React.FC = () => {
                           </tr>
                           {rows.map(row => {
                             const sectorData = row.sectorStocks[activeView];
-                            const sales = editableValues[`${activeView}-${row.productId}-sales`] || 0;
-                            const consumption = editableValues[`${activeView}-${row.productId}-consumption`] || 0;
+                            const sales = editableValues[\`\${activeView}-\${row.productId}-sales\`] || 0;
+                            const consumption = editableValues[\`\${activeView}-\${row.productId}-consumption\`] || 0;
                             const expected = (sectorData?.initialStock || 0) + (sectorData?.received || 0) - sales - consumption;
                             const loss = (sectorData?.actualFinalStock || 0) - expected;
                             return (
@@ -647,7 +646,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                                   <input 
                                     type="number" 
                                     value={sales}
-                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [`${activeView}-${row.productId}-sales`]: Number(e.target.value) }))}
+                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [\`\${activeView}-\${row.productId}-sales\`]: Number(e.target.value) }))}
                                     className="w-16 p-1 text-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
                                   />
                                 </td>
@@ -655,13 +654,13 @@ const WeeklyReconciliationReport: React.FC = () => {
                                   <input 
                                     type="number" 
                                     value={consumption}
-                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [`${activeView}-${row.productId}-consumption`]: Number(e.target.value) }))}
+                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [\`\${activeView}-\${row.productId}-consumption\`]: Number(e.target.value) }))}
                                     className="w-16 p-1 text-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
                                   />
                                 </td>
                                 <td className="px-4 py-4 text-center font-mono font-bold">{sectorData?.actualFinalStock || 0}</td>
-                                <td className={`px-4 py-4 text-center font-mono font-bold ${loss < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                  {loss > 0 ? `+${loss}` : loss}
+                                <td className={\`px-4 py-4 text-center font-mono font-bold \${loss < 0 ? 'text-red-500' : 'text-green-500'}\`}>
+                                  {loss > 0 ? \`+\${loss}\` : loss}
                                 </td>
                               </tr>
                             );
