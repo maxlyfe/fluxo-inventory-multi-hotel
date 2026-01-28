@@ -1,135 +1,162 @@
 import { supabase } from './supabase';
 
-export interface SectorCountPair {
+export interface DynamicReconciliationRow {
+  productId: string;
+  productName: string;
+  category: string;
+  isStarred: boolean;
+  mainStock: {
+    initialStock: number;
+    purchases: number;
+    deliveredToSectors: number;
+    calculatedFinalStock: number;
+    actualFinalStock: number;
+    loss: number;
+  };
+  sectorStocks: Record<string, {
+    initialStock: number;
+    received: number;
+    calculatedFinalStock: number;
+    actualFinalStock: number;
+    loss: number;
+  }>;
+}
+
+export interface DynamicReconciliationData {
+  sectors: { id: string; name: string }[];
+  rows: DynamicReconciliationRow[];
+}
+
+export interface SectorCountSelection {
   sector_id: string | null;
   start_count_id: string;
   end_count_id: string;
 }
 
-export interface SavedReconciliationReport {
-  id: string;
-  hotel_id: string;
-  start_count_id: string | null;
-  end_count_id: string | null;
-  status: 'draft' | 'finalized';
-  created_at: string;
-  updated_at: string;
-  start_count?: { finished_at: string };
-  end_count?: { finished_at: string };
-  sector_counts?: {
-    sector_id: string | null;
-    start_count_id: string;
-    end_count_id: string;
-  }[];
-}
+export const dynamicReconciliationService = {
+  generateReport: async (
+    hotelId: string,
+    selections: SectorCountSelection[]
+  ): Promise<DynamicReconciliationData> => {
+    if (selections.length === 0) throw new Error('Selecione pelo menos um setor para o relatório.');
 
-export const reconciliationPersistenceService = {
-  async listReports(hotelId: string): Promise<SavedReconciliationReport[]> {
-    const { data, error } = await supabase
-      .from('reconciliation_reports')
-      .select(`
-        *,
-        start_count:stock_counts!start_count_id(finished_at),
-        end_count:stock_counts!end_count_id(finished_at),
-        sector_counts:reconciliation_report_sector_counts(sector_id, start_count_id, end_count_id)
-      `)
-      .eq('hotel_id', hotelId)
-      .order('created_at', { ascending: false });
+    const allCountIds = selections.flatMap(s => [s.start_count_id, s.end_count_id]);
     
-    if (error) throw error;
-    return (data || []) as any[];
-  },
+    const { data: counts, error: countsError } = await supabase
+      .from('stock_counts')
+      .select('id, finished_at, sector_id, items:stock_count_items(product_id, counted_quantity)')
+      .in('id', allCountIds);
 
-  async saveReport(hotelId: string, sectorCountPairs: SectorCountPair[], items: any[], reportId?: string): Promise<string> {
-    const reportData: any = {
-      hotel_id: hotelId,
-      updated_at: new Date().toISOString(),
-      status: 'draft',
-      start_count_id: null,
-      end_count_id: null,
-    };
+    if (countsError) throw countsError;
+    if (!counts || counts.length === 0) throw new Error('Nenhuma conferência encontrada.');
 
-    let currentReportId = reportId;
+    const allDates = counts.map(c => new Date(c.finished_at).getTime());
+    const startDate = new Date(Math.min(...allDates)).toISOString();
+    const endDate = new Date(Math.max(...allDates)).toISOString();
 
-    if (currentReportId) {
-      const { error } = await supabase
-        .from('reconciliation_reports')
-        .update(reportData)
-        .eq('id', currentReportId);
-      if (error) throw error;
-    } else {
-      const { data, error } = await supabase
-        .from('reconciliation_reports')
-        .insert(reportData)
-        .select()
-        .single();
-      if (error) throw error;
-      currentReportId = data.id;
-    }
+    const [productsRes, sectorsRes] = await Promise.all([
+      supabase.from('products').select('id, name, category, is_starred').eq('hotel_id', hotelId).eq('is_active', true),
+      supabase.from('sectors').select('id, name').eq('hotel_id', hotelId)
+    ]);
 
-    if (!currentReportId) throw new Error('Falha ao obter ID do relatório');
+    if (productsRes.error) throw productsRes.error;
+    if (sectorsRes.error) throw sectorsRes.error;
 
-    // Salvar pares de contagens
-    const sectorCountsToSave = sectorCountPairs.map(pair => ({
-      report_id: currentReportId,
-      sector_id: pair.sector_id,
-      start_count_id: pair.start_count_id,
-      end_count_id: pair.end_count_id,
-    }));
+    const products = productsRes.data || [];
+    const sectors = sectorsRes.data || [];
 
-    await supabase
-      .from('reconciliation_report_sector_counts')
-      .delete()
-      .eq('report_id', currentReportId);
+    const [purchasesRes, requisitionsRes] = await Promise.all([
+      supabase.from('purchase_items')
+        .select('product_id, quantity, purchases!inner(purchase_date)')
+        .eq('purchases.hotel_id', hotelId)
+        .gte('purchases.purchase_date', startDate)
+        .lte('purchases.purchase_date', endDate),
+      supabase.from('requisitions')
+        .select('product_id, substituted_product_id, delivered_quantity, sector_id, updated_at')
+        .eq('hotel_id', hotelId)
+        .eq('status', 'delivered')
+        .gte('updated_at', startDate)
+        .lte('updated_at', endDate)
+    ]);
 
-    const { error: insertError } = await supabase
-      .from('reconciliation_report_sector_counts')
-      .insert(sectorCountsToSave);
-    
-    if (insertError) throw insertError;
+    if (purchasesRes.error) throw purchasesRes.error;
+    if (requisitionsRes.error) throw requisitionsRes.error;
 
-    // Salvar itens
-    if (items.length > 0) {
-      const reportItems = items.map(item => ({
-        report_id: currentReportId,
-        product_id: item.productId,
-        sector_id: item.sectorId,
-        sales: item.sales || 0,
-        consumption: item.consumption || 0
-      }));
+    const countItemsMap = new Map<string, Map<string, number>>();
+    counts.forEach((count: any) => {
+      const itemMap = new Map<string, number>();
+      (count.items || []).forEach((item: any) => {
+        itemMap.set(item.product_id, item.counted_quantity);
+      });
+      countItemsMap.set(count.id, itemMap);
+    });
+
+    const purchasesMap = new Map<string, number>();
+    (purchasesRes.data || []).forEach((p: any) => {
+      purchasesMap.set(p.product_id, (purchasesMap.get(p.product_id) || 0) + p.quantity);
+    });
+
+    const deliveriesMap = new Map<string, number>();
+    const sectorReceivedMap = new Map<string, Map<string, number>>();
+    (requisitionsRes.data || []).forEach((r: any) => {
+      const pId = r.substituted_product_id || r.product_id;
+      if (!pId) return;
+      deliveriesMap.set(pId, (deliveriesMap.get(pId) || 0) + (r.delivered_quantity || 0));
       
-      const { error: itemsError } = await supabase
-        .from('reconciliation_report_items')
-        .upsert(reportItems, { onConflict: 'report_id,product_id,sector_id' });
-      
-      if (itemsError) throw itemsError;
-    }
-    
-    return currentReportId;
-  },
+      if (r.sector_id) {
+        if (!sectorReceivedMap.has(r.sector_id)) sectorReceivedMap.set(r.sector_id, new Map());
+        const sMap = sectorReceivedMap.get(r.sector_id)!;
+        sMap.set(pId, (sMap.get(pId) || 0) + (r.delivered_quantity || 0));
+      }
+    });
 
-  async getSavedItems(reportId: string): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('reconciliation_report_items')
-      .select('*')
-      .eq('report_id', reportId);
-    if (error) throw error;
-    return data || [];
-  },
+    const rows: DynamicReconciliationRow[] = products.map(p => {
+      const mainSelection = selections.find(s => s.sector_id === null);
+      let mainData = {
+        initialStock: 0,
+        purchases: purchasesMap.get(p.id) || 0,
+        deliveredToSectors: deliveriesMap.get(p.id) || 0,
+        calculatedFinalStock: 0,
+        actualFinalStock: 0,
+        loss: 0
+      };
 
-  async finalizeReport(reportId: string): Promise<void> {
-    const { error } = await supabase
-      .from('reconciliation_reports')
-      .update({ status: 'finalized', updated_at: new Date().toISOString() })
-      .eq('id', reportId);
-    if (error) throw error;
-  },
+      if (mainSelection) {
+        mainData.initialStock = countItemsMap.get(mainSelection.start_count_id)?.get(p.id) || 0;
+        mainData.actualFinalStock = countItemsMap.get(mainSelection.end_count_id)?.get(p.id) || 0;
+        mainData.calculatedFinalStock = mainData.initialStock + mainData.purchases - mainData.deliveredToSectors;
+        mainData.loss = mainData.actualFinalStock - mainData.calculatedFinalStock;
+      }
 
-  async deleteReport(reportId: string): Promise<void> {
-    const { error } = await supabase
-      .from('reconciliation_reports')
-      .delete()
-      .eq('id', reportId);
-    if (error) throw error;
+      const sectorStocks: Record<string, any> = {};
+      sectors.forEach(s => {
+        const sectorSelection = selections.find(sel => sel.sector_id === s.id);
+        if (sectorSelection) {
+          const sInitial = countItemsMap.get(sectorSelection.start_count_id)?.get(p.id) || 0;
+          const sReceived = sectorReceivedMap.get(s.id)?.get(p.id) || 0;
+          const sActual = countItemsMap.get(sectorSelection.end_count_id)?.get(p.id) || 0;
+          
+          sectorStocks[s.id] = {
+            initialStock: sInitial,
+            received: sReceived,
+            calculatedFinalStock: sInitial + sReceived,
+            actualFinalStock: sActual,
+            loss: 0
+          };
+        }
+      });
+
+      return {
+        productId: p.id,
+        productName: p.name,
+        category: p.category || 'Sem Categoria',
+        isStarred: !!p.is_starred,
+        mainStock: mainData,
+        sectorStocks
+      };
+    });
+
+    const activeSectors = sectors.filter(s => selections.some(sel => sel.sector_id === s.id));
+    return { sectors: activeSectors, rows };
   }
 };
