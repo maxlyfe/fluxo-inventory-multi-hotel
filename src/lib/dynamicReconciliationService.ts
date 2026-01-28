@@ -46,10 +46,10 @@ export const dynamicReconciliationService = {
     // 2. Buscar todas as conferências selecionadas
     const { data: counts, error: countsError } = await supabase
       .from('stock_counts')
-      .select(`
+      .select(\`
         id, finished_at, sector_id,
         items:stock_count_items(product_id, counted_quantity)
-      `)
+      \`)
       .in('id', allCountIds);
 
     if (countsError) throw countsError;
