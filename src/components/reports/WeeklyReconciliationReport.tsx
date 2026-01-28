@@ -1,41 +1,55 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Loader2, AlertCircle, ChevronLeft, Warehouse, ChefHat, 
-  UtensilsCrossed, BedDouble, GlassWater, Boxes, Star, 
-  Plus, History, Save, CheckCircle, Trash2, Calendar, ArrowRight
+  Calendar, 
+  ChevronRight, 
+  FileText, 
+  Plus, 
+  Loader2, 
+  AlertCircle, 
+  CheckCircle, 
+  Clock, 
+  Star, 
+  Save, 
+  Warehouse, 
+  Utensils, 
+  Trash2
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { useHotel } from '../../context/HotelContext';
 import { supabase } from '../../lib/supabase';
-import { dynamicReconciliationService, DynamicReconciliationData } from '../../lib/dynamicReconciliationService';
-import { reconciliationPersistenceService, SavedReconciliationReport } from '../../lib/reconciliationPersistenceService';
-
-const SECTOR_ICON_MAP: { [key: string]: React.ElementType } = {
-  'cozinha': ChefHat,
-  'restaurante': UtensilsCrossed,
-  'governança': BedDouble,
-  'bar piscina': GlassWater,
-  'default': Warehouse,
-};
+import { useHotel } from '../../context/HotelContext';
+import { format } from 'date-fns';
+import { 
+  dynamicReconciliationService, 
+  DynamicReconciliationData, 
+  SectorCountSelection 
+} from '../../lib/dynamicReconciliationService';
+import { 
+  reconciliationPersistenceService, 
+  SavedReconciliationReport,
+  SectorCountPair
+} from '../../lib/reconciliationPersistenceService';
 
 const WeeklyReconciliationReport: React.FC = () => {
   const { selectedHotel } = useHotel();
-  const [view, setView] = useState<'list' | 'create' | 'edit'>('list');
-  const [savedReports, setSavedReports] = useState<SavedReconciliationReport[]>([]);
-  const [counts, setCounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Estados para o relatório ativo
-  const [currentReportId, setCurrentReportId] = useState<string | null>(null);
-  const [startCountId, setStartCountId] = useState('');
-  const [endCountId, setEndCountId] = useState('');
+  const [view, setView] = useState<'list' | 'create'>('list');
+  
+  const [savedReports, setSavedReports] = useState<SavedReconciliationReport[]>([]);
+  const [counts, setCounts] = useState<any[]>([]);
+  const [sectors, setSectors] = useState<any[]>([]);
+  
+  const [sectorSelections, setSectorSelections] = useState<Record<string, { 
+    enabled: boolean; 
+    startCountId: string; 
+    endCountId: string;
+  }>>({});
+  
   const [reportData, setReportData] = useState<DynamicReconciliationData | null>(null);
   const [activeView, setActiveView] = useState<'main' | string>('main');
-  const [showOnlyStarred, setShowOnlyStarred] = useState(false);
-  const [editableValues, setEditableValues] = useState<Record<string, any>>({});
+  const [editableValues, setEditableValues] = useState<Record<string, number>>({});
+  const [showOnlyStarred, setShowOnlyStarred] = useState(true);
+  const [currentReportId, setCurrentReportId] = useState<string | undefined>();
 
   useEffect(() => {
     if (selectedHotel) {
@@ -46,18 +60,31 @@ const WeeklyReconciliationReport: React.FC = () => {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const [reports, countsRes] = await Promise.all([
+      const [reports, countsRes, sectorsRes] = await Promise.all([
         reconciliationPersistenceService.listReports(selectedHotel!.id),
-supabase.from('stock_counts')
-          .select('id, finished_at, hotel_id, sector_id, status')
+        supabase.from('stock_counts')
+          .select('id, finished_at, hotel_id, sector_id, status, notes')
           .eq('hotel_id', selectedHotel!.id)
+          .eq('status', 'finished')
           .not('finished_at', 'is', null)
-          .order('finished_at', { ascending: false })
+          .order('finished_at', { ascending: false }),
+        supabase.from('sectors')
+          .select('id, name')
+          .eq('hotel_id', selectedHotel!.id)
       ]);
-      console.log('Hotel ID:', selectedHotel?.id);
-      console.log('Conferências encontradas:', countsRes.data);
+
       setSavedReports(reports);
       setCounts(countsRes.data || []);
+      setSectors(sectorsRes.data || []);
+      
+      const initialSelections: Record<string, any> = {
+        'main': { enabled: true, startCountId: '', endCountId: '' }
+      };
+      sectorsRes.data?.forEach(s => {
+        initialSelections[s.id] = { enabled: false, startCountId: '', endCountId: '' };
+      });
+      setSectorSelections(initialSelections);
+
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -66,14 +93,111 @@ supabase.from('stock_counts')
   };
 
   const handleGenerateReport = async () => {
-    if (!startCountId || !endCountId) return;
+    const activeSelections: SectorCountSelection[] = [];
+    
+    if (sectorSelections['main'].enabled) {
+      if (!sectorSelections['main'].startCountId || !sectorSelections['main'].endCountId) {
+        setError('Selecione as contagens inicial e final para o Estoque Principal.');
+        return;
+      }
+      activeSelections.push({
+        sector_id: null,
+        start_count_id: sectorSelections['main'].startCountId,
+        end_count_id: sectorSelections['main'].endCountId
+      });
+    }
+
+    sectors.forEach(s => {
+      if (sectorSelections[s.id]?.enabled) {
+        if (!sectorSelections[s.id].startCountId || !sectorSelections[s.id].endCountId) {
+          setError(`Selecione as contagens inicial e final para o setor ${s.name}.`);
+          return;
+        }
+        activeSelections.push({
+          sector_id: s.id,
+          start_count_id: sectorSelections[s.id].startCountId,
+          end_count_id: sectorSelections[s.id].endCountId
+        });
+      }
+    });
+
+    if (activeSelections.length === 0) {
+      setError('Selecione pelo menos um setor para o relatório.');
+      return;
+    }
+
     setProcessing(true);
     setError(null);
     try {
-      const data = await dynamicReconciliationService.generateReport(selectedHotel!.id, startCountId, endCountId);
+      const data = await dynamicReconciliationService.generateReport(selectedHotel!.id, activeSelections);
       setReportData(data);
-      setEditableValues({});
-      setView('create');
+      
+      if (!sectorSelections['main'].enabled && data.sectors.length > 0) {
+        setActiveView(data.sectors[0].id);
+      } else {
+        setActiveView('main');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleSave = async (finalize: boolean = false) => {
+    if (!reportData || !selectedHotel) return;
+    
+    setProcessing(true);
+    try {
+      const items = reportData.rows.flatMap(row => {
+        const sectorItems: any[] = [];
+        
+        if (sectorSelections['main'].enabled) {
+          sectorItems.push({
+            productId: row.productId,
+            sectorId: null,
+            sales: 0,
+            consumption: 0
+          });
+        }
+
+        reportData.sectors.forEach(s => {
+          sectorItems.push({
+            productId: row.productId,
+            sectorId: s.id,
+            sales: editableValues[`${s.id}-${row.productId}-sales`] || 0,
+            consumption: editableValues[`${s.id}-${row.productId}-consumption`] || 0
+          });
+        });
+        
+        return sectorItems;
+      });
+
+      const sectorCountPairs: SectorCountPair[] = Object.entries(sectorSelections)
+        .filter(([_, val]) => val.enabled)
+        .map(([key, val]) => ({
+          sector_id: key === 'main' ? null : key,
+          start_count_id: val.startCountId,
+          end_count_id: val.endCountId
+        }));
+
+      const reportId = await reconciliationPersistenceService.saveReport(
+        selectedHotel.id,
+        sectorCountPairs,
+        items,
+        currentReportId
+      );
+
+      if (finalize) {
+        await reconciliationPersistenceService.finalizeReport(reportId);
+        alert('Relatório finalizado com sucesso!');
+        setView('list');
+        fetchInitialData();
+        setReportData(null);
+      } else {
+        setCurrentReportId(reportId);
+        alert('Rascunho salvo com sucesso!');
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -84,23 +208,53 @@ supabase.from('stock_counts')
   const handleLoadReport = async (report: SavedReconciliationReport) => {
     setProcessing(true);
     try {
-      const [data, items] = await Promise.all([
-        dynamicReconciliationService.generateReport(selectedHotel!.id, report.start_count_id, report.end_count_id),
-        reconciliationPersistenceService.getSavedItems(report.id)
-      ]);
+      const newSelections: Record<string, any> = {};
+      newSelections['main'] = { enabled: false, startCountId: '', endCountId: '' };
+      sectors.forEach(s => {
+        newSelections[s.id] = { enabled: false, startCountId: '', endCountId: '' };
+      });
+
+      if (report.sector_counts) {
+        report.sector_counts.forEach(sc => {
+          const key = sc.sector_id || 'main';
+          newSelections[key] = {
+            enabled: true,
+            startCountId: sc.start_count_id,
+            endCountId: sc.end_count_id
+          };
+        });
+      } else if (report.start_count_id && report.end_count_id) {
+        newSelections['main'] = {
+          enabled: true,
+          startCountId: report.start_count_id,
+          endCountId: report.end_count_id
+        };
+      }
+
+      setSectorSelections(newSelections);
+
+      const selectionsForService: SectorCountSelection[] = Object.entries(newSelections)
+        .filter(([_, v]) => v.enabled)
+        .map(([k, v]) => ({
+          sector_id: k === 'main' ? null : k,
+          start_count_id: v.startCountId,
+          end_count_id: v.endCountId
+        }));
+
+      const data = await dynamicReconciliationService.generateReport(selectedHotel!.id, selectionsForService);
       
-      const values: Record<string, any> = {};
-      items.forEach((item: any) => {
-        values[`${item.sector_id}-${item.product_id}-sales`] = item.sales;
-        values[`${item.sector_id}-${item.product_id}-consumption`] = item.consumption;
+      const savedItems = await reconciliationPersistenceService.getSavedItems(report.id);
+      const newEditableValues: Record<string, number> = {};
+      savedItems.forEach((item: any) => {
+        const key = item.sector_id || 'main';
+        newEditableValues[`${key}-${item.product_id}-sales`] = item.sales;
+        newEditableValues[`${key}-${item.product_id}-consumption`] = item.consumption;
       });
 
       setReportData(data);
-      setEditableValues(values);
+      setEditableValues(newEditableValues);
       setCurrentReportId(report.id);
-      setStartCountId(report.start_count_id);
-      setEndCountId(report.end_count_id);
-      setView('edit');
+      setView('create');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -108,54 +262,11 @@ supabase.from('stock_counts')
     }
   };
 
-  const handleSave = async (finalize = false) => {
-    if (!reportData) return;
-    setProcessing(true);
-    try {
-      const itemsToSave: any[] = [];
-      reportData.rows.forEach(row => {
-        reportData.sectors.forEach(sector => {
-          const sales = editableValues[`${sector.id}-${row.productId}-sales`] || 0;
-          const consumption = editableValues[`${sector.id}-${row.productId}-consumption`] || 0;
-          if (sales > 0 || consumption > 0) {
-            itemsToSave.push({
-              productId: row.productId,
-              sectorId: sector.id,
-              sales,
-              consumption
-            });
-          }
-        });
-      });
-
-      const id = await reconciliationPersistenceService.saveReport(
-        selectedHotel!.id,
-        startCountId,
-        endCountId,
-        itemsToSave,
-        currentReportId || undefined
-      );
-
-      if (finalize) {
-        await reconciliationPersistenceService.finalizeReport(id);
-      }
-
-      await fetchInitialData();
-      setView('list');
-      setCurrentReportId(null);
-      setReportData(null);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDeleteReport = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir este relatório?')) return;
     try {
       await reconciliationPersistenceService.deleteReport(id);
-      await fetchInitialData();
+      fetchInitialData();
     } catch (err: any) {
       setError(err.message);
     }
@@ -163,83 +274,104 @@ supabase.from('stock_counts')
 
   const groupedRows = useMemo(() => {
     if (!reportData) return {};
-    const filtered = showOnlyStarred ? reportData.rows.filter(r => r.isStarred) : reportData.rows;
+    const filtered = showOnlyStarred 
+      ? reportData.rows.filter(r => r.isStarred)
+      : reportData.rows;
+    
     return filtered.reduce((acc, row) => {
       if (!acc[row.category]) acc[row.category] = [];
       acc[row.category].push(row);
       return acc;
-    }, {} as Record<string, any[]>);
+    }, {} as Record<string, typeof reportData.rows>);
   }, [reportData, showOnlyStarred]);
 
-  if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Cabeçalho de Navegação Interna */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-            <History className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-gray-800 dark:text-white">Reconciliação Semanal</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Gerencie e acompanhe as perdas por período</p>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Calendar className="w-6 h-6 text-blue-600" />
+            Reconciliação Semanal
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400">
+            {view === 'list' ? 'Histórico de relatórios gerados' : 'Configuração do período de reconciliação'}
+          </p>
         </div>
-        <div className="flex gap-2">
-          {view === 'list' ? (
-            <button 
-              onClick={() => setView('create')}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> Novo Relatório
-            </button>
-          ) : (
-            <button 
-              onClick={() => { setView('list'); setCurrentReportId(null); setReportData(null); }}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" /> Voltar para Lista
-            </button>
-          )}
-        </div>
+        {view === 'list' ? (
+          <button 
+            onClick={() => {
+              setView('create');
+              setReportData(null);
+              setCurrentReportId(undefined);
+              setEditableValues({});
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-all shadow-sm"
+          >
+            <Plus className="w-5 h-5" /> Novo Relatório
+          </button>
+        ) : (
+          <button 
+            onClick={() => setView('list')}
+            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+          >
+            Voltar ao Histórico
+          </button>
+        )}
       </div>
 
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-3">
-          <AlertCircle className="w-5 h-5" /> {error}
+        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-3 text-red-700 dark:text-red-400">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p>{error}</p>
+          <button onClick={() => setError(null)} className="ml-auto text-sm font-bold">OK</button>
         </div>
       )}
 
       {view === 'list' && (
         <div className="grid gap-4">
           {savedReports.length === 0 ? (
-            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700">
-              <History className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400">Nenhum relatório salvo encontrado.</p>
-              <button onClick={() => setView('create')} className="mt-4 text-blue-600 font-medium hover:underline">Criar meu primeiro relatório</button>
+            <div className="bg-white dark:bg-gray-800 p-12 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 text-center">
+              <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400">Nenhum relatório encontrado.</p>
             </div>
           ) : (
             savedReports.map(report => (
-              <div key={report.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between hover:border-blue-200 transition-all group">
+              <div 
+                key={report.id}
+                className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between hover:shadow-md transition-shadow"
+              >
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-full ${report.status === 'finalized' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'}`}>
-                    {report.status === 'finalized' ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />}
+                  <div className={`p-3 rounded-lg ${report.status === 'finalized' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                    {report.status === 'finalized' ? <CheckCircle className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-white">
-                      <span>{format(new Date(report.start_count?.finished_at || ''), 'dd/MM/yy')}</span>
-                      <ArrowRight className="w-3 h-3 text-gray-400" />
-                      <span>{format(new Date(report.end_count?.finished_at || ''), 'dd/MM/yy')}</span>
-                    </div>
-                    <p className="text-xs text-gray-500">Criado em {format(new Date(report.created_at), 'dd/MM/yyyy HH:mm')}</p>
+                    <h4 className="font-bold text-gray-900 dark:text-white">
+                      Relatório de {format(new Date(report.created_at), 'dd/MM/yyyy')}
+                    </h4>
+                    <p className="text-sm text-gray-500">
+                      Status: {report.status === 'finalized' ? 'Finalizado' : 'Rascunho'}
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => handleLoadReport(report)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                    <Save className="w-5 h-5" />
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => handleLoadReport(report)}
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  >
+                    <ChevronRight className="w-5 h-5" />
                   </button>
-                  <button onClick={() => handleDelete(report.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleDeleteReport(report.id)}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
@@ -249,73 +381,156 @@ supabase.from('stock_counts')
         </div>
       )}
 
-      {(view === 'create' && !reportData) && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 max-w-2xl mx-auto">
+      {view === 'create' && !reportData && (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 max-w-4xl mx-auto">
           <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-blue-500" /> Definir Período de Reconciliação
+            <Calendar className="w-5 h-5 text-blue-600" />
+            Definir Período de Reconciliação por Setor
           </h3>
-          <div className="grid md:grid-cols-2 gap-6 mb-8">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Conferência Inicial</label>
-              <select 
-                value={startCountId} 
-                onChange={(e) => setStartCountId(e.target.value)}
-                className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="">Selecione a contagem inicial...</option>
-                {counts.map(c => {
-                  // Tenta encontrar o nome do setor se houver sector_id
-                  const sectorName = c.sector_id ? 'Setor' : 'Principal';
-                  return (
-                    <option key={c.id} value={c.id}>
-                      {format(new Date(c.finished_at), "dd/MM/yyyy 'às' HH:mm")} ({sectorName})
-                    </option>
-                  );
-                })}
-              </select>
+          
+          <div className="space-y-6 mb-8">
+            <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Warehouse className="w-5 h-5 text-blue-600" />
+                  <span className="font-bold text-gray-900 dark:text-white">Estoque Principal</span>
+                </div>
+                <input 
+                  type="checkbox" 
+                  checked={sectorSelections['main']?.enabled}
+                  onChange={(e) => setSectorSelections(prev => ({
+                    ...prev,
+                    'main': { ...prev['main'], enabled: e.target.checked }
+                  }))}
+                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+              </div>
+              
+              {sectorSelections['main']?.enabled && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-gray-500 uppercase">Contagem Inicial</label>
+                    <select 
+                      value={sectorSelections['main'].startCountId}
+                      onChange={(e) => setSectorSelections(prev => ({
+                        ...prev,
+                        'main': { ...prev['main'], startCountId: e.target.value }
+                      }))}
+                      className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm"
+                    >
+                      <option value="">Selecione...</option>
+                      {counts.filter(c => !c.sector_id).map(c => (
+                        <option key={c.id} value={c.id}>
+                          {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-gray-500 uppercase">Contagem Final</label>
+                    <select 
+                      value={sectorSelections['main'].endCountId}
+                      onChange={(e) => setSectorSelections(prev => ({
+                        ...prev,
+                        'main': { ...prev['main'], endCountId: e.target.value }
+                      }))}
+                      className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm"
+                    >
+                      <option value="">Selecione...</option>
+                      {counts.filter(c => !c.sector_id).map(c => (
+                        <option key={c.id} value={c.id}>
+                          {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Conferência Final</label>
-              <select 
-                value={endCountId} 
-                onChange={(e) => setEndCountId(e.target.value)}
-                className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="">Selecione a contagem final...</option>
-                {counts.map(c => {
-                  // Tenta encontrar o nome do setor se houver sector_id
-                  const sectorName = c.sector_id ? 'Setor' : 'Principal';
-                  return (
-                    <option key={c.id} value={c.id}>
-                      {format(new Date(c.finished_at), "dd/MM/yyyy 'às' HH:mm")} ({sectorName})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+
+            {sectors.map(sector => (
+              <div key={sector.id} className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Utensils className="w-5 h-5 text-green-600" />
+                    <span className="font-bold text-gray-900 dark:text-white">{sector.name}</span>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={sectorSelections[sector.id]?.enabled}
+                    onChange={(e) => setSectorSelections(prev => ({
+                      ...prev,
+                      [sector.id]: { ...prev[sector.id], enabled: e.target.checked }
+                    }))}
+                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </div>
+                
+                {sectorSelections[sector.id]?.enabled && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-gray-500 uppercase">Contagem Inicial</label>
+                      <select 
+                        value={sectorSelections[sector.id].startCountId}
+                        onChange={(e) => setSectorSelections(prev => ({
+                          ...prev,
+                          [sector.id]: { ...prev[sector.id], startCountId: e.target.value }
+                        }))}
+                        className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm"
+                      >
+                        <option value="">Selecione...</option>
+                        {counts.filter(c => c.sector_id === sector.id).map(c => (
+                          <option key={c.id} value={c.id}>
+                            {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-gray-500 uppercase">Contagem Final</label>
+                      <select 
+                        value={sectorSelections[sector.id].endCountId}
+                        onChange={(e) => setSectorSelections(prev => ({
+                          ...prev,
+                          [sector.id]: { ...prev[sector.id], endCountId: e.target.value }
+                        }))}
+                        className="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm"
+                      >
+                        <option value="">Selecione...</option>
+                        {counts.filter(c => c.sector_id === sector.id).map(c => (
+                          <option key={c.id} value={c.id}>
+                            {format(new Date(c.finished_at), "dd/MM/yyyy HH:mm")} {c.notes ? `- ${c.notes}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
+
           <button 
             onClick={handleGenerateReport}
-            disabled={!startCountId || !endCountId || processing}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2"
+            disabled={processing}
+            className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg"
           >
-            {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Gerar Relatório para Preenchimento'}
+            {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Gerar Relatório Consolidado'}
           </button>
         </div>
       )}
 
       {reportData && (
         <div className="space-y-6">
-          {/* Barra de Ações do Relatório */}
           <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowOnlyStarred(!showOnlyStarred)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all \${
                   showOnlyStarred ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' : 'bg-gray-100 text-gray-600 border border-gray-200'
                 }`}
               >
-                <Star className={`w-4 h-4 ${showOnlyStarred ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                <Star className={`w-4 h-4 \${showOnlyStarred ? 'fill-yellow-500 text-yellow-500' : ''}`} />
                 {showOnlyStarred ? 'Itens Principais' : 'Todos os Itens'}
               </button>
             </div>
@@ -325,72 +540,72 @@ supabase.from('stock_counts')
                 disabled={processing}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg font-medium transition-colors"
               >
-                <Save className="w-4 h-4" /> Salvar Rascunho
+                Salvar Rascunho
               </button>
               <button 
                 onClick={() => handleSave(true)}
                 disabled={processing}
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors shadow-sm"
               >
-                <CheckCircle className="w-4 h-4" /> Finalizar Relatório
+                Finalizar Relatório
               </button>
             </div>
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-100 dark:border-gray-700">
-            {/* Navegação de Abas */}
             <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
               <nav className="flex space-x-4 px-4 overflow-x-auto">
-                <button 
-                  onClick={() => setActiveView('main')}
-                  className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeView === 'main' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                >
-                  <Warehouse className="w-5 h-5" /> Estoque Principal
-                </button>
-                {reportData.sectors.map(s => {
-                  const Icon = SECTOR_ICON_MAP[s.name.toLowerCase()] || SECTOR_ICON_MAP.default;
-                  return (
-                    <button 
-                      key={s.id}
-                      onClick={() => setActiveView(s.id)}
-                      className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${activeView === s.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                    >
-                      <Icon className="w-5 h-5" /> {s.name}
-                    </button>
-                  );
-                })}
+                {sectorSelections['main']?.enabled && (
+                  <button 
+                    onClick={() => setActiveView('main')}
+                    className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap \${activeView === 'main' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <Warehouse className="w-5 h-5" /> Estoque Principal
+                  </button>
+                )}
+                {reportData.sectors.map(s => (
+                  <button 
+                    key={s.id}
+                    onClick={() => setActiveView(s.id)}
+                    className={`py-4 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap \${activeView === s.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <Utensils className="w-5 h-5" /> {s.name}
+                  </button>
+                ))}
               </nav>
             </div>
 
-            <div className="overflow-x-auto max-h-[70vh]">
+            <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 {activeView === 'main' ? (
                   <>
                     <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 uppercase text-xs font-bold sticky top-0 z-20 shadow-sm">
                       <tr>
                         <th className="px-6 py-4 sticky left-0 bg-gray-50 dark:bg-gray-700 z-10">Item</th>
-                        <th className="px-4 py-4 text-center">Est. Anterior</th>
-                        <th className="px-4 py-4 text-center">Compras</th>
-                        <th className="px-4 py-4 text-center">Entregas</th>
+                        <th className="px-4 py-4 text-center">Est. Inicial</th>
+                        <th className="px-4 py-4 text-center">Compras (+)</th>
+                        <th className="px-4 py-4 text-center">Saídas (-)</th>
+                        <th className="px-4 py-4 text-center">Est. Calculado</th>
                         <th className="px-4 py-4 text-center">Est. Atual (Contagem)</th>
-                        <th className="px-4 py-4 text-center">Perdas</th>
+                        <th className="px-4 py-4 text-center">Perdas/Ganhos</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {Object.entries(groupedRows).map(([category, rows]) => (
                         <React.Fragment key={category}>
                           <tr className="bg-gray-50/50 dark:bg-gray-800/50">
-                            <td colSpan={6} className="px-6 py-2 font-bold text-blue-600 dark:text-blue-400 text-xs uppercase tracking-wider">{category}</td>
+                            <td colSpan={7} className="px-6 py-2 font-bold text-blue-600 dark:text-blue-400 text-xs uppercase tracking-wider">{category}</td>
                           </tr>
                           {rows.map(row => (
                             <tr key={row.productId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                               <td className="px-6 py-4 font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800 z-10">{row.productName}</td>
                               <td className="px-4 py-4 text-center font-mono">{row.mainStock.initialStock}</td>
                               <td className="px-4 py-4 text-center font-mono text-green-600">+{row.mainStock.purchases}</td>
-                              <td className="px-4 py-4 text-center font-mono text-orange-600">-{row.mainStock.deliveredToSectors}</td>
+                              <td className="px-4 py-4 text-center font-mono text-red-500">-{row.mainStock.deliveredToSectors}</td>
+                              <td className="px-4 py-4 text-center font-mono font-bold text-blue-600">{row.mainStock.calculatedFinalStock}</td>
                               <td className="px-4 py-4 text-center font-mono font-bold">{row.mainStock.actualFinalStock}</td>
-                              <td className={`px-4 py-4 text-center font-mono font-bold ${row.mainStock.loss < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                {row.mainStock.loss > 0 ? `+${row.mainStock.loss}` : row.mainStock.loss}
+                              <td className={`px-4 py-4 text-center font-mono font-bold \${row.mainStock.loss < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                                {row.mainStock.loss > 0 ? `+\${row.mainStock.loss}` : row.mainStock.loss}
                               </td>
                             </tr>
                           ))}
@@ -419,11 +634,10 @@ supabase.from('stock_counts')
                           </tr>
                           {rows.map(row => {
                             const sectorData = row.sectorStocks[activeView];
-                            const sales = editableValues[`${activeView}-${row.productId}-sales`] || 0;
-                            const consumption = editableValues[`${activeView}-${row.productId}-consumption`] || 0;
+                            const sales = editableValues[`\${activeView}-\${row.productId}-sales`] || 0;
+                            const consumption = editableValues[`\${activeView}-\${row.productId}-consumption`] || 0;
                             const expected = (sectorData?.initialStock || 0) + (sectorData?.received || 0) - sales - consumption;
                             const loss = (sectorData?.actualFinalStock || 0) - expected;
-
                             return (
                               <tr key={row.productId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                                 <td className="px-6 py-4 font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800 z-10">{row.productName}</td>
@@ -433,7 +647,7 @@ supabase.from('stock_counts')
                                   <input 
                                     type="number" 
                                     value={sales}
-                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [`${activeView}-${row.productId}-sales`]: Number(e.target.value) }))}
+                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [\`\${activeView}-\${row.productId}-sales\`]: Number(e.target.value) }))}
                                     className="w-16 p-1 text-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
                                   />
                                 </td>
@@ -441,13 +655,13 @@ supabase.from('stock_counts')
                                   <input 
                                     type="number" 
                                     value={consumption}
-                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [`${activeView}-${row.productId}-consumption`]: Number(e.target.value) }))}
+                                    onChange={(e) => setEditableValues(prev => ({ ...prev, [\`\${activeView}-\${row.productId}-consumption\`]: Number(e.target.value) }))}
                                     className="w-16 p-1 text-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
                                   />
                                 </td>
                                 <td className="px-4 py-4 text-center font-mono font-bold">{sectorData?.actualFinalStock || 0}</td>
-                                <td className={`px-4 py-4 text-center font-mono font-bold ${loss < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                  {loss > 0 ? `+${loss}` : loss}
+                                <td className={`px-4 py-4 text-center font-mono font-bold \${loss < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                                  {loss > 0 ? `+\${loss}` : loss}
                                 </td>
                               </tr>
                             );
