@@ -31,12 +31,12 @@ export const reconciliationPersistenceService = {
   async listReports(hotelId: string) {
     const { data, error } = await supabase
       .from('reconciliation_reports')
-      .select(\`
+      .select(`
         *,
         start_count:stock_counts!start_count_id(finished_at),
         end_count:stock_counts!end_count_id(finished_at),
         sector_counts:reconciliation_report_sector_counts(sector_id, start_count_id, end_count_id)
-      \`)
+      `)
       .eq('hotel_id', hotelId)
       .order('created_at', { ascending: false });
     if (error) throw error;
