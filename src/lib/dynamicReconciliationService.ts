@@ -40,44 +40,31 @@ export const dynamicReconciliationService = {
   ): Promise<DynamicReconciliationData> => {
     if (selections.length === 0) throw new Error('Selecione pelo menos um setor para o relatório.');
 
-    // 1. Coletar todos os IDs de contagem únicos
     const allCountIds = selections.flatMap(s => [s.start_count_id, s.end_count_id]);
     
-    // 2. Buscar todas as conferências selecionadas
     const { data: counts, error: countsError } = await supabase
       .from('stock_counts')
-      .select(\`
-        id, finished_at, sector_id,
-        items:stock_count_items(product_id, counted_quantity)
-      \`)
+      .select('id, finished_at, sector_id, items:stock_count_items(product_id, counted_quantity)')
       .in('id', allCountIds);
 
     if (countsError) throw countsError;
     if (!counts || counts.length === 0) throw new Error('Nenhuma conferência encontrada.');
 
-    // 3. Determinar o período global (da contagem mais antiga até a mais recente)
     const allDates = counts.map(c => new Date(c.finished_at).getTime());
     const startDate = new Date(Math.min(...allDates)).toISOString();
     const endDate = new Date(Math.max(...allDates)).toISOString();
 
-    // 4. Buscar todos os produtos e setores
     const [productsRes, sectorsRes] = await Promise.all([
-      supabase.from('products')
-        .select('id, name, category, is_starred')
-        .eq('hotel_id', hotelId)
-        .eq('is_active', true),
-      supabase.from('sectors')
-        .select('id, name')
-        .eq('hotel_id', hotelId)
+      supabase.from('products').select('id, name, category, is_starred').eq('hotel_id', hotelId).eq('is_active', true),
+      supabase.from('sectors').select('id, name').eq('hotel_id', hotelId)
     ]);
 
     if (productsRes.error) throw productsRes.error;
     if (sectorsRes.error) throw sectorsRes.error;
 
-    const products = productsRes.data;
-    const sectors = sectorsRes.data;
+    const products = productsRes.data || [];
+    const sectors = sectorsRes.data || [];
 
-    // 5. Buscar movimentações no período global
     const [purchasesRes, requisitionsRes] = await Promise.all([
       supabase.from('purchase_items')
         .select('product_id, quantity, purchases!inner(purchase_date)')
@@ -95,24 +82,23 @@ export const dynamicReconciliationService = {
     if (purchasesRes.error) throw purchasesRes.error;
     if (requisitionsRes.error) throw requisitionsRes.error;
 
-    // 6. Processar mapas de dados por setor/contagem
     const countItemsMap = new Map<string, Map<string, number>>();
-    counts.forEach(count => {
+    counts.forEach((count: any) => {
       const itemMap = new Map<string, number>();
-      count.items.forEach((item: any) => {
+      (count.items || []).forEach((item: any) => {
         itemMap.set(item.product_id, item.counted_quantity);
       });
       countItemsMap.set(count.id, itemMap);
     });
 
     const purchasesMap = new Map<string, number>();
-    purchasesRes.data.forEach(p => {
+    (purchasesRes.data || []).forEach((p: any) => {
       purchasesMap.set(p.product_id, (purchasesMap.get(p.product_id) || 0) + p.quantity);
     });
 
     const deliveriesMap = new Map<string, number>();
     const sectorReceivedMap = new Map<string, Map<string, number>>();
-    requisitionsRes.data.forEach(r => {
+    (requisitionsRes.data || []).forEach((r: any) => {
       const pId = r.substituted_product_id || r.product_id;
       if (!pId) return;
       deliveriesMap.set(pId, (deliveriesMap.get(pId) || 0) + (r.delivered_quantity || 0));
@@ -124,9 +110,7 @@ export const dynamicReconciliationService = {
       }
     });
 
-    // 7. Montar as linhas do relatório
     const rows: DynamicReconciliationRow[] = products.map(p => {
-      // Dados do Estoque Principal (se selecionado)
       const mainSelection = selections.find(s => s.sector_id === null);
       let mainData = {
         initialStock: 0,
@@ -144,7 +128,6 @@ export const dynamicReconciliationService = {
         mainData.loss = mainData.actualFinalStock - mainData.calculatedFinalStock;
       }
 
-      // Dados dos Setores
       const sectorStocks: Record<string, any> = {};
       sectors.forEach(s => {
         const sectorSelection = selections.find(sel => sel.sector_id === s.id);
@@ -158,7 +141,7 @@ export const dynamicReconciliationService = {
             received: sReceived,
             calculatedFinalStock: sInitial + sReceived,
             actualFinalStock: sActual,
-            loss: 0 // Calculado no front com base em vendas/consumo
+            loss: 0
           };
         }
       });
@@ -173,9 +156,7 @@ export const dynamicReconciliationService = {
       };
     });
 
-    // Filtrar apenas os setores que foram selecionados para o relatório
     const activeSectors = sectors.filter(s => selections.some(sel => sel.sector_id === s.id));
-
     return { sectors: activeSectors, rows };
   }
 };
