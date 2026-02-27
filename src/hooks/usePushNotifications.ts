@@ -1,66 +1,87 @@
-import { useEffect } from 'react';
+// src/hooks/usePushNotifications.ts
+// Hook que:
+// 1. Solicita permissão de push ao usuário (uma vez por dispositivo)
+// 2. Salva o token FCM na tabela user_fcm_tokens
+// 3. Ouve mensagens em primeiro plano e exibe toast via callback
+
+import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import {
+  requestFirebaseNotificationPermission,
+  onForegroundMessage,
+} from '../lib/firebase';
 
-const firebaseConfig = {
-  // O usuário deve preencher com as credenciais do Firebase Console
-  apiKey: "AIzaSyCn5DEo4Aydcgin9X0RLixH2FoT5Ic__Zw",
-  authDomain: "studio-47770912-83ad2.firebaseapp.com",
-  projectId: "studio-47770912-83ad2",
-  storageBucket: "studio-47770912-83ad2.firebasestorage.app",
-  messagingSenderId: "33466118929",
-  appId: "1:33466118929:web:d1cdc936bc57456d2f92b0"
-};
+interface PushNotificationPayload {
+  title?: string;
+  body?: string;
+  data?: Record<string, string>;
+}
 
-export const usePushNotifications = (userId: string | undefined) => {
+interface UsePushNotificationsOptions {
+  /** ID do usuário logado (auth.users.id) */
+  userId: string | undefined;
+  /** Callback chamado quando chega mensagem com o app aberto */
+  onForegroundNotification?: (payload: PushNotificationPayload) => void;
+}
+
+export function usePushNotifications({
+  userId,
+  onForegroundNotification,
+}: UsePushNotificationsOptions) {
+  const registeredRef = useRef(false); // Evita registrar múltiplas vezes na mesma sessão
+
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || registeredRef.current) return;
 
-    const setupNotifications = async () => {
+    let unsubscribeForeground: (() => void) | null = null;
+
+    const setup = async () => {
       try {
-        // 1. Solicitar permissão
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          console.log('Permissão de notificação negada');
-          return;
+        // 1. Solicita permissão e obtém token FCM
+        const token = await requestFirebaseNotificationPermission();
+        if (!token) return;
+
+        // 2. Detecta informações básicas do dispositivo para identificação
+        const deviceInfo = [
+          navigator.userAgentData?.brands?.[0]?.brand || 'Browser',
+          navigator.platform || 'Unknown',
+        ].join('/');
+
+        // 3. Salva/atualiza o token no banco
+        //    upsert por token — evita duplicatas, atualiza last_seen
+        const { error } = await supabase
+          .from('user_fcm_tokens')
+          .upsert(
+            {
+              user_id:     userId,
+              token,
+              device_info: deviceInfo,
+              last_seen:   new Date().toISOString(),
+            },
+            { onConflict: 'token' }
+          );
+
+        if (error) {
+          console.error('[Push] Erro ao salvar token FCM:', error);
+        } else {
+          console.info('[Push] Token FCM registrado para o usuário.');
+          registeredRef.current = true;
         }
 
-        // 2. Inicializar Firebase
-        const app = initializeApp(firebaseConfig);
-        const messaging = getMessaging(app);
-
-        // 3. Obter Token FCM
-        const token = await getToken(messaging, {
-          vapidKey: 'YOUR_VAPID_KEY' // Gerar no Firebase Console -> Cloud Messaging
-        });
-
-        if (token) {
-          console.log('Token FCM obtido:', token);
-          
-          // 4. Salvar token no Supabase (usando a tabela user_fcm_tokens que a Edge Function usa)
-          await supabase.from('user_fcm_tokens').upsert({
-            user_id: userId,
-            token: token,
-            last_seen: new Date().toISOString()
-          }, { onConflict: 'token' });
+        // 4. Listener de mensagens com app em primeiro plano
+        if (onForegroundNotification) {
+          const unsub = await onForegroundMessage(onForegroundNotification);
+          unsubscribeForeground = unsub;
         }
-
-        // 5. Ouvir mensagens em primeiro plano
-        onMessage(messaging, (payload) => {
-          console.log('Mensagem recebida em primeiro plano:', payload);
-          // Opcional: Mostrar um toast customizado aqui
-          new Notification(payload.notification?.title || 'Nova Notificação', {
-            body: payload.notification?.body,
-            icon: '/icon-192x192.png'
-          });
-        });
-
-      } catch (error) {
-        console.error('Erro ao configurar notificações push:', error);
+      } catch (err) {
+        console.error('[Push] Erro no setup de notificações push:', err);
       }
     };
 
-    setupNotifications();
+    setup();
+
+    return () => {
+      if (unsubscribeForeground) unsubscribeForeground();
+    };
   }, [userId]);
-};
+}
