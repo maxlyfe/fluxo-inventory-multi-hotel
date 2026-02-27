@@ -1,63 +1,105 @@
 // src/lib/firebase.ts
-import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, onMessage } from "firebase/messaging";
+import { initializeApp, getApps } from 'firebase/app';
+import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
-// TODO: Substitua com a configuração do seu projeto Firebase!
+// ---------------------------------------------------------------------------
+// Configuração do projeto Firebase — gestaohotel-23603
+// ---------------------------------------------------------------------------
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
-  // measurementId: "YOUR_MEASUREMENT_ID" // Opcional, para Analytics
+  apiKey:            'AIzaSyA4wMk6km4kphnshBrycNaBRclzGUVRiRI',
+  authDomain:        'gestaohotel-23603.firebaseapp.com',
+  projectId:         'gestaohotel-23603',
+  storageBucket:     'gestaohotel-23603.firebasestorage.app',
+  messagingSenderId: '446108850138',
+  appId:             '1:446108850138:web:6426819e7d3962d81952e3',
+  measurementId:     'G-EXXQWBXFL2',
 };
 
-// Inicializar Firebase
-const app = initializeApp(firebaseConfig);
-const messaging = getMessaging(app);
+// Chave pública VAPID para Web Push
+const VAPID_KEY = 'BF_6aeE_xpPknXkfKeugaPKcmVK1u6Q_y4RMyaMcpUUTI215B2SFVig1nS3MUG-yWoahwzGPI1JBZUrVqMMthWQ';
 
-export const requestFirebaseNotificationPermission = async () => {
-  console.log("Requesting Firebase notification permission...");
+// ---------------------------------------------------------------------------
+// Inicialização — evita duplicação em hot-reload (dev)
+// ---------------------------------------------------------------------------
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+
+// ---------------------------------------------------------------------------
+// Solicita permissão e retorna o token FCM do dispositivo atual
+// Retorna null se não suportado, permissão negada ou erro
+// ---------------------------------------------------------------------------
+export async function requestFirebaseNotificationPermission(): Promise<string | null> {
   try {
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      console.log("Notification permission granted.");
-      // Obter o token de registro do FCM
-      // Certifique-se de que seu VAPID key está configurado no Firebase Console
-      // (Configurações do Projeto > Cloud Messaging > Certificados push da Web > Gerar par de chaves)
-      const currentToken = await getToken(messaging, {
-        vapidKey: "YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE", // TODO: Substitua pela sua VAPID key
-      });
-      if (currentToken) {
-        console.log("FCM Token:", currentToken);
-        return currentToken;
-      } else {
-        console.log("No registration token available. Request permission to generate one.");
-        return null;
-      }
-    } else {
-      console.log("Unable to get permission to notify.");
+    // Verifica suporte do browser (Safari < 16, alguns browsers mobile não suportam)
+    const supported = await isSupported();
+    if (!supported) {
+      console.info('[FCM] Push notifications não suportadas neste browser.');
       return null;
     }
-  } catch (error) {
-    console.error("An error occurred while requesting permission or getting token:", error);
+
+    // Verifica se o Service Worker está registrado
+    if (!('serviceWorker' in navigator)) {
+      console.warn('[FCM] Service Worker não disponível.');
+      return null;
+    }
+
+    // Solicita permissão ao usuário
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.info('[FCM] Permissão de notificação não concedida:', permission);
+      return null;
+    }
+
+    // Garante que o Service Worker está registrado e ativo
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+      scope: '/',
+    });
+    await navigator.serviceWorker.ready;
+
+    // Obtém o token FCM
+    const messaging = getMessaging(app);
+    const token = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: registration,
+    });
+
+    if (token) {
+      console.info('[FCM] Token obtido:', token.slice(0, 20) + '...');
+      return token;
+    }
+
+    console.warn('[FCM] Token não retornado. Verifique a VAPID key e o Service Worker.');
+    return null;
+  } catch (err) {
+    console.error('[FCM] Erro ao solicitar permissão/token:', err);
     return null;
   }
-};
+}
 
-// Lidar com mensagens recebidas enquanto o app está em primeiro plano
-export const onForegroundMessage = () => {
-  onMessage(messaging, (payload) => {
-    console.log("Message received in foreground: ", payload);
-    // Personalize como você quer lidar com a notificação aqui
-    // Ex: exibir um toast, atualizar a UI, etc.
-    // Por padrão, notificações push não aparecem se o app está em primeiro plano
-    // a menos que você lide com elas aqui.
-    if (payload.notification) {
-        alert(`Foreground Message: ${payload.notification.title}\n${payload.notification.body}`);
-    }
-  });
-};
+// ---------------------------------------------------------------------------
+// Ouve mensagens enquanto o app está em primeiro plano
+// Retorna uma função para cancelar o listener
+// ---------------------------------------------------------------------------
+export async function onForegroundMessage(
+  callback: (payload: { title?: string; body?: string; data?: Record<string, string> }) => void
+): Promise<(() => void) | null> {
+  try {
+    const supported = await isSupported();
+    if (!supported) return null;
 
-export { messaging };
+    const messaging = getMessaging(app);
+    const unsubscribe = onMessage(messaging, (payload) => {
+      callback({
+        title: payload.notification?.title,
+        body:  payload.notification?.body,
+        data:  payload.data as Record<string, string> | undefined,
+      });
+    });
+
+    return unsubscribe;
+  } catch (err) {
+    console.error('[FCM] Erro ao registrar listener de foreground:', err);
+    return null;
+  }
+}
+
+export { app };
