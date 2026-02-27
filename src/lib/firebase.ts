@@ -1,9 +1,13 @@
 // src/lib/firebase.ts
-import { initializeApp, getApps } from 'firebase/app';
+// IMPORTANTE: Nenhuma inicialização no nível do módulo.
+// Tudo é lazy — só executa quando chamado, nunca no import.
+// Isso evita tela branca em browsers que não suportam FCM (ex: iOS Safari < 16.4)
+
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
 // ---------------------------------------------------------------------------
-// Configuração do projeto Firebase — gestaohotel-23603
+// Config — projeto gestaohotel-23603
 // ---------------------------------------------------------------------------
 const firebaseConfig = {
   apiKey:            'AIzaSyA4wMk6km4kphnshBrycNaBRclzGUVRiRI',
@@ -15,78 +19,97 @@ const firebaseConfig = {
   measurementId:     'G-EXXQWBXFL2',
 };
 
-// Chave pública VAPID para Web Push
 const VAPID_KEY = 'BF_6aeE_xpPknXkfKeugaPKcmVK1u6Q_y4RMyaMcpUUTI215B2SFVig1nS3MUG-yWoahwzGPI1JBZUrVqMMthWQ';
 
 // ---------------------------------------------------------------------------
-// Inicialização — evita duplicação em hot-reload (dev)
+// Lazy getter — inicializa o app Firebase apenas quando necessário
 // ---------------------------------------------------------------------------
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+function getFirebaseApp() {
+  return getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+}
 
 // ---------------------------------------------------------------------------
-// Solicita permissão e retorna o token FCM do dispositivo atual
-// Retorna null se não suportado, permissão negada ou erro
+// requestFirebaseNotificationPermission
+// Solicita permissão, registra SW e retorna o token FCM.
+// Retorna null silenciosamente em qualquer caso de não-suporte ou erro.
 // ---------------------------------------------------------------------------
 export async function requestFirebaseNotificationPermission(): Promise<string | null> {
   try {
-    // Verifica suporte do browser (Safari < 16, alguns browsers mobile não suportam)
-    const supported = await isSupported();
+    // 1. Verifica suporte ao FCM neste browser/plataforma
+    const supported = await isSupported().catch(() => false);
     if (!supported) {
-      console.info('[FCM] Push notifications não suportadas neste browser.');
+      console.info('[FCM] Não suportado neste browser.');
       return null;
     }
 
-    // Verifica se o Service Worker está registrado
+    // 2. Verifica suporte a Service Worker
     if (!('serviceWorker' in navigator)) {
-      console.warn('[FCM] Service Worker não disponível.');
+      console.info('[FCM] Service Worker não disponível.');
       return null;
     }
 
-    // Solicita permissão ao usuário
+    // 3. Solicita permissão
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      console.info('[FCM] Permissão de notificação não concedida:', permission);
+      console.info('[FCM] Permissão não concedida:', permission);
       return null;
     }
 
-    // Garante que o Service Worker está registrado e ativo
-    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-      scope: '/',
-    });
-    await navigator.serviceWorker.ready;
+    // 4. Registra o Service Worker
+    let registration: ServiceWorkerRegistration;
+    try {
+      registration = await navigator.serviceWorker.register(
+        '/firebase-messaging-sw.js',
+        { scope: '/' }
+      );
+      await navigator.serviceWorker.ready;
+    } catch (swErr) {
+      console.warn('[FCM] Falha ao registrar Service Worker:', swErr);
+      return null;
+    }
 
-    // Obtém o token FCM
+    // 5. Inicializa Firebase e obtém token
+    const app       = getFirebaseApp();
     const messaging = getMessaging(app);
+
     const token = await getToken(messaging, {
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: registration,
     });
 
     if (token) {
-      console.info('[FCM] Token obtido:', token.slice(0, 20) + '...');
+      console.info('[FCM] Token registrado.');
       return token;
     }
 
-    console.warn('[FCM] Token não retornado. Verifique a VAPID key e o Service Worker.');
+    console.warn('[FCM] Token não retornado — verifique VAPID key e SW.');
     return null;
+
   } catch (err) {
-    console.error('[FCM] Erro ao solicitar permissão/token:', err);
+    // Nunca propaga erro — push é funcionalidade opcional
+    console.warn('[FCM] Erro ao configurar push (não crítico):', err);
     return null;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Ouve mensagens enquanto o app está em primeiro plano
-// Retorna uma função para cancelar o listener
+// onForegroundMessage
+// Ouve mensagens com o app aberto. Retorna função para cancelar o listener.
 // ---------------------------------------------------------------------------
 export async function onForegroundMessage(
-  callback: (payload: { title?: string; body?: string; data?: Record<string, string> }) => void
+  callback: (payload: {
+    title?: string;
+    body?: string;
+    data?: Record<string, string>;
+  }) => void
 ): Promise<(() => void) | null> {
   try {
-    const supported = await isSupported();
+    const supported = await isSupported().catch(() => false);
     if (!supported) return null;
 
+    const app       = getFirebaseApp();
     const messaging = getMessaging(app);
+
     const unsubscribe = onMessage(messaging, (payload) => {
       callback({
         title: payload.notification?.title,
@@ -97,9 +120,7 @@ export async function onForegroundMessage(
 
     return unsubscribe;
   } catch (err) {
-    console.error('[FCM] Erro ao registrar listener de foreground:', err);
+    console.warn('[FCM] Erro ao registrar listener foreground:', err);
     return null;
   }
 }
-
-export { app };
