@@ -1,72 +1,73 @@
 // public/firebase-messaging-sw.js
-// Service Worker para receber notificações push em background (app fechado/minimizado)
-// IMPORTANTE: Este arquivo deve estar na raiz do domínio (/public no Vite)
 
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+// Importar e configurar o SDK do Firebase (necessário para algumas funcionalidades em segundo plano)
+// No entanto, para notificações simples, o navegador lida com a exibição se o payload estiver correto.
+// Se você precisar de lógica mais complexa no service worker (ex: analytics, manipulação de dados do payload),
+// você precisará importar o SDK aqui.
 
-// ---------------------------------------------------------------------------
-// Configuração Firebase — deve ser idêntica ao firebase.ts
-// ---------------------------------------------------------------------------
-firebase.initializeApp({
-  apiKey:            'AIzaSyA4wMk6km4kphnshBrycNaBRclzGUVRiRI',
-  authDomain:        'gestaohotel-23603.firebaseapp.com',
-  projectId:         'gestaohotel-23603',
-  storageBucket:     'gestaohotel-23603.firebasestorage.app',
-  messagingSenderId: '446108850138',
-  appId:             '1:446108850138:web:6426819e7d3962d81952e3',
-});
+// Para este exemplo básico, vamos apenas logar que o service worker está ativo.
+// console.log("Firebase Messaging Service Worker starting...");
 
-const messaging = firebase.messaging();
+// O Firebase SDK lida com a maior parte da mágica de recebimento em segundo plano.
+// Se você não importar o SDK aqui, certifique-se de que seu payload de notificação push
+// enviado pelo servidor FCM tenha uma chave `notification` para que o navegador
+// possa exibir a notificação automaticamente.
+// Exemplo de payload que o servidor FCM deve enviar:
+// {
+//   "to": "USER_FCM_TOKEN",
+//   "notification": {
+//     "title": "Título da Notificação",
+//     "body": "Corpo da sua notificação!",
+//     "icon": "/icons/icon-192x192.png", // Opcional
+//     "click_action": "https://seusite.com/caminho_desejado" // Opcional
+//   },
+//   "data": { // Dados personalizados opcionais
+//     "customKey": "customValue"
+//   }
+// }
 
-// ---------------------------------------------------------------------------
-// Notificações em background (app fechado ou aba em segundo plano)
-// O FCM envia automaticamente via Service Worker quando há notification payload.
-// Este handler cobre o caso de mensagens com apenas "data" (sem notification).
-// ---------------------------------------------------------------------------
-messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] Mensagem recebida em background:', payload);
+// Se você quiser lidar com o clique na notificação em segundo plano:
+self.addEventListener("notificationclick", function (event) {
+  event.notification.close(); // Fechar a notificação
+  // console.log("Notification clicked:", event.notification);
 
-  const title = payload.notification?.title || payload.data?.title || 'Fluxo Inventory';
-  const body  = payload.notification?.body  || payload.data?.body  || 'Você tem uma nova notificação.';
-  const icon  = payload.notification?.icon  || '/icon-192x192.png';
-  const badge = '/icon-72x72.png';
-  const url   = payload.data?.url || '/';
-
-  self.registration.showNotification(title, {
-    body,
-    icon,
-    badge,
-    tag:           payload.data?.tag || 'fluxo-notif',
-    renotify:      true,
-    requireInteraction: false,
-    data: { url, ...payload.data },
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Clique na notificação — abre/foca o app na URL correta
-// ---------------------------------------------------------------------------
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  const url = event.notification.data?.url || '/';
-  const fullUrl = new URL(url, self.location.origin).href;
-
+  // Exemplo: Abrir uma URL específica ou focar em uma aba existente
+  // A URL pode vir do `click_action` no payload da notificação ou de `event.notification.data.url`
+  const targetUrl = event.notification.data && (event.notification.data.target_path || event.notification.data.url)
+                    ? (event.notification.data.target_path || event.notification.data.url)
+                    : "/"; // Fallback para a raiz do site
+  
   event.waitUntil(
-    clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
-        // Se já tem uma aba aberta com a URL, foca ela
-        for (const client of clientList) {
-          if (client.url === fullUrl && 'focus' in client) {
-            return client.focus();
-          }
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clientList) {
+      // Verificar se já existe uma aba aberta com a URL de destino
+      for (var i = 0; i < clientList.length; i++) {
+        var client = clientList[i];
+        if (client.url === targetUrl && "focus" in client) {
+          return client.focus();
         }
-        // Se não tem aba aberta, abre uma nova
-        if (clients.openWindow) {
-          return clients.openWindow(fullUrl);
-        }
-      })
+      }
+      // Se não houver, abrir uma nova aba
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
   );
 });
+
+// Opcional: Lidar com o recebimento da mensagem em segundo plano (se precisar de lógica customizada)
+// self.addEventListener("push", function (event) {
+//   console.log("[Service Worker] Push Received.");
+//   console.log(`[Service Worker] Push had this data: "${event.data.text()}"`);
+
+//   const notificationData = event.data.json(); // Assumindo que o payload é JSON
+
+//   const title = notificationData.notification.title || "Nova Notificação";
+//   const options = {
+//     body: notificationData.notification.body || "Você tem uma nova mensagem.",
+//     icon: notificationData.notification.icon || "/icons/icon-192x192.png",
+//     badge: "/icons/badge.png", // Opcional
+//     data: notificationData.data || { url: "/" } // Passar dados para o evento notificationclick
+//   };
+
+//   event.waitUntil(self.registration.showNotification(title, options));
+// });
