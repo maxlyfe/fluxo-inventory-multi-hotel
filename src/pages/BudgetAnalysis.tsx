@@ -3,7 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
-import { Loader2, AlertTriangle, ArrowLeft, BarChart2, ShoppingCart, RotateCcw } from 'lucide-react';
+import {
+  Loader2, AlertTriangle, ArrowLeft, BarChart2,
+  ShoppingCart, RotateCcw, X, RefreshCw
+} from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 
 // ---------------------------------------------------------------------------
@@ -24,6 +27,9 @@ interface BudgetItem {
 interface SupplierQuoteItem {
   price: number;
   budget_item_id: string;
+  substitute_name?: string | null;
+  substitute_unit_size?: number | null;
+  substitute_unit_type?: string | null;
 }
 
 interface SupplierQuote {
@@ -40,61 +46,156 @@ interface BudgetAnalysisData {
   supplier_quotes: SupplierQuote[];
 }
 
+/** Info de preço de um fornecedor para um produto — pode ser direto ou substituto */
+interface PriceEntry {
+  price: number;
+  isSubstitute: boolean;
+  substituteName?: string;
+  substituteUnitSize?: number | null;
+  substituteUnitType?: string | null;
+}
+
 interface ComparisonItem {
   productId: string;
   productName: string;
   imageUrl?: string;
   requestedQuantity: number;
   requestedUnit: string;
-  prices: Record<string, number | null>; // supplier_name -> price
-  bestPrice: number | null;
+  /** supplier_name → PriceEntry | null */
+  priceEntries: Record<string, PriceEntry | null>;
+  /** Menor preço — apenas entre preços DIRETOS (não substitutos) */
+  bestDirectPrice: number | null;
+  /** Menor preço geral (incluindo substitutos) */
+  bestAnyPrice: number | null;
 }
 
 // ---------------------------------------------------------------------------
-// Helpers de persistência
+// Persistência localStorage
 // ---------------------------------------------------------------------------
 
-/**
- * Chave única por orçamento para o localStorage.
- * Formato: "budget-selections-{budgetId}"
- */
-const storageKey = (budgetId: string) => `budget-selections-${budgetId}`;
+const storageKey        = (id: string) => `budget-selections-${id}`;
+const substituteKey     = (id: string) => `budget-substitutes-${id}`;
 
-/**
- * Lê as seleções salvas do localStorage.
- * Retorna null se não houver nada salvo para este orçamento.
- */
-const loadSavedSelections = (budgetId: string): Record<string, string | null> | null => {
+const loadJSON = <T,>(key: string): T | null => {
   try {
-    const raw = localStorage.getItem(storageKey(budgetId));
-    if (!raw) return null;
-    return JSON.parse(raw) as Record<string, string | null>;
-  } catch {
-    // JSON inválido ou localStorage indisponível — ignora silenciosamente
-    return null;
-  }
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch { return null; }
 };
 
-/**
- * Persiste as seleções atuais no localStorage.
- */
-const saveSelections = (budgetId: string, selections: Record<string, string | null>): void => {
-  try {
-    localStorage.setItem(storageKey(budgetId), JSON.stringify(selections));
-  } catch {
-    // localStorage cheio ou indisponível — ignora silenciosamente
-  }
+const saveJSON = (key: string, value: unknown): void => {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota */ }
 };
 
-/**
- * Remove as seleções salvas do localStorage para este orçamento.
- */
-const clearSavedSelections = (budgetId: string): void => {
-  try {
-    localStorage.removeItem(storageKey(budgetId));
-  } catch {
-    // ignora silenciosamente
-  }
+const clearKey = (key: string): void => {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+};
+
+// ---------------------------------------------------------------------------
+// Modal de detalhe de substituto
+// ---------------------------------------------------------------------------
+
+interface SubstituteModalState {
+  open: boolean;
+  productId: string;
+  productName: string;
+  supplierName: string;
+  entry: PriceEntry | null;
+}
+
+const SubstituteDetailModal: React.FC<{
+  state: SubstituteModalState;
+  onAccept: () => void;
+  onClose: () => void;
+}> = ({ state, onAccept, onClose }) => {
+  if (!state.open || !state.entry) return null;
+
+  const { entry, productName, supplierName } = state;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white dark:bg-gray-800 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden">
+
+        {/* Barra arraste mobile */}
+        <div className="flex justify-center pt-2 sm:hidden">
+          <div className="w-10 h-1.5 bg-gray-300 dark:bg-gray-600 rounded-full" />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 bg-amber-50 dark:bg-amber-900/10">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚠️</span>
+            <h2 className="font-bold text-amber-900 dark:text-amber-200 text-base">
+              Produto Substituto
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full hover:bg-amber-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Corpo */}
+        <div className="px-5 py-5 space-y-4">
+          {/* Pedido original */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Você pediu
+            </p>
+            <p className="text-gray-900 dark:text-gray-100 font-medium">{productName}</p>
+          </div>
+
+          {/* O que o fornecedor oferece */}
+          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">
+              {supplierName} oferece
+            </p>
+            <p className="text-gray-900 dark:text-white font-bold text-lg leading-tight">
+              {entry.substituteName}
+            </p>
+            {(entry.substituteUnitSize || entry.substituteUnitType) && (
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Apresentação:{' '}
+                <span className="font-medium">
+                  {entry.substituteUnitSize}{entry.substituteUnitType}
+                </span>
+              </p>
+            )}
+            <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">
+              R$ {entry.price.toFixed(2).replace('.', ',')}
+            </p>
+          </div>
+
+          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            Ao aceitar, este substituto será usado na lista de compras com o nome informado
+            pelo fornecedor. O produto original permanece no seu inventário sem alteração.
+          </p>
+        </div>
+
+        {/* Ações */}
+        <div className="px-5 pb-6 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onAccept}
+            className="flex-[1.5] flex items-center justify-center gap-2 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Usar substituto
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -111,14 +212,22 @@ const BudgetAnalysis = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * selectedSuppliers: mapa de productId → nome do fornecedor escolhido
-   * Começa vazio; é preenchido pelo useEffect de inicialização abaixo.
-   */
+  /** productId → supplierName selecionado */
   const [selectedSuppliers, setSelectedSuppliers] = useState<Record<string, string | null>>({});
 
+  /**
+   * productId → supplierName cujo substituto foi aceito
+   * Persiste no localStorage com chave separada
+   */
+  const [acceptedSubstitutes, setAcceptedSubstitutes] = useState<Record<string, string>>({});
+
+  /** Estado do modal de detalhe de substituto */
+  const [substituteModal, setSubstituteModal] = useState<SubstituteModalState>({
+    open: false, productId: '', productName: '', supplierName: '', entry: null,
+  });
+
   // -------------------------------------------------------------------------
-  // Busca de dados
+  // Fetch
   // -------------------------------------------------------------------------
 
   useEffect(() => {
@@ -145,7 +254,13 @@ const BudgetAnalysis = () => {
               id,
               supplier_name,
               submitted_at,
-              quote_items:supplier_quote_items(price, budget_item_id)
+              quote_items:supplier_quote_items(
+                price,
+                budget_item_id,
+                substitute_name,
+                substitute_unit_size,
+                substitute_unit_type
+              )
             )
           `)
           .eq('id', budgetId)
@@ -153,7 +268,6 @@ const BudgetAnalysis = () => {
 
         if (fetchError) throw fetchError;
         if (!data) throw new Error('Orçamento não encontrado.');
-
         setBudgetData(data as unknown as BudgetAnalysisData);
       } catch (err: any) {
         setError('Erro ao carregar dados para análise: ' + err.message);
@@ -162,7 +276,6 @@ const BudgetAnalysis = () => {
         setLoading(false);
       }
     };
-
     fetchAnalysisData();
   }, [budgetId, addNotification]);
 
@@ -174,16 +287,32 @@ const BudgetAnalysis = () => {
     if (!budgetData) return [];
 
     return budgetData.budget_items.map(item => {
-      const prices: Record<string, number | null> = {};
-      let bestPrice: number | null = null;
+      const priceEntries: Record<string, PriceEntry | null> = {};
+      let bestDirectPrice: number | null = null;
+      let bestAnyPrice: number | null = null;
 
       budgetData.supplier_quotes.forEach(quote => {
-        const quoteItem = quote.quote_items.find(qi => qi.budget_item_id === item.id);
-        const price = quoteItem ? quoteItem.price : null;
-        prices[quote.supplier_name] = price;
+        const qi = quote.quote_items.find(q => q.budget_item_id === item.id);
+        if (!qi) {
+          priceEntries[quote.supplier_name] = null;
+          return;
+        }
 
-        if (price !== null && (bestPrice === null || price < bestPrice)) {
-          bestPrice = price;
+        const isSubstitute = Boolean(qi.substitute_name);
+        const entry: PriceEntry = {
+          price: qi.price,
+          isSubstitute,
+          substituteName: qi.substitute_name ?? undefined,
+          substituteUnitSize: qi.substitute_unit_size,
+          substituteUnitType: qi.substitute_unit_type ?? undefined,
+        };
+        priceEntries[quote.supplier_name] = entry;
+
+        if (!isSubstitute && (bestDirectPrice === null || qi.price < bestDirectPrice)) {
+          bestDirectPrice = qi.price;
+        }
+        if (bestAnyPrice === null || qi.price < bestAnyPrice) {
+          bestAnyPrice = qi.price;
         }
       });
 
@@ -193,99 +322,97 @@ const BudgetAnalysis = () => {
         imageUrl: item.product.image_url,
         requestedQuantity: item.requested_quantity,
         requestedUnit: item.requested_unit,
-        prices,
-        bestPrice,
+        priceEntries,
+        bestDirectPrice,
+        bestAnyPrice,
       };
     });
   }, [budgetData]);
 
   // -------------------------------------------------------------------------
   // Inicialização das seleções
-  //
-  // Prioridade:
-  //   1. Seleções salvas no localStorage (usuário já escolheu antes)
-  //   2. Melhor preço automático (primeira visita ou após reset)
   // -------------------------------------------------------------------------
 
   useEffect(() => {
     if (!budgetId || comparisonData.length === 0) return;
 
-    // Tenta carregar seleções salvas
-    const saved = loadSavedSelections(budgetId);
+    // Carrega seleções salvas
+    const savedSelections = loadJSON<Record<string, string | null>>(storageKey(budgetId));
+    const savedSubstitutes = loadJSON<Record<string, string>>(substituteKey(budgetId)) ?? {};
+    setAcceptedSubstitutes(savedSubstitutes);
 
-    if (saved) {
-      // Usa o que foi salvo — o usuário não perde suas escolhas
-      setSelectedSuppliers(saved);
+    if (savedSelections) {
+      setSelectedSuppliers(savedSelections);
       return;
     }
 
-    // Nenhuma seleção salva: inicializa com o melhor preço de cada produto
-    const initialSelections: Record<string, string | null> = {};
+    // Auto-seleciona melhor preço direto
+    const initial: Record<string, string | null> = {};
     comparisonData.forEach(item => {
-      if (item.bestPrice !== null) {
-        const bestSupplier =
-          Object.entries(item.prices).find(([, price]) => price === item.bestPrice)?.[0] ?? null;
-        initialSelections[item.productId] = bestSupplier;
+      if (item.bestDirectPrice !== null) {
+        const best = Object.entries(item.priceEntries).find(
+          ([, e]) => e && !e.isSubstitute && e.price === item.bestDirectPrice
+        );
+        initial[item.productId] = best?.[0] ?? null;
       } else {
-        initialSelections[item.productId] = null;
+        initial[item.productId] = null;
       }
     });
 
-    setSelectedSuppliers(initialSelections);
-    // Persiste a seleção inicial para que refreshes futuros a reutilizem
-    saveSelections(budgetId, initialSelections);
+    setSelectedSuppliers(initial);
+    saveJSON(storageKey(budgetId), initial);
   }, [comparisonData, budgetId]);
 
   // -------------------------------------------------------------------------
-  // Listas de compra (derivadas das seleções)
+  // Listas de compra (derivadas)
   // -------------------------------------------------------------------------
 
   const recommendedPurchaseLists = useMemo(() => {
     const lists: Record<string, any[]> = {};
-    if (!comparisonData.length || Object.keys(selectedSuppliers).length === 0) return lists;
+    if (!comparisonData.length || !Object.keys(selectedSuppliers).length) return lists;
 
     comparisonData.forEach(item => {
-      const selectedSupplier = selectedSuppliers[item.productId];
-      if (!selectedSupplier) return;
+      const supplier = selectedSuppliers[item.productId];
+      if (!supplier) return;
 
-      const price = item.prices[selectedSupplier];
-      if (price === null || price === undefined) return;
+      const entry = item.priceEntries[supplier];
+      if (!entry) return;
 
-      if (!lists[selectedSupplier]) lists[selectedSupplier] = [];
-      lists[selectedSupplier].push({
+      if (!lists[supplier]) lists[supplier] = [];
+
+      // Se é substituto aceito, usa o nome do substituto; senão usa nome do produto
+      const isAcceptedSub = acceptedSubstitutes[item.productId] === supplier;
+      const displayName = isAcceptedSub && entry.substituteName
+        ? entry.substituteName
+        : item.productName;
+
+      lists[supplier].push({
         product_id: item.productId,
-        name: item.productName,
+        name: displayName,
         quantity: item.requestedQuantity,
-        unit_price: price,
-        supplier: selectedSupplier,
+        unit_price: entry.price,
+        supplier,
         unit: item.requestedUnit,
+        is_substitute: isAcceptedSub,
       });
     });
 
     return lists;
-  }, [comparisonData, selectedSuppliers]);
+  }, [comparisonData, selectedSuppliers, acceptedSubstitutes]);
 
   // -------------------------------------------------------------------------
-  // Totais por fornecedor (derivados das seleções)
+  // Totais
   // -------------------------------------------------------------------------
 
   const supplierTotals = useMemo(() => {
     const totals: Record<string, number> = {};
-    if (!budgetData || !comparisonData.length || Object.keys(selectedSuppliers).length === 0)
-      return totals;
-
-    budgetData.supplier_quotes.forEach(quote => {
-      totals[quote.supplier_name] = 0;
-    });
+    budgetData?.supplier_quotes.forEach(q => { totals[q.supplier_name] = 0; });
 
     comparisonData.forEach(item => {
-      const selectedSupplier = selectedSuppliers[item.productId];
-      if (!selectedSupplier) return;
-
-      const price = item.prices[selectedSupplier];
-      if (price !== null && price !== undefined) {
-        totals[selectedSupplier] += price * item.requestedQuantity;
-      }
+      const supplier = selectedSuppliers[item.productId];
+      if (!supplier) return;
+      const entry = item.priceEntries[supplier];
+      if (entry) totals[supplier] = (totals[supplier] ?? 0) + entry.price * item.requestedQuantity;
     });
 
     return totals;
@@ -295,78 +422,107 @@ const BudgetAnalysis = () => {
   // Handlers
   // -------------------------------------------------------------------------
 
-  /**
-   * Seleciona um fornecedor para um produto e persiste imediatamente.
-   */
   const handleSupplierSelection = useCallback(
-    (productId: string, supplierName: string) => {
+    (productId: string, supplierName: string, entry: PriceEntry) => {
+      if (entry.isSubstitute) {
+        // Abre modal para confirmar substituto
+        const item = comparisonData.find(i => i.productId === productId);
+        setSubstituteModal({
+          open: true,
+          productId,
+          productName: item?.productName ?? '',
+          supplierName,
+          entry,
+        });
+        return;
+      }
+
+      // Seleção direta
       setSelectedSuppliers(prev => {
         const updated = { ...prev, [productId]: supplierName };
-        if (budgetId) saveSelections(budgetId, updated);
+        if (budgetId) saveJSON(storageKey(budgetId), updated);
+        return updated;
+      });
+      // Remove substituto aceito se havia
+      setAcceptedSubstitutes(prev => {
+        const updated = { ...prev };
+        delete updated[productId];
+        if (budgetId) saveJSON(substituteKey(budgetId), updated);
         return updated;
       });
     },
-    [budgetId]
+    [budgetId, comparisonData]
   );
 
-  /**
-   * Volta todas as seleções para o melhor preço e limpa o localStorage.
-   */
-  const handleResetToAutomatic = useCallback(() => {
-    if (!budgetId || comparisonData.length === 0) return;
+  const handleAcceptSubstitute = useCallback(() => {
+    const { productId, supplierName } = substituteModal;
 
-    const resetSelections: Record<string, string | null> = {};
+    setSelectedSuppliers(prev => {
+      const updated = { ...prev, [productId]: supplierName };
+      if (budgetId) saveJSON(storageKey(budgetId), updated);
+      return updated;
+    });
+    setAcceptedSubstitutes(prev => {
+      const updated = { ...prev, [productId]: supplierName };
+      if (budgetId) saveJSON(substituteKey(budgetId), updated);
+      return updated;
+    });
+
+    setSubstituteModal(s => ({ ...s, open: false }));
+    addNotification('Substituto aceito e selecionado.', 'success');
+  }, [substituteModal, budgetId, addNotification]);
+
+  const handleResetToAutomatic = useCallback(() => {
+    if (!budgetId || !comparisonData.length) return;
+
+    const reset: Record<string, string | null> = {};
     comparisonData.forEach(item => {
-      if (item.bestPrice !== null) {
-        const bestSupplier =
-          Object.entries(item.prices).find(([, price]) => price === item.bestPrice)?.[0] ?? null;
-        resetSelections[item.productId] = bestSupplier;
+      if (item.bestDirectPrice !== null) {
+        const best = Object.entries(item.priceEntries).find(
+          ([, e]) => e && !e.isSubstitute && e.price === item.bestDirectPrice
+        );
+        reset[item.productId] = best?.[0] ?? null;
       } else {
-        resetSelections[item.productId] = null;
+        reset[item.productId] = null;
       }
     });
 
-    clearSavedSelections(budgetId);
-    saveSelections(budgetId, resetSelections);
-    setSelectedSuppliers(resetSelections);
+    clearKey(storageKey(budgetId));
+    clearKey(substituteKey(budgetId));
+    saveJSON(storageKey(budgetId), reset);
+    setSelectedSuppliers(reset);
+    setAcceptedSubstitutes({});
     addNotification('Seleções resetadas para o melhor preço.', 'info');
   }, [budgetId, comparisonData, addNotification]);
 
-  /**
-   * Gera a lista de compra para um fornecedor e navega para a tela de compras.
-   */
   const handleCreatePurchaseList = async (supplierName: string, items: any[]) => {
     addNotification(`Preparando orçamento para ${supplierName}...`, 'info');
     try {
-      const productIds = items.map(item => item.product_id);
-      if (productIds.length === 0) return;
+      const productIds = items.filter(i => !i.is_substitute).map(i => i.product_id);
 
-      const { data: fullProductsData, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .in('id', productIds);
-
-      if (productsError) throw productsError;
+      let fullProductsData: any[] = [];
+      if (productIds.length > 0) {
+        const { data, error: productsError } = await supabase
+          .from('products').select('*').in('id', productIds);
+        if (productsError) throw productsError;
+        fullProductsData = data ?? [];
+      }
 
       const selectedProductDetails = items.map(item => {
-        const fullProduct = fullProductsData.find(p => p.id === item.product_id) || {};
+        const fullProduct = fullProductsData.find(p => p.id === item.product_id) ?? {};
 
         let formattedDate: string | undefined;
         if (fullProduct?.last_purchase_date) {
           try {
-            const parsedDate = parseISO(fullProduct.last_purchase_date);
-            if (isValid(parsedDate)) {
-              formattedDate = format(parsedDate, 'yyyy-MM-dd');
-            }
-          } catch {
-            // data inválida — ignora
-          }
+            const parsed = parseISO(fullProduct.last_purchase_date);
+            if (isValid(parsed)) formattedDate = format(parsed, 'yyyy-MM-dd');
+          } catch { /* ignore */ }
         }
 
         return {
           ...fullProduct,
           id: item.product_id,
-          name: item.name,
+          name: item.name,           // nome do substituto se aceito
           editedName: item.name,
           editedPrice: item.unit_price,
           editedQuantity: item.quantity,
@@ -386,43 +542,39 @@ const BudgetAnalysis = () => {
   };
 
   // -------------------------------------------------------------------------
-  // Verificação de seleções customizadas (para exibir o botão de reset)
+  // Derived flags
   // -------------------------------------------------------------------------
 
-  /**
-   * Retorna true se o usuário alterou alguma seleção em relação ao melhor preço automático.
-   */
   const hasCustomSelections = useMemo(() => {
     return comparisonData.some(item => {
-      const autoSupplier =
-        item.bestPrice !== null
-          ? Object.entries(item.prices).find(([, price]) => price === item.bestPrice)?.[0] ?? null
-          : null;
+      const autoSupplier = item.bestDirectPrice !== null
+        ? Object.entries(item.priceEntries).find(
+            ([, e]) => e && !e.isSubstitute && e.price === item.bestDirectPrice
+          )?.[0] ?? null
+        : null;
       return selectedSuppliers[item.productId] !== autoSupplier;
     });
   }, [comparisonData, selectedSuppliers]);
 
   // -------------------------------------------------------------------------
-  // Estados de carregamento e erro
+  // Loading / Error
   // -------------------------------------------------------------------------
 
-  if (loading)
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
-      </div>
-    );
+  if (loading) return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+    </div>
+  );
 
-  if (error)
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
-          <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-800">Ocorreu um Erro</h1>
-          <p className="text-gray-600 mt-2">{error}</p>
-        </div>
+  if (error) return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
+        <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-gray-800">Ocorreu um Erro</h1>
+        <p className="text-gray-600 mt-2">{error}</p>
       </div>
-    );
+    </div>
+  );
 
   // -------------------------------------------------------------------------
   // Render
@@ -434,10 +586,7 @@ const BudgetAnalysis = () => {
 
         {/* Navegação */}
         <div className="flex items-center mb-6">
-          <Link
-            to="/purchases"
-            className="flex items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-          >
+          <Link to="/purchases" className="flex items-center text-gray-600 dark:text-gray-300 hover:text-blue-600 transition-colors">
             <ArrowLeft className="h-5 w-5 mr-2" />
             Voltar para Compras
           </Link>
@@ -455,13 +604,10 @@ const BudgetAnalysis = () => {
                 <p className="text-gray-600 dark:text-gray-400">{budgetData?.name}</p>
               </div>
             </div>
-
-            {/* Botão de reset — só aparece se houver seleções customizadas */}
             {hasCustomSelections && (
               <button
                 onClick={handleResetToAutomatic}
-                title="Resetar todas as seleções para o menor preço automático"
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-700 dark:hover:bg-amber-900/40 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-700 transition-colors"
               >
                 <RotateCcw className="h-4 w-4" />
                 Resetar para melhor preço
@@ -470,27 +616,30 @@ const BudgetAnalysis = () => {
           </div>
         </div>
 
-        {/* Listas de compra por fornecedor */}
+        {/* Listas de compra */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
           <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-1">
             Listas de Compra por Fornecedor
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Baseado na sua seleção — atualizadas dinamicamente conforme você clica nas células da tabela.{' '}
+            Baseado na sua seleção.{' '}
             <span className="font-medium text-blue-600 dark:text-blue-400">
               Suas escolhas são salvas automaticamente.
             </span>
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Object.entries(recommendedPurchaseLists).map(([supplier, items]) => {
-              const total = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+              const total = items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+              const subCount = items.filter(i => i.is_substitute).length;
               return (
-                <div
-                  key={supplier}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-700/50"
-                >
+                <div key={supplier} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-700/50">
                   <h3 className="font-bold text-lg text-blue-600 dark:text-blue-400">{supplier}</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-300">{items.length} item(ns)</p>
+                  {subCount > 0 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                      ⚠️ {subCount} substituto(s) aceito(s)
+                    </p>
+                  )}
                   <p className="text-2xl font-bold text-gray-800 dark:text-white my-2">
                     R$ {total.toFixed(2).replace('.', ',')}
                   </p>
@@ -514,7 +663,7 @@ const BudgetAnalysis = () => {
               Tabela Comparativa de Preços
             </h2>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Clique em qualquer preço para selecionar aquele fornecedor para o produto.
+              Clique em um preço para selecionar. Células com ⚠️ indicam produto substituto — clique para ver detalhes.
             </p>
           </div>
 
@@ -526,15 +675,11 @@ const BudgetAnalysis = () => {
                     Produto
                   </th>
                   {budgetData?.supplier_quotes.map(quote => (
-                    <th
-                      key={quote.id}
-                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
-                    >
+                    <th key={quote.id} className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       {quote.supplier_name}
                       <br />
                       <span className="font-normal normal-case">
-                        Total selecionado: R${' '}
-                        {(supplierTotals[quote.supplier_name] ?? 0).toFixed(2).replace('.', ',')}
+                        Total: R$ {(supplierTotals[quote.supplier_name] ?? 0).toFixed(2).replace('.', ',')}
                       </span>
                     </th>
                   ))}
@@ -544,21 +689,16 @@ const BudgetAnalysis = () => {
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {comparisonData.map(item => (
                   <tr key={item.productId}>
-                    {/* Coluna do produto (fixa à esquerda) */}
+                    {/* Produto */}
                     <td className="px-6 py-4 whitespace-nowrap sticky left-0 bg-white dark:bg-gray-800 z-10">
                       <div className="flex items-center">
                         <img
-                          src={
-                            item.imageUrl ||
-                            'https://placehold.co/40x40/e2e8f0/a0aec0?text=?'
-                          }
+                          src={item.imageUrl || 'https://placehold.co/40x40/e2e8f0/a0aec0?text=?'}
                           alt={item.productName}
-                          className="w-10 h-10 rounded-md object-cover mr-3"
+                          className="w-10 h-10 rounded-md object-cover mr-3 flex-shrink-0"
                         />
                         <div>
-                          <p className="font-medium text-gray-900 dark:text-white">
-                            {item.productName}
-                          </p>
+                          <p className="font-medium text-gray-900 dark:text-white">{item.productName}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">
                             {item.requestedQuantity} {item.requestedUnit}
                           </p>
@@ -566,59 +706,65 @@ const BudgetAnalysis = () => {
                       </div>
                     </td>
 
-                    {/* Colunas de preço por fornecedor */}
+                    {/* Colunas por fornecedor */}
                     {budgetData?.supplier_quotes.map(quote => {
-                      const price = item.prices[quote.supplier_name];
-                      const isBestPrice = price !== null && price === item.bestPrice;
+                      const entry = item.priceEntries[quote.supplier_name];
                       const isSelected = selectedSuppliers[item.productId] === quote.supplier_name;
-                      const isClickable = price !== null;
+                      const isBestDirect = entry && !entry.isSubstitute && entry.price === item.bestDirectPrice;
+                      const isAcceptedSub = acceptedSubstitutes[item.productId] === quote.supplier_name;
 
                       return (
                         <td
                           key={quote.id}
-                          onClick={() =>
-                            isClickable && handleSupplierSelection(item.productId, quote.supplier_name)
-                          }
+                          onClick={() => entry && handleSupplierSelection(item.productId, quote.supplier_name, entry)}
                           title={
-                            isClickable
-                              ? isSelected
-                                ? 'Selecionado'
-                                : 'Clique para selecionar este fornecedor'
-                              : 'Sem cotação'
+                            !entry ? 'Sem cotação' :
+                            entry.isSubstitute ? `Substituto: ${entry.substituteName}` :
+                            isSelected ? 'Selecionado' : 'Clique para selecionar'
                           }
                           className={[
                             'px-6 py-4 whitespace-nowrap text-right transition-all duration-150',
-                            isClickable ? 'cursor-pointer' : 'cursor-default',
-                            isSelected
+                            entry ? 'cursor-pointer' : 'cursor-default',
+                            isSelected && !entry?.isSubstitute
                               ? 'ring-2 ring-blue-500 ring-inset bg-blue-50 dark:bg-blue-900/20'
-                              : isBestPrice
+                              : isAcceptedSub
+                              ? 'ring-2 ring-amber-400 ring-inset bg-amber-50 dark:bg-amber-900/20'
+                              : isBestDirect
                               ? 'bg-green-50 dark:bg-green-900/30'
                               : '',
-                            isClickable && !isSelected
-                              ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                              : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
+                            entry && !isSelected ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : '',
+                          ].filter(Boolean).join(' ')}
                         >
-                          {price !== null ? (
+                          {entry ? (
                             <div className="flex flex-col items-end gap-0.5">
-                              <span
-                                className={`font-semibold ${
-                                  isBestPrice
-                                    ? 'text-green-600 dark:text-green-300'
-                                    : 'text-gray-800 dark:text-gray-200'
-                                }`}
-                              >
-                                R$ {price.toFixed(2).replace('.', ',')}
+                              {/* Preço */}
+                              <span className={`font-semibold ${
+                                isAcceptedSub
+                                  ? 'text-amber-700 dark:text-amber-300'
+                                  : isBestDirect
+                                  ? 'text-green-600 dark:text-green-300'
+                                  : 'text-gray-800 dark:text-gray-200'
+                              }`}>
+                                R$ {entry.price.toFixed(2).replace('.', ',')}
                               </span>
-                              {/* Badge de status visual */}
-                              {isSelected && (
+
+                              {/* Badges */}
+                              {entry.isSubstitute && (
+                                <span className="text-xs text-amber-500 flex items-center gap-1">
+                                  ⚠️ substituto
+                                </span>
+                              )}
+                              {isAcceptedSub && (
+                                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                                  ✓ aceito
+                                </span>
+                              )}
+                              {isSelected && !entry.isSubstitute && (
                                 <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                                   ✓ selecionado
                                 </span>
                               )}
-                              {isBestPrice && !isSelected && (
+                              {isBestDirect && !isSelected && !entry.isSubstitute && (
                                 <span className="text-xs font-medium text-green-600 dark:text-green-400">
                                   menor preço
                                 </span>
@@ -638,6 +784,13 @@ const BudgetAnalysis = () => {
         </div>
 
       </div>
+
+      {/* Modal de detalhe do substituto */}
+      <SubstituteDetailModal
+        state={substituteModal}
+        onAccept={handleAcceptSubstitute}
+        onClose={() => setSubstituteModal(s => ({ ...s, open: false }))}
+      />
     </div>
   );
 };
