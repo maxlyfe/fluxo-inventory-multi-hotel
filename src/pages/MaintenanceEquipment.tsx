@@ -113,20 +113,35 @@ export default function MaintenanceEquipment() {
   const [form, setForm] = useState(emptyForm);
 
   // ---------------------------------------------------------------------------
+  const [fetchError, setFetchError] = useState('');
+
   const fetchEquipment = async () => {
     setLoading(true);
+    setFetchError('');
     try {
-      let q = supabase.from('maintenance_equipment').select('*, hotels(name)').order('name');
-      // Admins podem ver todos ou filtrar; outros usuários veem apenas o hotel selecionado
+      // Não usar hotels(name) via join pois pode falhar se a FK não estiver
+      // no schema cache do Supabase — buscamos o nome pelo array hotels já carregado
+      let q = supabase
+        .from('maintenance_equipment')
+        .select('*')
+        .order('name');
+
       const effectiveHotelFilter = canChangeHotel ? filterHotel : defaultHotelId;
       if (effectiveHotelFilter) q = q.eq('hotel_id', effectiveHotelFilter);
-      if (filterStatus)   q = q.eq('status', filterStatus);
-      if (filterCategory) q = q.eq('category', filterCategory);
+      if (filterStatus)         q = q.eq('status', filterStatus);
+      if (filterCategory)       q = q.eq('category', filterCategory);
+
       const { data, error: fetchErr } = await q;
-      if (fetchErr) throw fetchErr;
+
+      if (fetchErr) {
+        console.error('Erro ao buscar equipamentos:', fetchErr);
+        setFetchError(`Erro ao carregar equipamentos: ${fetchErr.message}`);
+        return;
+      }
       setEquipment((data || []) as Equipment[]);
-    } catch (err) {
-      console.error('Erro ao buscar equipamentos:', err);
+    } catch (err: any) {
+      console.error('Erro inesperado:', err);
+      setFetchError(err.message || 'Erro inesperado ao buscar equipamentos.');
     } finally {
       setLoading(false);
     }
@@ -147,6 +162,10 @@ export default function MaintenanceEquipment() {
   }, [selectedHotel?.id]);
 
   useEffect(() => { fetchEquipment(); }, [filterHotel, filterStatus, filterCategory]);
+
+  // Helper: nome do hotel pelo id (usa array já carregado, sem join)
+  const getHotelName = (hotelId: string) =>
+    hotels.find(h => h.id === hotelId)?.name || '—';
 
   // ---------------------------------------------------------------------------
   // QR Code modal
@@ -375,6 +394,18 @@ export default function MaintenanceEquipment() {
         )}
       </div>
 
+      {/* Banner de erro — exibido quando fetchEquipment falha */}
+      {fetchError && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl text-sm text-red-700 dark:text-red-300">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold">Erro ao carregar equipamentos</p>
+            <p className="mt-0.5 font-mono text-xs">{fetchError}</p>
+          </div>
+          <button onClick={fetchEquipment} className="text-xs underline whitespace-nowrap">Tentar novamente</button>
+        </div>
+      )}
+
       {/* Equipment grid */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
@@ -417,7 +448,7 @@ export default function MaintenanceEquipment() {
                   {eq.brand && <p>{eq.brand} {eq.model}</p>}
                   {eq.serial_number && <p className="font-mono truncate">S/N: {eq.serial_number}</p>}
                   {eq.location_detail && <p className="flex items-center gap-1"><Package className="h-3 w-3" />{eq.location_detail}</p>}
-                  {eq.hotels && <p className="flex items-center gap-1"><Building2 className="h-3 w-3" />{eq.hotels.name}</p>}
+                  {eq.hotel_id && <p className="flex items-center gap-1"><Building2 className="h-3 w-3" />{getHotelName(eq.hotel_id)}</p>}
                 </div>
 
                 {wExp && (
