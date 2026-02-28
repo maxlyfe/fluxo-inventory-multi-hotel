@@ -105,6 +105,7 @@ export default function MaintenanceTicketDetail() {
   const [activeAction, setActiveAction] = useState<'comment'|'material'|'resolve'|'assign'|null>(null);
   const [submitting, setSubmitting]     = useState(false);
   const [error, setError]               = useState('');
+  const [lightbox, setLightbox]         = useState<string | null>(null); // URL da foto em destaque
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------------------
@@ -112,16 +113,33 @@ export default function MaintenanceTicketDetail() {
     if (!id) return;
     setLoading(true);
     try {
-      const [ticketRes, updatesRes] = await Promise.all([
-        supabase.from('maintenance_tickets').select(`
-          *, hotels(name),
-          maintenance_equipment(name, brand, model),
-          ticket_photos(id, photo_url, phase)
-        `).eq('id', id).single(),
-        supabase.from('ticket_updates').select('*').eq('ticket_id', id).order('created_at'),
+      const [ticketRes, updatesRes, photosRes] = await Promise.all([
+        supabase
+          .from('maintenance_tickets')
+          .select('*, hotels(name), maintenance_equipment(name, brand, model)')
+          .eq('id', id)
+          .single(),
+        supabase
+          .from('ticket_updates')
+          .select('*')
+          .eq('ticket_id', id)
+          .order('created_at'),
+        // Fotos buscadas separadamente — garante chegada mesmo se join falhar
+        supabase
+          .from('ticket_photos')
+          .select('id, photo_url, phase, created_at')
+          .eq('ticket_id', id)
+          .order('created_at'),
       ]);
-      if (ticketRes.data) setTicket(ticketRes.data as Ticket);
+
+      if (ticketRes.data) {
+        const t = ticketRes.data as Ticket;
+        t.ticket_photos = (photosRes.data || []) as { id: string; photo_url: string; phase: string }[];
+        setTicket(t);
+      }
       setUpdates((updatesRes.data || []) as TicketUpdate[]);
+    } catch (err) {
+      console.error('Erro ao carregar ticket:', err);
     } finally {
       setLoading(false);
     }
@@ -269,11 +287,6 @@ export default function MaintenanceTicketDetail() {
       {/* Header card */}
       <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 p-6 mb-5 shadow-sm">
         <div className="flex items-start gap-4 flex-wrap">
-          {/* Foto principal */}
-          {ticket.ticket_photos && ticket.ticket_photos.length > 0 && (
-            <img src={ticket.ticket_photos[0].photo_url} alt=""
-              className="w-20 h-20 rounded-2xl object-cover border border-gray-100 dark:border-gray-700 flex-shrink-0" />
-          )}
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-2">
               {/* Status badge */}
@@ -324,16 +337,44 @@ export default function MaintenanceTicketDetail() {
           )}
         </div>
 
-        {/* Fotos */}
-        {ticket.ticket_photos && ticket.ticket_photos.length > 1 && (
-          <div className="flex gap-2 mt-4">
-            {ticket.ticket_photos.slice(1).map(p => (
-              <a key={p.id} href={p.photo_url} target="_blank" rel="noopener noreferrer">
-                <img src={p.photo_url} alt="" className="w-16 h-16 rounded-xl object-cover border border-gray-100 dark:border-gray-700 hover:opacity-90 transition-opacity" />
-              </a>
-            ))}
-          </div>
-        )}
+        {/* Fotos por fase — abertura, atualização, resolução */}
+        {ticket.ticket_photos && ticket.ticket_photos.length > 0 && (() => {
+          const byPhase: Record<string, { id: string; photo_url: string; phase: string }[]> = {};
+          ticket.ticket_photos!.forEach(p => {
+            const label = p.phase === 'opening' ? 'Abertura' : p.phase === 'resolution' ? 'Resolução' : 'Atualização';
+            if (!byPhase[label]) byPhase[label] = [];
+            byPhase[label].push(p);
+          });
+          return (
+            <div className="mt-4 space-y-3">
+              {Object.entries(byPhase).map(([phase, photos]) => (
+                <div key={phase}>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    📷 Fotos · {phase}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {photos.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => setLightbox(p.photo_url)}
+                        className="relative group focus:outline-none"
+                      >
+                        <img
+                          src={p.photo_url}
+                          alt={`Foto ${phase}`}
+                          className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-2xl border border-gray-100 dark:border-gray-700 group-hover:opacity-80 group-hover:scale-105 transition-all duration-150 shadow-sm"
+                        />
+                        <div className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                          <span className="opacity-0 group-hover:opacity-100 text-white text-xs font-bold transition-opacity">Ver</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Actions (só para quem pode agir e ticket não resolvido) */}
@@ -519,9 +560,16 @@ export default function MaintenanceTicketDetail() {
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-300">{u.content}</p>
                     {u.metadata?.photo_url && (
-                      <a href={u.metadata.photo_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block">
-                        <img src={u.metadata.photo_url} alt="" className="w-24 h-24 object-cover rounded-xl border border-gray-100 dark:border-gray-700 hover:opacity-90 transition-opacity" />
-                      </a>
+                      <button
+                        onClick={() => setLightbox(u.metadata.photo_url)}
+                        className="mt-2 inline-block group focus:outline-none"
+                      >
+                        <img
+                          src={u.metadata.photo_url}
+                          alt="Foto"
+                          className="w-24 h-24 object-cover rounded-xl border border-gray-100 dark:border-gray-700 group-hover:opacity-80 group-hover:scale-105 transition-all duration-150 shadow-sm"
+                        />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -532,6 +580,27 @@ export default function MaintenanceTicketDetail() {
       </div>
 
       <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhoto} />
+
+      {/* Lightbox — visualização em tela cheia */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            onClick={() => setLightbox(null)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={lightbox}
+            alt="Foto ampliada"
+            className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
