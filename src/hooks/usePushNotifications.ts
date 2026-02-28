@@ -1,8 +1,4 @@
 // src/hooks/usePushNotifications.ts
-// Hook que:
-// 1. Solicita permissão de push ao usuário (uma vez por dispositivo)
-// 2. Salva o token FCM na tabela user_fcm_tokens
-// 3. Ouve mensagens em primeiro plano e exibe toast via callback
 
 import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
@@ -18,37 +14,33 @@ interface PushNotificationPayload {
 }
 
 interface UsePushNotificationsOptions {
-  /** ID do usuário logado (auth.users.id) */
-  userId: string | undefined;
-  /** Callback chamado quando chega mensagem com o app aberto */
+  userId?: string;
   onForegroundNotification?: (payload: PushNotificationPayload) => void;
 }
 
-export function usePushNotifications({
-  userId,
-  onForegroundNotification,
-}: UsePushNotificationsOptions) {
-  const registeredRef = useRef(false); // Evita registrar múltiplas vezes na mesma sessão
+// Aceita objeto vazio ou undefined — nunca crasha
+export function usePushNotifications(options?: UsePushNotificationsOptions) {
+  const userId                 = options?.userId;
+  const onForegroundNotification = options?.onForegroundNotification;
+
+  const registeredRef = useRef(false);
 
   useEffect(() => {
     if (!userId || registeredRef.current) return;
 
     let unsubscribeForeground: (() => void) | null = null;
+    let cancelled = false;
 
     const setup = async () => {
       try {
-        // 1. Solicita permissão e obtém token FCM
         const token = await requestFirebaseNotificationPermission();
-        if (!token) return;
+        if (!token || cancelled) return;
 
-        // 2. Detecta informações básicas do dispositivo para identificação
         const deviceInfo = [
-          navigator.userAgentData?.brands?.[0]?.brand || 'Browser',
+          (navigator as any).userAgentData?.brands?.[0]?.brand || 'Browser',
           navigator.platform || 'Unknown',
         ].join('/');
 
-        // 3. Salva/atualiza o token no banco
-        //    upsert por token — evita duplicatas, atualiza last_seen
         const { error } = await supabase
           .from('user_fcm_tokens')
           .upsert(
@@ -62,25 +54,26 @@ export function usePushNotifications({
           );
 
         if (error) {
-          console.error('[Push] Erro ao salvar token FCM:', error);
+          console.warn('[Push] Erro ao salvar token FCM:', error.message);
         } else {
-          console.info('[Push] Token FCM registrado para o usuário.');
           registeredRef.current = true;
+          console.info('[Push] Token FCM registrado.');
         }
 
-        // 4. Listener de mensagens com app em primeiro plano
-        if (onForegroundNotification) {
+        if (onForegroundNotification && !cancelled) {
           const unsub = await onForegroundMessage(onForegroundNotification);
           unsubscribeForeground = unsub;
         }
       } catch (err) {
-        console.error('[Push] Erro no setup de notificações push:', err);
+        // Push é funcionalidade opcional — nunca propaga erro
+        console.warn('[Push] Setup de notificações falhou (não crítico):', err);
       }
     };
 
     setup();
 
     return () => {
+      cancelled = true;
       if (unsubscribeForeground) unsubscribeForeground();
     };
   }, [userId]);
