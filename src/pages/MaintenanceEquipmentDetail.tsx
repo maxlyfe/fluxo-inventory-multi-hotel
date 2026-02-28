@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import {
   Wrench, Shield, Calendar, Hash, Tag, Building2,
   MapPin, Plus, Clock, CheckCircle, AlertTriangle, Loader2, Package,
@@ -47,8 +48,6 @@ const TICKET_STATUS: Record<string, { label: string; color: string; icon: any }>
   cancelled:        { label: 'Cancelado',   color: 'text-gray-500',   icon: AlertTriangle },
 };
 
-const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/maintenance-public`;
-
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -74,32 +73,55 @@ export default function MaintenanceEquipmentDetail() {
   }, [user, authLoading, qrId]);
 
   // ---------------------------------------------------------------------------
-  // Fetch equipment data via Edge Function (pública, sem auth)
+  // Fetch equipment data diretamente do Supabase (usuário já está logado)
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!qrId || !user) return;
+
     const fetchData = async () => {
       setLoading(true);
-      try {
-        const res = await fetch(`${EDGE_URL}?action=equipment_by_qr&qr_id=${qrId}`);
-        const data = await res.json();
-        if (!res.ok || !data.equipment) { setNotFound(true); return; }
-        setEquipment(data.equipment as Equipment);
+      setNotFound(false);
 
-        // Buscar tickets deste equipamento
-        const { supabase } = await import('../lib/supabase');
-        const { data: tks } = await supabase
+      try {
+        // Busca equipamento pelo qr_code_id
+        const { data: eq, error: eqErr } = await supabase
+          .from('maintenance_equipment')
+          .select('*, hotels:hotel_id(id, name)')
+          .eq('qr_code_id', qrId)
+          .maybeSingle();
+
+        if (eqErr) {
+          console.error('Erro ao buscar equipamento:', eqErr);
+          setNotFound(true);
+          return;
+        }
+
+        if (!eq) {
+          console.warn('Equipamento não encontrado para qr_code_id:', qrId);
+          setNotFound(true);
+          return;
+        }
+
+        setEquipment(eq as Equipment);
+
+        // Busca tickets deste equipamento
+        const { data: tks, error: tkErr } = await supabase
           .from('maintenance_tickets')
           .select('id, title, status, priority, opened_by_name, created_at, resolved_at')
-          .eq('equipment_id', data.equipment.id)
+          .eq('equipment_id', eq.id)
           .order('created_at', { ascending: false });
+
+        if (tkErr) console.error('Erro ao buscar tickets:', tkErr);
         setTickets((tks || []) as Ticket[]);
-      } catch {
+
+      } catch (err) {
+        console.error('Erro inesperado:', err);
         setNotFound(true);
       } finally {
         setLoading(false);
       }
     };
+
     fetchData();
   }, [qrId, user]);
 
@@ -240,7 +262,7 @@ export default function MaintenanceEquipmentDetail() {
         </div>
 
         {/* Open ticket CTA */}
-        <Link to={`/maintenance/ticket/new?equipment_id=${equipment.id}&hotel_id=${equipment.hotels?.id || ''}`}
+        <Link to={`/maintenance/ticket/new?equipment_id=${equipment.id}&hotel_id=${(equipment.hotels as any)?.id || equipment.hotels?.id || ''}`}
           className="flex items-center justify-center gap-3 w-full py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-2xl transition-colors shadow-lg shadow-orange-200 dark:shadow-orange-900/30">
           <Plus className="h-5 w-5" />
           Abrir Chamado para este Equipamento
