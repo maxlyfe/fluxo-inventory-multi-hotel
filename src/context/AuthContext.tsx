@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 // ---------------------------------------------------------------------------
-// Interfaces — idênticas ao original para não quebrar nenhum consumer
+// Interfaces — idênticas ao original
 // ---------------------------------------------------------------------------
 
 interface AppUser {
@@ -23,8 +23,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // ---------------------------------------------------------------------------
-// Helper: lê role de public.profiles (silencioso, não bloqueia nada)
-// Chamado FORA do onAuthStateChange para não interferir na sessão
+// Helper: lê role de public.profiles em background (não bloqueia sessão)
 // ---------------------------------------------------------------------------
 async function fetchRoleFromProfiles(userId: string): Promise<string | null> {
   try {
@@ -41,15 +40,14 @@ async function fetchRoleFromProfiles(userId: string): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: mapeia SupabaseUser → AppUser usando user_metadata de forma
-// imediata (síncrona) — o role de profiles será aplicado depois em background
+// Helper: mapeia SupabaseUser → AppUser (role do metadata como fallback imediato)
 // ---------------------------------------------------------------------------
 function mapSupabaseUserToAppUser(supabaseUser: SupabaseUser | null): AppUser | null {
   if (!supabaseUser) return null;
   return {
-    id: supabaseUser.id,
+    id:    supabaseUser.id,
     email: supabaseUser.email,
-    role: supabaseUser.user_metadata?.role || 'inventory',
+    role:  supabaseUser.user_metadata?.role || 'inventory',
   };
 }
 
@@ -61,21 +59,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // ── Sessão + listener ──────────────────────────────────────────────────
+  // ── Sessão + listener ─────────────────────────────────────────────────────
   // REGRA CRÍTICA: onAuthStateChange deve ser 100% síncrono.
   // Nunca colocar await dentro dele — quebra refresh de token e multi-device.
   useEffect(() => {
     setLoading(true);
 
-    // Recupera sessão existente (persiste entre reloads e abas)
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Recupera sessão existente
+    // Se o refresh token for inválido, o Supabase emite SIGNED_OUT automaticamente
+    // — tratamos isso no onAuthStateChange abaixo
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        // Token inválido ou expirado — limpa estado local silenciosamente
+        console.warn('[Auth] Sessão inválida, limpando:', error.message);
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
       setSession(session);
       setUser(mapSupabaseUserToAppUser(session?.user ?? null));
       setLoading(false);
     });
 
-    // Listener síncrono — apenas mapeia, sem await
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Listener síncrono — só mapeia, sem await
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') {
+        // Token renovado com sucesso — atualiza sessão silenciosamente
+        setSession(session);
+        setUser(mapSupabaseUserToAppUser(session?.user ?? null));
+        return;
+      }
+
+      if (event === 'SIGNED_OUT' || !session) {
+        // Logout normal ou refresh token inválido — limpa tudo
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       setSession(session);
       setUser(mapSupabaseUserToAppUser(session?.user ?? null));
       setLoading(false);
@@ -86,17 +109,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ── Sincronização de role em background ───────────────────────────────
+  // ── Sincronização de role em background ───────────────────────────────────
   // Roda DEPOIS que o user é definido, sem bloquear a sessão.
-  // Garante que o role de public.profiles (fonte da verdade) prevaleça
-  // mesmo que o user_metadata esteja desatualizado.
   useEffect(() => {
     if (!user?.id) return;
 
     let cancelled = false;
     fetchRoleFromProfiles(user.id).then(role => {
       if (cancelled || !role) return;
-      // Só atualiza se diferente para evitar re-render desnecessário
       setUser(prev => {
         if (!prev || prev.role === role) return prev;
         return { ...prev, role };
@@ -104,10 +124,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => { cancelled = true; };
-  }, [user?.id]); // Roda apenas quando o ID muda (novo login/logout)
+  }, [user?.id]);
 
-  // ── Timer de inatividade ──────────────────────────────────────────────
-  // Idêntico ao original + evento touchstart para mobile
+  // ── Timer de inatividade ──────────────────────────────────────────────────
   useEffect(() => {
     let inactivityTimer: number;
 
@@ -115,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(inactivityTimer);
       inactivityTimer = window.setTimeout(() => {
         if (user) {
-          console.log('AuthContext: inatividade — fazendo logout.');
+          console.log('[Auth] Inatividade — fazendo logout.');
           logout();
         }
       }, 60 * 60 * 1000); // 1 hora
@@ -124,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) {
       window.addEventListener('mousemove', resetTimer);
       window.addEventListener('keypress', resetTimer);
-      window.addEventListener('touchstart', resetTimer); // suporte celular
+      window.addEventListener('touchstart', resetTimer); // mobile
       resetTimer();
     }
 
@@ -136,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  // ── Login ─────────────────────────────────────────────────────────────
+  // ── Login ──────────────────────────────────────────────────────────────────
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
@@ -162,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // ── Logout ────────────────────────────────────────────────────────────
+  // ── Logout ──────────────────────────────────────────────────────────────────
   const logout = async () => {
     setLoading(true);
     try {
