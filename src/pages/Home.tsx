@@ -405,7 +405,7 @@ const Home = () => {
               ))}
             </div>
           </div>
-          </div>
+
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">Área Administrativa</h2>
             {renderAdminSection()}
