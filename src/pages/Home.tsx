@@ -366,6 +366,23 @@ const Home = () => {
         </div>
       ) : (
         <div className="space-y-6 sm:space-y-8">
+          {/* Botão de chamado de manutenção — visível para qualquer pessoa sem login */}
+          <Link
+            to="/maintenance/ticket/new"
+            className="flex items-center gap-4 bg-gradient-to-br from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 p-5 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
+          >
+            <div className="bg-white/20 p-3 rounded-xl shrink-0">
+              <Wrench className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-lg sm:text-xl font-bold text-white">Abrir Chamado de Manutenção</h2>
+              <p className="text-sm text-orange-100 mt-0.5">Reporte um problema ou defeito</p>
+            </div>
+            <svg className="w-5 h-5 text-white/70 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">Setores</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -387,6 +404,7 @@ const Home = () => {
                 </Link>
               ))}
             </div>
+          </div>
           </div>
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">Área Administrativa</h2>
