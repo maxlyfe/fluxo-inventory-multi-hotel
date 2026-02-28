@@ -78,6 +78,7 @@ export default function MaintenanceNewTicket() {
 
   // UI state
   const [submitting, setSubmitting]       = useState(false);
+  const [uploadStep, setUploadStep]       = useState<'ticket'|'photos'|null>(null);
   const [submitted, setSubmitted]         = useState(false);
   const [ticketId, setTicketId]           = useState('');
   const [error, setError]                 = useState('');
@@ -122,20 +123,49 @@ export default function MaintenanceNewTicket() {
   };
 
   // ---------------------------------------------------------------------------
-  // Upload photos to Supabase Storage
+  // Upload photos to Storage + insert no ticket_photos
+  // Chamado APÓS criar o ticket para usar o ticket_id correto no caminho
   // ---------------------------------------------------------------------------
-  const uploadPhotos = async (): Promise<string[]> => {
-    const urls: string[] = [];
-    for (const file of photos) {
-      const ext  = file.name.split('.').pop();
-      const path = `tickets/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from('maintenance').upload(path, file, { upsert: true });
-      if (!error) {
-        const { data } = supabase.storage.from('maintenance').getPublicUrl(path);
-        urls.push(data.publicUrl);
+  const savePhotos = async (ticketId: string): Promise<void> => {
+    if (!photos.length) return;
+
+    for (let i = 0; i < photos.length; i++) {
+      const file = photos[i];
+      try {
+        const ext  = file.name.split('.').pop() || 'jpg';
+        // Caminho organizado: tickets/{ticket_id}/opening-{timestamp}.{ext}
+        const path = `tickets/${ticketId}/opening-${Date.now()}-${i}.${ext}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from('maintenance')
+          .upload(path, file, { upsert: true });
+
+        if (uploadErr) {
+          console.error(`Erro ao subir foto ${i + 1}:`, uploadErr);
+          continue;
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('maintenance')
+          .getPublicUrl(path);
+
+        // Insere registro na tabela ticket_photos
+        const { error: insertErr } = await supabase
+          .from('ticket_photos')
+          .insert({
+            ticket_id:   ticketId,
+            photo_url:   urlData.publicUrl,
+            phase:       'opening',
+            uploaded_by: user?.id || null,
+          });
+
+        if (insertErr) {
+          console.error(`Erro ao registrar foto ${i + 1} no banco:`, insertErr);
+        }
+      } catch (err) {
+        console.error(`Erro inesperado na foto ${i + 1}:`, err);
       }
     }
-    return urls;
   };
 
   // ---------------------------------------------------------------------------
@@ -148,19 +178,17 @@ export default function MaintenanceNewTicket() {
     const name = user ? (user.email || 'Usuário') : guestName.trim();
     const role = user ? (user.role || 'Usuário') : guestRole.trim();
 
-    if (!hotelId)         { setError('Selecione o hotel.'); return; }
+    if (!hotelId)               { setError('Selecione o hotel.'); return; }
     if (!locationDetail.trim()) { setError('Informe a localização.'); return; }
-    if (!title.trim())    { setError('Informe o título do problema.'); return; }
-    if (!description.trim()) { setError('Descreva o problema.'); return; }
-    if (!user && !name)   { setError('Informe seu nome.'); return; }
-    if (!user && !role)   { setError('Informe seu cargo.'); return; }
+    if (!title.trim())          { setError('Informe o título do problema.'); return; }
+    if (!description.trim())    { setError('Descreva o problema.'); return; }
+    if (!user && !name)         { setError('Informe seu nome.'); return; }
+    if (!user && !role)         { setError('Informe seu cargo.'); return; }
 
     setSubmitting(true);
+    setUploadStep('ticket');
     try {
-      // Upload fotos
-      const photoUrls = photos.length > 0 ? await uploadPhotos() : [];
-
-      // Chama Edge Function pública
+      // 1. Cria o ticket via Edge Function (sem passar fotos)
       const res = await fetch(`${EDGE_URL}?action=open_ticket`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,19 +203,29 @@ export default function MaintenanceNewTicket() {
           opened_by_user:  user?.id || null,
           opened_by_name:  name,
           opened_by_role:  role,
-          photo_urls:      photoUrls,
+          photo_urls:      [], // fotos serão salvas diretamente abaixo
         }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao abrir ticket.');
 
-      setTicketId(data.ticket_id);
+      const createdTicketId: string = data.ticket_id;
+
+      // 2. Salva fotos diretamente no Storage + tabela ticket_photos
+      //    Agora temos o ticket_id correto para organizar os arquivos
+      if (photos.length > 0) {
+        setUploadStep('photos');
+        await savePhotos(createdTicketId);
+      }
+
+      setTicketId(createdTicketId);
       setSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Erro ao enviar. Tente novamente.');
     } finally {
       setSubmitting(false);
+      setUploadStep(null);
     }
   };
 
@@ -434,10 +472,16 @@ export default function MaintenanceNewTicket() {
           <div className="max-w-2xl mx-auto">
             <button type="submit" disabled={submitting}
               className="w-full flex items-center justify-center gap-3 py-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold text-base rounded-2xl transition-colors shadow-xl shadow-orange-200 dark:shadow-orange-900/30">
-              {submitting
-                ? <><Loader2 className="h-5 w-5 animate-spin" />Enviando...</>
-                : <><Wrench className="h-5 w-5" />Abrir Chamado</>
-              }
+              {submitting ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  {uploadStep === 'photos'
+                    ? `Enviando ${photos.length} foto${photos.length > 1 ? 's' : ''}...`
+                    : 'Registrando chamado...'}
+                </>
+              ) : (
+                <><Wrench className="h-5 w-5" />Abrir Chamado</>
+              )}
             </button>
           </div>
         </div>
