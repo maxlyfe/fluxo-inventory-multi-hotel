@@ -4,7 +4,7 @@
 // ===========================
 
 import { supabase } from './supabase';
-import { createNotification as createNotificationBase } from './notifications';
+import { sendPushNotificationToUser } from './notifications';
 
 // Interfaces adaptadas para estrutura real
 interface NotificationData {
@@ -138,6 +138,23 @@ const createNotificationInternal = async (notificationData: NotificationData) =>
     }
 
     console.log('Notificação criada com sucesso:', data);
+
+    // Disparar push em background — não bloqueia nem quebra o fluxo
+    if (data && data[0]) {
+      const created = data[0];
+      sendPushNotificationToUser(
+        notificationData.user_id,
+        notificationData.title,
+        notificationData.message,
+        {
+          notificationId:    created.id,
+          targetPath:        notificationData.target_path || '/admin',
+          relatedEntityId:   notificationData.related_entity_id || '',
+          relatedEntityType: notificationData.related_entity_type || '',
+        }
+      ).catch(err => console.warn('[FCM] Push falhou (não crítico):', err));
+    }
+
     return data;
   } catch (error) {
     console.error('Erro ao criar notificação:', error);
