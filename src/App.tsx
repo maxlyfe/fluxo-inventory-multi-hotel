@@ -5,55 +5,62 @@ import {
   BrowserRouter, Routes, Route, Navigate,
 } from 'react-router-dom';
 
-// Pages
-import Home from './pages/Home';
-import SectorRequests from './pages/SectorRequests';
-import AdminPanel from './pages/AdminPanel';
-import ManagementPanel from './pages/ManagementPanel';
-import Inventory from './pages/Inventory';
-import ShoppingList from './pages/ShoppingList';
-import Login from './pages/Login';
-import UserManagement from './pages/UserManagement';
-import Governance from './pages/Governance';
-import HotelSelection from './pages/HotelSelection';
-import SectorStock from './pages/SectorStock';
-import NewPurchase from './pages/NewPurchase';
-import PurchaseOrders from './pages/PurchaseOrders';
-import NewPurchaseList from './pages/NewPurchaseList';
-import OnlinePurchaseList from './pages/OnlinePurchaseList';
-import BudgetHistory from './pages/BudgetHistory';
-import BudgetDetail from './pages/BudgetDetail';
-import FinancialManagement from './pages/FinancialManagement';
-import AuthorizationsPage from './pages/AuthorizationsPage';
-import ReportsPage from './pages/ReportsPage';
+// ── Pages — Core ─────────────────────────────────────────────────────────────
+import Home                  from './pages/Home';
+import SectorRequests        from './pages/SectorRequests';
+import AdminPanel            from './pages/AdminPanel';
+import ManagementPanel       from './pages/ManagementPanel';
+import Inventory             from './pages/Inventory';
+import ShoppingList          from './pages/ShoppingList';
+import Login                 from './pages/Login';
+import UserManagement        from './pages/UserManagement';
+import Governance            from './pages/Governance';
+import HotelSelection        from './pages/HotelSelection';
+import SectorStock           from './pages/SectorStock';
+import NewPurchase           from './pages/NewPurchase';
+import PurchaseOrders        from './pages/PurchaseOrders';
+import NewPurchaseList       from './pages/NewPurchaseList';
+import OnlinePurchaseList    from './pages/OnlinePurchaseList';
+import BudgetHistory         from './pages/BudgetHistory';
+import BudgetDetail          from './pages/BudgetDetail';
+import FinancialManagement   from './pages/FinancialManagement';
+import AuthorizationsPage    from './pages/AuthorizationsPage';
+import ReportsPage           from './pages/ReportsPage';
 import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
-import PublicQuotePage from './pages/PublicQuotePage';
-import BudgetAnalysis from './pages/BudgetAnalysis';
+import PublicQuotePage       from './pages/PublicQuotePage';
+import BudgetAnalysis        from './pages/BudgetAnalysis';
+
+// ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
-// DP sub-pages
-import DPEmployeeDetail from './pages/dp/DPEmployeeDetail';
-import MaintenanceDashboard from './pages/MaintenanceDashboard';
-import MaintenanceNewTicket from './pages/MaintenanceNewTicket';
-import MaintenanceTicketDetail from './pages/MaintenanceTicketDetail';
-import MaintenanceEquipment from './pages/MaintenanceEquipment';
+import DPEmployeeDetail        from './pages/dp/DPEmployeeDetail';
+
+// ── Pages — Manutenção ───────────────────────────────────────────────────────
+import MaintenanceDashboard      from './pages/MaintenanceDashboard';
+import MaintenanceNewTicket      from './pages/MaintenanceNewTicket';
+import MaintenanceTicketDetail   from './pages/MaintenanceTicketDetail';
+import MaintenanceEquipment      from './pages/MaintenanceEquipment';
 import MaintenanceEquipmentDetail from './pages/MaintenanceEquipmentDetail';
 
-// Components
-import PrivateRoute from './components/PrivateRoute';
-import MainLayout from './components/MainLayout';
-import Toast from './components/ui/Toast';
-import Chatbot from './components/Chatbot';
+// ── Pages — Administração (novos) ─────────────────────────────────────────────
+import RolesManagement   from './pages/admin/RolesManagement';
+import SectorsManagement from './pages/admin/SectorsManagement';
 
-// Contexts
-import { ThemeProvider } from './context/ThemeContext';
-import { AuthProvider } from './context/AuthContext';
-import { HotelProvider } from './context/HotelContext';
+// ── Components ────────────────────────────────────────────────────────────────
+import PrivateRoute from './components/PrivateRoute';
+import MainLayout   from './components/MainLayout';
+import Toast        from './components/ui/Toast';
+import Chatbot      from './components/Chatbot';
+
+// ── Contexts ──────────────────────────────────────────────────────────────────
+import { ThemeProvider }        from './context/ThemeContext';
+import { AuthProvider }         from './context/AuthContext';
+import { HotelProvider }        from './context/HotelContext';
 import { NotificationProvider } from './context/NotificationContext';
 
-// Auth hook (precisa estar dentro do AuthProvider)
+// ── Auth hook ─────────────────────────────────────────────────────────────────
 import { useAuth } from './context/AuthContext';
 
-// Push notifications
+// ── Push notifications ────────────────────────────────────────────────────────
 import { usePushNotifications } from './hooks/usePushNotifications';
 
 // ---------------------------------------------------------------------------
@@ -68,8 +75,6 @@ function PushNotificationSetup() {
   usePushNotifications({
     userId: user?.id,
     onForegroundNotification: ({ title, body }) => {
-      // Exibe notificação nativa do browser quando o app está aberto
-      // (o Service Worker já cuida das notificações com app fechado)
       if (title && Notification.permission === 'granted') {
         new Notification(title, {
           body:  body || '',
@@ -80,7 +85,7 @@ function PushNotificationSetup() {
     },
   });
 
-  return null; // Não renderiza nada
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,28 +100,27 @@ function App() {
             <HotelProvider>
               <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
 
-                {/* Ativa push notifications para o usuário logado */}
                 <PushNotificationSetup />
-
                 <Toast />
 
                 <Routes>
-                  {/* ── Rotas públicas ── */}
-                  <Route path="/login"             element={<Login />} />
-                  <Route path="/select-hotel"      element={<HotelSelection />} />
-                  <Route path="/quote/:budgetId"   element={<PublicQuotePage />} />
+                  {/* ── Rotas públicas ────────────────────────────────────── */}
+                  <Route path="/login"           element={<Login />} />
+                  <Route path="/select-hotel"    element={<HotelSelection />} />
+                  <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
 
-                  {/* ── Rotas públicas de manutenção ── */}
-                  {/* Ticket pode ser aberto sem login (anônimo) */}
-                  <Route path="/maintenance/ticket/new"       element={<MaintenanceNewTicket />} />
-                  {/* Ficha do equipamento via QR — redireciona para login se não autenticado */}
-                  <Route path="/maintenance/equipment/:qrId"  element={<MaintenanceEquipmentDetail />} />
+                  {/* ── Manutenção — rotas públicas (anônimo / QR) ─────────── */}
+                  <Route path="/maintenance/ticket/new"      element={<MaintenanceNewTicket />} />
+                  <Route path="/maintenance/equipment/:qrId" element={<MaintenanceEquipmentDetail />} />
 
-                  {/* ── Rotas privadas com MainLayout (Navbar) ── */}
+                  {/* ── Rotas privadas com MainLayout (Navbar) ──────────────── */}
                   <Route element={<MainLayout />}>
+
+                    {/* Dashboard */}
                     <Route path="/" element={<Home />} />
                     <Route path="/sector/:id" element={<SectorRequests />} />
 
+                    {/* Admin / gestão interna */}
                     <Route path="/admin" element={
                       <PrivateRoute roles={['admin', 'inventory']}>
                         <AdminPanel />
@@ -129,39 +133,46 @@ function App() {
                       </PrivateRoute>
                     } />
 
-                    <Route path="/inventory" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
-                        <Inventory />
+                    {/* ── Administração — Perfis & Setores ────────────────────
+                        Acesso controlado internamente pelo usePermissions hook.
+                        O PrivateRoute só exige login (roles=[]).             */}
+                    <Route path="/admin/roles" element={
+                      <PrivateRoute roles={['admin']}>
+                        <RolesManagement />
                       </PrivateRoute>
                     } />
 
-                    <Route path="/reports" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
-                        <ReportsPage />
+                    <Route path="/admin/sectors" element={
+                      <PrivateRoute roles={['admin']}>
+                        <SectorsManagement />
                       </PrivateRoute>
                     } />
 
-                    <Route path="/shopping-list" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
-                        <ShoppingList />
-                      </PrivateRoute>
-                    } />
-
+                    {/* ── Usuários ────────────────────────────────────────── */}
                     <Route path="/users" element={
                       <PrivateRoute roles={['admin']}>
                         <UserManagement />
                       </PrivateRoute>
                     } />
 
-                    <Route path="/governance" element={
-                      <PrivateRoute roles={['admin', 'sup-governanca']}>
-                        <Governance />
+                    {/* ── Inventário ───────────────────────────────────────── */}
+                    <Route path="/inventory" element={
+                      <PrivateRoute roles={['admin', 'inventory']}>
+                        <Inventory />
                       </PrivateRoute>
                     } />
 
-                    <Route path="/sector-stock/:sectorId" element={
-                      <PrivateRoute roles={['admin', 'sup-governanca']}>
-                        <SectorStock />
+                    {/* ── Relatórios ───────────────────────────────────────── */}
+                    <Route path="/reports" element={
+                      <PrivateRoute roles={['admin', 'inventory']}>
+                        <ReportsPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Compras ──────────────────────────────────────────── */}
+                    <Route path="/shopping-list" element={
+                      <PrivateRoute roles={['admin', 'inventory']}>
+                        <ShoppingList />
                       </PrivateRoute>
                     } />
 
@@ -213,32 +224,47 @@ function App() {
                       </PrivateRoute>
                     } />
 
+                    {/* ── Financeiro ───────────────────────────────────────── */}
                     <Route path="/finances" element={
                       <PrivateRoute roles={['admin']}>
                         <FinancialManagement />
                       </PrivateRoute>
                     } />
 
+                    {/* ── Autorizações ──────────────────────────────────────── */}
                     <Route path="/authorizations" element={
                       <PrivateRoute roles={['admin', 'inventory']}>
                         <AuthorizationsPage />
                       </PrivateRoute>
                     } />
 
+                    {/* ── Governança / Stock de setor ───────────────────────── */}
+                    <Route path="/governance" element={
+                      <PrivateRoute roles={['admin', 'sup-governanca']}>
+                        <Governance />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/sector-stock/:sectorId" element={
+                      <PrivateRoute roles={['admin', 'sup-governanca']}>
+                        <SectorStock />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Departamento Pessoal ──────────────────────────────── */}
                     <Route path="/personnel-department" element={
-                      <PrivateRoute roles={['admin', 'management']}>
+                      <PrivateRoute roles={['admin', 'management', 'rh']}>
                         <PersonnelDepartmentPage />
                       </PrivateRoute>
                     } />
 
-                    {/* ── Departamento Pessoal — sub-rotas ── */}
                     <Route path="/dp/employee/:id" element={
-                      <PrivateRoute roles={['admin', 'management']}>
+                      <PrivateRoute roles={['admin', 'management', 'rh']}>
                         <DPEmployeeDetail />
                       </PrivateRoute>
                     } />
 
-                    {/* ── Manutenções ── */}
+                    {/* ── Manutenções ───────────────────────────────────────── */}
                     <Route path="/maintenance" element={
                       <PrivateRoute roles={['admin', 'management', 'sup-governanca']}>
                         <MaintenanceDashboard />
@@ -259,7 +285,8 @@ function App() {
 
                     {/* Fallback — redireciona para home */}
                     <Route path="*" element={<Navigate to="/" replace />} />
-                  </Route>
+
+                  </Route>{/* /MainLayout */}
                 </Routes>
 
                 <Chatbot />
