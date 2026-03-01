@@ -30,6 +30,8 @@ import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
 import PublicQuotePage from './pages/PublicQuotePage';
 import BudgetAnalysis from './pages/BudgetAnalysis';
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
+// DP sub-pages
+import DPEmployeeDetail from './pages/dp/DPEmployeeDetail';
 import MaintenanceDashboard from './pages/MaintenanceDashboard';
 import MaintenanceNewTicket from './pages/MaintenanceNewTicket';
 import MaintenanceTicketDetail from './pages/MaintenanceTicketDetail';
@@ -226,6 +228,13 @@ function App() {
                     <Route path="/personnel-department" element={
                       <PrivateRoute roles={['admin', 'management']}>
                         <PersonnelDepartmentPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Departamento Pessoal — sub-rotas ── */}
+                    <Route path="/dp/employee/:id" element={
+                      <PrivateRoute roles={['admin', 'management']}>
+                        <DPEmployeeDetail />
                       </PrivateRoute>
                     } />
 
