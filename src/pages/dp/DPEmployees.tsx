@@ -33,7 +33,6 @@ interface Employee {
   admission_date: string;
   contract_type: string;
   experience_end: string | null;
-  status: string;
   shirt_size: string | null;
   pants_size: string | null;
   shoe_size: string | null;
@@ -56,10 +55,12 @@ const SECTORS = [
 ];
 
 const CONTRACT_TYPES = [
-  { value: 'clt',        label: 'CLT' },
-  { value: 'temporario', label: 'Temporário' },
-  { value: 'estagio',    label: 'Estágio' },
-  { value: 'pj',         label: 'PJ' },
+  { value: 'experiencia',  label: 'Contrato de Experiência', hasEndDate: false },
+  { value: 'determinado',  label: 'Contrato Determinado',    hasEndDate: true  },
+  { value: 'clt',          label: 'CLT (Indeterminado)',      hasEndDate: false },
+  { value: 'pj',           label: 'PJ',                       hasEndDate: false },
+  { value: 'estagio',      label: 'Estágio',                  hasEndDate: true  },
+  { value: 'temporario',   label: 'Temporário',               hasEndDate: true  },
 ];
 
 const SHIRT_SIZES  = ['PP', 'P', 'M', 'G', 'GG', 'XGG', 'XXXG'];
@@ -85,41 +86,107 @@ const inputCls = `w-full px-4 py-3 text-sm border border-gray-200 dark:border-gr
   placeholder:text-gray-400 transition-all`;
 const labelCls = 'block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5';
 
+const WORK_SCHEDULES = [
+  { value: '',      label: 'Não definido' },
+  { value: '12x36', label: '12×36 — 12h trabalho / 36h folga' },
+  { value: '6x1',   label: '6×1 — 6 dias trabalho / 1 folga (8h15m)' },
+  { value: '5x2',   label: '5×2 — 5 dias trabalho / 2 folgas (10h)' },
+  { value: '4x2',   label: '4×2 — 4 dias trabalho / 2 folgas' },
+  { value: 'custom', label: 'Personalizado' },
+];
+
 const EMPTY_FORM = {
   hotel_id: '', user_id: '', name: '', cpf: '', rg: '', phone: '', email: '',
   birth_date: '', address: '', role: '', sector: SECTORS[0],
   admission_date: '', contract_type: 'clt', experience_end: '',
   status: 'active',
+  work_schedule: '', default_shift_start: '', default_shift_end: '',
   shirt_size: '', pants_size: '', shoe_size: '', hat_size: '',
   apron_size: '', raincoat_size: '', epi_items: [] as string[], notes: '',
 };
 
 // ---------------------------------------------------------------------------
-// Contract expiry badge
+// Calcula datas automáticas para contrato de experiência
+// Retorna { fase1: Date (30 dias), fase2: Date (90 dias = 30+60) }
 // ---------------------------------------------------------------------------
-function ContractBadge({ expDate }: { expDate: string | null }) {
-  if (!expDate) return null;
-  const days = differenceInDays(new Date(expDate), new Date());
-  if (days < 0) return (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
-      <AlertCircle className="h-3 w-3" />Experiência vencida
-    </span>
-  );
-  if (days <= 15) return (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
-      <AlertTriangle className="h-3 w-3" />Vence em {days}d
-    </span>
-  );
-  if (days <= 30) return (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
-      <Clock className="h-3 w-3" />Vence em {days}d
-    </span>
-  );
-  return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
-      <CheckCircle className="h-3 w-3" />Exp. {format(new Date(expDate), 'dd/MM/yy')}
-    </span>
-  );
+function calcExperienceDates(admissionDate: string): { fase1: Date; fase2: Date } | null {
+  if (!admissionDate) return null;
+  const base = new Date(admissionDate);
+  const fase1 = new Date(base); fase1.setDate(fase1.getDate() + 30);
+  const fase2 = new Date(base); fase2.setDate(fase2.getDate() + 90);
+  return { fase1, fase2 };
+}
+
+// ---------------------------------------------------------------------------
+// Contract expiry badge — mostra fase relevante do contrato
+// ---------------------------------------------------------------------------
+function ContractBadge({ emp }: { emp: Employee }) {
+  // Contrato de experiência — calcula automaticamente
+  if (emp.contract_type === 'experiencia' && emp.admission_date) {
+    const dates = calcExperienceDates(emp.admission_date);
+    if (!dates) return null;
+    const now = new Date();
+
+    // Já passou as duas fases
+    if (isAfter(now, dates.fase2)) return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+        <AlertCircle className="h-3 w-3" />Exp. encerrada
+      </span>
+    );
+
+    // Está na fase 2 (entre 30 e 90 dias)
+    if (isAfter(now, dates.fase1)) {
+      const days = differenceInDays(dates.fase2, now);
+      return (
+        <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+          days <= 15
+            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+        }`}>
+          <Clock className="h-3 w-3" />2ª fase vence em {days}d
+        </span>
+      );
+    }
+
+    // Ainda na fase 1
+    const days = differenceInDays(dates.fase1, now);
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+        days <= 5
+          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+          : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+      }`}>
+        <Clock className="h-3 w-3" />1ª fase vence em {days}d
+      </span>
+    );
+  }
+
+  // Contrato com data fim explícita (determinado, estágio, temporário)
+  if (emp.experience_end) {
+    const days = differenceInDays(new Date(emp.experience_end), new Date());
+    if (days < 0) return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+        <AlertCircle className="h-3 w-3" />Contrato vencido
+      </span>
+    );
+    if (days <= 15) return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+        <AlertTriangle className="h-3 w-3" />Vence em {days}d
+      </span>
+    );
+    if (days <= 30) return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+        <Clock className="h-3 w-3" />Vence em {days}d
+      </span>
+    );
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+        <CheckCircle className="h-3 w-3" />Até {format(new Date(emp.experience_end), 'dd/MM/yy')}
+      </span>
+    );
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,14 +270,24 @@ export default function DPEmployees() {
 
   // Stats
   const stats = {
-    total:     employees.length,
-    active:    employees.filter(e => e.status === 'active').length,
-    expiring:  employees.filter(e => {
+    total:    employees.length,
+    active:   employees.filter(e => e.status === 'active').length,
+    expiring: employees.filter(e => {
+      if (e.contract_type === 'experiencia' && e.admission_date) {
+        const d = calcExperienceDates(e.admission_date);
+        if (!d) return false;
+        const days2 = differenceInDays(d.fase2, new Date());
+        return days2 >= 0 && days2 <= 30;
+      }
       if (!e.experience_end) return false;
-      const d = differenceInDays(new Date(e.experience_end), new Date());
-      return d >= 0 && d <= 30;
+      const days = differenceInDays(new Date(e.experience_end), new Date());
+      return days >= 0 && days <= 30;
     }).length,
-    expired:   employees.filter(e => {
+    expired: employees.filter(e => {
+      if (e.contract_type === 'experiencia' && e.admission_date) {
+        const d = calcExperienceDates(e.admission_date);
+        return d ? isAfter(new Date(), d.fase2) : false;
+      }
       if (!e.experience_end) return false;
       return differenceInDays(new Date(e.experience_end), new Date()) < 0;
     }).length,
@@ -237,6 +314,9 @@ export default function DPEmployees() {
       admission_date: emp.admission_date,
       contract_type: emp.contract_type, experience_end: emp.experience_end || '',
       status: emp.status,
+      work_schedule: (emp as any).work_schedule || '',
+      default_shift_start: (emp as any).default_shift_start || '',
+      default_shift_end: (emp as any).default_shift_end || '',
       shirt_size: emp.shirt_size || '', pants_size: emp.pants_size || '',
       shoe_size: emp.shoe_size || '', hat_size: emp.hat_size || '',
       apron_size: emp.apron_size || '', raincoat_size: emp.raincoat_size || '',
@@ -290,6 +370,9 @@ export default function DPEmployees() {
         raincoat_size:  form.raincoat_size || null,
         epi_items:      form.epi_items,
         notes:          form.notes || null,
+        work_schedule:  form.work_schedule || null,
+        default_shift_start: form.default_shift_start || null,
+        default_shift_end:   form.default_shift_end   || null,
         created_by:     user?.id,
       };
 
@@ -427,16 +510,63 @@ export default function DPEmployees() {
               </div>
               <div>
                 <label className={labelCls}>Tipo de contrato</label>
-                <select value={form.contract_type} onChange={e => setForm(f => ({ ...f, contract_type: e.target.value }))}
+                <select value={form.contract_type} onChange={e => setForm(f => ({ ...f, contract_type: e.target.value, experience_end: '' }))}
                   className={`${inputCls} appearance-none`}>
                   {CONTRACT_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </div>
-              <div>
-                <label className={labelCls}>Fim contrato de experiência</label>
-                <input type="date" value={form.experience_end} onChange={e => setForm(f => ({ ...f, experience_end: e.target.value }))}
-                  className={inputCls} />
-              </div>
+
+              {/* Contrato de experiência → datas calculadas automaticamente */}
+              {form.contract_type === 'experiencia' && (() => {
+                const dates = calcExperienceDates(form.admission_date);
+                return dates ? (
+                  <div className="sm:col-span-2 grid grid-cols-2 gap-3 p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-2xl">
+                    <div>
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">1ª fase (30 dias)</p>
+                      <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                        {format(dates.fase1, 'dd/MM/yyyy')}
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                        {differenceInDays(dates.fase1, new Date()) < 0
+                          ? 'Vencida'
+                          : `Em ${differenceInDays(dates.fase1, new Date())} dias`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">2ª fase (+60 dias)</p>
+                      <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                        {format(dates.fase2, 'dd/MM/yyyy')}
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                        {differenceInDays(dates.fase2, new Date()) < 0
+                          ? 'Vencida'
+                          : `Em ${differenceInDays(dates.fase2, new Date())} dias`}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="sm:col-span-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-3">
+                    ⚠️ Informe a data de admissão para calcular automaticamente as fases do contrato de experiência.
+                  </div>
+                );
+              })()}
+
+              {/* Contrato determinado / estágio / temporário → pede data de fim */}
+              {CONTRACT_TYPES.find(c => c.value === form.contract_type)?.hasEndDate && form.contract_type !== 'experiencia' && (
+                <div className="sm:col-span-2">
+                  <label className={labelCls}>Fim do contrato *</label>
+                  <input type="date" value={form.experience_end} onChange={e => setForm(f => ({ ...f, experience_end: e.target.value }))}
+                    className={inputCls} />
+                  {form.experience_end && (() => {
+                    const days = differenceInDays(new Date(form.experience_end), new Date());
+                    return (
+                      <p className={`text-xs mt-1.5 font-medium ${days < 0 ? 'text-red-500' : days <= 30 ? 'text-amber-500' : 'text-gray-400'}`}>
+                        {days < 0 ? `Vencido há ${Math.abs(days)} dias` : `Vence em ${days} dias — ${format(new Date(form.experience_end), 'dd/MM/yyyy')}`}
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
               <div>
                 <label className={labelCls}>Status</label>
                 <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
@@ -449,10 +579,61 @@ export default function DPEmployees() {
             </div>
           </section>
 
+          {/* ── Escala Padrão ── */}
+          <section>
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-lg bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 dark:text-teal-400 text-xs font-bold">3</span>
+              Escala Padrão
+              <span className="text-xs font-normal text-gray-400 ml-1">— usado para auto-preencher a escala semanal</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-3">
+                <label className={labelCls}>Tipo de escala</label>
+                <select value={form.work_schedule} onChange={e => {
+                  // Auto-preenche horários padrão ao selecionar tipo
+                  const ws = e.target.value;
+                  let start = form.default_shift_start;
+                  let end   = form.default_shift_end;
+                  if (ws === '12x36' && !start) { start = '07:00'; end = '19:00'; }
+                  if (ws === '6x1'   && !start) { start = '07:00'; end = '15:15'; }
+                  if (ws === '5x2'   && !start) { start = '07:00'; end = '17:00'; }
+                  if (ws === '4x2'   && !start) { start = '07:00'; end = '19:00'; }
+                  setForm(f => ({ ...f, work_schedule: ws, default_shift_start: start, default_shift_end: end }));
+                }}
+                  className={`${inputCls} appearance-none`}>
+                  {WORK_SCHEDULES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+                </select>
+              </div>
+              {form.work_schedule && (
+                <>
+                  <div>
+                    <label className={labelCls}>Entrada padrão</label>
+                    <input type="time" value={form.default_shift_start}
+                      onChange={e => setForm(f => ({ ...f, default_shift_start: e.target.value }))}
+                      className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Saída padrão</label>
+                    <input type="time" value={form.default_shift_end}
+                      onChange={e => setForm(f => ({ ...f, default_shift_end: e.target.value }))}
+                      className={inputCls} />
+                  </div>
+                  {form.default_shift_start && form.default_shift_end && (
+                    <div className="flex items-center">
+                      <div className="px-4 py-3 bg-teal-50 dark:bg-teal-900/10 border border-teal-200 dark:border-teal-800 rounded-xl text-sm text-teal-700 dark:text-teal-300 font-semibold">
+                        {form.default_shift_start} AS {form.default_shift_end}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+
           {/* ── Uniformes ── */}
           <section>
             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-lg bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center text-orange-600 dark:text-orange-400 text-xs font-bold">3</span>
+              <span className="w-6 h-6 rounded-lg bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center text-orange-600 dark:text-orange-400 text-xs font-bold">4</span>
               Tamanhos de Uniforme
               <span className="text-xs font-normal text-gray-400 ml-1">— deixe em branco se não recebe</span>
             </h3>
@@ -531,7 +712,7 @@ export default function DPEmployees() {
           {/* ── Observações ── */}
           <section>
             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 text-xs font-bold">4</span>
+              <span className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 text-xs font-bold">5</span>
               Observações
             </h3>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
@@ -707,10 +888,10 @@ export default function DPEmployees() {
                   )}
                 </div>
 
-                {/* Contract expiry */}
-                {emp.experience_end && (
+                {/* Contract badge */}
+                {(emp.contract_type === 'experiencia' || emp.experience_end) && (
                   <div className="mb-3">
-                    <ContractBadge expDate={emp.experience_end} />
+                    <ContractBadge emp={emp} />
                   </div>
                 )}
 

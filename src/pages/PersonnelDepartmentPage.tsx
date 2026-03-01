@@ -2,11 +2,9 @@
 // Container principal do Departamento Pessoal com navegação por abas
 
 import React, { useState } from 'react';
-import { UsersRound, Users, CalendarDays, FileText, ShieldCheck } from 'lucide-react';
-import ExperienceContractControl from '../components/personnel/ExperienceContractControl';
+import { UsersRound, Users, CalendarDays } from 'lucide-react';
 import DPEmployees from './dp/DPEmployees';
-// Placeholders — serão substituídos nos próximos passos
-// import DPSchedule from './dp/DPSchedule';
+import DPSchedule from './dp/DPSchedule';
 
 // ---------------------------------------------------------------------------
 // Tabs config
@@ -14,7 +12,6 @@ import DPEmployees from './dp/DPEmployees';
 const TABS = [
   { id: 'employees', label: 'Colaboradores', icon: Users,        component: 'employees' },
   { id: 'schedule',  label: 'Escala',        icon: CalendarDays, component: 'schedule'  },
-  { id: 'contracts', label: 'Contratos',     icon: FileText,     component: 'contracts' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -65,19 +62,7 @@ const PersonnelDepartmentPage: React.FC = () => {
       <div>
         {activeTab === 'employees' && <DPEmployees />}
 
-        {activeTab === 'schedule' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-8 text-center">
-            <CalendarDays className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">Módulo de Escala</p>
-            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">Em desenvolvimento — disponível no próximo passo</p>
-          </div>
-        )}
-
-        {activeTab === 'contracts' && (
-          <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-700">
-            <ExperienceContractControl />
-          </div>
-        )}
+        {activeTab === 'schedule' && <DPSchedule />}
       </div>
     </div>
   );
