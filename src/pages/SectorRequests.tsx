@@ -6,6 +6,7 @@ import {
   ShoppingCart, X, Check, Clock, ChevronDown, ChevronUp, ImageIcon, Edit2
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
+import { useAuth } from '../context/AuthContext';
 import { startOfWeek, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { searchMatch } from '../utils/search';
@@ -64,6 +65,7 @@ interface QuantityModalState {
 const SectorRequests = () => {
   const { id: sectorId } = useParams();
   const { selectedHotel } = useHotel();
+  const { user } = useAuth();
   const { addNotification } = useNotification();
 
   const [sector, setSector] = useState<any>(null);
@@ -288,6 +290,7 @@ const SectorRequests = () => {
           status: 'pending',
           is_custom: false,
           hotel_id: selectedHotel.id,
+          created_by: user?.id || null,
         }])
         .select()
         .single();
@@ -306,7 +309,7 @@ const SectorRequests = () => {
           product_name: product.name,
           quantity: qty,
           sector_name: sector?.name || 'Setor',
-          user_name: 'Usuário',
+          user_name: user?.full_name || user?.email?.split('@')[0] || 'Colaborador',
         });
       } catch (notifErr) {
         console.error('Erro ao enviar notificação:', notifErr);
@@ -370,6 +373,7 @@ const SectorRequests = () => {
           status: 'pending',
           is_custom: true,
           hotel_id: selectedHotel.id,
+          created_by: user?.id || null,
         }])
         .select()
         .single();
@@ -387,7 +391,7 @@ const SectorRequests = () => {
           product_name: customItem.name,
           quantity: customItem.quantity,
           sector_name: sector?.name || 'Setor',
-          user_name: 'Usuário',
+          user_name: user?.full_name || user?.email?.split('@')[0] || 'Colaborador',
         });
       } catch (notifErr) {
         console.error('Erro ao enviar notificação:', notifErr);
