@@ -31,9 +31,8 @@ interface NotificationType {
   requires_sector_filter?: boolean;
 }
 
-interface Hotel      { id: string; name: string; }
-interface Sector     { id: string; name: string; hotel_id?: string; }
-interface CustomRole { id: string; name: string; color: string; description?: string; }
+interface Hotel  { id: string; name: string; }
+interface Sector { id: string; name: string; hotel_id?: string; }
 
 interface UserNotificationPreference {
   id: string;
@@ -58,6 +57,7 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','REQUEST_REJECTED',
   'REQUEST_SUBSTITUTED','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
   'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
+  'MAINTENANCE_TICKET_CREATED','MAINTENANCE_TICKET_UPDATED',
 ];
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
@@ -72,15 +72,17 @@ function getRoleConfig(role: string) {
 }
 
 const NOTIF_LABELS: Record<string, string> = {
-  NEW_REQUEST:              '📥 Nova requisição',
-  ITEM_DELIVERED_TO_SECTOR: '📦 Item entregue ao setor',
-  REQUEST_REJECTED:         '❌ Requisição rejeitada',
-  REQUEST_SUBSTITUTED:      '🔄 Requisição substituída',
-  NEW_BUDGET:               '💰 Novo orçamento',
-  BUDGET_APPROVED:          '✅ Orçamento aprovado',
-  BUDGET_CANCELLED:         '🚫 Orçamento cancelado',
-  EXP_CONTRACT_ENDING_SOON: '⏰ Contrato vence em 5 dias',
-  EXP_CONTRACT_ENDS_TODAY:  '🔔 Contrato vence hoje',
+  NEW_REQUEST:                '📥 Nova requisição',
+  ITEM_DELIVERED_TO_SECTOR:   '📦 Item entregue ao setor',
+  REQUEST_REJECTED:           '❌ Requisição rejeitada',
+  REQUEST_SUBSTITUTED:        '🔄 Requisição substituída',
+  NEW_BUDGET:                 '💰 Novo orçamento',
+  BUDGET_APPROVED:            '✅ Orçamento aprovado',
+  BUDGET_CANCELLED:           '🚫 Orçamento cancelado',
+  EXP_CONTRACT_ENDING_SOON:   '⏰ Contrato vence em 5 dias',
+  EXP_CONTRACT_ENDS_TODAY:    '🔔 Contrato vence hoje',
+  MAINTENANCE_TICKET_CREATED: '🔧 Novo chamado de manutenção',
+  MAINTENANCE_TICKET_UPDATED: '🔄 Chamado de manutenção atualizado',
 };
 
 // ---------------------------------------------------------------------------
@@ -111,7 +113,12 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
     .filter(nt => ACTIVE_NOTIFICATION_TYPES.includes(nt.event_key))
     .map(nt => ({
       ...nt,
-      requires_hotel_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED','EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY'].includes(nt.event_key),
+      requires_hotel_filter: [
+        'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET',
+        'BUDGET_APPROVED','BUDGET_CANCELLED',
+        'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
+        'MAINTENANCE_TICKET_CREATED','MAINTENANCE_TICKET_UPDATED',
+      ].includes(nt.event_key),
       requires_sector_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR'].includes(nt.event_key),
     }));
 }
@@ -283,7 +290,7 @@ const UserManagement = () => {
 
   // Create user
   const [showCreate, setShowCreate]   = useState(false);
-  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory', custom_role_id: '' });
+  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory' });
   const [showPwd, setShowPwd]         = useState(false);
   const [creating, setCreating]       = useState(false);
 
@@ -295,7 +302,7 @@ const UserManagement = () => {
 
   // Change role
   const [showChangeRole, setShowChangeRole] = useState(false);
-  const [changeRole, setChangeRole]         = useState({ userId: '', email: '', currentRole: '', newRole: '', custom_role_id: '' });
+  const [changeRole, setChangeRole]         = useState({ userId: '', email: '', currentRole: '', newRole: '' });
   const [changingRole, setChangingRole]     = useState(false);
 
   // Toggle ban
@@ -307,7 +314,6 @@ const UserManagement = () => {
   const [notifTypes, setNotifTypes]           = useState<NotificationType[]>([]);
   const [hotels, setHotels]                   = useState<Hotel[]>([]);
   const [sectors, setSectors]                 = useState<Sector[]>([]);
-  const [customRoles, setCustomRoles]         = useState<CustomRole[]>([]);
   const [userPrefs, setUserPrefs]             = useState<UserNotificationPreference[]>([]);
   const [loadingPrefs, setLoadingPrefs]       = useState(false);
   const [currentPref, setCurrentPref]         = useState<Partial<UserNotificationPreference>>({});
@@ -336,10 +342,6 @@ const UserManagement = () => {
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));
     getHotels().then(setHotels).catch(() => showToast('error', 'Erro ao carregar hotéis.'));
     getSectors().then(setSectors).catch(() => showToast('error', 'Erro ao carregar setores.'));
-    // Busca perfis customizados do banco
-    supabase.from('custom_roles').select('id, name, color, description').order('name')
-      .then(({ data }) => setCustomRoles(data || []))
-      .catch(() => showToast('error', 'Erro ao carregar perfis.'));
   }, [adminUser]);
 
   // ---------------------------------------------------------------------------
@@ -375,12 +377,8 @@ const UserManagement = () => {
 
     setCreating(true);
     try {
-      const result = await callAdminAction(session, { action: 'create_user', email: newUser.email, password: newUser.password, role: newUser.role });
-      // Vincula o custom_role_id ao profile recém-criado (se selecionado)
-      if (newUser.custom_role_id && result?.user?.id) {
-        await supabase.from('profiles').update({ custom_role_id: newUser.custom_role_id }).eq('id', result.user.id);
-      }
-      setNewUser({ email: '', password: '', role: 'inventory', custom_role_id: '' });
+      await callAdminAction(session, { action: 'create_user', email: newUser.email, password: newUser.password, role: newUser.role });
+      setNewUser({ email: '', password: '', role: 'inventory' });
       setShowCreate(false);
       await fetchUsers();
       showToast('success', `Usuário ${newUser.email} criado com sucesso!`);
@@ -424,13 +422,9 @@ const UserManagement = () => {
     setChangingRole(true);
     try {
       await callAdminAction(session, { action: 'change_role', target_user_id: changeRole.userId, new_role: changeRole.newRole });
-      // Atualiza custom_role_id no profile
-      await supabase.from('profiles')
-        .update({ custom_role_id: changeRole.custom_role_id || null })
-        .eq('id', changeRole.userId);
       await fetchUsers();
       setShowChangeRole(false);
-      showToast('success', `Função de ${changeRole.email} atualizada.`);
+      showToast('success', `Função de ${changeRole.email} atualizada para ${getRoleConfig(changeRole.newRole).label}.`);
     } catch (err: any) {
       showToast('error', err.message);
     } finally {
@@ -613,19 +607,12 @@ const UserManagement = () => {
                   </button>
                 </div>
               </FormField>
-              <FormField label="Perfil / Função">
-                <select
-                  value={newUser.custom_role_id}
-                  onChange={e => {
-                    const cr = customRoles.find(r => r.id === e.target.value);
-                    setNewUser({ ...newUser, custom_role_id: e.target.value, role: cr ? 'inventory' : newUser.role });
-                  }}
-                  className={inputCls}
-                >
-                  <option value="">— Selecione um perfil —</option>
-                  {customRoles.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
+              <FormField label="Função">
+                <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className={inputCls}>
+                  <option value="inventory">Estoque</option>
+                  <option value="management">Gerência</option>
+                  <option value="sup-governanca">Sup. Governança</option>
+                  <option value="admin">Administrador</option>
                 </select>
               </FormField>
             </div>
@@ -691,7 +678,7 @@ const UserManagement = () => {
                     <ActionButton title="Alterar senha" icon={<Key className="h-4 w-4" />} color="text-indigo-600 dark:text-indigo-400"
                       disabled={disabled} onClick={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }} />
                     <ActionButton title="Alterar função" icon={<UserCog className="h-4 w-4" />} color="text-amber-600 dark:text-amber-400"
-                      disabled={disabled || isMe} onClick={() => { setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: user.role, custom_role_id: (user as any).custom_role_id || '' }); setShowChangeRole(true); }} />
+                      disabled={disabled || isMe} onClick={() => { setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: user.role }); setShowChangeRole(true); }} />
                     <ActionButton title="Notificações" icon={<Bell className="h-4 w-4" />} color="text-blue-600 dark:text-blue-400"
                       onClick={() => openNotifModal(user)} />
                     <ActionButton
@@ -752,22 +739,13 @@ const UserManagement = () => {
                 <div className="mt-0.5"><RoleBadge role={changeRole.currentRole} /></div>
               </div>
             </div>
-            <FormField label="Novo Perfil / Função">
-              <select
-                value={changeRole.custom_role_id}
-                onChange={e => setChangeRole({ ...changeRole, custom_role_id: e.target.value })}
-                className={inputCls}
-              >
-                <option value="">— Manter apenas role legado —</option>
-                {customRoles.map(r => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
+            <FormField label="Nova Função">
+              <select value={changeRole.newRole} onChange={e => setChangeRole({ ...changeRole, newRole: e.target.value })} className={inputCls}>
+                <option value="inventory">Estoque</option>
+                <option value="management">Gerência</option>
+                <option value="sup-governanca">Sup. Governança</option>
+                <option value="admin">Administrador</option>
               </select>
-              {customRoles.length === 0 && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
-                  Nenhum perfil criado ainda. Crie em <a href="/admin/roles" className="underline font-medium">Gestão de Perfis</a>.
-                </p>
-              )}
             </FormField>
             <ModalActions onCancel={() => setShowChangeRole(false)} submitLabel="Salvar função" submitting={changingRole} />
           </form>
