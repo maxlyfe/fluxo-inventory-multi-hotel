@@ -31,8 +31,9 @@ interface NotificationType {
   requires_sector_filter?: boolean;
 }
 
-interface Hotel  { id: string; name: string; }
-interface Sector { id: string; name: string; hotel_id?: string; }
+interface Hotel      { id: string; name: string; }
+interface Sector     { id: string; name: string; hotel_id?: string; }
+interface CustomRole { id: string; name: string; color: string; description?: string; }
 
 interface UserNotificationPreference {
   id: string;
@@ -282,7 +283,7 @@ const UserManagement = () => {
 
   // Create user
   const [showCreate, setShowCreate]   = useState(false);
-  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory' });
+  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory', custom_role_id: '' });
   const [showPwd, setShowPwd]         = useState(false);
   const [creating, setCreating]       = useState(false);
 
@@ -294,7 +295,7 @@ const UserManagement = () => {
 
   // Change role
   const [showChangeRole, setShowChangeRole] = useState(false);
-  const [changeRole, setChangeRole]         = useState({ userId: '', email: '', currentRole: '', newRole: '' });
+  const [changeRole, setChangeRole]         = useState({ userId: '', email: '', currentRole: '', newRole: '', custom_role_id: '' });
   const [changingRole, setChangingRole]     = useState(false);
 
   // Toggle ban
@@ -306,6 +307,7 @@ const UserManagement = () => {
   const [notifTypes, setNotifTypes]           = useState<NotificationType[]>([]);
   const [hotels, setHotels]                   = useState<Hotel[]>([]);
   const [sectors, setSectors]                 = useState<Sector[]>([]);
+  const [customRoles, setCustomRoles]         = useState<CustomRole[]>([]);
   const [userPrefs, setUserPrefs]             = useState<UserNotificationPreference[]>([]);
   const [loadingPrefs, setLoadingPrefs]       = useState(false);
   const [currentPref, setCurrentPref]         = useState<Partial<UserNotificationPreference>>({});
@@ -334,6 +336,10 @@ const UserManagement = () => {
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));
     getHotels().then(setHotels).catch(() => showToast('error', 'Erro ao carregar hotéis.'));
     getSectors().then(setSectors).catch(() => showToast('error', 'Erro ao carregar setores.'));
+    // Busca perfis customizados do banco
+    supabase.from('custom_roles').select('id, name, color, description').order('name')
+      .then(({ data }) => setCustomRoles(data || []))
+      .catch(() => showToast('error', 'Erro ao carregar perfis.'));
   }, [adminUser]);
 
   // ---------------------------------------------------------------------------
@@ -369,8 +375,12 @@ const UserManagement = () => {
 
     setCreating(true);
     try {
-      await callAdminAction(session, { action: 'create_user', email: newUser.email, password: newUser.password, role: newUser.role });
-      setNewUser({ email: '', password: '', role: 'inventory' });
+      const result = await callAdminAction(session, { action: 'create_user', email: newUser.email, password: newUser.password, role: newUser.role });
+      // Vincula o custom_role_id ao profile recém-criado (se selecionado)
+      if (newUser.custom_role_id && result?.user?.id) {
+        await supabase.from('profiles').update({ custom_role_id: newUser.custom_role_id }).eq('id', result.user.id);
+      }
+      setNewUser({ email: '', password: '', role: 'inventory', custom_role_id: '' });
       setShowCreate(false);
       await fetchUsers();
       showToast('success', `Usuário ${newUser.email} criado com sucesso!`);
@@ -414,9 +424,13 @@ const UserManagement = () => {
     setChangingRole(true);
     try {
       await callAdminAction(session, { action: 'change_role', target_user_id: changeRole.userId, new_role: changeRole.newRole });
+      // Atualiza custom_role_id no profile
+      await supabase.from('profiles')
+        .update({ custom_role_id: changeRole.custom_role_id || null })
+        .eq('id', changeRole.userId);
       await fetchUsers();
       setShowChangeRole(false);
-      showToast('success', `Função de ${changeRole.email} atualizada para ${getRoleConfig(changeRole.newRole).label}.`);
+      showToast('success', `Função de ${changeRole.email} atualizada.`);
     } catch (err: any) {
       showToast('error', err.message);
     } finally {
@@ -599,12 +613,19 @@ const UserManagement = () => {
                   </button>
                 </div>
               </FormField>
-              <FormField label="Função">
-                <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className={inputCls}>
-                  <option value="inventory">Estoque</option>
-                  <option value="management">Gerência</option>
-                  <option value="sup-governanca">Sup. Governança</option>
-                  <option value="admin">Administrador</option>
+              <FormField label="Perfil / Função">
+                <select
+                  value={newUser.custom_role_id}
+                  onChange={e => {
+                    const cr = customRoles.find(r => r.id === e.target.value);
+                    setNewUser({ ...newUser, custom_role_id: e.target.value, role: cr ? 'inventory' : newUser.role });
+                  }}
+                  className={inputCls}
+                >
+                  <option value="">— Selecione um perfil —</option>
+                  {customRoles.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
                 </select>
               </FormField>
             </div>
@@ -670,7 +691,7 @@ const UserManagement = () => {
                     <ActionButton title="Alterar senha" icon={<Key className="h-4 w-4" />} color="text-indigo-600 dark:text-indigo-400"
                       disabled={disabled} onClick={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }} />
                     <ActionButton title="Alterar função" icon={<UserCog className="h-4 w-4" />} color="text-amber-600 dark:text-amber-400"
-                      disabled={disabled || isMe} onClick={() => { setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: user.role }); setShowChangeRole(true); }} />
+                      disabled={disabled || isMe} onClick={() => { setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: user.role, custom_role_id: (user as any).custom_role_id || '' }); setShowChangeRole(true); }} />
                     <ActionButton title="Notificações" icon={<Bell className="h-4 w-4" />} color="text-blue-600 dark:text-blue-400"
                       onClick={() => openNotifModal(user)} />
                     <ActionButton
@@ -731,13 +752,22 @@ const UserManagement = () => {
                 <div className="mt-0.5"><RoleBadge role={changeRole.currentRole} /></div>
               </div>
             </div>
-            <FormField label="Nova Função">
-              <select value={changeRole.newRole} onChange={e => setChangeRole({ ...changeRole, newRole: e.target.value })} className={inputCls}>
-                <option value="inventory">Estoque</option>
-                <option value="management">Gerência</option>
-                <option value="sup-governanca">Sup. Governança</option>
-                <option value="admin">Administrador</option>
+            <FormField label="Novo Perfil / Função">
+              <select
+                value={changeRole.custom_role_id}
+                onChange={e => setChangeRole({ ...changeRole, custom_role_id: e.target.value })}
+                className={inputCls}
+              >
+                <option value="">— Manter apenas role legado —</option>
+                {customRoles.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
               </select>
+              {customRoles.length === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
+                  Nenhum perfil criado ainda. Crie em <a href="/admin/roles" className="underline font-medium">Gestão de Perfis</a>.
+                </p>
+              )}
             </FormField>
             <ModalActions onCancel={() => setShowChangeRole(false)} submitLabel="Salvar função" submitting={changingRole} />
           </form>

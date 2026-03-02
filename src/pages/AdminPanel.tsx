@@ -71,6 +71,10 @@ const AdminPanel = () => {
   
   const [loadingPending, setLoadingPending] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [historyOffset, setHistoryOffset]   = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const HISTORY_PAGE_SIZE = 500;
   const [error, setError] = useState('');
   const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
   const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
@@ -126,13 +130,14 @@ const AdminPanel = () => {
   }, [selectedHotel]);
 
   const fetchHistoryRequestsInternal = useCallback(async (isInitialLoad = false) => {
-    if (isInitialLoad) setLoadingHistory(true);
+    if (isInitialLoad) { setLoadingHistory(true); setHistoryOffset(0); }
     try {
       if (!selectedHotel?.id) {
         setHistoryRequestsData([]);
         if (isInitialLoad) setLoadingHistory(false);
         return;
       }
+      const offset = isInitialLoad ? 0 : undefined; // será usado pelo loadMore separado
       const { data, error: reqError } = await supabase
         .from('requisitions')
         .select(`
@@ -144,10 +149,13 @@ const AdminPanel = () => {
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
         .order('updated_at', { ascending: false })
-        .limit(500);
+        .range(0, HISTORY_PAGE_SIZE - 1);
 
       if (reqError) throw reqError;
-      setHistoryRequestsData(data || []);
+      const rows = data || [];
+      setHistoryRequestsData(rows);
+      setHistoryOffset(rows.length);
+      setHistoryHasMore(rows.length === HISTORY_PAGE_SIZE);
     } catch (err: any) {
       console.error('Error fetching history requests:', err);
       setError(prev => prev || 'Erro ao carregar histórico de requisições');
@@ -155,6 +163,36 @@ const AdminPanel = () => {
       if (isInitialLoad) setLoadingHistory(false);
     }
   }, [selectedHotel]);
+
+  // Carrega o próximo lote de histórico sem apagar o anterior
+  const loadMoreHistory = useCallback(async () => {
+    if (!selectedHotel?.id || loadingMoreHistory || !historyHasMore) return;
+    setLoadingMoreHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('requisitions')
+        .select(`
+          *,
+          sector:sectors(id, name),
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable)
+        `)
+        .eq('hotel_id', selectedHotel.id)
+        .in('status', ['delivered', 'rejected'])
+        .order('updated_at', { ascending: false })
+        .range(historyOffset, historyOffset + HISTORY_PAGE_SIZE - 1);
+
+      if (error) throw error;
+      const rows = data || [];
+      setHistoryRequestsData(prev => [...prev, ...rows]);
+      setHistoryOffset(prev => prev + rows.length);
+      setHistoryHasMore(rows.length === HISTORY_PAGE_SIZE);
+    } catch (err: any) {
+      console.error('Erro ao carregar mais histórico:', err);
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }, [selectedHotel, historyOffset, historyHasMore, loadingMoreHistory]);
 
   const fetchAvailableProducts = useCallback(async () => {
     try {
@@ -390,18 +428,8 @@ const AdminPanel = () => {
         });
         if (pendingError) throw new Error(`Falha ao criar entrada pendente: ${pendingError.message}`);
         addNotification("Item porcionável enviado ao setor. Aguardando processamento.", "info");
-      } else if (!requestToProcess.is_custom && productId) {
-        const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
-            p_hotel_id: selectedHotel!.id,
-            p_sector_id: requestToProcess.sector.id,
-            p_product_id: productId,
-            p_quantity: deliveredQuantity
-        });
-        if (sectorStockError) {
-            console.error("CRÍTICO: A atualização do stock do setor falhou!", sectorStockError);
-            addNotification("Entrega registada, mas FALHA ao somar no stock do setor. Ajuste manualmente.", "error");
-        }
       }
+      // Nota: sector_stock é atualizado automaticamente pelo trigger handle_sector_requisition_delivery
       
       await notifyItemDelivered({ hotel_id: selectedHotel!.id, sector_id: requestToProcess.sector.id, product_name: requestToProcess.item_name, quantity: deliveredQuantity, sector_name: requestToProcess.sector.name, delivered_by: 'Administrador' });
       if (!requestToProcess.is_custom && productId) {
@@ -541,14 +569,8 @@ const AdminPanel = () => {
             requisition_id: requestToProcess.id,
         });
         addNotification("Item porcionável (substituto) enviado para processamento.", "info");
-      } else {
-        await supabase.rpc('update_sector_stock_on_delivery', {
-            p_hotel_id: selectedHotel!.id,
-            p_sector_id: requestToProcess.sector.id,
-            p_product_id: substitutedProductId,
-            p_quantity: deliveredQuantity
-        });
       }
+      // Nota: sector_stock é atualizado automaticamente pelo trigger handle_sector_requisition_delivery
 
       await notifyItemSubstituted({
           hotel_id: selectedHotel?.id || '',
@@ -989,6 +1011,28 @@ const AdminPanel = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* Botão carregar mais */}
+        {!loadingHistory && historyHasMore && (
+          <div className="flex flex-col items-center gap-2 pt-4">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {historyRequestsData.length} registos carregados
+            </p>
+            <button
+              onClick={loadMoreHistory}
+              disabled={loadingMoreHistory}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50 shadow-sm"
+            >
+              {loadingMoreHistory ? <span className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" /> : "↓"}
+              {loadingMoreHistory ? "Carregando..." : "Carregar mais histórico"}
+            </button>
+          </div>
+        )}
+        {!loadingHistory && !historyHasMore && historyRequestsData.length > 0 && (
+          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-4">
+            Todo o histórico carregado · {historyRequestsData.length} registos
+          </p>
         )}
       </section>
 

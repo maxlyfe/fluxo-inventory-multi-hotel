@@ -12,6 +12,7 @@ import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
 import { format, parseISO, isValid } from 'date-fns'; 
 import { ptBR } from 'date-fns/locale';
+const PLACEHOLDER_IMG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' fill='%23e2e8f0'/%3E%3Cpath d='M14 28l6-8 4 5 3-4 5 7H14z' fill='%23a0aec0'/%3E%3Ccircle cx='26' cy='16' r='3' fill='%23a0aec0'/%3E%3C/svg%3E";
 import { useNotification } from '../context/NotificationContext'; 
 import AddInventoryItemModal from '../components/AddInventoryItemModal';
 import Modal from '../components/Modal';
@@ -684,7 +685,7 @@ const SectorStock = () => {
                 {pendingEntries.map(entry => (
                     <div key={entry.id} className="flex flex-col sm:flex-row items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-md shadow">
                         <div className="flex items-center gap-3">
-                            <img src={entry.products.image_url || undefined} alt={entry.products.name} className="w-10 h-10 rounded-md object-cover" onError={(e) => (e.currentTarget.src = 'https://placehold.co/40x40/e2e8f0/a0aec0?text=?')}/>
+                            <img src={entry.products.image_url || undefined} alt={entry.products.name} className="w-10 h-10 rounded-md object-cover" onError={(e) => (e.currentTarget.src = PLACEHOLDER_IMG)}/>
                             <div>
                                 <p className="font-semibold text-gray-800 dark:text-gray-100">{entry.products.name}</p>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -941,7 +942,7 @@ const SectorStock = () => {
             <form onSubmit={handleConfirmPortioning}>
                 <div className="p-4 space-y-4">
                     <div className="p-3 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center gap-4">
-                        <img src={selectedEntry.products.image_url || undefined} alt={selectedEntry.products.name} className="w-12 h-12 rounded-lg object-cover" onError={(e) => (e.currentTarget.src = 'https://placehold.co/48x48/e2e8f0/a0aec0?text=?')}/>
+                        <img src={selectedEntry.products.image_url || undefined} alt={selectedEntry.products.name} className="w-12 h-12 rounded-lg object-cover" onError={(e) => (e.currentTarget.src = PLACEHOLDER_IMG)}/>
                         <div>
                             <p className="font-bold text-lg text-gray-800 dark:text-gray-100">{selectedEntry.products.name}</p>
                             <p className="text-sm text-gray-600 dark:text-gray-400">Quantidade a processar: <strong>{selectedEntry.quantity_delivered}</strong></p>
@@ -974,10 +975,10 @@ const SectorStock = () => {
                                                     className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-3"
                                                 >
                                                     <img 
-                                                        src={p.image_url || 'https://placehold.co/40x40/e2e8f0/a0aec0?text=?'} 
+                                                        src={p.image_url || PLACEHOLDER_IMG} 
                                                         alt={p.name} 
                                                         className="w-10 h-10 rounded-md object-cover flex-shrink-0"
-                                                        onError={(e) => (e.currentTarget.src = 'https://placehold.co/40x40/e2e8f0/a0aec0?text=?')}
+                                                        onError={(e) => (e.currentTarget.src = PLACEHOLDER_IMG)}
                                                     />
                                                     <div>
                                                         <p className="font-semibold text-sm text-gray-800 dark:text-gray-100">{p.name}</p>

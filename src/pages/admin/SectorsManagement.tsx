@@ -220,7 +220,17 @@ export default function SectorsManagement() {
         .eq('hotel_id', filterHotel)
         .order('display_order')
         .order('name');
-      if (err) throw err;
+
+      if (err) {
+        // Tabela pode não existir ainda (migration pendente)
+        if (err.code === '42P01' || err.message?.includes('relation') || err.message?.includes('does not exist')) {
+          setError('A tabela de setores ainda não existe. Execute a migration dp_roles_sectors_migration.sql no Supabase primeiro.');
+        } else {
+          throw err;
+        }
+        setSectors([]);
+        return;
+      }
       setSectors((data || []) as Sector[]);
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar setores.');

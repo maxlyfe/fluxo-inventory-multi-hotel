@@ -108,15 +108,42 @@ export default function RolesManagement() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [rolesRes, usersRes] = await Promise.all([
-        supabase.from('custom_roles').select('*').order('is_system', { ascending: false }).order('name'),
-        supabase.from('profiles').select('id, full_name, email, role, custom_role_id').order('full_name'),
-      ]);
+      // Busca roles
+      const rolesRes = await supabase
+        .from('custom_roles')
+        .select('*')
+        .order('is_system', { ascending: false })
+        .order('name');
+
       if (rolesRes.error) throw rolesRes.error;
+
+      // Busca profiles — tenta com custom_role_id, cai em fallback se coluna não existir
+      let usersData: UserProfile[] = [];
+      const usersRes = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, custom_role_id')
+        .order('full_name');
+
+      if (!usersRes.error) {
+        usersData = (usersRes.data || []) as UserProfile[];
+      } else {
+        // Fallback: busca sem as colunas novas (migration ainda não executada)
+        const fallback = await supabase
+          .from('profiles')
+          .select('id, email, role')
+          .order('email');
+        if (!fallback.error) {
+          usersData = (fallback.data || []).map((u: any) => ({
+            ...u,
+            full_name: null,
+            custom_role_id: null,
+          }));
+        }
+      }
 
       // Conta utilizadores por role
       const roleCounts: Record<string, number> = {};
-      (usersRes.data || []).forEach((u: UserProfile) => {
+      usersData.forEach(u => {
         if (u.custom_role_id) roleCounts[u.custom_role_id] = (roleCounts[u.custom_role_id] || 0) + 1;
       });
 
@@ -125,7 +152,7 @@ export default function RolesManagement() {
         permissions: Array.isArray(r.permissions) ? r.permissions : [],
         _user_count: roleCounts[r.id] || 0,
       })));
-      setUsers((usersRes.data || []) as UserProfile[]);
+      setUsers(usersData);
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar perfis.');
     } finally {

@@ -1,50 +1,173 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// Importações de bibliotecas e componentes.
-import React, { useState, useEffect } from 'react';
+// src/pages/Home.tsx
+// Dashboard principal — setores e estoques 100% dinâmicos via banco
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
-  Package, BarChart3, Building2, ShieldCheck, ChevronDown, ChevronUp, 
-  Lock, Boxes, Hotel, ChefHat, UtensilsCrossed, ShoppingCart, DollarSign,
-  FileText, CreditCard, Wrench, GlassWater, HardHat,
-  UsersRound // --- NOVO: Ícone para o Departamento Pessoal ---
+import {
+  Package, BarChart3, Building2, ShieldCheck, ChevronDown, ChevronUp,
+  Lock, Boxes, ShoppingCart, DollarSign, FileText, CreditCard, Wrench,
+  HardHat, UsersRound, ChefHat, UtensilsCrossed, GlassWater, Hotel,
+  Layers, Shirt, Coffee, Dumbbell, Leaf, Star, Truck, Printer,
+  Monitor, Archive,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useHotel } from '../context/HotelContext';
 
-// Componente da página Home.
-const Home = () => {
-  // Estados para controlar os setores e a visibilidade da lista.
-  const [sectors, setSectors] = useState<any[]>([]);
-  const [showSectors, setShowSectors] = useState(true);
-  // Hooks para obter informações de autenticação e hotel selecionado.
-  const { user } = useAuth();
-  const { selectedHotel } = useHotel();
-  const navigate = useNavigate();
+// ---------------------------------------------------------------------------
+// Mapeamento de ícone + gradiente por nome de setor (normalizado)
+// ---------------------------------------------------------------------------
+const SECTOR_VISUAL: Record<string, { icon: React.ComponentType<any>; gradient: string }> = {
+  'cozinha':      { icon: ChefHat,        gradient: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700' },
+  'restaurante':  { icon: UtensilsCrossed, gradient: 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700' },
+  'exclusive':    { icon: UtensilsCrossed, gradient: 'from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700' },
+  'governanca':   { icon: ShieldCheck,     gradient: 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700' },
+  'bar piscina':  { icon: GlassWater,      gradient: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700' },
+  'bar':          { icon: GlassWater,      gradient: 'from-blue-400 to-blue-500 hover:from-blue-500 hover:to-blue-600' },
+  'manutencao':   { icon: Wrench,          gradient: 'from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700' },
+  'lavanderia':   { icon: Shirt,           gradient: 'from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700' },
+  'recepcao':     { icon: Hotel,           gradient: 'from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700' },
+  'reservas':     { icon: Hotel,           gradient: 'from-teal-400 to-teal-500 hover:from-teal-500 hover:to-teal-600' },
+  'cafe':         { icon: Coffee,          gradient: 'from-yellow-600 to-yellow-700 hover:from-yellow-700 hover:to-yellow-800' },
+  'academia':     { icon: Dumbbell,        gradient: 'from-lime-500 to-lime-600 hover:from-lime-600 hover:to-lime-700' },
+  'jardim':       { icon: Leaf,            gradient: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700' },
+  'eventos':      { icon: Star,            gradient: 'from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700' },
+  'logistica':    { icon: Truck,           gradient: 'from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800' },
+  'papelaria':    { icon: Printer,         gradient: 'from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700' },
+  'ti':           { icon: Monitor,         gradient: 'from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800' },
+  'almoxarifado': { icon: Archive,         gradient: 'from-stone-500 to-stone-600 hover:from-stone-600 hover:to-stone-700' },
+  'producao':     { icon: Layers,          gradient: 'from-fuchsia-500 to-fuchsia-600 hover:from-fuchsia-600 hover:to-fuchsia-700' },
+  'financeiro':   { icon: DollarSign,      gradient: 'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700' },
+  'gerencia':     { icon: BarChart3,       gradient: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700' },
+  'marketing':    { icon: Star,            gradient: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700' },
+};
 
-  // Efeito para redirecionar para select-hotel se não houver hotel selecionado.
+// Gradientes de fallback (rotativo por índice)
+const FALLBACK_GRADIENTS = [
+  'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
+  'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700',
+  'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
+  'from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700',
+  'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
+  'from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700',
+];
+
+/** Normaliza nome para lookup: remove acentos, lowercase */
+function normalize(str: string) {
+  return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function getSectorVisual(name: string, idx: number) {
+  const key = normalize(name);
+  // Tenta match exato, depois tenta por palavra inicial
+  const match = SECTOR_VISUAL[key]
+    || Object.entries(SECTOR_VISUAL).find(([k]) => key.startsWith(k))?.[1];
+  return match || {
+    icon: Boxes,
+    gradient: FALLBACK_GRADIENTS[idx % FALLBACK_GRADIENTS.length],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Cards administrativos
+// ---------------------------------------------------------------------------
+const ADMIN_CARDS = [
+  { key: 'inventory',  label: 'Inventário',        sub: 'Gerenciar estoque',         href: '/inventory',            gradient: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700', icon: Boxes,        roles: ['admin','inventory'] },
+  { key: 'purchases',  label: 'Compras',            sub: 'Gerenciar pedidos',          href: '/purchases',            gradient: 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700',   icon: ShoppingCart, roles: ['admin','inventory'] },
+  { key: 'reports',    label: 'Relatórios',         sub: 'Controle semanal',           href: '/reports',              gradient: 'from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700',       icon: FileText,     roles: ['admin','inventory'] },
+  { key: 'auth',       label: 'Autorizações',       sub: 'Gerenciar autorizações',     href: '/authorizations',       gradient: 'from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700',       icon: CreditCard,   roles: ['admin','inventory'] },
+  { key: 'requests',   label: 'Requisições',        sub: 'Pedidos dos setores',        href: '/admin',                gradient: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',        icon: Package,      roles: ['admin'] },
+  { key: 'finances',   label: 'Financeiro',         sub: 'Controle financeiro',        href: '/finances',             gradient: 'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700', icon: DollarSign, roles: ['admin'] },
+  { key: 'management', label: 'Gerência',           sub: 'Relatórios e análises',      href: '/management',           gradient: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',   icon: BarChart3,    roles: ['admin','management'] },
+  { key: 'dp',         label: 'Depart. Pessoal',   sub: 'Contratos e colaboradores',  href: '/personnel-department', gradient: 'from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700',       icon: UsersRound,   roles: ['admin','management','rh'] },
+  { key: 'maint',      label: 'Manutenções',        sub: 'Tickets e equipamentos',     href: '/maintenance',          gradient: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700', icon: HardHat,    roles: ['admin','management'] },
+];
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+const Home = () => {
+  const { user }          = useAuth();
+  const { selectedHotel } = useHotel();
+  const navigate          = useNavigate();
+
+  const [allSectors, setAllSectors]     = useState<any[]>([]);
+  const [showSectors, setShowSectors]   = useState(true);
+  const [loadingSectors, setLoadingSectors] = useState(false);
+
+  // Redireciona se não há hotel selecionado
   useEffect(() => {
-    if (!selectedHotel) {
-      navigate('/select-hotel', { replace: true });
-    }
+    if (!selectedHotel) navigate('/select-hotel', { replace: true });
   }, [selectedHotel, navigate]);
 
-  // Efeito para buscar os setores do hotel selecionado.
-  React.useEffect(() => {
-    const fetchSectors = async () => {
-      if (!selectedHotel?.id) return; 
-      const { data } = await supabase
-        .from('sectors')
-        .select('*')
-        .eq('hotel_id', selectedHotel.id); 
-      if (data) setSectors(data);
-    };
-    fetchSectors();
+  // Busca todos os setores do hotel — incluindo has_stock e color
+  useEffect(() => {
+    if (!selectedHotel?.id) return;
+    setLoadingSectors(true);
+    supabase
+      .from('sectors')
+      .select('id, name, has_stock, color, display_order, role, can_manage_requests')
+      .eq('hotel_id', selectedHotel.id)
+      .order('display_order')
+      .order('name')
+      .then(({ data }) => {
+        setAllSectors(data || []);
+        setLoadingSectors(false);
+      });
   }, [selectedHotel]);
 
-  // Função para renderizar a seção administrativa.
+  // Setores com stock ativo — aparecem nos cards coloridos
+  const stockSectors = useMemo(
+    () => allSectors.filter(s => s.has_stock === true),
+    [allSectors]
+  );
+
+  // Cards admin filtrados pelo role do usuário
+  const adminCards = useMemo(() => {
+    if (!user) return [];
+    return ADMIN_CARDS.filter(c => c.roles.includes(user.role || ''));
+  }, [user]);
+
+  if (!selectedHotel) return null;
+
+  // ── Estoques Setoriais ────────────────────────────────────────────────────
+  const renderStockSectors = () => {
+    if (!user || stockSectors.length === 0) return null;
+    return (
+      <div className="space-y-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">
+          Estoques Setoriais
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {stockSectors.map((sector, idx) => {
+            const { icon: Icon, gradient } = getSectorVisual(sector.name, idx);
+            return (
+              <Link
+                key={sector.id}
+                to={`/sector-stock/${sector.id}`}
+                className={`bg-gradient-to-br ${gradient} p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1`}
+              >
+                <div className="flex items-center space-x-3 sm:space-x-4">
+                  <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
+                    <Icon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-semibold text-white">
+                      Estoque {sector.name}
+                    </h2>
+                    <p className="text-sm text-white/80">Gerenciar estoque</p>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Área Administrativa ───────────────────────────────────────────────────
   const renderAdminSection = () => {
-    // Se não houver usuário logado, mostra um card de login.
     if (!user) {
       return (
         <Link
@@ -74,299 +197,132 @@ const Home = () => {
       );
     }
 
-    // Se o usuário estiver logado, renderiza os botões de acordo com sua role.
+    if (adminCards.length === 0) return null;
+
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(user.role === 'admin' || user.role === 'inventory') && (
-          <>
+        {adminCards.map(card => {
+          const Icon = card.icon;
+          return (
             <Link
-              to="/inventory"
-              className="bg-gradient-to-br from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
+              key={card.key}
+              to={card.href}
+              className={`bg-gradient-to-br ${card.gradient} p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1`}
             >
               <div className="flex items-center space-x-3 sm:space-x-4">
                 <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <Boxes className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                  <Icon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Inventário</h2>
-                  <p className="text-sm text-purple-100 opacity-90">Gerenciar estoque</p>
+                  <h2 className="text-lg sm:text-xl font-semibold text-white">{card.label}</h2>
+                  <p className="text-sm text-white/80">{card.sub}</p>
                 </div>
               </div>
             </Link>
-
-            <Link
-              to="/purchases"
-              className="bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <ShoppingCart className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Compras</h2>
-                  <p className="text-sm text-amber-100 opacity-90">Gerenciar pedidos</p>
-                </div>
-              </div>
-            </Link>
-            
-            <Link
-              to="/reports" 
-              className="bg-gradient-to-br from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Relatórios</h2>
-                  <p className="text-sm text-cyan-100 opacity-90">Controle semanal</p>
-                </div>
-              </div>
-            </Link>
-
-            <Link
-              to="/authorizations"
-              className="bg-gradient-to-br from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <CreditCard className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Autorizações</h2>
-                  <p className="text-sm text-teal-100 opacity-90">Gerenciar autorizações</p>
-                </div>
-              </div>
-            </Link>
-          </>
-        )}
-
-        {(user.role === 'admin') && (
-          <>
-            <Link
-              to="/admin"
-              className="bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <Package className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Requisições</h2>
-                  <p className="text-sm text-blue-100 opacity-90">Pedidos dos setores</p>
-                </div>
-              </div>
-            </Link>
-
-            <Link
-              to="/finances"
-              className="bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Financeiro</h2>
-                  <p className="text-sm text-emerald-100 opacity-90">Controle financeiro</p>
-                </div>
-              </div>
-            </Link>
-          </>
-        )}
-
-        {(user.role === 'admin' || user.role === 'management') && (
-          <>
-            <Link
-              to="/management"
-              className="bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Gerência</h2>
-                  <p className="text-sm text-green-100 opacity-90">Relatórios e análises</p>
-                </div>
-              </div>
-            </Link>
-            {/* --- NOVO BOTÃO ADICIONADO AQUI --- */}
-            <Link
-              to="/personnel-department"
-              className="bg-gradient-to-br from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <UsersRound className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Departamento Pessoal</h2>
-                  <p className="text-sm text-rose-100 opacity-90">Contratos e colaboradores</p>
-                </div>
-              </div>
-            </Link>
-
-            {/* --- MANUTENÇÕES --- */}
-            <Link
-              to="/maintenance"
-              className="bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-            >
-              <div className="flex items-center space-x-3 sm:space-x-4">
-                <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                  <HardHat className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-white">Manutenções</h2>
-                  <p className="text-sm text-orange-100 opacity-90">Tickets e equipamentos</p>
-                </div>
-              </div>
-            </Link>
-          </>
-        )}
+          );
+        })}
       </div>
     );
   };
 
-  // Função para renderizar os estoques setoriais.
-  const renderSectorStocks = () => {
-    if (!user) return null;
-
-    const stockSectorNames = ['Cozinha', 'Restaurante', 'Governança', 'Bar Piscina', 'Manutenção'];
-
-    const sectorStocksData = sectors
-      .filter(sector => stockSectorNames.includes(sector.name))
-      .map(sector => {
-        let icon = Hotel;
-        let color = 'from-gray-500 to-gray-600';
-        
-        if (sector.name === 'Cozinha') {
-          icon = ChefHat;
-          color = 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700';
-        } else if (sector.name === 'Restaurante') {
-          icon = UtensilsCrossed;
-          color = 'from-red-500 to-red-600 hover:from-red-600 hover:to-red-700';
-        } else if (sector.name === 'Governança') {
-            icon = ShieldCheck;
-            color = 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700';
-        } else if (sector.name === 'Bar Piscina') {
-            icon = GlassWater;
-            color = 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700';
-        } else if (sector.name === 'Manutenção') {
-            icon = Wrench;
-            color = 'from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700';
-        }
-
-        return {
-          id: sector.id,
-          name: `Estoque ${sector.name}`,
-          role: sector.role,
-          icon,
-          color
-        };
-      });
-
-    const userHasAccess = (role: string) => {
-      if (user.role === 'admin') return true;
-      const allowedRolesForNonAdmins: { [key: string]: string } = {
-        'sup-governanca': 'governance',
-        'kitchen': 'kitchen',
-        'restaurant': 'restaurant',
-        'bar': 'bar'
-      };
-      return allowedRolesForNonAdmins[user.role] === role;
-    };
-
-    const accessibleStocks = sectorStocksData.filter(stock => userHasAccess(stock.role));
-
-    if (accessibleStocks.length === 0) return null;
-    
-    return (
-      <div className="space-y-6">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">Estoques Setoriais</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accessibleStocks.map((stock) => {
-            const Icon = stock.icon;
-            return (
-              <Link
-                key={stock.id}
-                to={`/sector-stock/${stock.id}`}
-                className={`bg-gradient-to-br ${stock.color} p-4 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1`}
-              >
-                <div className="flex items-center space-x-3 sm:space-x-4">
-                  <div className="bg-white/10 p-2 sm:p-3 rounded-lg shrink-0">
-                    <Icon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg sm:text-xl font-semibold text-white">{stock.name}</h2>
-                    <p className="text-sm text-white/80">Gerenciar estoque</p>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+  // ── Lista de Setores (requisições) ────────────────────────────────────────
+  const renderSectorsList = () => (
+    <div>
+      <button
+        onClick={() => setShowSectors(!showSectors)}
+        className="w-full flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-200"
+      >
+        <div className="flex items-center space-x-3">
+          <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-400" />
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-800 dark:text-white">Setores</h2>
+          {allSectors.length > 0 && (
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">
+              {allSectors.length}
+            </span>
+          )}
         </div>
-      </div>
-    );
-  };
+        {showSectors
+          ? <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+          : <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+        }
+      </button>
 
-  // Se não houver hotel selecionado, não renderiza nada.
-  if (!selectedHotel) {
-    return null;
-  }
+      {showSectors && (
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {allSectors.map((sector: any) => (
+            <Link
+              key={sector.id}
+              to={`/sector/${sector.id}`}
+              className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group"
+            >
+              <div className="flex items-center space-x-3">
+                <div
+                  className="p-2 rounded-lg shrink-0 transition-opacity"
+                  style={{ background: sector.color ? `${sector.color}22` : '#3b82f615' }}
+                >
+                  <Building2
+                    className="h-5 w-5 sm:h-6 sm:w-6"
+                    style={{ color: sector.color || '#3b82f6' }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-white truncate">
+                    {sector.name}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Ver requisições</p>
+                    {sector.has_stock && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">
+                        Stock
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ))}
 
-  // Renderização principal do componente.
+          {allSectors.length === 0 && !loadingSectors && (
+            <div className="col-span-3 text-center py-10 text-gray-400">
+              <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Nenhum setor cadastrado para este hotel.</p>
+              {user?.role === 'admin' && (
+                <Link to="/admin/sectors" className="text-sm text-blue-500 hover:underline mt-1 inline-block">
+                  Criar setores →
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Render principal ──────────────────────────────────────────────────────
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       {user ? (
         <div className="space-y-8">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">Área Administrativa</h2>
-            {renderAdminSection()}
-          </div>
-          {renderSectorStocks()}
-          <div>
-            <button
-              onClick={() => setShowSectors(!showSectors)}
-              className="w-full flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-200"
-            >
-              <div className="flex items-center space-x-3">
-                <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-400" />
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-800 dark:text-white">Setores</h2>
-              </div>
-              {showSectors ? (
-                <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-              ) : (
-                <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-              )}
-            </button>
+          {adminCards.length > 0 && (
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">
+                Área Administrativa
+              </h2>
+              {renderAdminSection()}
+            </div>
+          )}
 
-            {showSectors && (
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {sectors.map((sector: any) => (
-                  <Link
-                    key={sector.id}
-                    to={`/sector/${sector.id}`}
-                    className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="bg-blue-100 dark:bg-blue-900 p-2 rounded-lg group-hover:bg-blue-200 dark:group-hover:bg-blue-800 transition-colors shrink-0">
-                        <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div>
-                        <h3 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-white">{sector.name}</h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Ver requisições</p>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Estoques — só aparece se existir algum setor com has_stock=true */}
+          {renderStockSectors()}
+
+          {/* Setores — todos aparecem aqui para requisições */}
+          {renderSectorsList()}
         </div>
       ) : (
+        /* ── Visitante não logado ── */
         <div className="space-y-6 sm:space-y-8">
-          {/* Botão de chamado de manutenção — visível para qualquer pessoa sem login */}
+
+          {/* Chamado de manutenção público */}
           <Link
             to="/maintenance/ticket/new"
             className="flex items-center gap-4 bg-gradient-to-br from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 p-5 sm:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
@@ -383,22 +339,31 @@ const Home = () => {
             </svg>
           </Link>
 
+          {/* Setores públicos */}
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">Setores</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sectors.map((sector: any) => (
+              {allSectors.map((sector: any) => (
                 <Link
                   key={sector.id}
                   to={`/sector/${sector.id}`}
                   className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 group"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="bg-blue-100 dark:bg-blue-900 p-2 rounded-lg group-hover:bg-blue-200 dark:group-hover:bg-blue-800 transition-colors shrink-0">
-                      <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-400" />
+                    <div
+                      className="p-2 rounded-lg shrink-0"
+                      style={{ background: sector.color ? `${sector.color}22` : '#3b82f615' }}
+                    >
+                      <Building2
+                        className="h-5 w-5 sm:h-6 sm:w-6"
+                        style={{ color: sector.color || '#3b82f6' }}
+                      />
                     </div>
                     <div>
-                      <h3 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-white">{sector.name}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Ver requisições</p>
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-white">
+                        {sector.name}
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Ver requisições</p>
                     </div>
                   </div>
                 </Link>
@@ -406,8 +371,11 @@ const Home = () => {
             </div>
           </div>
 
+          {/* Login */}
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">Área Administrativa</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white mb-4">
+              Área Administrativa
+            </h2>
             {renderAdminSection()}
           </div>
         </div>
