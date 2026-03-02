@@ -56,7 +56,13 @@ const navigationItems = [
     name: "Dashboard",
     href: "/",
     icon: DashboardIcon,
-    roles: ["admin", "management", "inventory", "sup-governanca", "almoxarifado", "compras", "financeiro", "recepcao", "restaurante", "governanca", "manutencao", "rh"],
+    roles: ["admin", "management", "inventory", "sup-governanca", "almoxarifado", "compras", "financeiro", "recepcao", "restaurante", "governanca", "manutencao", "rh", "guest"],
+  },
+  {
+    name: "Novo Chamado",
+    href: "/maintenance/ticket/new",
+    icon: ManutencaoIcon,
+    roles: ["guest"],
   },
   {
     name: "Requisições",
@@ -260,7 +266,7 @@ const Navbar = () => {
                   <span className="sr-only">Abrir menu do usuário</span>
                   <img
                     className="h-8 w-8 rounded-full"
-                    src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
+                    src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || user.email || 'U')}&background=random&color=fff`}
                     alt="Avatar"
                   />
                 </Menu.Button>
@@ -280,10 +286,10 @@ const Navbar = () => {
                       <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
                         <p className="text-xs text-gray-400">Logado como</p>
                         <p className="text-sm font-semibold text-gray-800 dark:text-white truncate mt-0.5">
-                          {user.email}
+                          {user.full_name || user.email}
                         </p>
                         <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                          {user.role || 'Sem perfil'}
+                          {user.role === 'guest' ? 'Convidado' : (user.role || 'Sem perfil')}
                         </span>
                       </div>
 
@@ -379,12 +385,12 @@ const Navbar = () => {
               <div className="flex items-center gap-3 px-3 py-2 mb-2">
                 <img
                   className="h-10 w-10 rounded-full flex-shrink-0"
-                  src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
+                  src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || user.email || 'U')}&background=random&color=fff`}
                   alt="Avatar"
                 />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">
-                    {user.email?.split("@")[0]}
+                    {user.full_name || user.email?.split("@")[0]}
                   </p>
                   <p className="text-xs text-gray-400 truncate">{user.email}</p>
                 </div>

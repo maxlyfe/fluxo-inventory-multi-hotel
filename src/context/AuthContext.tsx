@@ -2,79 +2,68 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
-// ---------------------------------------------------------------------------
-// Interfaces — idênticas ao original
-// ---------------------------------------------------------------------------
-
 interface AppUser {
   id: string;
   email?: string;
   role?: string;
+  full_name?: string;
+  avatar_url?: string;
+  custom_role_id?: string;
 }
 
 interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
+  needsName: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
+  loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
+  saveName: (fullName: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<{ success: boolean; message?: string }>;
   session: Session | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ---------------------------------------------------------------------------
-// Helper: lê role de public.profiles em background (não bloqueia sessão)
-// ---------------------------------------------------------------------------
-async function fetchRoleFromProfiles(userId: string): Promise<string | null> {
+async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, avatar_url, custom_role_id')
       .eq('id', userId)
       .maybeSingle();
-    if (error || !data) return null;
-    return data.role || null;
+    if (error || !data) return {};
+    return {
+      role:           data.role           || 'guest',
+      full_name:      data.full_name      || undefined,
+      avatar_url:     data.avatar_url     || undefined,
+      custom_role_id: data.custom_role_id || undefined,
+    };
   } catch {
-    return null;
+    return {};
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helper: mapeia SupabaseUser → AppUser (role do metadata como fallback imediato)
-// ---------------------------------------------------------------------------
 function mapSupabaseUserToAppUser(supabaseUser: SupabaseUser | null): AppUser | null {
   if (!supabaseUser) return null;
   return {
     id:    supabaseUser.id,
     email: supabaseUser.email,
-    role:  supabaseUser.user_metadata?.role || 'inventory',
+    role:  supabaseUser.user_metadata?.role || 'guest',
   };
 }
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser]       = useState<AppUser | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]           = useState<AppUser | null>(null);
+  const [session, setSession]     = useState<Session | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [needsName, setNeedsName] = useState(false);
 
-  // ── Sessão + listener ─────────────────────────────────────────────────────
-  // REGRA CRÍTICA: onAuthStateChange deve ser 100% síncrono.
-  // Nunca colocar await dentro dele — quebra refresh de token e multi-device.
   useEffect(() => {
     setLoading(true);
-
-    // Recupera sessão existente
-    // Se o refresh token for inválido, o Supabase emite SIGNED_OUT automaticamente
-    // — tratamos isso no onAuthStateChange abaixo
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
-        // Token inválido ou expirado — limpa estado local silenciosamente
-        console.warn('[Auth] Sessão inválida, limpando:', error.message);
-        setSession(null);
-        setUser(null);
-        setLoading(false);
+        console.warn('[Auth] Sessão inválida:', error.message);
+        setSession(null); setUser(null); setLoading(false);
         return;
       }
       setSession(session);
@@ -82,71 +71,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    // Listener síncrono — só mapeia, sem await
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
-        // Token renovado com sucesso — atualiza sessão silenciosamente
         setSession(session);
         setUser(mapSupabaseUserToAppUser(session?.user ?? null));
         return;
       }
-
       if (event === 'SIGNED_OUT' || !session) {
-        // Logout normal ou refresh token inválido — limpa tudo
-        setSession(null);
-        setUser(null);
-        setLoading(false);
+        setSession(null); setUser(null); setNeedsName(false); setLoading(false);
         return;
       }
-
       setSession(session);
       setUser(mapSupabaseUserToAppUser(session?.user ?? null));
       setLoading(false);
     });
 
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
+    return () => { authListener?.subscription.unsubscribe(); };
   }, []);
 
-  // ── Sincronização de role em background ───────────────────────────────────
-  // Roda DEPOIS que o user é definido, sem bloquear a sessão.
   useEffect(() => {
     if (!user?.id) return;
-
     let cancelled = false;
-    fetchRoleFromProfiles(user.id).then(role => {
-      if (cancelled || !role) return;
-      setUser(prev => {
-        if (!prev || prev.role === role) return prev;
-        return { ...prev, role };
-      });
+    fetchProfile(user.id).then(profile => {
+      if (cancelled) return;
+      setUser(prev => prev ? { ...prev, ...profile } : prev);
+      if (profile.role === 'guest' && !profile.full_name) {
+        setNeedsName(true);
+      }
     });
-
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  // ── Timer de inatividade ──────────────────────────────────────────────────
   useEffect(() => {
     let inactivityTimer: number;
-
     const resetTimer = () => {
       clearTimeout(inactivityTimer);
       inactivityTimer = window.setTimeout(() => {
-        if (user) {
-          console.log('[Auth] Inatividade — fazendo logout.');
-          logout();
-        }
-      }, 60 * 60 * 1000); // 1 hora
+        if (user) logout();
+      }, 60 * 60 * 1000);
     };
-
     if (user) {
       window.addEventListener('mousemove', resetTimer);
       window.addEventListener('keypress', resetTimer);
-      window.addEventListener('touchstart', resetTimer); // mobile
+      window.addEventListener('touchstart', resetTimer);
       resetTimer();
     }
-
     return () => {
       window.removeEventListener('mousemove', resetTimer);
       window.removeEventListener('keypress', resetTimer);
@@ -155,60 +124,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  // ── Login ──────────────────────────────────────────────────────────────────
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        return { success: false, message: error.message || 'Credenciais inválidas ou erro no login.' };
-      }
-
-      if (data.user) {
-        return {
-          success: true,
-          message: 'Login bem-sucedido!',
-          user: mapSupabaseUserToAppUser(data.user),
-        };
-      }
-
-      return { success: false, message: 'Usuário ou sessão não retornados após login.' };
-    } catch (error: any) {
-      return { success: false, message: error.message || 'Ocorreu uma exceção durante o login.' };
+      if (error) return { success: false, message: error.message };
+      if (data.user) return { success: true, user: mapSupabaseUserToAppUser(data.user) };
+      return { success: false, message: 'Usuário não retornado.' };
+    } catch (e: any) {
+      return { success: false, message: e.message };
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Logout ──────────────────────────────────────────────────────────────────
+  const loginWithGoogle = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/`,
+          queryParams: { prompt: 'select_account' },
+        },
+      });
+      if (error) return { success: false, message: error.message };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e.message || 'Erro ao entrar com Google.' };
+    }
+  };
+
+  const saveName = async (fullName: string) => {
+    if (!user?.id) return { success: false, message: 'Sessão inválida.' };
+    const trimmed = fullName.trim();
+    if (!trimmed || trimmed.length < 2) return { success: false, message: 'Nome muito curto.' };
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ full_name: trimmed, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+      if (error) return { success: false, message: error.message };
+      setUser(prev => prev ? { ...prev, full_name: trimmed } : prev);
+      setNeedsName(false);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  };
+
   const logout = async () => {
     setLoading(true);
     try {
       const { error } = await supabase.auth.signOut();
       if (error) return { success: false, message: error.message };
-      return { success: true, message: 'Logout bem-sucedido!' };
-    } catch (error: any) {
-      return { success: false, message: error.message };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e.message };
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, session }}>
+    <AuthContext.Provider value={{ user, loading, needsName, login, loginWithGoogle, saveName, logout, session }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }
