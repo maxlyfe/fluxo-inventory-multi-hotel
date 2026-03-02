@@ -9,6 +9,7 @@ import {
   ArrowLeft, Loader2, AlertTriangle, User, Phone, Mail, MapPin,
   Calendar, Briefcase, Building2, FileText, Plus, Clock, CheckCircle,
   AlertCircle, Shirt, Package, Edit2, X, Printer, Hash,
+  Link2, UserCheck, UserX, Search, ShieldOff,
 } from 'lucide-react';
 import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -223,6 +224,15 @@ export default function DPEmployeeDetail() {
   const [loading,    setLoading]    = useState(true);
   const [activeTab,  setActiveTab]  = useState<'info' | 'uniforms' | 'history'>('info');
 
+  // Vinculação de usuário do sistema
+  const [linkedUser,        setLinkedUser]        = useState<{ id: string; email: string; full_name: string | null } | null>(null);
+  const [showLinkModal,     setShowLinkModal]     = useState(false);
+  const [userSearchTerm,    setUserSearchTerm]    = useState('');
+  const [userSearchResults, setUserSearchResults] = useState<{ id: string; email: string; full_name: string | null }[]>([]);
+  const [searchingUsers,    setSearchingUsers]    = useState(false);
+  const [linkingUser,       setLinkingUser]       = useState(false);
+  const [linkError,         setLinkError]         = useState('');
+
   // Delivery form
   const [showDelivery,   setShowDelivery]   = useState(false);
   const [deliveryDate,   setDeliveryDate]   = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -240,7 +250,32 @@ export default function DPEmployeeDetail() {
         supabase.from('employees').select('*, hotels:hotel_id(name)').eq('id', id).single(),
         supabase.from('uniform_deliveries').select('*').eq('employee_id', id).order('delivery_date', { ascending: false }),
       ]);
-      if (empRes.data) setEmployee(empRes.data as Employee);
+      if (empRes.data) {
+        setEmployee(empRes.data as Employee);
+        // Se tem user_id vinculado, busca os dados do perfil
+        if (empRes.data.user_id) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .eq('id', empRes.data.user_id)
+            .maybeSingle();
+          // Busca email via auth_users_safe (view segura)
+          const { data: authData } = await supabase
+            .from('auth_users_safe')
+            .select('id, email')
+            .eq('id', empRes.data.user_id)
+            .maybeSingle();
+          if (authData) {
+            setLinkedUser({
+              id:        authData.id,
+              email:     authData.email,
+              full_name: profileData?.full_name || null,
+            });
+          }
+        } else {
+          setLinkedUser(null);
+        }
+      }
       setDeliveries((delRes.data || []) as Delivery[]);
     } catch (err) {
       console.error('Erro ao carregar colaborador:', err);
@@ -302,6 +337,86 @@ export default function DPEmployeeDetail() {
       setDeliveryError(err.message || 'Erro ao salvar entrega.');
     } finally {
       setSavingDelivery(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Buscar usuários do sistema para vincular
+  // ---------------------------------------------------------------------------
+  const handleUserSearch = async (term: string) => {
+    setUserSearchTerm(term);
+    if (term.trim().length < 2) { setUserSearchResults([]); return; }
+    setSearchingUsers(true);
+    try {
+      // Busca por email na view auth_users_safe
+      const { data: authData } = await supabase
+        .from('auth_users_safe')
+        .select('id, email')
+        .ilike('email', `%${term}%`)
+        .limit(8);
+
+      if (!authData?.length) { setUserSearchResults([]); setSearchingUsers(false); return; }
+
+      // Busca full_name dos profiles
+      const ids = authData.map(u => u.id);
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', ids);
+
+      const profileMap = Object.fromEntries((profileData || []).map(p => [p.id, p.full_name]));
+      setUserSearchResults(authData.map(u => ({
+        id:        u.id,
+        email:     u.email,
+        full_name: profileMap[u.id] || null,
+      })));
+    } catch (err) {
+      console.error('Erro ao buscar usuários:', err);
+    } finally {
+      setSearchingUsers(false);
+    }
+  };
+
+  // Vincular usuário ao colaborador
+  const handleLinkUser = async (userId: string, userEmail: string, userFullName: string | null) => {
+    if (!employee) return;
+    setLinkingUser(true);
+    setLinkError('');
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ user_id: userId })
+        .eq('id', employee.id);
+      if (error) throw error;
+      setEmployee(prev => prev ? { ...prev, user_id: userId } : prev);
+      setLinkedUser({ id: userId, email: userEmail, full_name: userFullName });
+      setShowLinkModal(false);
+      setUserSearchTerm('');
+      setUserSearchResults([]);
+    } catch (err: any) {
+      setLinkError(err.message || 'Erro ao vincular usuário.');
+    } finally {
+      setLinkingUser(false);
+    }
+  };
+
+  // Desvincular usuário
+  const handleUnlinkUser = async () => {
+    if (!employee || !linkedUser) return;
+    if (!confirm(`Desvincular ${linkedUser.email} deste colaborador?`)) return;
+    setLinkingUser(true);
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ user_id: null })
+        .eq('id', employee.id);
+      if (error) throw error;
+      setEmployee(prev => prev ? { ...prev, user_id: null } : prev);
+      setLinkedUser(null);
+    } catch (err: any) {
+      console.error('Erro ao desvincular:', err);
+    } finally {
+      setLinkingUser(false);
     }
   };
 
@@ -560,6 +675,159 @@ export default function DPEmployeeDetail() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Observações</h3>
           <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{employee.notes}</p>
+        </div>
+      )}
+
+      {/* ── Acesso ao Sistema ──────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Acesso ao Sistema</h3>
+          {linkedUser ? (
+            <button
+              onClick={handleUnlinkUser}
+              disabled={linkingUser}
+              className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 disabled:opacity-50 transition-colors"
+            >
+              <UserX className="h-3.5 w-3.5" />
+              Desvincular
+            </button>
+          ) : (
+            <button
+              onClick={() => { setShowLinkModal(true); setLinkError(''); setUserSearchTerm(''); setUserSearchResults([]); }}
+              className="flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 font-medium transition-colors"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              Vincular usuário
+            </button>
+          )}
+        </div>
+
+        {linkedUser ? (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800">
+            <div className="w-9 h-9 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
+              <UserCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">
+                {linkedUser.full_name || linkedUser.email}
+              </p>
+              {linkedUser.full_name && (
+                <p className="text-xs text-gray-400 truncate">{linkedUser.email}</p>
+              )}
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 uppercase tracking-wide flex-shrink-0">
+              Ativo
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-dashed border-gray-200 dark:border-gray-600">
+            <div className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
+              <ShieldOff className="h-4 w-4 text-gray-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Sem acesso vinculado</p>
+              <p className="text-xs text-gray-400 mt-0.5">Vincule uma conta para registrar ações no nome deste colaborador</p>
+            </div>
+          </div>
+        )}
+
+        {/* Status warning se demitido/inativo */}
+        {employee.status !== 'active' && linkedUser && (
+          <div className="flex items-center gap-2 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Colaborador inativo — acesso do sistema rebaixado para Convidado automaticamente.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Modal de busca de usuário ──────────────────────────────────── */}
+      {showLinkModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowLinkModal(false)} />
+          <div className="relative w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[85vh] overflow-hidden flex flex-col">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+              <div>
+                <h2 className="text-sm font-bold text-gray-900 dark:text-white">Vincular Usuário do Sistema</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Busque pelo e-mail da conta Google</p>
+              </div>
+              <button onClick={() => setShowLinkModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Busca */}
+            <div className="px-5 pt-4 pb-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="email"
+                  autoFocus
+                  value={userSearchTerm}
+                  onChange={e => handleUserSearch(e.target.value)}
+                  placeholder="Digite o e-mail do colaborador..."
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400"
+                />
+              </div>
+              {linkError && (
+                <p className="text-xs text-red-500 mt-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" /> {linkError}
+                </p>
+              )}
+            </div>
+
+            {/* Resultados */}
+            <div className="flex-1 overflow-y-auto px-5 pb-5">
+              {searchingUsers ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                </div>
+              ) : userSearchResults.length > 0 ? (
+                <div className="space-y-2 mt-2">
+                  {userSearchResults.map(u => (
+                    <button
+                      key={u.id}
+                      onClick={() => handleLinkUser(u.id, u.email, u.full_name)}
+                      disabled={linkingUser}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all text-left disabled:opacity-50"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-bold text-white">
+                          {(u.full_name || u.email)[0].toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        {u.full_name && (
+                          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{u.full_name}</p>
+                        )}
+                        <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                      </div>
+                      {linkingUser ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0" />
+                      ) : (
+                        <Link2 className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : userSearchTerm.length >= 2 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <User className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Nenhuma conta encontrada</p>
+                  <p className="text-xs mt-1">O colaborador precisa fazer login via Google primeiro</p>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-300 dark:text-gray-600">
+                  <Search className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">Digite o e-mail para buscar</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
