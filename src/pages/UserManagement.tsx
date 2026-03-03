@@ -18,9 +18,17 @@ interface User {
   id: string;
   email: string;
   role: string;
+  custom_role_id: string | null;
   last_sign_in_at: string;
   raw_user_meta_data?: { role?: string };
   banned_until?: string | null;
+}
+
+interface CustomRole {
+  id: string;
+  name: string;
+  color: string;
+  is_system: boolean;
 }
 
 interface NotificationType {
@@ -57,7 +65,6 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','REQUEST_REJECTED',
   'REQUEST_SUBSTITUTED','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
   'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
-  'MAINTENANCE_TICKET_CREATED','MAINTENANCE_TICKET_UPDATED',
 ];
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
@@ -67,22 +74,45 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; do
   'sup-governanca': { label: 'Sup. Governança',   color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-100 dark:bg-amber-900/40', dot: 'bg-amber-500'  },
 };
 
-function getRoleConfig(role: string) {
-  return ROLE_CONFIG[role] ?? { label: role, color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-700', dot: 'bg-gray-400' };
+/**
+ * Retorna a config de exibição de um role.
+ * Prioridade: ROLE_CONFIG estático → custom role do banco → fallback cinza.
+ */
+function getRoleConfig(
+  role: string,
+  customRoles?: CustomRole[],
+  customRoleId?: string | null,
+) {
+  // Role padrão do sistema
+  if (ROLE_CONFIG[role]) return ROLE_CONFIG[role];
+
+  // Custom role pelo ID
+  if (customRoleId && customRoles) {
+    const cr = customRoles.find(r => r.id === customRoleId);
+    if (cr) {
+      return {
+        label: cr.name,
+        color: 'text-gray-700 dark:text-gray-200',
+        bg:    'bg-gray-100 dark:bg-gray-700',
+        dot:   cr.color || 'bg-gray-400',
+      };
+    }
+  }
+
+  // Fallback: mostra o valor bruto
+  return { label: role, color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-700', dot: 'bg-gray-400' };
 }
 
 const NOTIF_LABELS: Record<string, string> = {
-  NEW_REQUEST:                '📥 Nova requisição',
-  ITEM_DELIVERED_TO_SECTOR:   '📦 Item entregue ao setor',
-  REQUEST_REJECTED:           '❌ Requisição rejeitada',
-  REQUEST_SUBSTITUTED:        '🔄 Requisição substituída',
-  NEW_BUDGET:                 '💰 Novo orçamento',
-  BUDGET_APPROVED:            '✅ Orçamento aprovado',
-  BUDGET_CANCELLED:           '🚫 Orçamento cancelado',
-  EXP_CONTRACT_ENDING_SOON:   '⏰ Contrato vence em 5 dias',
-  EXP_CONTRACT_ENDS_TODAY:    '🔔 Contrato vence hoje',
-  MAINTENANCE_TICKET_CREATED: '🔧 Novo chamado de manutenção',
-  MAINTENANCE_TICKET_UPDATED: '🔄 Chamado de manutenção atualizado',
+  NEW_REQUEST:              '📥 Nova requisição',
+  ITEM_DELIVERED_TO_SECTOR: '📦 Item entregue ao setor',
+  REQUEST_REJECTED:         '❌ Requisição rejeitada',
+  REQUEST_SUBSTITUTED:      '🔄 Requisição substituída',
+  NEW_BUDGET:               '💰 Novo orçamento',
+  BUDGET_APPROVED:          '✅ Orçamento aprovado',
+  BUDGET_CANCELLED:         '🚫 Orçamento cancelado',
+  EXP_CONTRACT_ENDING_SOON: '⏰ Contrato vence em 5 dias',
+  EXP_CONTRACT_ENDS_TODAY:  '🔔 Contrato vence hoje',
 };
 
 // ---------------------------------------------------------------------------
@@ -113,12 +143,7 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
     .filter(nt => ACTIVE_NOTIFICATION_TYPES.includes(nt.event_key))
     .map(nt => ({
       ...nt,
-      requires_hotel_filter: [
-        'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET',
-        'BUDGET_APPROVED','BUDGET_CANCELLED',
-        'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
-        'MAINTENANCE_TICKET_CREATED','MAINTENANCE_TICKET_UPDATED',
-      ].includes(nt.event_key),
+      requires_hotel_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED','EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY'].includes(nt.event_key),
       requires_sector_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR'].includes(nt.event_key),
     }));
 }
@@ -190,8 +215,12 @@ function formatLastLogin(ts: string) {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function RoleBadge({ role }: { role: string }) {
-  const c = getRoleConfig(role);
+function RoleBadge({ role, customRoles, customRoleId }: {
+  role: string;
+  customRoles?: CustomRole[];
+  customRoleId?: string | null;
+}) {
+  const c = getRoleConfig(role, customRoles, customRoleId);
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${c.color} ${c.bg}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
@@ -305,6 +334,9 @@ const UserManagement = () => {
   const [changeRole, setChangeRole]         = useState({ userId: '', email: '', currentRole: '', newRole: '' });
   const [changingRole, setChangingRole]     = useState(false);
 
+  // Custom roles do banco
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
+
   // Toggle ban
   const [togglingBan, setTogglingBan] = useState<string | null>(null);
 
@@ -339,10 +371,28 @@ const UserManagement = () => {
   useEffect(() => {
     if (!adminUser || adminUser.role !== 'admin') { navigate('/'); return; }
     fetchUsers();
+    fetchCustomRoles();
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));
     getHotels().then(setHotels).catch(() => showToast('error', 'Erro ao carregar hotéis.'));
     getSectors().then(setSectors).catch(() => showToast('error', 'Erro ao carregar setores.'));
   }, [adminUser]);
+
+  // ---------------------------------------------------------------------------
+  // Fetch custom roles
+  // ---------------------------------------------------------------------------
+
+  const fetchCustomRoles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('custom_roles')
+        .select('id, name, color, is_system')
+        .order('name');
+      if (error) throw error;
+      setCustomRoles(data || []);
+    } catch (err: any) {
+      showToast('error', 'Erro ao carregar funções: ' + err.message);
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Fetch users
@@ -354,7 +404,9 @@ const UserManagement = () => {
       const { data, error } = await supabase.rpc('get_all_users_with_profile');
       if (error) throw error;
       setUsers((data || []).map((u: any) => ({
-        id: u.id, email: u.email, role: u.role || 'inventory',
+        id: u.id, email: u.email,
+        role: u.role || 'guest',
+        custom_role_id: u.custom_role_id || null,
         last_sign_in_at: u.last_sign_in_at,
         raw_user_meta_data: u.raw_user_meta_data,
         banned_until: u.banned_until,
@@ -377,7 +429,19 @@ const UserManagement = () => {
 
     setCreating(true);
     try {
-      await callAdminAction(session, { action: 'create_user', email: newUser.email, password: newUser.password, role: newUser.role });
+      const isCustomRole = customRoles.some(r => r.id === newUser.role);
+      const systemRole   = isCustomRole ? 'guest' : newUser.role;
+      await callAdminAction(session, { action: 'create_user', email: newUser.email, password: newUser.password, role: systemRole });
+      // Se custom role: buscar o profile recém-criado e gravar custom_role_id
+      if (isCustomRole) {
+        // Aguarda o profile ser criado (trigger do Supabase)
+        await new Promise(r => setTimeout(r, 1200));
+        const { data: profileData } = await supabase
+          .from('profiles').select('id').eq('email', newUser.email).single();
+        if (profileData?.id) {
+          await supabase.from('profiles').update({ custom_role_id: newUser.role }).eq('id', profileData.id);
+        }
+      }
       setNewUser({ email: '', password: '', role: 'inventory' });
       setShowCreate(false);
       await fetchUsers();
@@ -421,10 +485,28 @@ const UserManagement = () => {
 
     setChangingRole(true);
     try {
-      await callAdminAction(session, { action: 'change_role', target_user_id: changeRole.userId, new_role: changeRole.newRole });
+      // Determina se é um custom role (UUID) ou role de sistema (string curta)
+      const isCustomRole = customRoles.some(r => r.id === changeRole.newRole);
+      if (isCustomRole) {
+        // Custom role: grava custom_role_id no profile, mantém role='guest'
+        await supabase.from('profiles').update({
+          custom_role_id: changeRole.newRole,
+          role: 'guest',
+        }).eq('id', changeRole.userId);
+      } else {
+        // Role de sistema: limpa custom_role_id
+        await supabase.from('profiles').update({
+          role: changeRole.newRole,
+          custom_role_id: null,
+        }).eq('id', changeRole.userId);
+        await callAdminAction(session, { action: 'change_role', target_user_id: changeRole.userId, new_role: changeRole.newRole });
+      }
       await fetchUsers();
       setShowChangeRole(false);
-      showToast('success', `Função de ${changeRole.email} atualizada para ${getRoleConfig(changeRole.newRole).label}.`);
+      const label = isCustomRole
+        ? customRoles.find(r => r.id === changeRole.newRole)?.name
+        : getRoleConfig(changeRole.newRole, customRoles).label;
+      showToast('success', `Função de ${changeRole.email} atualizada para ${label}.`);
     } catch (err: any) {
       showToast('error', err.message);
     } finally {
@@ -609,10 +691,21 @@ const UserManagement = () => {
               </FormField>
               <FormField label="Função">
                 <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className={inputCls}>
-                  <option value="inventory">Estoque</option>
-                  <option value="management">Gerência</option>
-                  <option value="sup-governanca">Sup. Governança</option>
-                  <option value="admin">Administrador</option>
+                  {/* Roles do sistema */}
+                  <optgroup label="Funções do sistema">
+                    <option value="admin">Administrador</option>
+                    <option value="management">Gerência</option>
+                    <option value="inventory">Estoque</option>
+                    <option value="guest">Visitante</option>
+                  </optgroup>
+                  {/* Custom roles do banco */}
+                  {customRoles.filter(r => !r.is_system).length > 0 && (
+                    <optgroup label="Funções personalizadas">
+                      {customRoles.filter(r => !r.is_system).map(r => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </FormField>
             </div>
@@ -666,7 +759,7 @@ const UserManagement = () => {
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <RoleBadge role={user.role} />
+                      <RoleBadge role={user.role} customRoles={customRoles} customRoleId={user.custom_role_id} />
                       <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
                         <Clock className="h-3 w-3" />{formatLastLogin(user.last_sign_in_at)}
                       </span>
@@ -678,7 +771,13 @@ const UserManagement = () => {
                     <ActionButton title="Alterar senha" icon={<Key className="h-4 w-4" />} color="text-indigo-600 dark:text-indigo-400"
                       disabled={disabled} onClick={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }} />
                     <ActionButton title="Alterar função" icon={<UserCog className="h-4 w-4" />} color="text-amber-600 dark:text-amber-400"
-                      disabled={disabled || isMe} onClick={() => { setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: user.role }); setShowChangeRole(true); }} />
+                      disabled={disabled || isMe} onClick={() => {
+                        const currentVal = user.custom_role_id
+                          ? user.custom_role_id
+                          : user.role;
+                        setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: currentVal });
+                        setShowChangeRole(true);
+                      }} />
                     <ActionButton title="Notificações" icon={<Bell className="h-4 w-4" />} color="text-blue-600 dark:text-blue-400"
                       onClick={() => openNotifModal(user)} />
                     <ActionButton
@@ -736,15 +835,26 @@ const UserManagement = () => {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{changeRole.email}</p>
-                <div className="mt-0.5"><RoleBadge role={changeRole.currentRole} /></div>
+                <div className="mt-0.5"><RoleBadge role={changeRole.currentRole} customRoles={customRoles} /></div>
               </div>
             </div>
             <FormField label="Nova Função">
               <select value={changeRole.newRole} onChange={e => setChangeRole({ ...changeRole, newRole: e.target.value })} className={inputCls}>
-                <option value="inventory">Estoque</option>
-                <option value="management">Gerência</option>
-                <option value="sup-governanca">Sup. Governança</option>
-                <option value="admin">Administrador</option>
+                {/* Roles do sistema */}
+                <optgroup label="Funções do sistema">
+                  <option value="admin">Administrador</option>
+                  <option value="management">Gerência</option>
+                  <option value="inventory">Estoque</option>
+                  <option value="guest">Visitante</option>
+                </optgroup>
+                {/* Custom roles do banco */}
+                {customRoles.filter(r => !r.is_system).length > 0 && (
+                  <optgroup label="Funções personalizadas">
+                    {customRoles.filter(r => !r.is_system).map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </FormField>
             <ModalActions onCancel={() => setShowChangeRole(false)} submitLabel="Salvar função" submitting={changingRole} />
