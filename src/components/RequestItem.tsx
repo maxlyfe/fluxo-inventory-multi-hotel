@@ -1,6 +1,6 @@
 import React from 'react';
 import { Request } from '../pages/AdminPanel';
-import { Check, X, ArrowLeftRight, ImageIcon, Calendar, Clock } from 'lucide-react';
+import { Check, X, ArrowLeftRight, ImageIcon, Calendar, Clock, User } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -117,6 +117,12 @@ const RequestItem: React.FC<RequestItemProps> = ({
             {!isHistoryView && (
               <div className="flex items-center text-orange-600 dark:text-orange-400">
                 <Clock className="w-3 h-3 mr-1" /> Há {calculatePendingTime(request.created_at)}
+              </div>
+            )}
+            {(request.requester?.full_name || request.created_by) && (
+              <div className="flex items-center text-blue-500 dark:text-blue-400">
+                <User className="w-3 h-3 mr-1" />
+                {request.requester?.full_name || 'Usuário'}
               </div>
             )}
           </div>
