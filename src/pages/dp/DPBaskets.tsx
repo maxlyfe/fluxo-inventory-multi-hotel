@@ -170,22 +170,15 @@ const DPBaskets: React.FC = () => {
       }));
       setEmployees(normalized);
 
-      // Entradas da escala no mês de análise (faltas e atestados)
-      // Busca via schedule_entries → schedules (filtro por hotel + período)
-      const { data: schedData, error: schedErr } = await supabase
-        .from('schedules')
-        .select('id')
-        .eq('hotel_id', selectedHotel.id)
-        .gte('week_start', analysisStart)
-        .lte('week_start', analysisEnd);
-      if (schedErr) throw schedErr;
-
-      if (schedData && schedData.length > 0) {
-        const schedIds = schedData.map((s: any) => s.id);
+      // Entradas da escala — busca por employee_id diretamente
+      // Isso garante que faltas de hotel anterior também sejam consideradas
+      // após uma transferência de unidade.
+      const empIds = normalized.map((e: any) => e.id);
+      if (empIds.length > 0) {
         const { data: entData, error: entErr } = await supabase
           .from('schedule_entries')
           .select('employee_id, day_date, entry_type')
-          .in('schedule_id', schedIds)
+          .in('employee_id', empIds)
           .in('entry_type', ['falta', 'atestado'])
           .gte('day_date', analysisStart)
           .lte('day_date', analysisEnd);

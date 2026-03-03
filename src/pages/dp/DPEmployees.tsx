@@ -10,15 +10,9 @@ import {
   Users, Plus, Search, X, Loader2, AlertTriangle, ChevronDown,
   Building2, Phone, Calendar, Briefcase, UserCheck, UserX,
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { format, differenceInDays, isAfter } from 'date-fns';
-
-// Converte "YYYY-MM-DD" para Date LOCAL — evita bug de -1 dia por fuso UTC
-const parseLocalDate = (s: string): Date => {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(y, m - 1, d);
-};
-
 import { ptBR } from 'date-fns/locale';
 
 // ---------------------------------------------------------------------------
@@ -118,7 +112,7 @@ const EMPTY_FORM = {
 // ---------------------------------------------------------------------------
 function calcExperienceDates(admissionDate: string): { fase1: Date; fase2: Date } | null {
   if (!admissionDate) return null;
-  const base = parseLocalDate(admissionDate);
+  const base = new Date(admissionDate);
   const fase1 = new Date(base); fase1.setDate(fase1.getDate() + 30);
   const fase2 = new Date(base); fase2.setDate(fase2.getDate() + 90);
   return { fase1, fase2 };
@@ -170,7 +164,7 @@ function ContractBadge({ emp }: { emp: Employee }) {
 
   // Contrato com data fim explícita (determinado, estágio, temporário)
   if (emp.experience_end) {
-    const days = differenceInDays(parseLocalDate(emp.experience_end), new Date());
+    const days = differenceInDays(new Date(emp.experience_end), new Date());
     if (days < 0) return (
       <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
         <AlertCircle className="h-3 w-3" />Contrato vencido
@@ -188,7 +182,7 @@ function ContractBadge({ emp }: { emp: Employee }) {
     );
     return (
       <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
-        <CheckCircle className="h-3 w-3" />Até {format(parseLocalDate(emp.experience_end), 'dd/MM/yy')}
+        <CheckCircle className="h-3 w-3" />Até {format(new Date(emp.experience_end), 'dd/MM/yy')}
       </span>
     );
   }
@@ -223,6 +217,14 @@ export default function DPEmployees() {
   const [form, setForm]           = useState({ ...EMPTY_FORM, hotel_id: defaultHotelId });
   const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
+
+  // Transfer modal
+  const [transferEmp,    setTransferEmp]    = useState<Employee | null>(null);
+  const [transferHotel,  setTransferHotel]  = useState('');
+  const [transferDate,   setTransferDate]   = useState('');
+  const [transferReason, setTransferReason] = useState('');
+  const [transferSaving, setTransferSaving] = useState(false);
+  const [transferError,  setTransferError]  = useState('');
 
   // ---------------------------------------------------------------------------
   // Fetch
@@ -287,7 +289,7 @@ export default function DPEmployees() {
         return days2 >= 0 && days2 <= 30;
       }
       if (!e.experience_end) return false;
-      const days = differenceInDays(parseLocalDate(e.experience_end), new Date());
+      const days = differenceInDays(new Date(e.experience_end), new Date());
       return days >= 0 && days <= 30;
     }).length,
     expired: employees.filter(e => {
@@ -296,7 +298,7 @@ export default function DPEmployees() {
         return d ? isAfter(new Date(), d.fase2) : false;
       }
       if (!e.experience_end) return false;
-      return differenceInDays(parseLocalDate(e.experience_end), new Date()) < 0;
+      return differenceInDays(new Date(e.experience_end), new Date()) < 0;
     }).length,
   };
 
@@ -308,6 +310,49 @@ export default function DPEmployees() {
     setForm({ ...EMPTY_FORM, hotel_id: filterHotel || defaultHotelId });
     setFormError('');
     setShowForm(true);
+  };
+
+  const openTransfer = (emp: Employee) => {
+    setTransferEmp(emp);
+    setTransferHotel('');
+    setTransferDate(new Date().toISOString().slice(0, 10));
+    setTransferReason('');
+    setTransferError('');
+  };
+
+  const handleTransfer = async () => {
+    if (!transferEmp || !transferHotel || !transferDate) {
+      setTransferError('Selecione o hotel destino e a data.');
+      return;
+    }
+    if (transferHotel === transferEmp.hotel_id) {
+      setTransferError('Hotel destino é igual ao hotel atual.');
+      return;
+    }
+    setTransferSaving(true);
+    setTransferError('');
+    try {
+      const { error: histErr } = await supabase.from('employee_transfers').insert({
+        employee_id:   transferEmp.id,
+        from_hotel_id: transferEmp.hotel_id,
+        to_hotel_id:   transferHotel,
+        transfer_date: transferDate,
+        reason:        transferReason || null,
+        created_by:    user?.id,
+      });
+      if (histErr) throw histErr;
+      const { error: updErr } = await supabase
+        .from('employees')
+        .update({ hotel_id: transferHotel })
+        .eq('id', transferEmp.id);
+      if (updErr) throw updErr;
+      setTransferEmp(null);
+      await fetchEmployees();
+    } catch (err: any) {
+      setTransferError(err.message || 'Erro ao transferir colaborador.');
+    } finally {
+      setTransferSaving(false);
+    }
   };
 
   const openEdit = (emp: Employee) => {
@@ -565,10 +610,10 @@ export default function DPEmployees() {
                   <input type="date" value={form.experience_end} onChange={e => setForm(f => ({ ...f, experience_end: e.target.value }))}
                     className={inputCls} />
                   {form.experience_end && (() => {
-                    const days = differenceInDays(parseLocalDate(form.experience_end), new Date());
+                    const days = differenceInDays(new Date(form.experience_end), new Date());
                     return (
                       <p className={`text-xs mt-1.5 font-medium ${days < 0 ? 'text-red-500' : days <= 30 ? 'text-amber-500' : 'text-gray-400'}`}>
-                        {days < 0 ? `Vencido há ${Math.abs(days)} dias` : `Vence em ${days} dias — ${format(parseLocalDate(form.experience_end), 'dd/MM/yyyy')}`}
+                        {days < 0 ? `Vencido há ${Math.abs(days)} dias` : `Vence em ${days} dias — ${format(new Date(form.experience_end), 'dd/MM/yyyy')}`}
                       </p>
                     );
                   })()}
@@ -885,7 +930,7 @@ export default function DPEmployees() {
                   )}
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <Calendar className="h-3 w-3 flex-shrink-0" />
-                    <span>Desde {format(parseLocalDate(emp.admission_date), 'dd/MM/yyyy')}</span>
+                    <span>Desde {format(new Date(emp.admission_date), 'dd/MM/yyyy')}</span>
                   </div>
                   {emp.hotels && (
                     <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -912,10 +957,77 @@ export default function DPEmployees() {
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-colors">
                     <Edit2 className="h-3.5 w-3.5" />Editar
                   </button>
+                  <button onClick={() => openTransfer(emp)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-xl transition-colors">
+                    <ArrowRightLeft className="h-3.5 w-3.5" />Transferir
+                  </button>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+      {/* ── Modal de Transferência ─────────────────────────────────── */}
+      {transferEmp && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                  <ArrowRightLeft className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 dark:text-white">Transferir Colaborador</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{transferEmp.name}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Unidade atual</label>
+                <div className="px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-700 text-sm text-gray-600 dark:text-gray-300 border border-gray-100 dark:border-gray-600">
+                  {(transferEmp as any).hotel?.name || hotels.find(h => h.id === transferEmp.hotel_id)?.name || '—'}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Transferir para *</label>
+                <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
+                  className="w-full rounded-xl border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm">
+                  <option value="">Selecione a unidade destino...</option>
+                  {hotels.filter(h => h.id !== transferEmp.hotel_id).map(h => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Data da transferência *</label>
+                <input type="date" value={transferDate} onChange={e => setTransferDate(e.target.value)}
+                  className="w-full rounded-xl border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Motivo (opcional)</label>
+                <textarea value={transferReason} onChange={e => setTransferReason(e.target.value)}
+                  placeholder="Ex.: necessidade operacional, pedido do colaborador..."
+                  rows={2} className="w-full rounded-xl border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm resize-none" />
+              </div>
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-900/40 text-xs text-violet-700 dark:text-violet-300">
+                <ArrowRightLeft className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <p>O histórico de faltas, atestados, escala e uniformes <strong>permanece vinculado ao colaborador</strong> e segue visível na ficha independente da unidade.</p>
+              </div>
+              {transferError && <p className="text-sm text-red-600 dark:text-red-400 font-medium">{transferError}</p>}
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              <button onClick={() => setTransferEmp(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                Cancelar
+              </button>
+              <button onClick={handleTransfer} disabled={transferSaving || !transferHotel || !transferDate}
+                className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {transferSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
+                {transferSaving ? 'Transferindo...' : 'Confirmar transferência'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
