@@ -1,392 +1,633 @@
+// src/components/reports/ExpensesGuestReport.tsx
+// Relatório flexível de Despesas por Hóspede.
+// Suporta categorias e fornecedores dinâmicos por hotel.
+// Gráfico scrollável com vista por Categoria ou por Fornecedor.
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useTheme } from '../../context/ThemeContext';
-import { 
-  Calendar, ChevronDown, Users, DollarSign, Save, Loader2, BarChartHorizontal, Apple, Shirt, Sandwich, Info, AlertCircle, ChevronLeft, ChevronRight
+import {
+  Calendar, ChevronDown, Users, Save, Loader2,
+  BarChartHorizontal, AlertCircle, ChevronLeft, ChevronRight,
+  Settings, LayoutList, Tag,
 } from 'lucide-react';
-import { format, getYear, getMonth, startOfMonth, endOfYear, eachMonthOfInterval, startOfYear, setMonth, addYears, subYears, subMonths } from 'date-fns';
+import {
+  format, getYear, getMonth, startOfMonth, endOfYear,
+  eachMonthOfInterval, startOfYear, addYears, subYears,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { 
-    getExpensesAndGuestsForYear, 
-    saveMonthlyData
+import {
+  getCategoriesForHotel,
+  getSuppliersForHotel,
+  getGuestsForRange,
+  getEntriesForRange,
+  saveGuestCount,
+  upsertEntriesBatch,
+  type ExpenseCategory,
+  type ExpenseSupplier,
+  type SupplierEntry,
+  type GuestCount,
 } from '../../lib/expensesReportService';
-import type { MonthlyExpense, GuestCount } from '../../lib/expensesReportService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, LabelProps } from 'recharts';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
+import ExpensesSettings from './ExpensesSettings';
 
-// --- Tipos e Constantes ---
-type CategoryKey = 'HORTIFRUTI' | 'LAVANDERIA' | 'PADARIA';
+// ── Constantes ────────────────────────────────────────────────────────────────
+const MONTH_WIDTH     = 96;
+const CHART_HEIGHT    = 320;
+const Y_AXIS_WIDTH    = 82;
+const DATA_START_YEAR = 2024;
 
-interface MonthlyData {
-  month: Date;
-  guests: { first_fortnight: number; second_fortnight: number };
-  expenses: { [key in CategoryKey]: { first_fortnight: number; second_fortnight: number } };
-}
+const SUPPLIER_COLORS = [
+  '#6366f1','#f97316','#06b6d4','#ec4899','#14b8a6',
+  '#8b5cf6','#f43f5e','#84cc16','#0ea5e9','#d97706',
+];
 
-const CATEGORY_DETAILS: { [key in CategoryKey]: { name: string, color: string, icon: React.ElementType, lightStroke: string, darkStroke: string } } = {
-  HORTIFRUTI: { name: "Hortifruti", color: "text-green-500", icon: Apple, lightStroke: "#22c55e", darkStroke: "#4ade80" },
-  LAVANDERIA: { name: "Lavanderia", color: "text-blue-500", icon: Shirt, lightStroke: "#3b82f6", darkStroke: "#60a5fa" },
-  PADARIA: { name: "Padaria", color: "text-yellow-500", icon: Sandwich, lightStroke: "#eab308", darkStroke: "#facc15" },
-};
+type ChartView = 'category' | 'supplier';
 
-const initialExpenses = {
-    HORTIFRUTI: { first_fortnight: 0, second_fortnight: 0 },
-    LAVANDERIA: { first_fortnight: 0, second_fortnight: 0 },
-    PADARIA: { first_fortnight: 0, second_fortnight: 0 },
-};
+// ── Gráfico Scrollável ────────────────────────────────────────────────────────
+interface ChartLine { key: string; name: string; color: string; dashed?: boolean }
+interface ChartProps { data: any[]; lines: ChartLine[]; theme: string }
 
-// --- Componente do Gráfico (ExpensesChart) — scrollável, sem limite de tempo ---
-const MONTH_WIDTH = 96; // px por mês no gráfico
-const CHART_HEIGHT = 320;
-const Y_AXIS_WIDTH = 80;
+const ScrollableChart: React.FC<ChartProps> = ({ data, lines, theme }) => {
+  const scrollRef   = useRef<HTMLDivElement>(null);
+  const isDragging  = useRef(false);
+  const dragStartX  = useRef(0);
+  const scrollStart = useRef(0);
 
-const ExpensesChart = ({ chartData }: { chartData: any[] }) => {
-    const { theme } = useTheme();
-    const scrollRef  = useRef<HTMLDivElement>(null);
-    const isDragging = useRef(false);
-    const dragStartX = useRef(0);
-    const scrollStartX = useRef(0);
+  // Auto-scroll para o mês mais recente
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  }, [data]);
 
-    // Auto-scroll para o mês mais recente ao montar ou atualizar dados
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
-        }
-    }, [chartData]);
+  const onMouseDown = (e: React.MouseEvent) => {
+    isDragging.current  = true;
+    dragStartX.current  = e.clientX;
+    scrollStart.current = scrollRef.current?.scrollLeft ?? 0;
+    if (scrollRef.current) scrollRef.current.style.cursor = 'grabbing';
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current || !scrollRef.current) return;
+    e.preventDefault();
+    scrollRef.current.scrollLeft = scrollStart.current + (dragStartX.current - e.clientX);
+  };
+  const onMouseUp = () => {
+    isDragging.current = false;
+    if (scrollRef.current) scrollRef.current.style.cursor = 'grab';
+  };
 
-    // ── Drag-to-scroll (mouse) ────────────────────────────────────────────
-    const onMouseDown = (e: React.MouseEvent) => {
-        isDragging.current  = true;
-        dragStartX.current  = e.clientX;
-        scrollStartX.current = scrollRef.current?.scrollLeft ?? 0;
-        if (scrollRef.current) scrollRef.current.style.cursor = 'grabbing';
-    };
-    const onMouseMove = (e: React.MouseEvent) => {
-        if (!isDragging.current || !scrollRef.current) return;
-        e.preventDefault();
-        const delta = dragStartX.current - e.clientX;
-        scrollRef.current.scrollLeft = scrollStartX.current + delta;
-    };
-    const onMouseUp = () => {
-        isDragging.current = false;
-        if (scrollRef.current) scrollRef.current.style.cursor = 'grab';
-    };
+  const chartWidth = Math.max(data.length * MONTH_WIDTH, 600);
+  const gridColor  = theme === 'dark' ? '#4b5563' : '#e5e7eb';
+  const tickColor  = theme === 'dark' ? '#9ca3af' : '#6b7281';
 
-    // Largura total do gráfico = meses × largura por mês
-    const chartWidth = Math.max(chartData.length * MONTH_WIDTH, 600);
+  return (
+    <div className="relative">
+      <div className="flex">
 
-    return (
-        <div className="relative">
-            {/* Eixo Y fixo à esquerda */}
-            <div className="flex">
-                <div style={{ width: Y_AXIS_WIDTH, flexShrink: 0 }}>
-                    <ResponsiveContainer width={Y_AXIS_WIDTH} height={CHART_HEIGHT}>
-                        <LineChart
-                            data={chartData}
-                            margin={{ top: 20, right: 0, left: 10, bottom: 5 }}
-                        >
-                            <YAxis
-                                tickFormatter={(v) => `R$${v < 1000 ? v.toFixed(0) : (v/1000).toFixed(1)+'k'}`}
-                                domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.3)]}
-                                tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7281', fontSize: 11 }}
-                                width={Y_AXIS_WIDTH - 4}
-                            />
-                            {/* Linhas invisíveis para manter a escala igual */}
-                            {Object.keys(CATEGORY_DETAILS).map(key => (
-                                <Line key={key} dataKey={`results.${key}`} stroke="transparent" dot={false} />
-                            ))}
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* Área scrollável do gráfico */}
-                <div
-                    ref={scrollRef}
-                    className="overflow-x-auto flex-1 select-none"
-                    style={{ scrollBehavior: 'auto', cursor: 'grab' }}
-                    onMouseDown={onMouseDown}
-                    onMouseMove={onMouseMove}
-                    onMouseUp={onMouseUp}
-                    onMouseLeave={onMouseUp}
-                >
-                    <div style={{ width: chartWidth }}>
-                        <LineChart
-                            width={chartWidth}
-                            height={CHART_HEIGHT}
-                            data={chartData}
-                            margin={{ top: 20, right: 32, left: 0, bottom: 5 }}
-                        >
-                            <CartesianGrid
-                                strokeDasharray="3 3"
-                                stroke={theme === 'dark' ? '#4b5563' : '#e5e7eb'}
-                                strokeOpacity={0.5}
-                            />
-                            <XAxis
-                                dataKey="month"
-                                tickFormatter={(tick) => format(new Date(tick), 'MMM/yy', { locale: ptBR })}
-                                tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7281', fontSize: 12 }}
-                                interval={0}
-                                tickLine={false}
-                            />
-                            {/* YAxis oculto — só para alinhar a grade com o eixo fixo */}
-                            <YAxis
-                                domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.3)]}
-                                hide
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
-                                    borderColor: theme === 'dark' ? '#4b5563' : '#e5e7eb',
-                                    borderRadius: '12px',
-                                    fontSize: 13,
-                                }}
-                                formatter={(value: number) =>
-                                    value === null || value === undefined
-                                        ? ['Sem dados', '']
-                                        : [`R$ ${value.toFixed(2).replace('.', ',')}`, 'Gasto / Hóspede']
-                                }
-                                labelFormatter={(label) =>
-                                    format(new Date(label), 'MMMM yyyy', { locale: ptBR })
-                                }
-                            />
-                            <Legend wrapperStyle={{ paddingTop: 8 }} />
-                            {Object.keys(CATEGORY_DETAILS).map(key => {
-                                const catKey = key as CategoryKey;
-                                const details = CATEGORY_DETAILS[catKey];
-                                return (
-                                    <Line
-                                        key={catKey}
-                                        type="monotone"
-                                        dataKey={`results.${catKey}`}
-                                        name={details.name}
-                                        stroke={theme === 'dark' ? details.darkStroke : details.lightStroke}
-                                        strokeWidth={2.5}
-                                        dot={{ r: 4, strokeWidth: 2 }}
-                                        activeDot={{ r: 7 }}
-                                        connectNulls={false}
-                                    />
-                                );
-                            })}
-                        </LineChart>
-                    </div>
-                </div>
-            </div>
-
-            {/* Dica de arrastar */}
-            {chartData.length > 8 && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 text-right mt-1 pr-2 select-none pointer-events-none">
-                    clique e arraste para navegar ✦
-                </p>
-            )}
+        {/* Eixo Y fixo à esquerda */}
+        <div style={{ width: Y_AXIS_WIDTH, flexShrink: 0 }}>
+          <ResponsiveContainer width={Y_AXIS_WIDTH} height={CHART_HEIGHT}>
+            <LineChart data={data} margin={{ top: 20, right: 0, left: 8, bottom: 5 }}>
+              <YAxis
+                tickFormatter={v => `R$${v < 1000 ? v.toFixed(0) : (v / 1000).toFixed(1) + 'k'}`}
+                domain={[0, (max: number) => Math.ceil(max * 1.3 || 10)]}
+                tick={{ fill: tickColor, fontSize: 11 }}
+                width={Y_AXIS_WIDTH - 4}
+              />
+              {lines.map(l => (
+                <Line key={l.key} dataKey={l.key} stroke="transparent" dot={false} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
         </div>
-    );
+
+        {/* Área scrollável — drag para navegar */}
+        <div
+          ref={scrollRef}
+          className="overflow-x-auto flex-1 select-none"
+          style={{ scrollBehavior: 'auto', cursor: 'grab' }}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+        >
+          <div style={{ width: chartWidth }}>
+            <LineChart
+              width={chartWidth}
+              height={CHART_HEIGHT}
+              data={data}
+              margin={{ top: 20, right: 32, left: 0, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} strokeOpacity={0.5} />
+              <XAxis
+                dataKey="month"
+                tickFormatter={tick => format(new Date(tick), 'MMM/yy', { locale: ptBR })}
+                tick={{ fill: tickColor, fontSize: 12 }}
+                interval={0}
+                tickLine={false}
+              />
+              <YAxis domain={[0, (max: number) => Math.ceil(max * 1.3 || 10)]} hide />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: theme === 'dark' ? '#1f2937' : '#fff',
+                  borderColor:     theme === 'dark' ? '#4b5563' : '#e5e7eb',
+                  borderRadius: 12, fontSize: 13,
+                }}
+                formatter={(v: number, name: string) =>
+                  v == null ? ['Sem dados', name] : [`R$ ${v.toFixed(2).replace('.', ',')}`, name]
+                }
+                labelFormatter={label => format(new Date(label), 'MMMM yyyy', { locale: ptBR })}
+              />
+              <Legend wrapperStyle={{ paddingTop: 8 }} />
+              {lines.map(l => (
+                <Line
+                  key={l.key}
+                  type="monotone"
+                  dataKey={l.key}
+                  name={l.name}
+                  stroke={l.color}
+                  strokeWidth={2.5}
+                  strokeDasharray={l.dashed ? '5 4' : undefined}
+                  dot={{ r: 4, strokeWidth: 2 }}
+                  activeDot={{ r: 7 }}
+                  connectNulls={false}
+                />
+              ))}
+            </LineChart>
+          </div>
+        </div>
+      </div>
+
+      {data.length > 8 && (
+        <p className="text-xs text-gray-400 dark:text-gray-500 text-right mt-1 pr-2 select-none pointer-events-none">
+          clique e arraste para navegar ✦
+        </p>
+      )}
+    </div>
+  );
 };
 
-
-// --- Componente Principal ---
-const ExpensesGuestReport = () => {
-  const { selectedHotel } = useHotel();
+// ── Componente Principal ──────────────────────────────────────────────────────
+const ExpensesGuestReport: React.FC = () => {
+  const { selectedHotel }  = useHotel();
   const { addNotification } = useNotification();
-  const [currentYear, setCurrentYear] = useState(new Date());
-  const [currentMonth, setCurrentMonth] = useState(startOfMonth(new Date()));
-  const [historicalData, setHistoricalData] = useState<MonthlyData[]>([]);
-  const [selectedMonthData, setSelectedMonthData] = useState<MonthlyData | null>(null);
-  
-  const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { theme }           = useTheme();
 
+  // Seleção de mês para lançamento
+  const [currentMonth,      setCurrentMonth]      = useState(startOfMonth(new Date()));
+  const [currentYear,       setCurrentYear]       = useState(new Date());
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const monthPickerRef = useRef<HTMLDivElement>(null);
 
-  // Busca TODOS os anos desde DATA_INICIO até o ano atual, sem limite de tempo.
-  // Isso permite que o gráfico mostre uma linha contínua e scrollável.
-  const DATA_START_YEAR = 2024;
+  // Dados
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [suppliers,  setSuppliers]  = useState<ExpenseSupplier[]>([]);
+  const [allEntries, setAllEntries] = useState<SupplierEntry[]>([]);
+  const [allGuests,  setAllGuests]  = useState<GuestCount[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
 
-  const fetchAllData = useCallback(async () => {
-    if (!selectedHotel) return;
-    setLoading(true);
-    setError(null);
+  // UI
+  const [chartView,    setChartView]    = useState<ChartView>('category');
+  const [showSettings, setShowSettings] = useState(false);
 
-    const currentYearNum = getYear(new Date());
-    const allGuests: any[]  = [];
-    const allExpenses: any[] = [];
+  // Formulário do mês
+  const [formGuests,  setFormGuests]  = useState({ first: 0, second: 0 });
+  const [formEntries, setFormEntries] = useState<Record<string, { first: number; second: number }>>({});
 
-    // Busca ano a ano do início até o ano atual
-    for (let y = DATA_START_YEAR; y <= currentYearNum; y++) {
-      const yearDate = new Date(y, 0, 1);
-      const { guestData, expenseData, error: fetchError } = await getExpensesAndGuestsForYear(selectedHotel.id, yearDate);
-      if (fetchError) {
-        setError(fetchError.message);
-        addNotification(`Erro ao carregar dados: ${fetchError.message}`, 'error');
-        setLoading(false);
-        return;
-      }
-      allGuests.push(...(guestData || []));
-      allExpenses.push(...(expenseData || []));
-    }
-
-    // Monta intervalo completo de meses
-    const startDate = new Date(DATA_START_YEAR, 0, 1);
-    const endDate   = endOfYear(new Date());
-    const allMonths = eachMonthOfInterval({ start: startDate, end: endDate });
-
-    const guestMap = new Map(allGuests.map(g => [
-      format(new Date(g.month_date + 'T12:00:00'), 'yyyy-MM'), g
-    ]));
-    const expenseMap = new Map<string, MonthlyExpense[]>();
-    allExpenses.forEach(e => {
-      const key = format(new Date(e.month_date + 'T12:00:00'), 'yyyy-MM');
-      if (!expenseMap.has(key)) expenseMap.set(key, []);
-      expenseMap.get(key)!.push(e);
-    });
-
-    const formattedData: MonthlyData[] = allMonths.map(monthDate => {
-      const key = format(monthDate, 'yyyy-MM');
-      const guestRecord   = guestMap.get(key);
-      const expenseRecords = expenseMap.get(key);
-      const expenses: MonthlyData['expenses'] = JSON.parse(JSON.stringify(initialExpenses));
-      expenseRecords?.forEach(rec => {
-        const category = rec.expense_category as CategoryKey;
-        if (category in expenses) {
-          expenses[category] = {
-            first_fortnight:  Number(rec.first_fortnight_expense),
-            second_fortnight: Number(rec.second_fortnight_expense),
-          };
-        }
-      });
-      return {
-        month: monthDate,
-        guests: {
-          first_fortnight:  Number(guestRecord?.first_fortnight_guests  || 0),
-          second_fortnight: Number(guestRecord?.second_fortnight_guests || 0),
-        },
-        expenses,
-      };
-    });
-
-    setHistoricalData(formattedData);
-    setLoading(false);
-  }, [selectedHotel, addNotification]);
-
-  // Recarrega sempre que o hotel mudar
+  // ── Fechar picker ao clicar fora ─────────────────────────────────────────
   useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
-
-  useEffect(() => {
-    const dataForMonth = historicalData.find(d => getMonth(d.month) === getMonth(currentMonth) && getYear(d.month) === getYear(currentMonth));
-    setSelectedMonthData(dataForMonth || null);
-  }, [currentMonth, historicalData]);
-  
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (monthPickerRef.current && !monthPickerRef.current.contains(event.target as Node)) {
+    const handler = (e: MouseEvent) => {
+      if (monthPickerRef.current && !monthPickerRef.current.contains(e.target as Node))
         setIsMonthPickerOpen(false);
-      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const chartData = useMemo(() => {
-    const dataWithTotals = historicalData.map(data => {
-        const totalGuests = Number(data.guests.first_fortnight) + Number(data.guests.second_fortnight);
-        const totalHortifruti = Number(data.expenses.HORTIFRUTI.first_fortnight) + Number(data.expenses.HORTIFRUTI.second_fortnight);
-        const totalLavanderia = Number(data.expenses.LAVANDERIA.first_fortnight) + Number(data.expenses.LAVANDERIA.second_fortnight);
-        const totalPadaria = Number(data.expenses.PADARIA.first_fortnight) + Number(data.expenses.PADARIA.second_fortnight);
-        
-        const hasData = totalGuests > 0 || totalHortifruti > 0 || totalLavanderia > 0 || totalPadaria > 0;
+  // ── Carregar meta (categorias + fornecedores) ─────────────────────────────
+  const loadMeta = useCallback(async () => {
+    if (!selectedHotel?.id) return;
+    const [catRes, suppRes] = await Promise.all([
+      getCategoriesForHotel(selectedHotel.id),
+      getSuppliersForHotel(selectedHotel.id),
+    ]);
+    if (catRes.error)  { addNotification('Erro ao carregar categorias.', 'error'); return; }
+    if (suppRes.error) { addNotification('Erro ao carregar fornecedores.', 'error'); return; }
+    setCategories(catRes.data  || []);
+    setSuppliers(suppRes.data  || []);
+  }, [selectedHotel, addNotification]);
 
-        return { 
-            month: data.month, 
-            results: {
-              HORTIFRUTI: hasData ? (totalGuests > 0 ? totalHortifruti / totalGuests : 0) : null,
-              LAVANDERIA: hasData ? (totalGuests > 0 ? totalLavanderia / totalGuests : 0) : null,
-              PADARIA: hasData ? (totalGuests > 0 ? totalPadaria / totalGuests : 0) : null,
-            }
-        };
-    });
-    return dataWithTotals;
-  }, [historicalData]);
-  
-  const handleDataChange = (category: 'guests' | CategoryKey, fortnight: 'first' | 'second', value: string) => {
-    if (!selectedMonthData) return;
-    const numericValue = value === '' ? 0 : parseFloat(value);
-    setSelectedMonthData(prev => {
-        if(!prev) return null;
-        const newData = JSON.parse(JSON.stringify(prev));
-        if (category === 'guests') newData.guests[`${fortnight}_fortnight`] = numericValue;
-        else newData.expenses[category][`${fortnight}_fortnight`] = numericValue;
-        return newData;
-    });
-  };
-  
-  const handleSave = async () => {
-    if (!selectedHotel || !selectedMonthData) return;
-    setIsSaving(true);
-    const { error: saveError } = await saveMonthlyData( selectedHotel.id, format(selectedMonthData.month, 'yyyy-MM-01'), { first_fortnight_guests: selectedMonthData.guests.first_fortnight, second_fortnight_guests: selectedMonthData.guests.second_fortnight }, Object.entries(selectedMonthData.expenses).map(([category, values]) => ({ expense_category: category, first_fortnight_expense: values.first_fortnight, second_fortnight_expense: values.second_fortnight })) );
-    if (saveError) { addNotification(`Erro ao salvar dados: ${saveError.message}`, 'error'); } 
-    else { 
-        addNotification("Dados do mês salvos com sucesso!", 'success'); 
-        setHistoricalData(prev => prev.map(d => 
-            getMonth(d.month) === getMonth(selectedMonthData.month) && getYear(d.month) === getYear(selectedMonthData.month)
-            ? selectedMonthData
-            : d
-        ));
+  // ── Carregar séries históricas (todos os anos desde DATA_START_YEAR) ──────
+  const loadSeries = useCallback(async () => {
+    if (!selectedHotel?.id) return;
+    setLoading(true);
+    setError(null);
+    const nowYear = getYear(new Date());
+    const gAcc: GuestCount[]    = [];
+    const eAcc: SupplierEntry[] = [];
+
+    for (let y = DATA_START_YEAR; y <= nowYear; y++) {
+      const start = `${y}-01-01`;
+      const end   = `${y}-12-01`;
+      const [gRes, eRes] = await Promise.all([
+        getGuestsForRange(selectedHotel.id, start, end),
+        getEntriesForRange(selectedHotel.id, start, end),
+      ]);
+      if (gRes.error || eRes.error) { setError('Erro ao carregar histórico.'); setLoading(false); return; }
+      gAcc.push(...(gRes.data || []));
+      eAcc.push(...(eRes.data || []));
     }
-    setIsSaving(false);
+    setAllGuests(gAcc);
+    setAllEntries(eAcc);
+    setLoading(false);
+  }, [selectedHotel]);
+
+  useEffect(() => { loadMeta(); loadSeries(); }, [loadMeta, loadSeries]);
+
+  // ── Sincronizar formulário ao mudar de mês ────────────────────────────────
+  useEffect(() => {
+    const key = format(currentMonth, 'yyyy-MM');
+    const gc  = allGuests.find(g => g.month_date.slice(0, 7) === key);
+    setFormGuests({
+      first:  gc?.first_fortnight_guests  ?? 0,
+      second: gc?.second_fortnight_guests ?? 0,
+    });
+    const init: Record<string, { first: number; second: number }> = {};
+    suppliers.forEach(s => {
+      const entry = allEntries.find(e => e.supplier_id === s.id && e.month_date.slice(0, 7) === key);
+      init[s.id] = { first: entry?.first_fortnight_value ?? 0, second: entry?.second_fortnight_value ?? 0 };
+    });
+    setFormEntries(init);
+  }, [currentMonth, allGuests, allEntries, suppliers]);
+
+  // ── Salvar mês ────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!selectedHotel?.id) return;
+    setSaving(true);
+    const monthStr = format(currentMonth, 'yyyy-MM-01');
+
+    const { error: gErr } = await saveGuestCount(
+      selectedHotel.id, monthStr, formGuests.first, formGuests.second,
+    );
+
+    const entries: SupplierEntry[] = suppliers.map(s => ({
+      supplier_id:             s.id,
+      hotel_id:                selectedHotel.id,
+      month_date:              monthStr,
+      first_fortnight_value:   formEntries[s.id]?.first  ?? 0,
+      second_fortnight_value:  formEntries[s.id]?.second ?? 0,
+    }));
+    const { error: eErr } = await upsertEntriesBatch(entries);
+
+    if (gErr || eErr) {
+      addNotification('Erro ao salvar dados.', 'error');
+    } else {
+      addNotification('Dados salvos com sucesso!', 'success');
+      await loadSeries();
+    }
+    setSaving(false);
   };
-  
-  const MonthlySummary = ({ data }: { data: MonthlyData }) => {
-    const totalGuests = Number(data.guests.first_fortnight) + Number(data.guests.second_fortnight);
-    const expenseTotals = useMemo(() => {
-        let totals = {} as {[key in CategoryKey]: number};
-        const categoryKeys: CategoryKey[] = ['HORTIFRUTI', 'LAVANDERIA', 'PADARIA'];
-        categoryKeys.forEach(catKey => {
-            totals[catKey] = Number(data.expenses[catKey].first_fortnight) + Number(data.expenses[catKey].second_fortnight);
-        });
-        return totals;
-    }, [data.expenses]);
 
-    return ( <div className="mt-6"> <h4 className="font-bold text-lg mb-3 text-gray-800 dark:text-gray-100">Resumo do Mês</h4> <div className="grid grid-cols-2 md:grid-cols-4 gap-4"> <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow text-center"> <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Hóspedes</p> <p className="text-2xl font-bold text-blue-500">{totalGuests}</p> </div> {Object.keys(expenseTotals).map(key => { const catKey = key as CategoryKey; const details = CATEGORY_DETAILS[catKey]; return ( <div key={catKey} className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow text-center"> <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total {details.name}</p> <p className={`text-2xl font-bold ${details.color}`}>{expenseTotals[catKey].toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p> </div> ) })} </div> </div> )
-  }
+  // ── Dados do gráfico ──────────────────────────────────────────────────────
+  const allMonths = useMemo(() => eachMonthOfInterval({
+    start: new Date(DATA_START_YEAR, 0, 1),
+    end:   endOfYear(new Date()),
+  }), []);
 
-  if (loading) return <div className="text-center p-8"><Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin" /></div>;
-  if (error) return <div className="p-8 text-center bg-red-50 dark:bg-red-900/20 rounded-lg text-red-600 dark:text-red-300"><AlertCircle className="w-8 h-8 mx-auto mb-2" /><p>Erro ao carregar dados: {error}</p></div>;
+  const guestTotals = useMemo(() => {
+    const m = new Map<string, number>();
+    allGuests.forEach(g => {
+      m.set(g.month_date.slice(0, 7),
+        (g.first_fortnight_guests ?? 0) + (g.second_fortnight_guests ?? 0));
+    });
+    return m;
+  }, [allGuests]);
 
-  return ( <div className="space-y-8"> <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700"> <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-6 flex items-center gap-2"> <BarChartHorizontal className="w-6 h-6 text-indigo-500" /> Linha do Tempo: Gasto por Hóspede (R$) </h3> <ExpensesChart chartData={chartData} /> </div> <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700"> <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6"> <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2"> <Calendar className="w-6 h-6 text-indigo-500" /> Controle do Mês </h3> 
-  
-  <div className="relative" ref={monthPickerRef}>
-    <button onClick={() => setIsMonthPickerOpen(!isMonthPickerOpen)} className="flex items-center justify-center space-x-2 bg-gray-100 dark:bg-gray-900/50 p-2 rounded-full w-48">
-        <span className="font-semibold text-lg text-gray-800 dark:text-white">
-            {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
-        </span>
-        <ChevronDown className={`w-5 h-5 text-gray-600 dark:text-gray-300 transition-transform ${isMonthPickerOpen ? 'rotate-180' : ''}`} />
-    </button>
-    {isMonthPickerOpen && (
-        <div className="absolute top-full mt-2 w-56 bg-white dark:bg-gray-700 rounded-lg shadow-xl border dark:border-gray-600 z-10 p-2">
-            <div className="flex justify-between items-center mb-2">
-                <button onClick={() => setCurrentYear(subYears(currentYear, 1))} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><ChevronLeft className="w-4 h-4"/></button>
-                <span className="font-semibold text-gray-800 dark:text-white">{getYear(currentYear)}</span>
-                <button onClick={() => setCurrentYear(addYears(currentYear, 1))} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><ChevronRight className="w-4 h-4"/></button>
-            </div>
-            <div className="grid grid-cols-3 gap-1">
-                {eachMonthOfInterval({ start: startOfYear(currentYear), end: endOfYear(currentYear) }).map(month => (
-                    <button 
-                        key={month.toString()}
-                        onClick={() => { setCurrentMonth(month); setIsMonthPickerOpen(false); }}
-                        className={`p-2 text-sm rounded-md text-center ${getMonth(month) === getMonth(currentMonth) && getYear(month) === getYear(currentYear) ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200'}`}
-                    >
-                        {format(month, 'MMM', { locale: ptBR })}
-                    </button>
-                ))}
-            </div>
+  const isVisibleOn = (hiddenFrom: string | null, monthDate: Date) =>
+    !hiddenFrom || monthDate < new Date(hiddenFrom + 'T12:00:00');
+
+  const chartData = useMemo(() => allMonths.map(m => {
+    const key    = format(m, 'yyyy-MM');
+    const guests = guestTotals.get(key) ?? 0;
+    const point: Record<string, any> = { month: m.toISOString() };
+
+    if (chartView === 'category') {
+      categories.forEach(cat => {
+        const catSups  = suppliers.filter(s => s.category_id === cat.id && isVisibleOn(s.hidden_from, m));
+        const catTotal = catSups.reduce((acc, s) => {
+          const e = allEntries.find(e => e.supplier_id === s.id && e.month_date.slice(0, 7) === key);
+          return acc + ((e?.first_fortnight_value ?? 0) + (e?.second_fortnight_value ?? 0));
+        }, 0);
+        point[`cat_${cat.id}`] = guests > 0 && catTotal > 0
+          ? parseFloat((catTotal / guests).toFixed(4)) : null;
+      });
+    } else {
+      suppliers.forEach(s => {
+        const e     = allEntries.find(e => e.supplier_id === s.id && e.month_date.slice(0, 7) === key);
+        const total = (e?.first_fortnight_value ?? 0) + (e?.second_fortnight_value ?? 0);
+        point[`sup_${s.id}`] = guests > 0 && total > 0
+          ? parseFloat((total / guests).toFixed(4)) : null;
+      });
+    }
+    return point;
+  }), [allMonths, guestTotals, categories, suppliers, allEntries, chartView]);
+
+  const chartLines: ChartLine[] = useMemo(() => {
+    if (chartView === 'category') {
+      return categories.map(c => ({ key: `cat_${c.id}`, name: c.name, color: c.color_hex }));
+    }
+    return suppliers.map((s, i) => {
+      const cat = categories.find(c => c.id === s.category_id);
+      return {
+        key:    `sup_${s.id}`,
+        name:   `${cat?.name ?? ''} · ${s.name}`,
+        color:  cat?.color_hex ?? SUPPLIER_COLORS[i % SUPPLIER_COLORS.length],
+        dashed: !!s.hidden_from,
+      };
+    });
+  }, [chartView, categories, suppliers]);
+
+  // ── Categorias e fornecedores visíveis no mês selecionado ────────────────
+  const visibleCategories = useMemo(() =>
+    categories.filter(c => isVisibleOn(c.hidden_from ?? null, currentMonth)),
+  [categories, currentMonth]);
+
+  const visibleSuppliersFor = (catId: string) =>
+    suppliers.filter(s => s.category_id === catId && isVisibleOn(s.hidden_from, currentMonth));
+
+  // ── Estados de loading / error ────────────────────────────────────────────
+  if (loading) return (
+    <div className="flex justify-center py-16">
+      <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+    </div>
+  );
+  if (error) return (
+    <div className="p-8 text-center bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-300">
+      <AlertCircle className="w-8 h-8 mx-auto mb-2" /><p>{error}</p>
+    </div>
+  );
+
+  // ── Render principal ──────────────────────────────────────────────────────
+  return (
+    <div className="space-y-8">
+
+      {/* ════════════════════════════════════════════════════════════════════
+          BLOCO 1 — Gráfico de Linha do Tempo
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+          <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+            <BarChartHorizontal className="w-6 h-6 text-indigo-500" />
+            Linha do Tempo: Gasto por Hóspede (R$)
+          </h3>
+
+          {/* Toggle Por Categoria / Por Fornecedor */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
+            <button
+              onClick={() => setChartView('category')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                chartView === 'category'
+                  ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <Tag className="w-3.5 h-3.5" /> Por Categoria
+            </button>
+            <button
+              onClick={() => setChartView('supplier')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                chartView === 'supplier'
+                  ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <LayoutList className="w-3.5 h-3.5" /> Por Fornecedor
+            </button>
+          </div>
         </div>
-    )}
-  </div>
 
-  </div> {!selectedMonthData ? ( <div className="text-center py-10 text-gray-500 dark:text-gray-400"> <p>Selecione um mês para ver ou editar os dados.</p> </div> ) : ( <div className="space-y-6"> <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"> <div className="lg:col-span-1 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-700"> <h4 className="font-bold text-lg mb-4 flex items-center gap-2 text-gray-800 dark:text-gray-100"> <Users className="w-6 h-6 text-blue-500"/> Hóspedes </h4> <div className="space-y-4"> <div> <label className="text-sm font-medium text-gray-600 dark:text-gray-300">1ª Quinzena</label> <input type="number" value={selectedMonthData.guests.first_fortnight} onChange={e => handleDataChange('guests', 'first', e.target.value)} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white dark:border-gray-600" /> </div> <div> <label className="text-sm font-medium text-gray-600 dark:text-gray-300">2ª Quinzena</label> <input type="number" value={selectedMonthData.guests.second_fortnight} onChange={e => handleDataChange('guests', 'second', e.target.value)} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white dark:border-gray-600" /> </div> </div> </div> <div className="lg:col-span-2 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-700"> <h4 className="font-bold text-lg mb-4 flex items-center gap-2 text-gray-800 dark:text-gray-100"> <DollarSign className="w-6 h-6 text-green-500"/> Despesas (R$) </h4> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> {Object.keys(CATEGORY_DETAILS).map(key => { const catKey = key as CategoryKey; const details = CATEGORY_DETAILS[catKey]; const Icon = details.icon; return ( <div key={catKey} className="space-y-2"> <label className={`font-semibold flex items-center gap-2 text-gray-700 dark:text-gray-200`}> <Icon className={`w-5 h-5 ${details.color}`}/> {details.name} </label> <input type="number" value={selectedMonthData.expenses[catKey].first_fortnight} onChange={e => handleDataChange(catKey, 'first', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white dark:border-gray-600" placeholder="1ª Quinzena" /> <input type="number" value={selectedMonthData.expenses[catKey].second_fortnight} onChange={e => handleDataChange(catKey, 'second', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white dark:border-gray-600" placeholder="2ª Quinzena" /> </div> ) })} </div> </div> </div> <MonthlySummary data={selectedMonthData} /> <div className="flex justify-end pt-4"> <button onClick={handleSave} disabled={isSaving} className="flex items-center justify-center px-6 py-3 text-white font-semibold rounded-lg shadow-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-green-600 hover:bg-green-700"> {isSaving ? <Loader2 className="animate-spin w-5 h-5 mr-2" /> : <Save className="w-5 h-5 mr-2" />} Salvar Alterações do Mês </button> </div> </div> )} </div> </div> );
+        {chartLines.length === 0 ? (
+          <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
+            <BarChartHorizontal className="w-10 h-10 opacity-30" />
+            <p className="text-sm">Configure categorias e fornecedores para ver o gráfico.</p>
+            <button onClick={() => setShowSettings(true)} className="text-xs text-indigo-500 hover:underline mt-1">
+              Abrir configurações →
+            </button>
+          </div>
+        ) : (
+          <ScrollableChart data={chartData} lines={chartLines} theme={theme} />
+        )}
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════
+          BLOCO 2 — Controle do Mês (lançamento)
+      ══════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
+
+        {/* Header com seletor de mês e botão de configurações */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+            <Calendar className="w-6 h-6 text-indigo-500" />
+            Controle do Mês
+          </h3>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">Configurar</span>
+            </button>
+
+            {/* Month picker */}
+            <div className="relative" ref={monthPickerRef}>
+              <button
+                onClick={() => setIsMonthPickerOpen(v => !v)}
+                className="flex items-center gap-2 bg-gray-100 dark:bg-gray-900/50 px-4 py-2 rounded-xl"
+              >
+                <span className="font-semibold text-sm text-gray-800 dark:text-white capitalize">
+                  {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
+                </span>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isMonthPickerOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isMonthPickerOpen && (
+                <div className="absolute top-full mt-2 right-0 w-56 bg-white dark:bg-gray-700 rounded-xl shadow-xl border border-gray-200 dark:border-gray-600 z-20 p-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <button onClick={() => setCurrentYear(subYears(currentYear, 1))}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="font-semibold text-sm text-gray-800 dark:text-white">
+                      {getYear(currentYear)}
+                    </span>
+                    <button onClick={() => setCurrentYear(addYears(currentYear, 1))}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600">
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {eachMonthOfInterval({ start: startOfYear(currentYear), end: endOfYear(currentYear) }).map(m => (
+                      <button key={m.toString()}
+                        onClick={() => { setCurrentMonth(m); setIsMonthPickerOpen(false); }}
+                        className={`p-2 text-xs rounded-lg text-center capitalize transition-colors ${
+                          getMonth(m) === getMonth(currentMonth) && getYear(m) === getYear(currentYear)
+                            ? 'bg-indigo-600 text-white font-bold'
+                            : 'hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200'
+                        }`}
+                      >
+                        {format(m, 'MMM', { locale: ptBR })}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Grid de lançamento ─────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+
+          {/* Hóspedes */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4">
+            <h4 className="font-bold text-blue-700 dark:text-blue-300 flex items-center gap-2 mb-3 text-sm">
+              <Users className="w-4 h-4" /> Hóspedes
+            </h4>
+            <div className="space-y-2">
+              {([['first', '1ª Quinzena'], ['second', '2ª Quinzena']] as const).map(([key, label]) => (
+                <div key={key}>
+                  <label className="text-xs text-blue-600 dark:text-blue-300 font-medium">{label}</label>
+                  <input
+                    type="number" min={0}
+                    value={formGuests[key] || ''}
+                    onChange={e => setFormGuests(p => ({ ...p, [key]: parseFloat(e.target.value) || 0 }))}
+                    className="mt-0.5 w-full px-3 py-2 text-sm rounded-xl border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-400 outline-none"
+                    placeholder="0"
+                  />
+                </div>
+              ))}
+              <div className="pt-1 text-xs text-blue-500 font-bold text-right">
+                Total: {formGuests.first + formGuests.second}
+              </div>
+            </div>
+          </div>
+
+          {/* Categorias + Fornecedores */}
+          <div className="lg:col-span-3">
+            {visibleCategories.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl text-gray-400">
+                <Settings className="w-8 h-8 opacity-30" />
+                <p className="text-sm">Nenhuma categoria ativa.</p>
+                <button onClick={() => setShowSettings(true)} className="text-xs text-indigo-500 hover:underline">
+                  Configurar categorias e fornecedores →
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {visibleCategories.map(cat => {
+                  const catSuppliers = visibleSuppliersFor(cat.id);
+                  const catTotal = catSuppliers.reduce(
+                    (acc, s) => acc + (formEntries[s.id]?.first ?? 0) + (formEntries[s.id]?.second ?? 0), 0
+                  );
+
+                  return (
+                    <div key={cat.id}
+                      className="bg-gray-50 dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-700 p-4"
+                    >
+                      {/* Cabeçalho da categoria */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color_hex }} />
+                          <h4 className="font-bold text-sm text-gray-700 dark:text-gray-200">{cat.name}</h4>
+                        </div>
+                        {catSuppliers.length > 0 && (
+                          <span className="text-xs px-2.5 py-1 rounded-full font-bold text-white"
+                            style={{ backgroundColor: cat.color_hex }}>
+                            {catTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Fornecedores */}
+                      {catSuppliers.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic pl-5">
+                          Sem fornecedores ativos.{' '}
+                          <button onClick={() => setShowSettings(true)} className="text-indigo-500 hover:underline">
+                            Configurar →
+                          </button>
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                          {catSuppliers.map(s => {
+                            const suppTotal = (formEntries[s.id]?.first ?? 0) + (formEntries[s.id]?.second ?? 0);
+                            return (
+                              <div key={s.id}
+                                className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-600"
+                              >
+                                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2 truncate" title={s.name}>
+                                  {s.name}
+                                </p>
+                                <div className="space-y-1.5">
+                                  {([['first', '1ª Quinzena'], ['second', '2ª Quinzena']] as const).map(([key, label]) => (
+                                    <div key={key} className="flex items-center gap-2">
+                                      <span className="text-xs text-gray-400 w-20 flex-shrink-0">{label}</span>
+                                      <input
+                                        type="number" min={0} step="0.01"
+                                        value={formEntries[s.id]?.[key] || ''}
+                                        onChange={e => setFormEntries(prev => ({
+                                          ...prev,
+                                          [s.id]: {
+                                            ...(prev[s.id] ?? { first: 0, second: 0 }),
+                                            [key]: parseFloat(e.target.value) || 0,
+                                          },
+                                        }))}
+                                        className="flex-1 px-2 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                                        placeholder="0,00"
+                                      />
+                                    </div>
+                                  ))}
+                                  <div className="text-right text-xs font-bold pt-1" style={{ color: cat.color_hex }}>
+                                    {suppTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Botão Salvar */}
+        <div className="flex justify-end pt-4 border-t border-gray-100 dark:border-gray-700">
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-50 transition-all shadow-sm active:scale-95">
+            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+            Salvar {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
+          </button>
+        </div>
+      </div>
+
+      {/* Modal de configurações */}
+      <ExpensesSettings
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        onChanged={() => { loadMeta(); loadSeries(); }}
+      />
+    </div>
+  );
 };
 
 export default ExpensesGuestReport;
