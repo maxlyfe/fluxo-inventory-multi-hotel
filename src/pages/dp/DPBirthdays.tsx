@@ -211,7 +211,7 @@ const DPBirthdays: React.FC = () => {
       </div>
 
       {/* ── Mini-calendário (scroll horizontal) ──────────────────────────── */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      <div className="grid grid-cols-6 gap-2">
         {MONTHS.map((monthName, idx) => {
           const count = employees.filter(e =>
             e.birth_date && parseLocalDate(e.birth_date).getMonth() === idx
@@ -222,23 +222,25 @@ const DPBirthdays: React.FC = () => {
             <button
               key={idx}
               onClick={() => setMonthIdx(idx)}
-              className={`flex-shrink-0 flex flex-col items-center px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+              className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-xl text-xs font-semibold transition-all border ${
                 isActive
-                  ? 'bg-pink-500 text-white border-pink-500 shadow-md'
+                  ? 'bg-pink-500 text-white border-pink-500 shadow-md scale-105'
                   : isCurrent
                   ? 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-800'
                   : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-100 dark:border-gray-700 hover:border-pink-300'
               }`}
             >
-              <span>{monthName.slice(0, 3)}</span>
-              {count > 0 && (
-                <span className={`mt-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+              <span className="tracking-wide">{monthName.slice(0, 3)}</span>
+              {count > 0 ? (
+                <span className={`mt-1 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isActive
                     ? 'bg-white/30 text-white'
-                    : 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400'
+                    : 'bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300'
                 }`}>
                   {count}
                 </span>
+              ) : (
+                <span className="mt-1 h-[18px]" />
               )}
             </button>
           );

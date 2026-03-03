@@ -1,26 +1,28 @@
 // src/pages/PersonnelDepartmentPage.tsx
-// Container principal do Departamento Pessoal com navegação por abas
-
 import React, { useState } from 'react';
-import { UsersRound, Users, CalendarDays, Cake } from 'lucide-react';
+import { UsersRound, Users, CalendarDays, Gift, Cake, Package } from 'lucide-react';
 import DPEmployees from './dp/DPEmployees';
 import DPSchedule from './dp/DPSchedule';
 import DPBirthdays from './dp/DPBirthdays';
+import DPBaskets from './dp/DPBaskets';
 
-// ---------------------------------------------------------------------------
-// Tabs config
-// ---------------------------------------------------------------------------
-const TABS = [
-  { id: 'employees',  label: 'Colaboradores', icon: Users,        component: 'employees'  },
-  { id: 'schedule',   label: 'Escala',        icon: CalendarDays, component: 'schedule'   },
-  { id: 'birthdays',  label: 'Aniversários',  icon: Cake,         component: 'birthdays'  },
-] as const;
+type MainTab    = 'employees' | 'schedule' | 'benefits';
+type BenefitTab = 'birthdays' | 'baskets';
 
-type TabId = typeof TABS[number]['id'];
+const MAIN_TABS = [
+  { id: 'employees' as MainTab, label: 'Colaboradores', icon: Users        },
+  { id: 'schedule'  as MainTab, label: 'Escala',        icon: CalendarDays },
+  { id: 'benefits'  as MainTab, label: 'Benefícios',    icon: Gift         },
+];
 
-// ---------------------------------------------------------------------------
+const BENEFIT_TABS = [
+  { id: 'birthdays' as BenefitTab, label: 'Aniversários', icon: Cake,    activeClass: 'bg-pink-500 border-pink-500'    },
+  { id: 'baskets'   as BenefitTab, label: 'Cestas',       icon: Package, activeClass: 'bg-emerald-500 border-emerald-500' },
+];
+
 const PersonnelDepartmentPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>('employees');
+  const [mainTab,    setMainTab]    = useState<MainTab>('employees');
+  const [benefitTab, setBenefitTab] = useState<BenefitTab>('birthdays');
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -38,15 +40,15 @@ const PersonnelDepartmentPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab navigation */}
+      {/* Abas principais */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-2xl mb-6 overflow-x-auto">
-        {TABS.map(tab => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
+        {MAIN_TABS.map(tab => {
+          const Icon   = tab.icon;
+          const active = mainTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => setMainTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap flex-1 justify-center ${
                 active
                   ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
@@ -60,12 +62,39 @@ const PersonnelDepartmentPage: React.FC = () => {
         })}
       </div>
 
-      {/* Tab content */}
-      <div>
-        {activeTab === 'employees' && <DPEmployees />}
-        {activeTab === 'schedule'  && <DPSchedule />}
-        {activeTab === 'birthdays' && <DPBirthdays />}
-      </div>
+      {/* Conteúdo */}
+      {mainTab === 'employees' && <DPEmployees />}
+      {mainTab === 'schedule'  && <DPSchedule />}
+
+      {mainTab === 'benefits' && (
+        <div>
+          {/* Sub-abas de Benefícios */}
+          <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+            {BENEFIT_TABS.map(tab => {
+              const Icon   = tab.icon;
+              const active = benefitTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setBenefitTab(tab.id)}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border whitespace-nowrap ${
+                    active
+                      ? `${tab.activeClass} text-white shadow-md`
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {benefitTab === 'birthdays' && <DPBirthdays />}
+          {benefitTab === 'baskets'   && <DPBaskets />}
+        </div>
+      )}
+
     </div>
   );
 };

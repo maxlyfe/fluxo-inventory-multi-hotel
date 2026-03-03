@@ -31,7 +31,7 @@ interface ScheduleEntry {
   employee_id: string;
   sector: string;
   day_date: string;
-  entry_type: string;   // shift | folga | compensa | meia_dobra | curso | inss | ferias | falta | transfer | custom | empty
+  entry_type: string;   // shift | folga | compensa | meia_dobra | curso | inss | ferias | falta | atestado | transfer | custom | empty
   shift_start: string | null;
   shift_end: string | null;
   custom_label: string | null;
@@ -53,6 +53,7 @@ const ENTRY_TYPES = [
   { value: 'inss',       label: 'INSS',            color: 'text-gray-500 dark:text-gray-400',          bg: 'bg-gray-50 dark:bg-gray-700' },
   { value: 'ferias',     label: 'FÉRIAS',          color: 'text-cyan-700 dark:text-cyan-300',          bg: 'bg-cyan-50 dark:bg-cyan-900/30' },
   { value: 'falta',      label: 'FALTA',           color: 'text-red-600 dark:text-red-400',            bg: 'bg-red-50 dark:bg-red-900/20' },
+  { value: 'atestado',   label: 'ATESTADO',        color: 'text-orange-600 dark:text-orange-400',      bg: 'bg-orange-50 dark:bg-orange-900/20' },
   { value: 'custom',     label: 'Outro',           color: 'text-indigo-700 dark:text-indigo-300',      bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
   { value: 'empty',      label: '------',          color: 'text-gray-300 dark:text-gray-600',          bg: '' },
 ];
@@ -107,7 +108,8 @@ function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[]): { line1: str
   if (t === 'curso')  return { line1: 'CURSO' };
   if (t === 'inss')   return { line1: 'INSS' };
   if (t === 'ferias') return { line1: 'FÉRIAS' };
-  if (t === 'falta')  return { line1: 'FALTA' };
+  if (t === 'falta')     return { line1: 'FALTA' };
+  if (t === 'atestado') return { line1: 'ATESTADO' };
   if (t === 'transfer') {
     const hotelName = hotels.find(h => h.id === entry.transfer_hotel_id)?.name || 'Outra un.';
     const shortName = hotelName.split(' ')[0]; // first word only for space
