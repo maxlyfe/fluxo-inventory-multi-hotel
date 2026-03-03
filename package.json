@@ -17,6 +17,8 @@
     "@supabase/supabase-js": "^2.49.4",
     "@types/qrcode": "^1.5.6",
     "@xenova/transformers": "^2.17.2",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "classnames": "^2.5.1",
     "date-fns": "^3.3.1",
     "dotenv": "^16.5.0",
