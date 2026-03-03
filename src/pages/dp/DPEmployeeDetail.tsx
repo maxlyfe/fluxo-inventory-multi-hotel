@@ -14,6 +14,12 @@ import {
 import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+// Converte "YYYY-MM-DD" → Date LOCAL, sem conversão UTC (evita bug de -1 dia)
+const parseLocalDate = (s: string): Date => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -81,7 +87,7 @@ const labelCls = 'block text-xs font-semibold text-gray-500 dark:text-gray-400 u
 // Helpers
 // ---------------------------------------------------------------------------
 function calcExperienceDates(admissionDate: string) {
-  const base  = new Date(admissionDate);
+  const base  = parseLocalDate(admissionDate);
   const fase1 = new Date(base); fase1.setDate(fase1.getDate() + 30);
   const fase2 = new Date(base); fase2.setDate(fase2.getDate() + 90);
   return { fase1, fase2 };
@@ -561,7 +567,7 @@ export default function DPEmployeeDetail() {
             employee.email      && { icon: Mail,     label: 'E-mail',      value: employee.email },
             employee.cpf        && { icon: Hash,     label: 'CPF',         value: employee.cpf },
             employee.rg         && { icon: Hash,     label: 'RG',          value: employee.rg },
-            employee.birth_date && { icon: Calendar, label: 'Nascimento',  value: format(new Date(employee.birth_date), 'dd/MM/yyyy') },
+            employee.birth_date && { icon: Calendar, label: 'Nascimento',  value: format(parseLocalDate(employee.birth_date), 'dd/MM/yyyy') },
             employee.address    && { icon: MapPin,   label: 'Endereço',    value: employee.address },
           ] as any[]).filter(Boolean).map((item: any, i: number) => {
             const Icon = item.icon;
@@ -588,7 +594,7 @@ export default function DPEmployeeDetail() {
             { icon: Briefcase, label: 'Cargo',    value: employee.role },
             { icon: Building2, label: 'Setor',    value: employee.sector },
             { icon: Building2, label: 'Hotel',    value: hotelName },
-            { icon: Calendar,  label: 'Admissão', value: format(new Date(employee.admission_date), 'dd/MM/yyyy') },
+            { icon: Calendar,  label: 'Admissão', value: format(parseLocalDate(employee.admission_date), 'dd/MM/yyyy') },
           ].map((item, i) => {
             const Icon = item.icon;
             return (
@@ -655,13 +661,13 @@ export default function DPEmployeeDetail() {
 
         {/* Determinado / estágio / temporário */}
         {hasEndDate && employee.experience_end && (() => {
-          const days   = differenceInDays(new Date(employee.experience_end), new Date());
+          const days   = differenceInDays(parseLocalDate(employee.experience_end), new Date());
           const isPast = days < 0;
           const isWarn = !isPast && days <= 30;
           return (
             <div className={`p-4 rounded-2xl border ${isPast ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800' : isWarn ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' : 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800'}`}>
               <p className="text-xs font-semibold text-gray-500 mb-1">Fim do contrato</p>
-              <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{format(new Date(employee.experience_end), 'dd/MM/yyyy')}</p>
+              <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{format(parseLocalDate(employee.experience_end), 'dd/MM/yyyy')}</p>
               <p className={`text-xs mt-1 font-medium ${isPast ? 'text-red-600' : isWarn ? 'text-amber-600' : 'text-blue-600'}`}>
                 {isPast ? `Vencido há ${Math.abs(days)}d` : `Em ${days} dias`}
               </p>

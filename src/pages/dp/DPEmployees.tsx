@@ -12,6 +12,13 @@ import {
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
 } from 'lucide-react';
 import { format, differenceInDays, isAfter } from 'date-fns';
+
+// Converte "YYYY-MM-DD" para Date LOCAL — evita bug de -1 dia por fuso UTC
+const parseLocalDate = (s: string): Date => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
 import { ptBR } from 'date-fns/locale';
 
 // ---------------------------------------------------------------------------
@@ -111,7 +118,7 @@ const EMPTY_FORM = {
 // ---------------------------------------------------------------------------
 function calcExperienceDates(admissionDate: string): { fase1: Date; fase2: Date } | null {
   if (!admissionDate) return null;
-  const base = new Date(admissionDate);
+  const base = parseLocalDate(admissionDate);
   const fase1 = new Date(base); fase1.setDate(fase1.getDate() + 30);
   const fase2 = new Date(base); fase2.setDate(fase2.getDate() + 90);
   return { fase1, fase2 };
@@ -163,7 +170,7 @@ function ContractBadge({ emp }: { emp: Employee }) {
 
   // Contrato com data fim explícita (determinado, estágio, temporário)
   if (emp.experience_end) {
-    const days = differenceInDays(new Date(emp.experience_end), new Date());
+    const days = differenceInDays(parseLocalDate(emp.experience_end), new Date());
     if (days < 0) return (
       <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
         <AlertCircle className="h-3 w-3" />Contrato vencido
@@ -181,7 +188,7 @@ function ContractBadge({ emp }: { emp: Employee }) {
     );
     return (
       <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
-        <CheckCircle className="h-3 w-3" />Até {format(new Date(emp.experience_end), 'dd/MM/yy')}
+        <CheckCircle className="h-3 w-3" />Até {format(parseLocalDate(emp.experience_end), 'dd/MM/yy')}
       </span>
     );
   }
@@ -280,7 +287,7 @@ export default function DPEmployees() {
         return days2 >= 0 && days2 <= 30;
       }
       if (!e.experience_end) return false;
-      const days = differenceInDays(new Date(e.experience_end), new Date());
+      const days = differenceInDays(parseLocalDate(e.experience_end), new Date());
       return days >= 0 && days <= 30;
     }).length,
     expired: employees.filter(e => {
@@ -289,7 +296,7 @@ export default function DPEmployees() {
         return d ? isAfter(new Date(), d.fase2) : false;
       }
       if (!e.experience_end) return false;
-      return differenceInDays(new Date(e.experience_end), new Date()) < 0;
+      return differenceInDays(parseLocalDate(e.experience_end), new Date()) < 0;
     }).length,
   };
 
@@ -558,10 +565,10 @@ export default function DPEmployees() {
                   <input type="date" value={form.experience_end} onChange={e => setForm(f => ({ ...f, experience_end: e.target.value }))}
                     className={inputCls} />
                   {form.experience_end && (() => {
-                    const days = differenceInDays(new Date(form.experience_end), new Date());
+                    const days = differenceInDays(parseLocalDate(form.experience_end), new Date());
                     return (
                       <p className={`text-xs mt-1.5 font-medium ${days < 0 ? 'text-red-500' : days <= 30 ? 'text-amber-500' : 'text-gray-400'}`}>
-                        {days < 0 ? `Vencido há ${Math.abs(days)} dias` : `Vence em ${days} dias — ${format(new Date(form.experience_end), 'dd/MM/yyyy')}`}
+                        {days < 0 ? `Vencido há ${Math.abs(days)} dias` : `Vence em ${days} dias — ${format(parseLocalDate(form.experience_end), 'dd/MM/yyyy')}`}
                       </p>
                     );
                   })()}
@@ -878,7 +885,7 @@ export default function DPEmployees() {
                   )}
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <Calendar className="h-3 w-3 flex-shrink-0" />
-                    <span>Desde {format(new Date(emp.admission_date), 'dd/MM/yyyy')}</span>
+                    <span>Desde {format(parseLocalDate(emp.admission_date), 'dd/MM/yyyy')}</span>
                   </div>
                   {emp.hotels && (
                     <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">

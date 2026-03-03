@@ -2,16 +2,18 @@
 // Container principal do Departamento Pessoal com navegação por abas
 
 import React, { useState } from 'react';
-import { UsersRound, Users, CalendarDays } from 'lucide-react';
+import { UsersRound, Users, CalendarDays, Cake } from 'lucide-react';
 import DPEmployees from './dp/DPEmployees';
 import DPSchedule from './dp/DPSchedule';
+import DPBirthdays from './dp/DPBirthdays';
 
 // ---------------------------------------------------------------------------
 // Tabs config
 // ---------------------------------------------------------------------------
 const TABS = [
-  { id: 'employees', label: 'Colaboradores', icon: Users,        component: 'employees' },
-  { id: 'schedule',  label: 'Escala',        icon: CalendarDays, component: 'schedule'  },
+  { id: 'employees',  label: 'Colaboradores', icon: Users,        component: 'employees'  },
+  { id: 'schedule',   label: 'Escala',        icon: CalendarDays, component: 'schedule'   },
+  { id: 'birthdays',  label: 'Aniversários',  icon: Cake,         component: 'birthdays'  },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -61,8 +63,8 @@ const PersonnelDepartmentPage: React.FC = () => {
       {/* Tab content */}
       <div>
         {activeTab === 'employees' && <DPEmployees />}
-
-        {activeTab === 'schedule' && <DPSchedule />}
+        {activeTab === 'schedule'  && <DPSchedule />}
+        {activeTab === 'birthdays' && <DPBirthdays />}
       </div>
     </div>
   );
