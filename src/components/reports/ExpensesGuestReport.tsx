@@ -5,7 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { 
   Calendar, ChevronDown, Users, DollarSign, Save, Loader2, BarChartHorizontal, Apple, Shirt, Sandwich, Info, AlertCircle, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { format, getYear, getMonth, startOfMonth, endOfYear, eachMonthOfInterval, startOfYear, setMonth, addYears, subYears } from 'date-fns';
+import { format, getYear, getMonth, startOfMonth, endOfYear, eachMonthOfInterval, startOfYear, setMonth, addYears, subYears, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
     getExpensesAndGuestsForYear, 
@@ -35,56 +35,150 @@ const initialExpenses = {
     PADARIA: { first_fortnight: 0, second_fortnight: 0 },
 };
 
-// --- Componente do Gráfico (ExpensesChart) ---
+// --- Componente do Gráfico (ExpensesChart) — scrollável, sem limite de tempo ---
+const MONTH_WIDTH = 96; // px por mês no gráfico
+const CHART_HEIGHT = 320;
+const Y_AXIS_WIDTH = 80;
+
 const ExpensesChart = ({ chartData }: { chartData: any[] }) => {
     const { theme } = useTheme();
+    const scrollRef  = useRef<HTMLDivElement>(null);
+    const isDragging = useRef(false);
+    const dragStartX = useRef(0);
+    const scrollStartX = useRef(0);
+
+    // Auto-scroll para o mês mais recente ao montar ou atualizar dados
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+        }
+    }, [chartData]);
+
+    // ── Drag-to-scroll (mouse) ────────────────────────────────────────────
+    const onMouseDown = (e: React.MouseEvent) => {
+        isDragging.current  = true;
+        dragStartX.current  = e.clientX;
+        scrollStartX.current = scrollRef.current?.scrollLeft ?? 0;
+        if (scrollRef.current) scrollRef.current.style.cursor = 'grabbing';
+    };
+    const onMouseMove = (e: React.MouseEvent) => {
+        if (!isDragging.current || !scrollRef.current) return;
+        e.preventDefault();
+        const delta = dragStartX.current - e.clientX;
+        scrollRef.current.scrollLeft = scrollStartX.current + delta;
+    };
+    const onMouseUp = () => {
+        isDragging.current = false;
+        if (scrollRef.current) scrollRef.current.style.cursor = 'grab';
+    };
+
+    // Largura total do gráfico = meses × largura por mês
+    const chartWidth = Math.max(chartData.length * MONTH_WIDTH, 600);
 
     return (
-        <ResponsiveContainer width="100%" height={300}>
-            <LineChart
-                data={chartData}
-                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-            >
-                <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#4b5563' : '#e5e7eb'} strokeOpacity={0.5} />
-                <XAxis 
-                    dataKey="month" 
-                    tickFormatter={(tick) => format(new Date(tick), 'MMM/yy', { locale: ptBR })} 
-                    tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7281' }} 
-                    interval={0}
-                />
-                <YAxis 
-                    tickFormatter={(tick) => `R$ ${tick.toFixed(2).replace('.', ',')}`}
-                    domain={[0, (dataMax: number) => (dataMax * 1.25)]}
-                    tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7281' }}
-                />
-                <Tooltip
-                    contentStyle={{
-                        backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
-                        borderColor: theme === 'dark' ? '#4b5563' : '#e5e7eb'
-                    }}
-                    formatter={(value: number) => value === null ? ['Sem dados', ''] : [`R$ ${value.toFixed(2).replace('.', ',')}`, 'Gasto por Hóspede']}
-                    labelFormatter={(label) => format(new Date(label), 'MMMM yyyy', { locale: ptBR })}
-                />
-                <Legend />
-                {Object.keys(CATEGORY_DETAILS).map(key => {
-                    const catKey = key as CategoryKey;
-                    const details = CATEGORY_DETAILS[catKey];
-                    return (
-                        <Line 
-                            key={catKey}
-                            type="monotone" 
-                            dataKey={`results.${catKey}`} 
-                            name={details.name} 
-                            stroke={theme === 'dark' ? details.darkStroke : details.lightStroke} 
-                            strokeWidth={2} 
-                            dot={{ r: 5 }}
-                            activeDot={{ r: 8 }}
-                            connectNulls
-                        />
-                    )
-                })}
-            </LineChart>
-        </ResponsiveContainer>
+        <div className="relative">
+            {/* Eixo Y fixo à esquerda */}
+            <div className="flex">
+                <div style={{ width: Y_AXIS_WIDTH, flexShrink: 0 }}>
+                    <ResponsiveContainer width={Y_AXIS_WIDTH} height={CHART_HEIGHT}>
+                        <LineChart
+                            data={chartData}
+                            margin={{ top: 20, right: 0, left: 10, bottom: 5 }}
+                        >
+                            <YAxis
+                                tickFormatter={(v) => `R$${v < 1000 ? v.toFixed(0) : (v/1000).toFixed(1)+'k'}`}
+                                domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.3)]}
+                                tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7281', fontSize: 11 }}
+                                width={Y_AXIS_WIDTH - 4}
+                            />
+                            {/* Linhas invisíveis para manter a escala igual */}
+                            {Object.keys(CATEGORY_DETAILS).map(key => (
+                                <Line key={key} dataKey={`results.${key}`} stroke="transparent" dot={false} />
+                            ))}
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+
+                {/* Área scrollável do gráfico */}
+                <div
+                    ref={scrollRef}
+                    className="overflow-x-auto flex-1 select-none"
+                    style={{ scrollBehavior: 'auto', cursor: 'grab' }}
+                    onMouseDown={onMouseDown}
+                    onMouseMove={onMouseMove}
+                    onMouseUp={onMouseUp}
+                    onMouseLeave={onMouseUp}
+                >
+                    <div style={{ width: chartWidth }}>
+                        <LineChart
+                            width={chartWidth}
+                            height={CHART_HEIGHT}
+                            data={chartData}
+                            margin={{ top: 20, right: 32, left: 0, bottom: 5 }}
+                        >
+                            <CartesianGrid
+                                strokeDasharray="3 3"
+                                stroke={theme === 'dark' ? '#4b5563' : '#e5e7eb'}
+                                strokeOpacity={0.5}
+                            />
+                            <XAxis
+                                dataKey="month"
+                                tickFormatter={(tick) => format(new Date(tick), 'MMM/yy', { locale: ptBR })}
+                                tick={{ fill: theme === 'dark' ? '#9ca3af' : '#6b7281', fontSize: 12 }}
+                                interval={0}
+                                tickLine={false}
+                            />
+                            {/* YAxis oculto — só para alinhar a grade com o eixo fixo */}
+                            <YAxis
+                                domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.3)]}
+                                hide
+                            />
+                            <Tooltip
+                                contentStyle={{
+                                    backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff',
+                                    borderColor: theme === 'dark' ? '#4b5563' : '#e5e7eb',
+                                    borderRadius: '12px',
+                                    fontSize: 13,
+                                }}
+                                formatter={(value: number) =>
+                                    value === null || value === undefined
+                                        ? ['Sem dados', '']
+                                        : [`R$ ${value.toFixed(2).replace('.', ',')}`, 'Gasto / Hóspede']
+                                }
+                                labelFormatter={(label) =>
+                                    format(new Date(label), 'MMMM yyyy', { locale: ptBR })
+                                }
+                            />
+                            <Legend wrapperStyle={{ paddingTop: 8 }} />
+                            {Object.keys(CATEGORY_DETAILS).map(key => {
+                                const catKey = key as CategoryKey;
+                                const details = CATEGORY_DETAILS[catKey];
+                                return (
+                                    <Line
+                                        key={catKey}
+                                        type="monotone"
+                                        dataKey={`results.${catKey}`}
+                                        name={details.name}
+                                        stroke={theme === 'dark' ? details.darkStroke : details.lightStroke}
+                                        strokeWidth={2.5}
+                                        dot={{ r: 4, strokeWidth: 2 }}
+                                        activeDot={{ r: 7 }}
+                                        connectNulls={false}
+                                    />
+                                );
+                            })}
+                        </LineChart>
+                    </div>
+                </div>
+            </div>
+
+            {/* Dica de arrastar */}
+            {chartData.length > 8 && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 text-right mt-1 pr-2 select-none pointer-events-none">
+                    clique e arraste para navegar ✦
+                </p>
+            )}
+        </div>
     );
 };
 
@@ -105,58 +199,80 @@ const ExpensesGuestReport = () => {
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const monthPickerRef = useRef<HTMLDivElement>(null);
 
-  const fetchDataForYear = useCallback(async (yearDate: Date) => {
+  // Busca TODOS os anos desde DATA_INICIO até o ano atual, sem limite de tempo.
+  // Isso permite que o gráfico mostre uma linha contínua e scrollável.
+  const DATA_START_YEAR = 2024;
+
+  const fetchAllData = useCallback(async () => {
     if (!selectedHotel) return;
     setLoading(true);
     setError(null);
-    const { guestData, expenseData, error: fetchError } = await getExpensesAndGuestsForYear(selectedHotel.id, yearDate);
 
-    if (fetchError) {
-      setError(fetchError.message);
-      addNotification(`Erro ao carregar dados: ${fetchError.message}`, 'error');
-      setLoading(false);
-      return;
+    const currentYearNum = getYear(new Date());
+    const allGuests: any[]  = [];
+    const allExpenses: any[] = [];
+
+    // Busca ano a ano do início até o ano atual
+    for (let y = DATA_START_YEAR; y <= currentYearNum; y++) {
+      const yearDate = new Date(y, 0, 1);
+      const { guestData, expenseData, error: fetchError } = await getExpensesAndGuestsForYear(selectedHotel.id, yearDate);
+      if (fetchError) {
+        setError(fetchError.message);
+        addNotification(`Erro ao carregar dados: ${fetchError.message}`, 'error');
+        setLoading(false);
+        return;
+      }
+      allGuests.push(...(guestData || []));
+      allExpenses.push(...(expenseData || []));
     }
 
-    const yearMonths = eachMonthOfInterval({ start: startOfYear(yearDate), end: endOfYear(yearDate) });
-    const guestMap = new Map(guestData?.map(g => [format(new Date(g.month_date + 'T12:00:00'), 'yyyy-MM'), g]));
+    // Monta intervalo completo de meses
+    const startDate = new Date(DATA_START_YEAR, 0, 1);
+    const endDate   = endOfYear(new Date());
+    const allMonths = eachMonthOfInterval({ start: startDate, end: endDate });
+
+    const guestMap = new Map(allGuests.map(g => [
+      format(new Date(g.month_date + 'T12:00:00'), 'yyyy-MM'), g
+    ]));
     const expenseMap = new Map<string, MonthlyExpense[]>();
-    expenseData?.forEach(e => {
-        const key = format(new Date(e.month_date + 'T12:00:00'), 'yyyy-MM');
-        if (!expenseMap.has(key)) expenseMap.set(key, []);
-        expenseMap.get(key)!.push(e);
+    allExpenses.forEach(e => {
+      const key = format(new Date(e.month_date + 'T12:00:00'), 'yyyy-MM');
+      if (!expenseMap.has(key)) expenseMap.set(key, []);
+      expenseMap.get(key)!.push(e);
     });
 
-    const formattedData: MonthlyData[] = yearMonths.map(monthDate => {
-        const key = format(monthDate, 'yyyy-MM');
-        const guestRecord = guestMap.get(key);
-        const expenseRecords = expenseMap.get(key);
-        const expenses: MonthlyData['expenses'] = JSON.parse(JSON.stringify(initialExpenses));
-        expenseRecords?.forEach(rec => {
-            const category = rec.expense_category as CategoryKey;
-            if(category in expenses) {
-                expenses[category] = {
-                    first_fortnight: Number(rec.first_fortnight_expense),
-                    second_fortnight: Number(rec.second_fortnight_expense),
-                }
-            }
-        });
-        return {
-            month: monthDate,
-            guests: {
-                first_fortnight: Number(guestRecord?.first_fortnight_guests || 0),
-                second_fortnight: Number(guestRecord?.second_fortnight_guests || 0),
-            },
-            expenses,
+    const formattedData: MonthlyData[] = allMonths.map(monthDate => {
+      const key = format(monthDate, 'yyyy-MM');
+      const guestRecord   = guestMap.get(key);
+      const expenseRecords = expenseMap.get(key);
+      const expenses: MonthlyData['expenses'] = JSON.parse(JSON.stringify(initialExpenses));
+      expenseRecords?.forEach(rec => {
+        const category = rec.expense_category as CategoryKey;
+        if (category in expenses) {
+          expenses[category] = {
+            first_fortnight:  Number(rec.first_fortnight_expense),
+            second_fortnight: Number(rec.second_fortnight_expense),
+          };
         }
+      });
+      return {
+        month: monthDate,
+        guests: {
+          first_fortnight:  Number(guestRecord?.first_fortnight_guests  || 0),
+          second_fortnight: Number(guestRecord?.second_fortnight_guests || 0),
+        },
+        expenses,
+      };
     });
+
     setHistoricalData(formattedData);
     setLoading(false);
   }, [selectedHotel, addNotification]);
 
+  // Recarrega sempre que o hotel mudar
   useEffect(() => {
-    fetchDataForYear(currentYear);
-  }, [fetchDataForYear, currentYear]);
+    fetchAllData();
+  }, [fetchAllData]);
 
   useEffect(() => {
     const dataForMonth = historicalData.find(d => getMonth(d.month) === getMonth(currentMonth) && getYear(d.month) === getYear(currentMonth));
