@@ -114,7 +114,7 @@ const AdminPanel = () => {
           sector:sectors(id, name),
           products!requisitions_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity),
           substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity),
-          requester:profiles!requisitions_created_by_fkey(full_name)
+          requester:profiles!created_by(full_name)
         `)
         .eq('hotel_id', selectedHotel.id)
         .eq('status', 'pending')
@@ -148,7 +148,7 @@ const AdminPanel = () => {
           sector:sectors(id, name),
           products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
           substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          requester:profiles!requisitions_created_by_fkey(full_name)
+          requester:profiles!created_by(full_name)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -180,7 +180,7 @@ const AdminPanel = () => {
           sector:sectors(id, name),
           products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
           substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          requester:profiles!requisitions_created_by_fkey(full_name)
+          requester:profiles!created_by(full_name)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
