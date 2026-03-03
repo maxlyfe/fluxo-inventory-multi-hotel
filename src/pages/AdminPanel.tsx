@@ -63,6 +63,29 @@ export interface Request {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// Enriquece lista de requisições com full_name do solicitante (sem join)
+// ---------------------------------------------------------------------------
+async function enrichWithRequesterNames(rows: Request[]): Promise<Request[]> {
+  const ids = [...new Set(rows.map(r => r.created_by).filter(Boolean))] as string[];
+  if (!ids.length) return rows;
+  try {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', ids);
+    const map: Record<string, string | null> = {};
+    (data || []).forEach(p => { map[p.id] = p.full_name; });
+    return rows.map(r => ({
+      ...r,
+      requester: r.created_by ? { full_name: map[r.created_by] ?? null } : null,
+    }));
+  } catch {
+    return rows;
+  }
+}
+
 const AdminPanel = () => {
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
@@ -113,8 +136,7 @@ const AdminPanel = () => {
           *,
           sector:sectors(id, name),
           products!requisitions_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity),
-          requester:profiles!created_by(full_name)
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity)
         `)
         .eq('hotel_id', selectedHotel.id)
         .eq('status', 'pending')
@@ -122,7 +144,8 @@ const AdminPanel = () => {
         .limit(5000);
 
       if (reqError) throw reqError;
-      setPendingRequestsData(data || []);
+      const enriched = await enrichWithRequesterNames(data || []);
+      setPendingRequestsData(enriched);
       setError('');
     } catch (err: any) {
       console.error('Error fetching pending requests:', err);
@@ -147,8 +170,7 @@ const AdminPanel = () => {
           *,
           sector:sectors(id, name),
           products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          requester:profiles!created_by(full_name)
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -156,7 +178,7 @@ const AdminPanel = () => {
         .range(0, HISTORY_PAGE_SIZE - 1);
 
       if (reqError) throw reqError;
-      const rows = data || [];
+      const rows = await enrichWithRequesterNames(data || []);
       setHistoryRequestsData(rows);
       setHistoryOffset(rows.length);
       setHistoryHasMore(rows.length === HISTORY_PAGE_SIZE);
@@ -179,8 +201,7 @@ const AdminPanel = () => {
           *,
           sector:sectors(id, name),
           products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          requester:profiles!created_by(full_name)
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -188,7 +209,7 @@ const AdminPanel = () => {
         .range(historyOffset, historyOffset + HISTORY_PAGE_SIZE - 1);
 
       if (error) throw error;
-      const rows = data || [];
+      const rows = await enrichWithRequesterNames(data || []);
       setHistoryRequestsData(prev => [...prev, ...rows]);
       setHistoryOffset(prev => prev + rows.length);
       setHistoryHasMore(rows.length === HISTORY_PAGE_SIZE);
