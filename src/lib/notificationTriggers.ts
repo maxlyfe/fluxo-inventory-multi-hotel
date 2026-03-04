@@ -4,7 +4,7 @@
 // ===========================
 
 import { supabase } from './supabase';
-import { sendPushNotificationToUser } from './notifications';
+import { createNotification as createNotificationBase } from './notifications';
 
 // Interfaces adaptadas para estrutura real
 interface NotificationData {
@@ -24,6 +24,7 @@ interface NotificationData {
 
 interface NotificationEventData {
   hotel_id: string;
+  hotel_name?: string;        // opcional — buscado automaticamente se não fornecido
   sector_id?: string;
   product_name?: string;
   quantity?: number;
@@ -32,6 +33,9 @@ interface NotificationEventData {
   reason?: string;
   original_product?: string;
   substitute_product?: string;
+  budget_title?: string;      // título/descrição do orçamento
+  contract_name?: string;     // nome do contrato
+  days_remaining?: number;    // dias restantes para vencimento
   related_entity_id?: string;
   related_entity_table?: string;
   related_entity_type?: string;
@@ -138,23 +142,6 @@ const createNotificationInternal = async (notificationData: NotificationData) =>
     }
 
     console.log('Notificação criada com sucesso:', data);
-
-    // Disparar push em background — não bloqueia nem quebra o fluxo
-    if (data && data[0]) {
-      const created = data[0];
-      sendPushNotificationToUser(
-        notificationData.user_id,
-        notificationData.title,
-        notificationData.message,
-        {
-          notificationId:    created.id,
-          targetPath:        notificationData.target_path || '/admin',
-          relatedEntityId:   notificationData.related_entity_id || '',
-          relatedEntityType: notificationData.related_entity_type || '',
-        }
-      ).catch(err => console.warn('[FCM] Push falhou (não crítico):', err));
-    }
-
     return data;
   } catch (error) {
     console.error('Erro ao criar notificação:', error);
@@ -163,6 +150,20 @@ const createNotificationInternal = async (notificationData: NotificationData) =>
 };
 
 // Função genérica para disparar notificações
+// Busca o nome do hotel pelo ID (com cache simples em memória por sessão)
+const hotelNameCache = new Map<string, string>();
+const resolveHotelName = async (hotelId: string): Promise<string> => {
+  if (hotelNameCache.has(hotelId)) return hotelNameCache.get(hotelId)!;
+  try {
+    const { data } = await supabase.from('hotels').select('name').eq('id', hotelId).single();
+    const name = data?.name || 'Hotel';
+    hotelNameCache.set(hotelId, name);
+    return name;
+  } catch {
+    return 'Hotel';
+  }
+};
+
 const triggerNotification = async (
   eventType: string,
   eventData: NotificationEventData,
@@ -170,6 +171,11 @@ const triggerNotification = async (
   messageTemplate: string
 ) => {
   try {
+    // Garantir que hotel_name está sempre disponível nas mensagens
+    if (!eventData.hotel_name && eventData.hotel_id) {
+      eventData = { ...eventData, hotel_name: await resolveHotelName(eventData.hotel_id) };
+    }
+
     console.log('Disparando notificação:', { eventType, eventData });
 
     // Buscar usuários que devem receber a notificação
@@ -215,79 +221,96 @@ const triggerNotification = async (
 
 // Funções específicas para cada tipo de evento - USANDO EVENT_KEYS CORRETOS
 export const notifyNewRequest = async (eventData: NotificationEventData) => {
-  const title = '🆕 Nova Requisição';
-  const message = `Nova requisição de ${eventData.product_name} (${eventData.quantity || 1}x) do setor ${eventData.sector_name}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `🛎️ Nova Requisição — ${hotel}`;
+  const message = `${eventData.product_name} (${eventData.quantity || 1}x) solicitado pelo setor ${eventData.sector_name}`;
+
   await triggerNotification('NEW_REQUEST', eventData, title, message);
 };
 
 export const notifyItemDelivered = async (eventData: NotificationEventData) => {
-  const title = '✅ Item Entregue';
-  const message = `${eventData.product_name} (${eventData.quantity || 1}x) foi entregue para ${eventData.sector_name}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `✅ Item Entregue — ${hotel}`;
+  const message = `${eventData.product_name} (${eventData.quantity || 1}x) entregue para o setor ${eventData.sector_name}`;
+
   await triggerNotification('ITEM_DELIVERED_TO_SECTOR', eventData, title, message);
 };
 
 export const notifyItemRejected = async (eventData: NotificationEventData) => {
-  const title = '❌ Item Rejeitado';
-  const message = `Requisição de ${eventData.product_name} foi rejeitada. Motivo: ${eventData.reason}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `❌ Requisição Recusada — ${hotel}`;
+  const message = `${eventData.product_name} não foi aprovado para ${eventData.sector_name}. Motivo: ${eventData.reason}`;
+
   await triggerNotification('REQUEST_REJECTED', eventData, title, message);
 };
 
 export const notifyItemSubstituted = async (eventData: NotificationEventData) => {
-  const title = '🔄 Produto Substituído';
-  const message = `${eventData.original_product} foi substituído por ${eventData.substitute_product} para ${eventData.sector_name}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `🔄 Produto Substituído — ${hotel}`;
+  const message = `${eventData.original_product} → ${eventData.substitute_product} (setor ${eventData.sector_name})`;
+
   await triggerNotification('REQUEST_SUBSTITUTED', eventData, title, message);
 };
 
 export const notifyBudgetCreated = async (eventData: NotificationEventData) => {
-  const title = '💰 Novo Orçamento';
-  const message = `Novo orçamento criado para ${eventData.sector_name || 'o hotel'}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `💰 Novo Orçamento — ${hotel}`;
+  const message = eventData.budget_title
+    ? `"${eventData.budget_title}" aguarda aprovação`
+    : `Novo orçamento do setor ${eventData.sector_name || hotel} aguarda aprovação`;
+
   await triggerNotification('NEW_BUDGET', eventData, title, message);
 };
 
 export const notifyBudgetApproved = async (eventData: NotificationEventData) => {
-  const title = '✅ Orçamento Aprovado';
-  const message = `Orçamento aprovado para ${eventData.sector_name}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `✅ Orçamento Aprovado — ${hotel}`;
+  const message = eventData.budget_title
+    ? `"${eventData.budget_title}" foi aprovado`
+    : `Orçamento do setor ${eventData.sector_name || hotel} foi aprovado`;
+
   await triggerNotification('BUDGET_APPROVED', eventData, title, message);
 };
 
 export const notifyBudgetRejected = async (eventData: NotificationEventData) => {
-  const title = '❌ Orçamento Cancelado';
-  const message = `Orçamento cancelado para ${eventData.sector_name}. Motivo: ${eventData.reason}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `🚫 Orçamento Cancelado — ${hotel}`;
+  const message = eventData.budget_title
+    ? `"${eventData.budget_title}" foi cancelado. ${eventData.reason ? `Motivo: ${eventData.reason}` : ''}`
+    : `Orçamento do setor ${eventData.sector_name || hotel} cancelado. ${eventData.reason ? `Motivo: ${eventData.reason}` : ''}`;
+
   await triggerNotification('BUDGET_CANCELLED', eventData, title, message);
 };
 
 export const notifyLowStock = async (eventData: NotificationEventData) => {
-  const title = '⚠️ Estoque Baixo';
-  const message = `Estoque baixo de ${eventData.product_name}. Quantidade atual: ${eventData.quantity}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `⚠️ Estoque Baixo — ${hotel}`;
+  const message = `${eventData.product_name} está com estoque baixo (${eventData.quantity} restantes)`;
+
   await triggerNotification('LOW_STOCK_ALERT', eventData, title, message);
 };
 
 export const notifyOutOfStock = async (eventData: NotificationEventData) => {
-  const title = '🚨 Produto em Falta';
-  const message = `${eventData.product_name} está em falta no estoque`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `🚨 Produto em Falta — ${hotel}`;
+  const message = `${eventData.product_name} esgotou no estoque`;
+
   await triggerNotification('OUT_OF_STOCK_ALERT', eventData, title, message);
 };
 
 export const notifyTransferCreated = async (eventData: NotificationEventData) => {
-  const title = '📦 Nova Transferência';
-  const message = `Nova transferência criada para ${eventData.sector_name}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `📦 Nova Transferência — ${hotel}`;
+  const message = `Transferência de ${eventData.product_name || 'itens'} para o setor ${eventData.sector_name}`;
+
   await triggerNotification('TRANSFER_CREATED', eventData, title, message);
 };
 
 export const notifyTransferCompleted = async (eventData: NotificationEventData) => {
-  const title = '✅ Transferência Concluída';
-  const message = `Transferência concluída para ${eventData.sector_name}`;
-  
+  const hotel  = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title   = `📬 Transferência Concluída — ${hotel}`;
+  const message = `${eventData.product_name || 'Itens'} entregues ao setor ${eventData.sector_name}`;
+
   await triggerNotification('TRANSFER_COMPLETED', eventData, title, message);
 };
 
