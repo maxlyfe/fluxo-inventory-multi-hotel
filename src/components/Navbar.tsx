@@ -7,6 +7,7 @@ import { Menu, Transition } from '@headlessui/react';
 import { supabase } from "../lib/supabase";
 import NotificationBell from "./NotificationBell";
 import { useAuth } from "../context/AuthContext";
+import { usePermissions } from "../hooks/usePermissions";
 import { useHotel } from "../context/HotelContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -51,42 +52,37 @@ const hotelNameMapping: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Navigation items
 // ---------------------------------------------------------------------------
+// module: chave do módulo em usePermissions (undefined = visível para todos logados)
 const navigationItems = [
   {
-    name: "Dashboard",
-    href: "/",
-    icon: DashboardIcon,
-    roles: ["admin", "management", "inventory", "sup-governanca", "almoxarifado", "compras", "financeiro", "recepcao", "restaurante", "governanca", "manutencao", "rh", "guest"],
+    name:   "Dashboard",
+    href:   "/",
+    icon:   DashboardIcon,
+    module: undefined,          // dashboard sempre visível
   },
   {
-    name: "Novo Chamado",
-    href: "/maintenance/ticket/new",
-    icon: ManutencaoIcon,
-    roles: ["guest"],
+    name:   "Requisições",
+    href:   "/admin",
+    icon:   RequisicoesIcon,
+    module: "stock",            // stock geral / requisições de setor
   },
   {
-    name: "Requisições",
-    href: "/admin",
-    icon: RequisicoesIcon,
-    roles: ["admin", "management", "inventory", "sup-governanca", "almoxarifado", "compras", "financeiro", "recepcao", "restaurante", "governanca", "manutencao"],
+    name:   "Compras",
+    href:   "/purchases",
+    icon:   ComprasIcon,
+    module: "purchases",
   },
   {
-    name: "Compras",
-    href: "/purchases",
-    icon: ComprasIcon,
-    roles: ["admin", "inventory"],
+    name:   "Orçamentos",
+    href:   "/budget-history",
+    icon:   OrcamentosIcon,
+    module: "authorizations",   // mesmo módulo — fluxo de compra
   },
   {
-    name: "Orçamentos",
-    href: "/budget-history",
-    icon: OrcamentosIcon,
-    roles: ["admin", "management", "sup-governanca", "compras"],
-  },
-  {
-    name: "Aprovações",
-    href: "/authorizations",
-    icon: ComprasIcon,
-    roles: ["admin", "management", "sup-governanca", "compras"],
+    name:   "Aprovações",
+    href:   "/authorizations",
+    icon:   ComprasIcon,
+    module: "authorizations",
   },
 ];
 
@@ -102,6 +98,7 @@ const adminItems = [
 // ---------------------------------------------------------------------------
 const Navbar = () => {
   const { user, logout: authLogout } = useAuth();
+  const { can, isAdmin }              = usePermissions();
   const { selectedHotel, setSelectedHotel } = useHotel();
   const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
@@ -126,10 +123,8 @@ const Navbar = () => {
   };
 
   const filteredNavigation = navigationItems.filter(
-    (item) => user?.role && item.roles.includes(user.role)
+    (item) => item.module === undefined ? true : can(item.module)
   );
-
-  const isAdmin = user?.role === 'admin';
 
   if (!user) return null;
 
@@ -266,7 +261,7 @@ const Navbar = () => {
                   <span className="sr-only">Abrir menu do usuário</span>
                   <img
                     className="h-8 w-8 rounded-full"
-                    src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || user.email || 'U')}&background=random&color=fff`}
+                    src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
                     alt="Avatar"
                   />
                 </Menu.Button>
@@ -286,10 +281,10 @@ const Navbar = () => {
                       <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
                         <p className="text-xs text-gray-400">Logado como</p>
                         <p className="text-sm font-semibold text-gray-800 dark:text-white truncate mt-0.5">
-                          {user.full_name || user.email}
+                          {user.email}
                         </p>
                         <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                          {user.role === 'guest' ? 'Convidado' : (user.role || 'Sem perfil')}
+                          {isAdmin ? 'Admin' : (user as any).custom_role?.name || user.role || 'Sem perfil'}
                         </span>
                       </div>
 
@@ -385,12 +380,12 @@ const Navbar = () => {
               <div className="flex items-center gap-3 px-3 py-2 mb-2">
                 <img
                   className="h-10 w-10 rounded-full flex-shrink-0"
-                  src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || user.email || 'U')}&background=random&color=fff`}
+                  src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
                   alt="Avatar"
                 />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">
-                    {user.full_name || user.email?.split("@")[0]}
+                    {user.email?.split("@")[0]}
                   </p>
                   <p className="text-xs text-gray-400 truncate">{user.email}</p>
                 </div>

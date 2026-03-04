@@ -122,13 +122,13 @@ function App() {
 
                     {/* Admin / gestão interna */}
                     <Route path="/admin" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <AdminPanel />
                       </PrivateRoute>
                     } />
 
                     <Route path="/management" element={
-                      <PrivateRoute roles={['admin', 'management', 'sup-governanca']}>
+                      <PrivateRoute module="purchases">
                         <ManagementPanel />
                       </PrivateRoute>
                     } />
@@ -137,148 +137,148 @@ function App() {
                         Acesso controlado internamente pelo usePermissions hook.
                         O PrivateRoute só exige login (roles=[]).             */}
                     <Route path="/admin/roles" element={
-                      <PrivateRoute roles={['admin']}>
+                      <PrivateRoute adminOnly>
                         <RolesManagement />
                       </PrivateRoute>
                     } />
 
                     <Route path="/admin/sectors" element={
-                      <PrivateRoute roles={['admin']}>
+                      <PrivateRoute adminOnly>
                         <SectorsManagement />
                       </PrivateRoute>
                     } />
 
                     {/* ── Usuários ────────────────────────────────────────── */}
                     <Route path="/users" element={
-                      <PrivateRoute roles={['admin']}>
+                      <PrivateRoute adminOnly>
                         <UserManagement />
                       </PrivateRoute>
                     } />
 
                     {/* ── Inventário ───────────────────────────────────────── */}
                     <Route path="/inventory" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <Inventory />
                       </PrivateRoute>
                     } />
 
                     {/* ── Relatórios ───────────────────────────────────────── */}
                     <Route path="/reports" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <ReportsPage />
                       </PrivateRoute>
                     } />
 
                     {/* ── Compras ──────────────────────────────────────────── */}
                     <Route path="/shopping-list" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <ShoppingList />
                       </PrivateRoute>
                     } />
 
                     <Route path="/inventory/new-purchase" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <NewPurchase />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <PurchaseOrders />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/list" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <NewPurchaseList />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/dynamic-budget/new" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <DynamicBudgetCreation />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/dynamic-budget/analysis/:budgetId" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <BudgetAnalysis />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/online" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <OnlinePurchaseList />
                       </PrivateRoute>
                     } />
 
                     <Route path="/budget-history" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <BudgetHistory />
                       </PrivateRoute>
                     } />
 
                     <Route path="/budget/:budgetId" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <BudgetDetail />
                       </PrivateRoute>
                     } />
 
                     {/* ── Financeiro ───────────────────────────────────────── */}
                     <Route path="/finances" element={
-                      <PrivateRoute roles={['admin']}>
+                      <PrivateRoute adminOnly>
                         <FinancialManagement />
                       </PrivateRoute>
                     } />
 
                     {/* ── Autorizações ──────────────────────────────────────── */}
                     <Route path="/authorizations" element={
-                      <PrivateRoute roles={['admin', 'inventory']}>
+                      <PrivateRoute module="inventory">
                         <AuthorizationsPage />
                       </PrivateRoute>
                     } />
 
                     {/* ── Governança / Stock de setor ───────────────────────── */}
                     <Route path="/governance" element={
-                      <PrivateRoute roles={['admin', 'sup-governanca']}>
+                      <PrivateRoute module="stock">
                         <Governance />
                       </PrivateRoute>
                     } />
 
                     <Route path="/sector-stock/:sectorId" element={
-                      <PrivateRoute roles={['admin', 'sup-governanca']}>
+                      <PrivateRoute module="stock">
                         <SectorStock />
                       </PrivateRoute>
                     } />
 
                     {/* ── Departamento Pessoal ──────────────────────────────── */}
                     <Route path="/personnel-department" element={
-                      <PrivateRoute roles={['admin', 'management', 'rh']}>
+                      <PrivateRoute module="personnel_department">
                         <PersonnelDepartmentPage />
                       </PrivateRoute>
                     } />
 
                     <Route path="/dp/employee/:id" element={
-                      <PrivateRoute roles={['admin', 'management', 'rh']}>
+                      <PrivateRoute module="personnel_department">
                         <DPEmployeeDetail />
                       </PrivateRoute>
                     } />
 
                     {/* ── Manutenções ───────────────────────────────────────── */}
                     <Route path="/maintenance" element={
-                      <PrivateRoute roles={['admin', 'management', 'sup-governanca']}>
+                      <PrivateRoute module="purchases">
                         <MaintenanceDashboard />
                       </PrivateRoute>
                     } />
 
                     <Route path="/maintenance/equipment" element={
-                      <PrivateRoute roles={['admin', 'management']}>
+                      <PrivateRoute module="personnel_department">
                         <MaintenanceEquipment />
                       </PrivateRoute>
                     } />
 
                     <Route path="/maintenance/ticket/:id" element={
-                      <PrivateRoute roles={['admin', 'management', 'sup-governanca', 'inventory']}>
+                      <PrivateRoute module="authorizations">
                         <MaintenanceTicketDetail />
                       </PrivateRoute>
                     } />
