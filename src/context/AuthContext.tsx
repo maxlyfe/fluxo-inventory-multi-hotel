@@ -9,6 +9,12 @@ interface AppUser {
   full_name?: string;
   avatar_url?: string;
   custom_role_id?: string;
+  custom_role?: {
+    id:          string;
+    name:        string;
+    permissions: string[];
+    color:       string;
+  } | null;
 }
 
 interface AuthContextType {
@@ -28,15 +34,38 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('role, full_name, avatar_url, custom_role_id')
+      .select(`
+        role,
+        full_name,
+        avatar_url,
+        custom_role_id,
+        custom_roles (
+          id,
+          name,
+          permissions,
+          color
+        )
+      `)
       .eq('id', userId)
       .maybeSingle();
+
     if (error || !data) return {};
+
+    // Supabase retorna o join sob o nome da tabela 'custom_roles'
+    const cr = (data as any).custom_roles;
+
     return {
       role:           data.role           || 'guest',
       full_name:      data.full_name      || undefined,
       avatar_url:     data.avatar_url     || undefined,
       custom_role_id: data.custom_role_id || undefined,
+      // Permissões carregadas do perfil — usadas pelo usePermissions para liberar módulos
+      custom_role: cr ? {
+        id:          cr.id,
+        name:        cr.name,
+        permissions: Array.isArray(cr.permissions) ? cr.permissions : [],
+        color:       cr.color || '#94a3b8',
+      } : null,
     };
   } catch {
     return {};
