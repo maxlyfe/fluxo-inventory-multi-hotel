@@ -11,13 +11,12 @@ import {
   Check,
   ThumbsUp,
   ShoppingBag,
-  Trash2,
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAuth } from "../context/AuthContext";
 import { useNotification } from "../context/NotificationContext";
-import { getBudgetHistory, updateBudgetStatus, getHotels, updateBudgetItems } from "../lib/supabase"; 
+import { getBudgetHistory, updateBudgetStatus, getHotels } from "../lib/supabase"; 
 import { createNotification } from "../lib/notifications";
 
 const unitOptions = [
@@ -224,26 +223,6 @@ const AuthorizationsPage: React.FC = () => {
     }));
   };
 
-  const handleRemoveItem = (budgetId: string, itemId: string) => {
-    if (!window.confirm("Tem certeza que deseja remover este item do orçamento?")) return;
-    
-    setAllBudgets(prevBudgets => prevBudgets.map(budget => {
-      if (budget.id !== budgetId) return budget;
-      
-      const updatedItems = budget.budget_items.filter(item => item.id !== itemId);
-      
-      if (updatedItems.length === 0) {
-        addNotification("O orçamento não pode ficar vazio. Cancele o orçamento se desejar removê-lo completamente.", "warning");
-        return budget;
-      }
-      
-      const newTotalValue = updatedItems.reduce((sum, item) => 
-        sum + (item.quantity * (item.unit_price || 0)), 0
-      );
-      
-      return { ...budget, budget_items: updatedItems, total_value: newTotalValue };
-    }));
-  };
 
   const handleApproveBudget = async (budgetId: string) => {
     if (!user || !user.email) {
@@ -512,53 +491,29 @@ const AuthorizationsPage: React.FC = () => {
                   <div className="bg-white dark:bg-gray-800 p-4 border-t border-gray-200 dark:border-gray-700">
                     <h4 className="text-gray-800 dark:text-gray-200 font-medium mb-2">Itens do Orçamento:</h4>
                     {budget.budget_items && budget.budget_items.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-sm text-gray-700 dark:text-gray-300">
-                          <thead className="bg-gray-50 dark:bg-gray-700">
-	                            <tr>
-	                              <th className="px-3 py-2 text-left">Item</th>
-	                              <th className="px-3 py-2 text-left">Qtd</th>
-	                              <th className="px-3 py-2 text-left">Valor</th>
-                                <th className="px-3 py-2 text-right">Ações</th>
-	                            </tr>
-                          </thead>
-	                          <tbody>
-	                            {budget.budget_items.map((item) => (
-	                              <tr key={item.id} className="border-t border-gray-100 dark:border-gray-700">
-	                                <td className="px-3 py-2">
-	                                  {item.product?.name || item.custom_item_name || "Item sem nome"}
-	                                </td>
-	                                <td className="px-3 py-2">
-                                    <div className="flex items-center">
-                                      <input
-                                        type="number"
-                                        value={item.quantity}
-                                        onChange={(e) => handleUpdateItemQuantity(budget.id, item.id, parseFloat(e.target.value) || 0)}
-                                        className="w-16 p-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 mr-1"
-                                        min="0"
-                                        step="any"
-                                      />
-                                      <span className="text-xs text-gray-500">{getUnitLabel(item.unit)}</span>
-                                    </div>
-	                                </td>
-	                                <td className="px-3 py-2">
-	                                  {item.unit_price
-	                                    ? `R$ ${(item.quantity * item.unit_price).toFixed(2).replace(".", ",")}`
-	                                    : "-"}
-	                                </td>
-                                  <td className="px-3 py-2 text-right">
-                                    <button
-                                      onClick={() => handleRemoveItem(budget.id, item.id)}
-                                      className="text-red-500 hover:text-red-700 transition-colors"
-                                      title="Remover item"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </button>
-                                  </td>
-	                              </tr>
-	                            ))}
-	                          </tbody>
-                        </table>
+                      <div className="space-y-2 mt-2">
+                        {budget.budget_items.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
+                                {item.product?.name || item.custom_item_name || "Item sem nome"}
+                              </p>
+                              {item.product?.category && (
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide">{item.product.category}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 ml-3 flex-shrink-0">
+                              <span className="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-lg">
+                                {item.quantity} {getUnitLabel(item.unit)}
+                              </span>
+                              <span className="text-sm font-bold text-gray-700 dark:text-gray-200 w-24 text-right">
+                                {item.unit_price
+                                  ? `R$ ${(item.quantity * item.unit_price).toFixed(2).replace(".", ",")}`
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <p className="text-gray-500 dark:text-gray-400">Nenhum item encontrado neste orçamento.</p>
