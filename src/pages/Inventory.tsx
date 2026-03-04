@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 import ImportInventory from '../components/ImportInventory';
 import { useHotel } from '../context/HotelContext';
 import SyncProductsModal from '../components/SyncProductsModal';
+import ProductLinkModal from '../components/ProductLinkModal';
 import NewHotelTransferModal from '../components/NewHotelTransferModal';
 import { searchMatch } from '../utils/search';
 import { useNotification } from '../context/NotificationContext';
@@ -64,7 +65,9 @@ const Inventory = () => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
-  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showSyncModal, setShowSyncModal]       = useState(false);
+  const [showLinkModal, setShowLinkModal]       = useState(false);
+  const [linkProduct,   setLinkProduct]         = useState<Product | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
@@ -449,7 +452,9 @@ const Inventory = () => {
           <Link to="/inventory/new-purchase" className="flex items-center px-3 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition-colors text-sm">
             <DollarSign className="w-4 h-4 mr-1.5" />Nova Entrada
           </Link>
-          <button onClick={() => setShowSyncModal(true)} className="flex items-center px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm">
+          <button
+                onClick={() => setShowSyncModal(true)}
+                className="flex items-center px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm">
             <RefreshCw className="w-4 h-4 mr-1.5" />Sincronizar
           </button>
           <button onClick={() => setShowTransferModal(true)} className="flex items-center px-3 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors text-sm">
@@ -548,6 +553,13 @@ const Inventory = () => {
                       <div className="flex items-center justify-center space-x-1">
                         <button onClick={() => handleStockAdjustment(product.id, product.name, 1)} className="p-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 rounded-md hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors" title="Aumentar estoque (+1)"><ArrowUp className="h-4 w-4" /></button>
                         <button onClick={() => handleStockAdjustment(product.id, product.name, -1)} className="p-1 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300 rounded-md hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors" title="Diminuir estoque (-1)"><ArrowUpRight className="h-4 w-4 rotate-90" /></button>
+                        <button
+                          onClick={() => { setLinkProduct(product); setShowLinkModal(true); }}
+                          className="p-1 text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors"
+                          title="Vincular a produto de outro hotel"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                        </button>
                         <button onClick={() => handleEdit(product)} className="p-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors" title="Editar Produto"><Edit2 className="h-4 w-4" /></button>
                         <button onClick={() => triggerDelete(product)} className="p-1 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" title="Excluir Produto"><Trash2 className="h-4 w-4" /></button>
                       </div>
@@ -606,6 +618,13 @@ const Inventory = () => {
         </Modal>
       )}
       {showSyncModal && ( <SyncProductsModal onClose={() => setShowSyncModal(false)} onSuccess={() => { setShowSyncModal(false); fetchProducts(); addNotification('Sincronização iniciada. Os produtos serão atualizados em breve.', 'info'); }} /> )}
+      {showLinkModal && linkProduct && (
+        <ProductLinkModal
+          currentProduct={linkProduct}
+          onClose={() => { setShowLinkModal(false); setLinkProduct(null); }}
+          onLinked={() => fetchProducts()}
+        />
+      )}
       {showTransferModal && ( <NewHotelTransferModal isOpen={showTransferModal} onClose={() => setShowTransferModal(false)} onSuccess={() => { setShowTransferModal(false); fetchProducts(); }} products={products.filter(p => p.is_active)} /> )}
       {showWeeklyReport && weeklyReportData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center p-4 z-50">
