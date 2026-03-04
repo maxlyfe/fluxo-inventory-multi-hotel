@@ -5,6 +5,30 @@
 
 import { supabase } from "./supabase";
 
+// ---------------------------------------------------------------------------
+// Mapa de rotas por event_key — determina para onde o clique na notificação leva
+// ---------------------------------------------------------------------------
+const EVENT_ROUTE_MAP: Record<string, string> = {
+  NEW_REQUEST:              '/sector-requests',
+  ITEM_DELIVERED_TO_SECTOR: '/sector-requests',
+  REQUEST_REJECTED:         '/sector-requests',
+  REQUEST_SUBSTITUTED:      '/sector-requests',
+  NEW_BUDGET:               '/authorizations',
+  BUDGET_APPROVED:          '/authorizations',
+  BUDGET_CANCELLED:         '/authorizations',
+  EXP_CONTRACT_ENDING_SOON: '/purchases',
+  EXP_CONTRACT_ENDS_TODAY:  '/purchases',
+};
+
+/**
+ * Retorna a URL de destino para o clique na notificação push.
+ * Prioridade: targetPath explícito → mapa por event_key → '/'
+ */
+function resolveNotificationUrl(eventKey: string, targetPath?: string | null): string {
+  if (targetPath) return targetPath;
+  return EVENT_ROUTE_MAP[eventKey] || '/';
+}
+
 interface Notification {
     id: string;
     created_at: string; 
@@ -169,6 +193,8 @@ export const createNotification = async (params: CreateNotificationParams | stri
             relatedEntityId: newNotification.related_entity_id,
             relatedEntityType: newNotification.related_entity_type,
             targetPath: finalTargetPath || null,
+            // 'url' é lida pelo Service Worker no notificationclick
+            url: resolveNotificationUrl(eventKey, finalTargetPath),
           }
         );
       } catch (pushError) {
@@ -629,54 +655,60 @@ export const notifyBudgetCreated = async (
 };
 
 // =====================================================
-// FUNÇÕES PARA TOKENS FCM
+// FUNÇÕES PARA TOKENS FCM (NOVAS)
 // =====================================================
 
-// Salva token FCM na tabela correta (user_fcm_tokens)
-export const saveFCMToken = async (userId: string, token: string, deviceInfo?: string) => {
+// Função para salvar token FCM (precisa criar tabela)
+export const saveFCMToken = async (userId: string, token: string, deviceInfo?: any) => {
   if (!userId || !token) {
-    console.error("[FCM] User ID e Token são obrigatórios.");
+    console.error("User ID e Token são obrigatórios para salvar o token FCM");
     return null;
   }
-
+  
+  // Verificar se a tabela user_fcm_tokens existe, se não, usar user_devices
   const { data, error } = await supabase
-    .from("user_fcm_tokens")
+    .from("user_devices")
     .upsert(
       {
-        user_id:     userId,
-        token:       token,
+        user_id: userId,
+        fcm_token: token,
         device_info: deviceInfo || null,
-        last_seen:   new Date().toISOString(),
+        is_active: true,
+        last_used_at: new Date().toISOString(),
       },
-      { onConflict: "token" }
+      {
+        onConflict: "user_id, fcm_token",
+      }
     )
     .select();
 
   if (error) {
-    console.error("[FCM] Erro ao salvar token:", error);
+    console.error("Erro ao salvar token FCM:", error);
     throw error;
   }
-
-  console.log("[FCM] Token salvo com sucesso.");
+  
+  console.log("Token FCM salvo com sucesso:", data);
   return data;
 };
 
-// Busca tokens FCM do usuário na tabela correta
-export const getUserFCMTokens = async (userId: string): Promise<{ token: string }[]> => {
+// Função para buscar tokens FCM do usuário
+export const getUserFCMTokens = async (userId: string) => {
   const { data, error } = await supabase
-    .from("user_fcm_tokens")
-    .select("token")
-    .eq("user_id", userId);
+    .from("user_devices")
+    .select("fcm_token, device_info")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .not("fcm_token", "is", null);
 
   if (error) {
-    console.error("[FCM] Erro ao buscar tokens:", error);
+    console.error("Erro ao buscar tokens FCM do usuário:", error);
     return [];
   }
-
+  
   return data || [];
 };
 
-// Envia notificação push via Edge Function send-fcm-notification
+// Função para enviar notificação push
 export const sendPushNotificationToUser = async (
   userId: string,
   title: string,
@@ -684,39 +716,40 @@ export const sendPushNotificationToUser = async (
   data?: Record<string, any>
 ) => {
   try {
-    // Busca a sessão atual para obter o JWT — necessário para autenticar na Edge Function
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
-
-    if (!accessToken) {
-      console.warn("[FCM] Sem sessão ativa, push não enviado.");
+    // Buscar tokens FCM do usuário
+    const tokens = await getUserFCMTokens(userId);
+    
+    if (tokens.length === 0) {
+      console.log("Usuário não tem tokens FCM registrados");
       return;
     }
 
-    const { data: result, error } = await supabase.functions.invoke('send-fcm-notification', {
+    // Chamar a função unificada create-notification para processar o push
+    // Nota: Se userId estiver presente, a função criará a notificação e o push para esse usuário específico.
+    const promise = supabase.functions.invoke('create-notification', {
       body: {
-        target_user_id: userId,
-        title,
-        body,
-        data: data
-          ? Object.fromEntries(
-              Object.entries(data).map(([k, v]) => [k, String(v ?? '')])
-            )
-          : undefined,
-      },
-      headers: { Authorization: `Bearer ${accessToken}` },
+        eventKey: eventKey,
+        templateData: {
+          ...params.metadata,
+          title: title,
+          message: message
+        },
+        hotelId: hotelId,
+        sectorId: sectorId,
+        relatedEntityId: relatedEntityId,
+        relatedEntityType: relatedEntityType,
+        createdBy: createdBy
+      }
     });
+    const promises = [promise];
 
-    if (error) {
-      console.error("[FCM] Erro na Edge Function:", error);
-      return;
-    }
-
-    console.log(`[FCM] Push enviado — enviados: ${result?.sent ?? 0}, falhas: ${result?.failed ?? 0}`);
-    return result;
+    const results = await Promise.allSettled(promises);
+    console.log("Resultados do envio de push:", results);
+    
+    return results;
   } catch (error) {
-    // Push é funcionalidade secundária — nunca deve quebrar o fluxo principal
-    console.error("[FCM] Exceção ao enviar push (não crítico):", error);
+    console.error("Erro ao enviar notificação push:", error);
+    throw error;
   }
 };
 
