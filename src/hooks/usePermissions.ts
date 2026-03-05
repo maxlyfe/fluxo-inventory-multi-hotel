@@ -39,11 +39,13 @@ export const MODULES: Module[] = [
 
 // Gera módulos dinâmicos de setor — chamado pelo RolesManagement com dados do banco
 // Chave: 'sector_stock:UUID'  →  aparece no grupo 'Stock por Setor'
-export function buildSectorModules(sectors: { id: string; name: string }[]): Module[] {
+export function buildSectorModules(
+  sectors: { id: string; name: string; hotelName?: string | null }[]
+): Module[] {
   return sectors.map(s => ({
     key:         `sector_stock:${s.id}`,
-    label:       s.name,
-    description: `Stock do setor ${s.name}`,
+    label:       s.hotelName ? `${s.name} — ${s.hotelName}` : s.name,
+    description: s.hotelName ? s.hotelName : `Stock do setor ${s.name}`,
     group:       'Stock por Setor',
     icon:        'Package',
   }));

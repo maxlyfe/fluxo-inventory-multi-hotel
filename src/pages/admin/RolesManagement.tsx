@@ -117,13 +117,20 @@ export default function RolesManagement() {
       // Busca roles + setores em paralelo
       const [rolesRes, sectorsRes] = await Promise.all([
         supabase.from('custom_roles').select('*').order('is_system', { ascending: false }).order('name'),
-        supabase.from('sectors').select('id, name').eq('has_stock', true).order('display_order', { ascending: true }),
+        supabase.from('sectors').select('id, name, hotels(name)').eq('has_stock', true).order('display_order', { ascending: true }),
       ]);
 
       if (rolesRes.error) throw rolesRes.error;
 
       // Atualiza módulos dinâmicos de setor
-      if (sectorsRes.data) setSectorModules(buildSectorModules(sectorsRes.data));
+      if (sectorsRes.data) {
+        const sectorsWithHotel = sectorsRes.data.map((s: any) => ({
+          id:        s.id,
+          name:      s.name,
+          hotelName: s.hotels?.name ?? null,
+        }));
+        setSectorModules(buildSectorModules(sectorsWithHotel));
+      }
 
       // Busca profiles — tenta com custom_role_id, cai em fallback se coluna não existir
       let usersData: UserProfile[] = [];
