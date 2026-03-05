@@ -33,7 +33,7 @@ interface Sector {
 
 interface UserProfile {
   id:             string;
-  full_name:      string | null;
+  display_name:   string;   // resolvido: employee.name > full_name > email > id parcial
   email:          string | null;
   role:           string | null;
   custom_role_id: string | null;
@@ -133,27 +133,11 @@ export default function RolesManagement() {
       }
 
       // Busca profiles — tenta com custom_role_id, cai em fallback se coluna não existir
+      // RPC resolve: employee.name > profile.full_name > email > id parcial
       let usersData: UserProfile[] = [];
-      const usersRes = await supabase
-        .from('profiles')
-        .select('id, full_name, email, role, custom_role_id')
-        .order('full_name');
-
+      const usersRes = await supabase.rpc('get_users_for_roles_management');
       if (!usersRes.error) {
         usersData = (usersRes.data || []) as UserProfile[];
-      } else {
-        // Fallback: busca sem as colunas novas (migration ainda não executada)
-        const fallback = await supabase
-          .from('profiles')
-          .select('id, email, role')
-          .order('email');
-        if (!fallback.error) {
-          usersData = (fallback.data || []).map((u: any) => ({
-            ...u,
-            full_name: null,
-            custom_role_id: null,
-          }));
-        }
       }
 
       // Conta utilizadores por role
@@ -293,7 +277,7 @@ export default function RolesManagement() {
 
   const filteredUsers = searchUser.trim()
     ? users.filter(u =>
-        u.full_name?.toLowerCase().includes(searchUser.toLowerCase()) ||
+        u.display_name.toLowerCase().includes(searchUser.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchUser.toLowerCase())
       )
     : users;
@@ -435,9 +419,9 @@ export default function RolesManagement() {
                       <div key={u.id} className="flex items-center gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
-                            {u.full_name || u.email || u.id.slice(0, 8)}
+                            {u.display_name}
                           </p>
-                          {u.full_name && u.email && (
+                          {u.email && u.display_name !== u.email && (
                             <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
                           )}
                         </div>
