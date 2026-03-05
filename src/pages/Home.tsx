@@ -12,6 +12,7 @@ import {
   Monitor, Archive,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { useHotel } from '../context/HotelContext';
 
 // ---------------------------------------------------------------------------
@@ -71,16 +72,17 @@ function getSectorVisual(name: string, idx: number) {
 // ---------------------------------------------------------------------------
 // Cards administrativos
 // ---------------------------------------------------------------------------
+// module: chave em usePermissions — mesma que está em MODULES e nos perfis
 const ADMIN_CARDS = [
-  { key: 'inventory',  label: 'Inventário',        sub: 'Gerenciar estoque',         href: '/inventory',            gradient: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700', icon: Boxes,        roles: ['admin','inventory'] },
-  { key: 'purchases',  label: 'Compras',            sub: 'Gerenciar pedidos',          href: '/purchases',            gradient: 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700',   icon: ShoppingCart, roles: ['admin','inventory'] },
-  { key: 'reports',    label: 'Relatórios',         sub: 'Controle semanal',           href: '/reports',              gradient: 'from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700',       icon: FileText,     roles: ['admin','inventory'] },
-  { key: 'auth',       label: 'Autorizações',       sub: 'Gerenciar autorizações',     href: '/authorizations',       gradient: 'from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700',       icon: CreditCard,   roles: ['admin','inventory'] },
-  { key: 'requests',   label: 'Requisições',        sub: 'Pedidos dos setores',        href: '/admin',                gradient: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',        icon: Package,      roles: ['admin'] },
-  { key: 'finances',   label: 'Financeiro',         sub: 'Controle financeiro',        href: '/finances',             gradient: 'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700', icon: DollarSign, roles: ['admin'] },
-  { key: 'management', label: 'Gerência',           sub: 'Relatórios e análises',      href: '/management',           gradient: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',   icon: BarChart3,    roles: ['admin','management'] },
-  { key: 'dp',         label: 'Depart. Pessoal',   sub: 'Contratos e colaboradores',  href: '/personnel-department', gradient: 'from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700',       icon: UsersRound,   roles: ['admin','management','rh'] },
-  { key: 'maint',      label: 'Manutenções',        sub: 'Tickets e equipamentos',     href: '/maintenance',          gradient: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700', icon: HardHat,    roles: ['admin','management'] },
+  { module: 'inventory',            label: 'Inventário',        sub: 'Gerenciar estoque',         href: '/inventory',            gradient: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700', icon: Boxes        },
+  { module: 'purchases',            label: 'Compras',            sub: 'Gerenciar pedidos',          href: '/purchases',            gradient: 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700',   icon: ShoppingCart },
+  { module: 'reports',              label: 'Relatórios',         sub: 'Controle semanal',           href: '/reports',              gradient: 'from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700',       icon: FileText     },
+  { module: 'authorizations',       label: 'Autorizações',       sub: 'Gerenciar autorizações',     href: '/authorizations',       gradient: 'from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700',       icon: CreditCard   },
+  { module: 'stock',                label: 'Requisições',        sub: 'Pedidos dos setores',        href: '/admin',                gradient: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',        icon: Package      },
+  { module: 'finances',             label: 'Financeiro',         sub: 'Controle financeiro',        href: '/finances',             gradient: 'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700', icon: DollarSign },
+  { module: 'management',           label: 'Gerência',           sub: 'Relatórios e análises',      href: '/management',           gradient: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',   icon: BarChart3    },
+  { module: 'personnel_department', label: 'Depart. Pessoal',    sub: 'Contratos e colaboradores',  href: '/personnel-department', gradient: 'from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700',       icon: UsersRound   },
+  { module: 'maintenance',          label: 'Manutenções',        sub: 'Tickets e equipamentos',     href: '/maintenance',          gradient: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700', icon: HardHat     },
 ];
 
 // ---------------------------------------------------------------------------
@@ -88,6 +90,7 @@ const ADMIN_CARDS = [
 // ---------------------------------------------------------------------------
 const Home = () => {
   const { user }          = useAuth();
+  const { can, isAdmin }  = usePermissions();
   const { selectedHotel } = useHotel();
   const navigate          = useNavigate();
 
@@ -122,10 +125,10 @@ const Home = () => {
     [allSectors]
   );
 
-  // Cards admin filtrados pelo role do usuário
+  // Cards admin filtrados pelas permissões do perfil
   const adminCards = useMemo(() => {
     if (!user) return [];
-    return ADMIN_CARDS.filter(c => c.roles.includes(user.role || ''));
+    return ADMIN_CARDS.filter(card => can(card.module));
   }, [user]);
 
   if (!selectedHotel) return null;
@@ -133,14 +136,14 @@ const Home = () => {
   // ── Estoques Setoriais ────────────────────────────────────────────────────
   const renderStockSectors = () => {
     // Guest não tem acesso a estoques setoriais
-    if (!user || user.role === 'guest' || stockSectors.length === 0) return null;
+    if (!user || stockSectors.length === 0) return null;
     return (
       <div className="space-y-4">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white">
           Estoques Setoriais
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {stockSectors.map((sector, idx) => {
+          {stockSectors.filter(sector => can(`sector_stock:${sector.id}`)).map((sector, idx) => {
             const { icon: Icon, gradient } = getSectorVisual(sector.name, idx);
             return (
               <Link
@@ -199,6 +202,8 @@ const Home = () => {
     }
 
     if (adminCards.length === 0) return null;
+    // Usada abaixo para decidir se mostra o título de Sector Stock
+    const visibleStockSectors = stockSectors.filter(s => can(`sector_stock:${s.id}`));
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
