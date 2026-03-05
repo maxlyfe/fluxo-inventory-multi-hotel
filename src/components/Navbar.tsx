@@ -37,6 +37,9 @@ import {
   UserCog as RolesIcon,
   LayoutGrid as SectorsIcon,
   ChevronDown as ChevronDownIcon,
+  BarChart2 as RelatoriosIcon,
+  ShieldCheck as AutorizacoesIcon,
+  UserCheck as DpIcon,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -52,19 +55,21 @@ const hotelNameMapping: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Navigation items
 // ---------------------------------------------------------------------------
-// module: chave do módulo em usePermissions (undefined = visível para todos logados)
+// module: chave do módulo em MODULES (usePermissions)
+// undefined = visível para qualquer usuário logado
+// Admin vê tudo automaticamente (bypass no usePermissions)
 const navigationItems = [
   {
     name:   "Dashboard",
     href:   "/",
     icon:   DashboardIcon,
-    module: undefined,          // dashboard sempre visível
+    module: undefined,
   },
   {
     name:   "Requisições",
     href:   "/admin",
     icon:   RequisicoesIcon,
-    module: "stock",            // stock geral / requisições de setor
+    module: "stock",
   },
   {
     name:   "Compras",
@@ -76,13 +81,31 @@ const navigationItems = [
     name:   "Orçamentos",
     href:   "/budget-history",
     icon:   OrcamentosIcon,
-    module: "authorizations",   // mesmo módulo — fluxo de compra
+    module: "authorizations",
   },
   {
     name:   "Aprovações",
     href:   "/authorizations",
-    icon:   ComprasIcon,
+    icon:   AutorizacoesIcon,
     module: "authorizations",
+  },
+  {
+    name:   "Relatórios",
+    href:   "/reports",
+    icon:   RelatoriosIcon,
+    module: "reports",
+  },
+  {
+    name:   "Manutenções",
+    href:   "/maintenance",
+    icon:   ManutencaoIcon,
+    module: "maintenance",
+  },
+  {
+    name:   "Depart. Pessoal",
+    href:   "/personnel-department",
+    icon:   DpIcon,
+    module: "personnel_department",
   },
 ];
 
