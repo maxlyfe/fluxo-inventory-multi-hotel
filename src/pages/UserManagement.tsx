@@ -5,7 +5,7 @@ import {
   Users, Key, AlertTriangle, UserCog, Bell, PlusCircle,
   Trash2, Edit3, XCircle, CheckCircle, Clock,
   ChevronRight, RefreshCw, UserPlus, Eye, EyeOff, X,
-  ShieldOff, ShieldCheck, UserX, Loader2,
+  ShieldOff, ShieldCheck, UserX, Loader2, LogOut,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -314,7 +314,7 @@ function ModalActions({ onCancel, submitLabel, submitColor = 'bg-blue-600 hover:
 // ---------------------------------------------------------------------------
 
 const UserManagement = () => {
-  const { user: adminUser, session } = useAuth();
+  const { user: adminUser, session, forceSignOut } = useAuth();
   const navigate = useNavigate();
 
   const [users, setUsers]     = useState<User[]>([]);
@@ -342,7 +342,8 @@ const UserManagement = () => {
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
 
   // Toggle ban
-  const [togglingBan, setTogglingBan] = useState<string | null>(null);
+  const [togglingBan,   setTogglingBan]   = useState<string | null>(null);
+  const [forcingLogout, setForcingLogout] = useState<string | null>(null);
 
   // Notification prefs
   const [showNotif, setShowNotif]             = useState(false);
@@ -785,6 +786,26 @@ const UserManagement = () => {
                       color={disabled ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}
                       disabled={isMe || isBanning}
                       onClick={() => handleToggleBan(user)}
+                    />
+                    <ActionButton
+                      title="Forçar logout de todos os dispositivos"
+                      icon={forcingLogout === user.id
+                        ? <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                        : <LogOut className="h-4 w-4" />
+                      }
+                      color="text-orange-500 dark:text-orange-400"
+                      disabled={isMe || forcingLogout === user.id || disabled}
+                      onClick={async () => {
+                        if (!window.confirm(`Desconectar ${user.email} de todos os dispositivos?`)) return;
+                        setForcingLogout(user.id);
+                        try {
+                          const result = await forceSignOut(user.id);
+                          if (result.success) showToast('success', `${user.email} foi desconectado.`);
+                          else showToast('error', result.message || 'Erro ao forçar logout.');
+                        } finally {
+                          setForcingLogout(null);
+                        }
+                      }}
                     />
                   </div>
                 </div>

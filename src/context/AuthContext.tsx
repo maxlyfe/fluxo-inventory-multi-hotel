@@ -25,7 +25,8 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
   saveName: (fullName: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<{ success: boolean; message?: string }>;
-  session: Session | null;
+  session:       Session | null;
+  forceSignOut:  (userId: string) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -102,8 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
+        // Atualiza sessão e relança fetch do perfil (permissões podem ter mudado)
         setSession(session);
-        setUser(mapSupabaseUserToAppUser(session?.user ?? null));
+        const baseUser = mapSupabaseUserToAppUser(session?.user ?? null);
+        setUser(baseUser);
+        if (baseUser?.id) {
+          fetchProfile(baseUser.id).then(profile => {
+            setUser(prev => prev ? { ...prev, ...profile } : prev);
+          });
+        }
         return;
       }
       if (event === 'SIGNED_OUT' || !session) {
@@ -131,27 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  useEffect(() => {
-    let inactivityTimer: number;
-    const resetTimer = () => {
-      clearTimeout(inactivityTimer);
-      inactivityTimer = window.setTimeout(() => {
-        if (user) logout();
-      }, 60 * 60 * 1000);
-    };
-    if (user) {
-      window.addEventListener('mousemove', resetTimer);
-      window.addEventListener('keypress', resetTimer);
-      window.addEventListener('touchstart', resetTimer);
-      resetTimer();
-    }
-    return () => {
-      window.removeEventListener('mousemove', resetTimer);
-      window.removeEventListener('keypress', resetTimer);
-      window.removeEventListener('touchstart', resetTimer);
-      clearTimeout(inactivityTimer);
-    };
-  }, [user]);
+  // Sem timer de inatividade — sessão persiste até logout explícito
 
   const login = async (email: string, password: string) => {
     setLoading(true);
@@ -214,8 +202,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Força logout de outro utilizador via edge function (apenas admin)
+  // Usa supabase.functions.invoke para garantir apikey + Authorization corretos
+  const forceSignOut = async (userId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-user-actions', {
+        body: { action: 'force_signout', target_user_id: userId },
+      });
+      if (error) return { success: false, message: error.message || 'Erro ao forçar logout.' };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, needsName, login, loginWithGoogle, saveName, logout, session }}>
+    <AuthContext.Provider value={{ user, loading, needsName, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
       {children}
     </AuthContext.Provider>
   );
