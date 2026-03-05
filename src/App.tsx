@@ -164,14 +164,14 @@ function App() {
 
                     {/* ── Relatórios ───────────────────────────────────────── */}
                     <Route path="/reports" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="reports">
                         <ReportsPage />
                       </PrivateRoute>
                     } />
 
                     {/* ── Compras ──────────────────────────────────────────── */}
                     <Route path="/shopping-list" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="purchases">
                         <ShoppingList />
                       </PrivateRoute>
                     } />
@@ -183,43 +183,43 @@ function App() {
                     } />
 
                     <Route path="/purchases" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="purchases">
                         <PurchaseOrders />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/list" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="purchases">
                         <NewPurchaseList />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/dynamic-budget/new" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="purchases">
                         <DynamicBudgetCreation />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/dynamic-budget/analysis/:budgetId" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="purchases">
                         <BudgetAnalysis />
                       </PrivateRoute>
                     } />
 
                     <Route path="/purchases/online" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="purchases">
                         <OnlinePurchaseList />
                       </PrivateRoute>
                     } />
 
                     <Route path="/budget-history" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="authorizations">
                         <BudgetHistory />
                       </PrivateRoute>
                     } />
 
                     <Route path="/budget/:budgetId" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="authorizations">
                         <BudgetDetail />
                       </PrivateRoute>
                     } />
@@ -233,7 +233,7 @@ function App() {
 
                     {/* ── Autorizações ──────────────────────────────────────── */}
                     <Route path="/authorizations" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="authorizations">
                         <AuthorizationsPage />
                       </PrivateRoute>
                     } />
@@ -266,19 +266,19 @@ function App() {
 
                     {/* ── Manutenções ───────────────────────────────────────── */}
                     <Route path="/maintenance" element={
-                      <PrivateRoute module="purchases">
+                      <PrivateRoute module="maintenance">
                         <MaintenanceDashboard />
                       </PrivateRoute>
                     } />
 
                     <Route path="/maintenance/equipment" element={
-                      <PrivateRoute module="personnel_department">
+                      <PrivateRoute module="maintenance">
                         <MaintenanceEquipment />
                       </PrivateRoute>
                     } />
 
                     <Route path="/maintenance/ticket/:id" element={
-                      <PrivateRoute module="authorizations">
+                      <PrivateRoute module="maintenance">
                         <MaintenanceTicketDetail />
                       </PrivateRoute>
                     } />
