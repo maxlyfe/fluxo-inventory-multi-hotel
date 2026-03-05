@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, ArrowLeft, Download, AlertTriangle, Calendar, Save, History, ChevronDown, Plus, Edit, Copy, X, Globe, Layers } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, Download, AlertTriangle, Calendar, Save, History, ChevronDown, Plus, Edit, Copy, X, Layers } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { format, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -676,14 +676,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
 
           {/* Linha 2: ações — ícones+label no mobile, texto completo no desktop */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => navigate('/purchases/online')}
-              className="flex items-center gap-1.5 px-3 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm font-medium"
-            >
-              <Globe className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">Orçamentos Online</span>
-              <span className="sm:hidden">Online</span>
-            </button>
+
             <button
               onClick={captureAndCopyToClipboard}
               className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
