@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, ArrowLeft, Download, AlertTriangle, Calendar, Save, History, ChevronDown, Plus, Edit, Copy, X, Globe } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, Download, AlertTriangle, Calendar, Save, History, ChevronDown, Plus, Edit, Copy, X, Globe, Layers } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { format, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
-import { saveBudget, getHotelInventory } from '../lib/supabase';
+import { supabase, saveBudget, getHotelInventory } from '../lib/supabase';
 import { createNotification } from "../lib/notifications";
 
 interface Product {
@@ -35,7 +35,15 @@ interface EditableProduct extends Product {
   editedUnit?: string;
   editedLastPurchaseDate?: string;
   editedStock?: string | number; 
-  isCustom?: boolean;
+  isCustom?:            boolean;
+  isSubstitute?:        boolean;   // veio como substituto do BudgetAnalysis
+  originalProductName?: string;    // nome do produto original no inventário
+}
+
+interface StockSector {
+  id:       string;
+  name:     string;
+  quantity: number; // quantidade do produto naquele setor
 }
 
 const unitOptions = [
@@ -123,10 +131,55 @@ const NewPurchaseList = () => {
     });
   });
 
+  // Stock dropdown: sectorStocks[productId] = lista de setores com quantidade
+  const [sectorStocks,      setSectorStocks]      = useState<Record<string, StockSector[]>>({});
+  const [stockDropdownOpen, setStockDropdownOpen] = useState<string | null>(null); // productId com dropdown aberto
+  const [loadingSectors,    setLoadingSectors]    = useState<string | null>(null); // productId carregando
+
   const today = format(new Date(), "dd/MM/yyyy", { locale: ptBR });
+
+  // Fechar dropdown de stock ao clicar fora
+  useEffect(() => {
+    if (!stockDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Element;
+      if (!target.closest('[data-stock-dropdown]')) setStockDropdownOpen(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [stockDropdownOpen]);
   
   const purchaseListRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+
+  // Busca estoque de um produto em todos os setores com has_stock=true
+  const fetchSectorStocks = async (productId: string, originalProductName: string) => {
+    if (sectorStocks[productId] || !selectedHotel?.id) return;
+    setLoadingSectors(productId);
+    try {
+      // sector_stock: quantity por setor — filtrar só setores com has_stock=true
+      const { data: rawData, error } = await supabase
+        .from('sector_stock')
+        .select('quantity, sectors!inner(id, name, has_stock)')
+        .eq('product_id', productId)
+        .eq('sectors.has_stock', true);
+      const data = rawData;
+      if (error) throw error;
+      const items: StockSector[] = (data ?? [])
+        .filter((d: any) => d.sectors?.has_stock)
+        .map((d: any) => ({
+          id:       d.sectors.id,
+          name:     d.sectors.name,
+          quantity: d.quantity ?? 0,
+        }));
+      setSectorStocks(prev => ({ ...prev, [productId]: items }));
+    } catch (e) {
+      console.warn('fetchSectorStocks error:', e);
+      setSectorStocks(prev => ({ ...prev, [productId]: [] }));
+    } finally {
+      setLoadingSectors(null);
+    }
+  };
 
   useEffect(() => {
     const fetchInventory = async () => {
@@ -226,7 +279,13 @@ const NewPurchaseList = () => {
           }
         }
 
-        const customNameValue = product.isCustom ? (product.editedName || product.name) : null;
+        // Persiste o nome editado para qualquer produto (não só itens personalizados).
+        // O product_id é mantido — na entrada em inventário o produto original é
+        // atualizado corretamente. O custom_item_name é só para exibição no histórico.
+        const nameChanged     = product.editedName && product.editedName !== product.name;
+        const customNameValue = (product.isCustom || nameChanged)
+          ? (product.editedName || product.name)
+          : null;
 
         return {
           product_id: product.isCustom ? null : product.id,
@@ -754,9 +813,22 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             value={product.editedName || product.name}
                             onChange={(e) => handleTextChange(product.id, 'editedName', e.target.value)}
                             className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
-                            disabled={!product.isCustom}
+                            title="Clique para editar o nome neste orçamento (não altera o inventário)"
+                            placeholder={product.name}
                           />
-                          {product.isCustom && <span className="text-xs text-purple-600 dark:text-purple-400 block mt-1">Personalizado</span>}
+                          {product.isCustom
+                            ? <span className="text-xs text-purple-600 dark:text-purple-400 block mt-1">Personalizado</span>
+                            : product.isSubstitute
+                              ? <span
+                                  className="text-xs text-blue-500 dark:text-blue-400 block mt-1 cursor-help"
+                                  title={`Substituto de: ${product.originalProductName || 'produto original'}. O histórico e stock exibidos são do produto original.`}
+                                >
+                                  ⇄ substituto {product.originalProductName ? `de "${product.originalProductName}"` : ''}
+                                </span>
+                              : (product.editedName && product.editedName !== product.name)
+                                ? <span className="text-xs text-amber-500 dark:text-amber-400 block mt-1" title={`Nome original: ${product.name}`}>✎ editado</span>
+                                : null
+                          }
                         </td>
                         <td className="px-4 py-3">
                           <input 
@@ -839,14 +911,73 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             R$ {((product.editedQuantity ?? 0) * (product.editedPrice ?? 0)).toFixed(2).replace('.', ',')}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <input 
-                            type="text" 
-                            value={product.editedStock ?? ''}
-                            onChange={(e) => handleTextChange(product.id, 'editedStock', e.target.value)}
-                            className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
-                            disabled={product.isCustom}
-                          />
+                        <td className="px-4 py-3 relative">
+                          <div className="flex items-center gap-1">
+                            <input 
+                              type="text" 
+                              value={product.editedStock ?? ''}
+                              onChange={(e) => handleTextChange(product.id, 'editedStock', e.target.value)}
+                              className="w-16 bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
+                              disabled={product.isCustom}
+                            />
+                            {!product.isCustom && product.id && !product.id.startsWith('custom-') && (
+                              <button
+                                title="Ver stock por setor"
+                                onClick={() => {
+                                  if (stockDropdownOpen === product.id) {
+                                    setStockDropdownOpen(null);
+                                  } else {
+                                    fetchSectorStocks(product.id, product.name);
+                                    setStockDropdownOpen(product.id);
+                                  }
+                                }}
+                                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-indigo-500 transition-colors"
+                              >
+                                <Layers className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          {/* Dropdown de stock por setor */}
+                          {stockDropdownOpen === product.id && (
+                            <div className="absolute z-20 top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                              <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stock por Setor</span>
+                                <button onClick={() => setStockDropdownOpen(null)} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>
+                              </div>
+                              {loadingSectors === product.id ? (
+                                <div className="px-3 py-3 text-xs text-gray-400 text-center">A carregar...</div>
+                              ) : (sectorStocks[product.id] ?? []).length === 0 ? (
+                                <div className="px-3 py-3 text-xs text-gray-400 text-center">Sem stock em setores</div>
+                              ) : (
+                                <>
+                                  {/* Inventário central — sempre primeiro */}
+                                  <button
+                                    onClick={() => {
+                                      handleTextChange(product.id, 'editedStock', String(product.quantity ?? 0));
+                                      setStockDropdownOpen(null);
+                                    }}
+                                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-sm transition-colors border-b border-gray-100 dark:border-gray-700"
+                                  >
+                                    <span className="text-gray-700 dark:text-gray-300 font-medium">Inventário Central</span>
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">{product.quantity ?? 0}</span>
+                                  </button>
+                                  {(sectorStocks[product.id] ?? []).map(sector => (
+                                    <button
+                                      key={sector.id}
+                                      onClick={() => {
+                                        handleTextChange(product.id, 'editedStock', String(sector.quantity));
+                                        setStockDropdownOpen(null);
+                                      }}
+                                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-sm transition-colors"
+                                    >
+                                      <span className="text-gray-700 dark:text-gray-300 truncate">{sector.name}</span>
+                                      <span className="text-gray-900 dark:text-gray-100 font-bold ml-2">{sector.quantity}</span>
+                                    </button>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button

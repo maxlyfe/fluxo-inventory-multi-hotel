@@ -275,7 +275,7 @@ const BudgetHistory = () => {
                 return `
                   <tr style="background-color: ${bgColor};">
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">
-                      ${item.product?.name || item.custom_item_name || 'Item Desconhecido'}
+                      ${item.custom_item_name || item.product?.name || 'Item Desconhecido'}
                     </td>
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${quantity}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${unitDisplay}</td>
@@ -448,7 +448,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
               <ul className="space-y-2 text-sm">
                 {budget.budget_items.map(item => (
                   <li key={item.id} className="p-2 rounded-md bg-white dark:bg-gray-700/60 shadow-sm">
-                    <div className="font-medium text-gray-800 dark:text-gray-100">{item.product?.name || item.custom_item_name || "Item não especificado"}</div>
+                    <div className="font-medium text-gray-800 dark:text-gray-100">{item.custom_item_name || item.product?.name || "Item não especificado"}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Quantidade: {item.quantity} {getUnitLabel(item.unit)} {item.unit_price ? `| Preço Unit.: R$ ${item.unit_price.toFixed(2).replace(".", ",")}` : ''}</div>
                     {item.supplier && <div className="text-xs text-gray-500 dark:text-gray-400">Fornecedor: {item.supplier}</div>}
                     {item.last_purchase_price && <div className="text-xs text-gray-500 dark:text-gray-400">Última Compra: R$ {item.last_purchase_price.toFixed(2).replace(".", ",")} ({item.last_purchase_quantity} {getUnitLabel(item.unit)} em {item.last_purchase_date ? format(parseISO(item.last_purchase_date), 'dd/MM/yy') : 'N/A'})</div>}

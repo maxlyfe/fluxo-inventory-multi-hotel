@@ -498,17 +498,22 @@ const BudgetAnalysis = () => {
   const handleCreatePurchaseList = async (supplierName: string, items: any[]) => {
     addNotification(`Preparando orçamento para ${supplierName}...`, 'info');
     try {
-      const productIds = items.filter(i => !i.is_substitute).map(i => i.product_id);
+      // Busca TODOS os product_ids — incluindo substitutos.
+      // product_id é SEMPRE o produto original requisitado (ex: Antartica),
+      // mesmo quando o fornecedor oferece um substituto (ex: Schwepps).
+      // Assim o histórico (última compra, data, quantidade) vem do original.
+      const allProductIds = [...new Set(items.map(i => i.product_id).filter(Boolean))];
 
       let fullProductsData: any[] = [];
-      if (productIds.length > 0) {
+      if (allProductIds.length > 0) {
         const { data, error: productsError } = await supabase
-          .from('products').select('*').in('id', productIds);
+          .from('products').select('*').in('id', allProductIds);
         if (productsError) throw productsError;
         fullProductsData = data ?? [];
       }
 
       const selectedProductDetails = items.map(item => {
+        // fullProduct = dados do produto ORIGINAL (Antartica)
         const fullProduct = fullProductsData.find(p => p.id === item.product_id) ?? {};
 
         let formattedDate: string | undefined;
@@ -521,17 +526,27 @@ const BudgetAnalysis = () => {
 
         return {
           ...fullProduct,
-          id: item.product_id,
-          name: item.name,           // nome do substituto se aceito
-          editedName: item.name,
-          editedPrice: item.unit_price,
-          editedQuantity: item.quantity,
-          editedSupplier: item.supplier,
-          editedUnit: item.unit,
-          editedStock: fullProduct?.quantity ?? 0,
-          editedLastPrice: fullProduct?.last_purchase_price,
+          // id sempre aponta pro produto original — garante que ao receber
+          // a compra, o histórico (last_purchase_price, date, quantity) seja
+          // gravado no produto correto do inventário (ex: Agua Tonica Antartica)
+          id:                    item.product_id,
+          // nome visível no orçamento = nome do substituto aceito (ex: Schwepps)
+          name:                  item.name,
+          editedName:            item.name,
+          // preço e fornecedor vêm do substituto oferecido
+          editedPrice:           item.unit_price,
+          editedQuantity:        item.quantity,
+          editedSupplier:        item.supplier,
+          editedUnit:            item.unit,
+          // histórico e stock vêm do produto ORIGINAL
+          editedStock:           fullProduct?.quantity ?? 0,
+          editedLastPrice:       fullProduct?.last_purchase_price,
           editedLastPurchaseDate: formattedDate,
-          editedLastQuantity: fullProduct?.last_purchase_quantity,
+          editedLastQuantity:    fullProduct?.last_purchase_quantity,
+          // flag para o NewPurchaseList exibir badge "substituto"
+          isSubstitute:          item.is_substitute,
+          // nome original para referência visual
+          originalProductName:   item.is_substitute ? fullProduct?.name : undefined,
         };
       });
 
