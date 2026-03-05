@@ -1213,7 +1213,6 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                   </tfoot>
                 </table>
               </div>
-                </div>
               </>
             )}
           </div>
