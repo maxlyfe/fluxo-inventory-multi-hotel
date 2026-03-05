@@ -656,51 +656,57 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center space-x-4">
-            <Link 
-              to="/purchases" 
-              className="flex items-center text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+        {/* Header — responsivo */}
+        <div className="mb-6">
+          {/* Linha 1: voltar + título */}
+          <div className="flex items-center gap-3 mb-3">
+            <Link
+              to="/purchases"
+              className="flex items-center justify-center w-9 h-9 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex-shrink-0"
             >
-              <ArrowLeft className="h-5 w-5 mr-2" />
-              Voltar
+              <ArrowLeft className="h-4 w-4" />
             </Link>
-            <div className="flex items-center space-x-2">
-              <ShoppingCart className="h-8 w-8 text-blue-600 dark:text-blue-400" />
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Novo Orçamento (Físico)</h1>
+            <div className="flex items-center gap-2 min-w-0">
+              <ShoppingCart className="h-6 w-6 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-white truncate">
+                Novo Orçamento (Físico)
+              </h1>
             </div>
           </div>
-          
-          <div className="flex items-center space-x-3">
+
+          {/* Linha 2: ações — ícones+label no mobile, texto completo no desktop */}
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => navigate('/purchases/online')}
-              className="flex items-center px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm font-medium"
             >
-              <Globe className="h-4 w-4 mr-2" />
-              Orçamentos Online
+              <Globe className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">Orçamentos Online</span>
+              <span className="sm:hidden">Online</span>
             </button>
             <button
               onClick={captureAndCopyToClipboard}
-              className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
             >
-              <Copy className="h-4 w-4 mr-2" />
-              Copiar Imagem
+              <Copy className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">Copiar Imagem</span>
+              <span className="sm:hidden">Imagem</span>
             </button>
             <button
               onClick={exportToExcel}
-              className="flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
             >
-              <Download className="h-4 w-4 mr-2" />
-              Exportar Excel
+              <Download className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">Exportar Excel</span>
+              <span className="sm:hidden">Excel</span>
             </button>
             <button
               onClick={saveBudgetToDatabase}
               disabled={isSaving || products.length === 0}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium ml-auto sm:ml-0"
             >
-              <Save className="h-4 w-4 mr-2" />
-              {isSaving ? 'Salvando...' : 'Salvar Orçamento'}
+              <Save className="h-4 w-4 flex-shrink-0" />
+              <span>{isSaving ? 'Salvando...' : 'Salvar Orçamento'}</span>
             </button>
           </div>
         </div>
@@ -718,22 +724,22 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
 
         {/* Add Items Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Adicionar Itens</h3>
-            <div className="flex space-x-3">
+            <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => setShowAddItemModal(true)}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium text-sm"
               >
-                <Plus className="h-4 w-4 mr-2" />
+                <Plus className="h-4 w-4" />
                 Adicionar do Inventário
               </button>
               <button
                 onClick={() => setShowCustomItemModal(true)}
-                className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium text-sm"
               >
-                <Edit className="h-4 w-4 mr-2" />
-                Adicionar Item Personalizado
+                <Edit className="h-4 w-4" />
+                Item Personalizado
               </button>
             </div>
           </div>
@@ -765,7 +771,211 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto" ref={tableRef}>
+              <>
+                {/* ── MOBILE: cards por produto (< md) ── */}
+                <div className="md:hidden space-y-3">
+                  {products.map((product) => (
+                    <div key={product.id} className="bg-gray-50 dark:bg-gray-700/60 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                      {/* Card header: nome + delete */}
+                      <div className="flex items-start gap-2 px-4 pt-4 pb-2">
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="text"
+                            value={product.editedName || product.name}
+                            onChange={(e) => handleTextChange(product.id, 'editedName', e.target.value)}
+                            className="w-full bg-transparent text-sm font-semibold text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500 pb-0.5"
+                            title="Toque para editar o nome neste orçamento"
+                            placeholder={product.name}
+                          />
+                          <div className="mt-0.5">
+                            {product.isCustom
+                              ? <span className="text-[11px] text-purple-500 font-medium">✦ Personalizado</span>
+                              : product.isSubstitute
+                                ? <span className="text-[11px] text-blue-500 font-medium" title={`Substituto de: ${product.originalProductName || 'produto original'}`}>⇄ sub. de "{product.originalProductName}"</span>
+                                : (product.editedName && product.editedName !== product.name)
+                                  ? <span className="text-[11px] text-amber-500 font-medium" title={`Original: ${product.name}`}>✎ editado</span>
+                                  : null
+                            }
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeProductFromList(product.id)}
+                          className="flex-shrink-0 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Row 1: Qtd + Unidade + Fornecedor */}
+                      <div className="grid grid-cols-3 gap-0 border-t border-gray-200 dark:border-gray-700">
+                        <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Qtd.</p>
+                          <input
+                            type="number"
+                            value={product.editedQuantity ?? ''}
+                            onChange={(e) => handleValueChange(product.id, 'editedQuantity', e.target.value)}
+                            min="0"
+                            className="w-full bg-transparent text-sm font-bold text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Unid.</p>
+                          <select
+                            value={product.editedUnit || ''}
+                            onChange={(e) => handleUnitChange(product.id, e.target.value)}
+                            className="w-full bg-transparent text-sm text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
+                          >
+                            {unitOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.value || '—'}</option>)}
+                          </select>
+                        </div>
+                        <div className="px-3 py-2.5">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Fornecedor</p>
+                          <input
+                            type="text"
+                            value={product.editedSupplier || product.supplier || ''}
+                            onChange={(e) => handleTextChange(product.id, 'editedSupplier', e.target.value)}
+                            className="w-full bg-transparent text-sm text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
+                            placeholder="—"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Row 2: Preço unit + Total destacado */}
+                      <div className="grid grid-cols-2 gap-0 border-t border-gray-200 dark:border-gray-700">
+                        <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Preço Unit.</p>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[11px] text-gray-400">R$</span>
+                            <input
+                              type="number"
+                              value={product.editedPrice ?? ''}
+                              onChange={(e) => handleValueChange(product.id, 'editedPrice', e.target.value)}
+                              step="0.01"
+                              min="0"
+                              className="w-full bg-transparent text-sm font-semibold text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="px-3 py-2.5 bg-blue-50 dark:bg-blue-900/20">
+                          <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide mb-1">Total</p>
+                          <p className="text-base font-black text-blue-700 dark:text-blue-300">
+                            R$ {((product.editedQuantity ?? 0) * (product.editedPrice ?? 0)).toFixed(2).replace('.', ',')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Row 3: Histórico + Stock — colapsável */}
+                      <details className="border-t border-gray-200 dark:border-gray-700">
+                        <summary className="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none text-[11px] font-bold text-gray-400 uppercase tracking-wide hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors list-none">
+                          <span className="flex items-center gap-1.5">
+                            <History className="h-3 w-3" /> Histórico & Stock
+                          </span>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </summary>
+                        <div className="grid grid-cols-2 gap-0 bg-gray-100/50 dark:bg-gray-800/30">
+                          <div className="px-3 py-2.5 border-r border-b border-gray-200 dark:border-gray-700">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Últ. Qtd.</p>
+                            <input
+                              type="number"
+                              value={product.editedLastQuantity ?? ''}
+                              onChange={(e) => handleValueChange(product.id, 'editedLastQuantity', e.target.value)}
+                              className="w-full bg-transparent text-sm text-gray-700 dark:text-gray-300 border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none"
+                              disabled={product.isCustom}
+                            />
+                          </div>
+                          <div className="px-3 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Últ. Preço</p>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[11px] text-gray-400">R$</span>
+                              <input
+                                type="number"
+                                value={product.editedLastPrice ?? ''}
+                                onChange={(e) => handleValueChange(product.id, 'editedLastPrice', e.target.value)}
+                                step="0.01"
+                                className="w-full bg-transparent text-sm text-gray-700 dark:text-gray-300 border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none"
+                                disabled={product.isCustom}
+                              />
+                            </div>
+                          </div>
+                          <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Últ. Data</p>
+                            <input
+                              type="date"
+                              value={product.editedLastPurchaseDate || ''}
+                              onChange={(e) => handleTextChange(product.id, 'editedLastPurchaseDate', e.target.value)}
+                              className="w-full bg-transparent text-xs text-gray-700 dark:text-gray-300 border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none"
+                              disabled={product.isCustom}
+                            />
+                          </div>
+                          <div className="px-3 py-2.5 relative">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Stock</p>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={product.editedStock ?? ''}
+                                onChange={(e) => handleTextChange(product.id, 'editedStock', e.target.value)}
+                                className="w-14 bg-transparent text-sm text-gray-700 dark:text-gray-300 border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none"
+                                disabled={product.isCustom}
+                              />
+                              {!product.isCustom && product.id && !product.id.startsWith('custom-') && (
+                                <button
+                                  title="Stock por setor"
+                                  onClick={() => {
+                                    if (stockDropdownOpen === product.id) {
+                                      setStockDropdownOpen(null);
+                                    } else {
+                                      fetchSectorStocks(product.id, product.name);
+                                      setStockDropdownOpen(product.id);
+                                    }
+                                  }}
+                                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-indigo-500 transition-colors"
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                            {/* Dropdown stock por setor — mobile */}
+                            {stockDropdownOpen === product.id && (
+                              <div className="absolute z-30 bottom-full left-0 mb-1 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Stock por Setor</span>
+                                  <button onClick={() => setStockDropdownOpen(null)} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>
+                                </div>
+                                {loadingSectors === product.id ? (
+                                  <div className="px-3 py-3 text-xs text-gray-400 text-center">A carregar...</div>
+                                ) : (sectorStocks[product.id] ?? []).length === 0 ? (
+                                  <div className="px-3 py-3 text-xs text-gray-400 text-center">Sem stock em setores</div>
+                                ) : (
+                                  <>
+                                    <button onClick={() => { handleTextChange(product.id, 'editedStock', String(product.quantity ?? 0)); setStockDropdownOpen(null); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-sm transition-colors border-b border-gray-100 dark:border-gray-700">
+                                      <span className="text-gray-700 dark:text-gray-300 font-medium">Inventário Central</span>
+                                      <span className="text-indigo-600 font-bold">{product.quantity ?? 0}</span>
+                                    </button>
+                                    {(sectorStocks[product.id] ?? []).map(sector => (
+                                      <button key={sector.id} onClick={() => { handleTextChange(product.id, 'editedStock', String(sector.quantity)); setStockDropdownOpen(null); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-sm transition-colors">
+                                        <span className="text-gray-700 dark:text-gray-300 truncate">{sector.name}</span>
+                                        <span className="text-gray-900 dark:text-gray-100 font-bold ml-2">{sector.quantity}</span>
+                                      </button>
+                                    ))}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  ))}
+
+                  {/* Total mobile */}
+                  <div className="flex items-center justify-between bg-blue-600 dark:bg-blue-700 rounded-2xl px-5 py-4 mt-2">
+                    <span className="text-sm font-bold text-blue-100 uppercase tracking-wide">Total Geral</span>
+                    <span className="text-2xl font-black text-white">R$ {totalBudgetValue.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                </div>
+
+                {/* ── DESKTOP: tabela (≥ md) ── */}
+                <div className="hidden md:block overflow-x-auto" ref={tableRef}>
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 table-fixed">
                   <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
@@ -1003,15 +1213,17 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                   </tfoot>
                 </table>
               </div>
+                </div>
+              </>
             )}
           </div>
         </div>
 
-        {/* Modal para adicionar item do inventário */}
+        {/* Modal para adicionar item do inventário — bottom sheet no mobile */}
         {showAddItemModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-              <div className="flex justify-between items-center mb-4">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-2xl w-full sm:max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl">
+              <div className="sticky top-0 bg-white dark:bg-gray-800 px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Adicionar Item do Inventário</h3>
                 <button
                   onClick={() => setShowAddItemModal(false)}
@@ -1064,7 +1276,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
 
         {/* Modal para adicionar item personalizado */}
         {showCustomItemModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Adicionar Item Personalizado</h3>
