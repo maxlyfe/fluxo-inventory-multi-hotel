@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Search, ChevronRight, ChevronLeft, CheckCircle2, Save, ListChecks, AlertCircle, Play, Camera, Barcode, Plus } from 'lucide-react';
+import { X, Search, ChevronRight, ChevronLeft, CheckCircle2, Save, ListChecks, AlertCircle, Play, Camera, Barcode, Plus, ZapOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
@@ -52,6 +52,20 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
   const currentCategory = categories[currentCategoryIndex];
   
+  // Progresso: quantos produtos já têm contagem vs total
+  const totalProducts   = products.length;
+  const countedProducts = Object.keys(counts).length;
+  const progressPct     = totalProducts > 0 ? Math.round((countedProducts / totalProducts) * 100) : 0;
+
+  // Preencher todos os produtos sem contagem com 0
+  const fillRemainingWithZero = () => {
+    const newCounts = { ...counts };
+    products.forEach(p => {
+      if (newCounts[p.id] === undefined) newCounts[p.id] = 0;
+    });
+    setCounts(newCounts);
+  };
+
   const filteredProducts = useMemo(() => {
     if (searchTerm) {
       return products.filter(p => 
@@ -291,6 +305,15 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={fillRemainingWithZero}
+              disabled={countedProducts === totalProducts}
+              title="Preencher itens não contados com 0"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ZapOff className="w-4 h-4" />
+              <span className="hidden sm:inline">Preencher com 0</span>
+            </button>
+            <button
               onClick={() => { setScanNotFound(null); setShowScanner(true); }}
               className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
               title="Escanear código de barras"
@@ -302,6 +325,34 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
               <X className="w-6 h-6 text-gray-500" />
             </button>
           </div>
+        </div>
+
+        {/* ── Barra de progresso ───────────────────────────────────────────── */}
+        <div className="px-6 py-3 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+              Progresso da conferência
+            </span>
+            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+              {countedProducts}/{totalProducts} itens · {progressPct}%
+            </span>
+          </div>
+          <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${progressPct}%`,
+                background: progressPct === 100
+                  ? 'linear-gradient(90deg, #22c55e, #16a34a)'
+                  : 'linear-gradient(90deg, #6366f1, #8b5cf6)',
+              }}
+            />
+          </div>
+          {progressPct === 100 && (
+            <p className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1 text-center">
+              ✓ Todos os itens contados — pode finalizar!
+            </p>
+          )}
         </div>
 
         {/* Search & Category Nav */}

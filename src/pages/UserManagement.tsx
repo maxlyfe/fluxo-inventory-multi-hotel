@@ -5,7 +5,7 @@ import {
   Users, Key, AlertTriangle, UserCog, Bell, PlusCircle,
   Trash2, Edit3, XCircle, CheckCircle, Clock,
   ChevronRight, RefreshCw, UserPlus, Eye, EyeOff, X,
-  ShieldOff, ShieldCheck,
+  ShieldOff, ShieldCheck, UserX, Loader2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -357,6 +357,7 @@ const UserManagement = () => {
   const [showPrefForm, setShowPrefForm]       = useState(false);
   const [selHotelFilter, setSelHotelFilter]   = useState<string | undefined>(undefined);
   const [allSectors, setAllSectors]           = useState(false);
+  const [showInactive, setShowInactive]       = useState(false); // lista de inativos colapsada por defeito
 
   // ---------------------------------------------------------------------------
   // Toast helpers
@@ -722,8 +723,10 @@ const UserManagement = () => {
         ) : users.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400"><Users className="h-10 w-10 opacity-40" /><p className="text-sm">Nenhum usuário encontrado.</p></div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-700/60">
-            {users.map(user => {
+          <>
+            {/* ── Ativos ── */}
+            <div className="divide-y divide-gray-100 dark:divide-gray-700/60">
+              {users.filter(u => !isUserDisabled(u)).map(user => {
               const disabled = isUserDisabled(user);
               const isMe = user.id === adminUser?.id;
               const isBanning = togglingBan === user.id;
@@ -786,8 +789,67 @@ const UserManagement = () => {
                   </div>
                 </div>
               );
-            })}
-          </div>
+              })}
+            </div>
+
+            {/* ── Inativos (colapsável) ── */}
+            {users.filter(u => isUserDisabled(u)).length > 0 && (
+              <div className="border-t-2 border-dashed border-gray-200 dark:border-gray-700 mt-1">
+                <button
+                  onClick={() => setShowInactive(v => !v)}
+                  className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors select-none"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                    Inativos — {users.filter(u => isUserDisabled(u)).length} utilizador{users.filter(u => isUserDisabled(u)).length !== 1 ? 'es' : ''}
+                  </span>
+                  <span className="text-xs tracking-wide">{showInactive ? '▲ Ocultar' : '▼ Mostrar'}</span>
+                </button>
+                {showInactive && (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-700/60 bg-gray-50/30 dark:bg-gray-900/20">
+                    {users.filter(u => isUserDisabled(u)).map(user => {
+                      const disabled = isUserDisabled(user);
+                      const isMe = user.id === adminUser?.id;
+                      const isBanning = togglingBan === user.id;
+                      return (
+                        <div key={user.id} className="px-4 py-4 opacity-60 hover:opacity-80 transition-opacity">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                              <UserX className="h-4 w-4 text-red-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate">{user.email}</p>
+                              <p className="text-xs text-red-400 font-medium">Desabilitado</p>
+                            </div>
+                            <button
+                              disabled={isBanning}
+                              onClick={async () => {
+                                if (!session) return;
+                                setTogglingBan(user.id);
+                                try {
+                                  await callAdminAction(session, { action: 'toggle_ban', target_user_id: user.id, disable: false });
+                                  await fetchUsers();
+                                  showToast('success', `${user.email} reativado.`);
+                                } catch (e: any) {
+                                  showToast('error', e.message);
+                                } finally {
+                                  setTogglingBan(null);
+                                }
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                            >
+                              {isBanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                              Reativar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

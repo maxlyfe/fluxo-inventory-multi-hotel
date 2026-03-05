@@ -238,13 +238,7 @@ const AuthorizationsPage: React.FC = () => {
       const budget = allBudgets.find(b => b.id === budgetId);
       if (!budget) throw new Error("Orçamento não encontrado.");
 
-      // 1. Salvar as alterações nos itens (se houver)
-      const updateItemsResult = await updateBudgetItems(budgetId, budget.budget_items, budget.total_value);
-      if (!updateItemsResult.success) {
-        throw new Error(updateItemsResult.error || "Falha ao atualizar itens do orçamento");
-      }
-
-      // 2. Atualizar o status para aprovado
+      // Atualizar o status para aprovado (itens são editados em /budget/:id)
       const result = await updateBudgetStatus(budgetId, "approved", approverUserEmail);
       if (result.success && result.data) {
         addNotification("Orçamento aprovado com sucesso!", "success");
