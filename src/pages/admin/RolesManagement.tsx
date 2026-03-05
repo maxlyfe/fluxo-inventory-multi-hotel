@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
-import { usePermissions, MODULES, MODULE_GROUPS } from '../../hooks/usePermissions';
+import { usePermissions, MODULES, MODULE_GROUPS, buildSectorModules, type Module } from '../../hooks/usePermissions';
 import {
   Plus, Loader2, AlertTriangle, Edit2, Trash2, X, Check,
   Shield, UserCog, Users, ChevronDown, ChevronRight, Info,
@@ -24,6 +24,11 @@ interface CustomRole {
   is_system:   boolean;
   created_at:  string;
   _user_count?: number;
+}
+
+interface Sector {
+  id:   string;
+  name: string;
 }
 
 interface UserProfile {
@@ -102,20 +107,23 @@ export default function RolesManagement() {
   const [assigningUser, setAssigningUser] = useState<string | null>(null);
 
   // Collapsed groups
-  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const [collapsedGroups,  setCollapsedGroups]  = useState<string[]>([]);
+  const [sectorModules,    setSectorModules]    = useState<Module[]>([]);
 
   // ---------------------------------------------------------------------------
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Busca roles
-      const rolesRes = await supabase
-        .from('custom_roles')
-        .select('*')
-        .order('is_system', { ascending: false })
-        .order('name');
+      // Busca roles + setores em paralelo
+      const [rolesRes, sectorsRes] = await Promise.all([
+        supabase.from('custom_roles').select('*').order('is_system', { ascending: false }).order('name'),
+        supabase.from('sectors').select('id, name').eq('has_stock', true).order('display_order', { ascending: true }),
+      ]);
 
       if (rolesRes.error) throw rolesRes.error;
+
+      // Atualiza módulos dinâmicos de setor
+      if (sectorsRes.data) setSectorModules(buildSectorModules(sectorsRes.data));
 
       // Busca profiles — tenta com custom_role_id, cai em fallback se coluna não existir
       let usersData: UserProfile[] = [];
@@ -183,8 +191,12 @@ export default function RolesManagement() {
   const togglePerm = (key: string) =>
     setFormPerms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
 
+  // Todos os módulos disponíveis (fixos + dinâmicos de setor)
+  const allModules = [...MODULES, ...sectorModules];
+  const allGroups  = [...MODULE_GROUPS, ...(sectorModules.length > 0 ? ['Stock por Setor'] : [])];
+
   const toggleGroup = (group: string) => {
-    const keys = MODULES.filter(m => m.group === group).map(m => m.key);
+    const keys = allModules.filter(m => m.group === group).map(m => m.key);
     const allChecked = keys.every(k => formPerms.includes(k));
     if (allChecked) {
       setFormPerms(prev => prev.filter(k => !keys.includes(k)));
@@ -342,7 +354,7 @@ export default function RolesManagement() {
                   {role.permissions.length === 0 ? (
                     <span className="text-xs text-gray-400 italic">Nenhum módulo liberado</span>
                   ) : role.permissions.slice(0, 5).map(perm => {
-                    const mod = MODULES.find(m => m.key === perm);
+                    const mod = allModules.find(m => m.key === perm);
                     if (!mod) return null;
                     return (
                       <span key={perm}
@@ -505,7 +517,7 @@ export default function RolesManagement() {
                 <div className="flex items-center justify-between mb-3">
                   <label className={labelCls}>Módulos com acesso</label>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setFormPerms(MODULES.map(m => m.key))}
+                    <button type="button" onClick={() => setFormPerms(allModules.map(m => m.key))}
                       className="text-xs text-blue-500 hover:underline">Todos</button>
                     <button type="button" onClick={() => setFormPerms([])}
                       className="text-xs text-gray-400 hover:underline">Nenhum</button>
@@ -513,8 +525,8 @@ export default function RolesManagement() {
                 </div>
 
                 <div className="space-y-3">
-                  {MODULE_GROUPS.map(group => {
-                    const groupModules  = MODULES.filter(m => m.group === group);
+                  {allGroups.map(group => {
+                    const groupModules  = allModules.filter(m => m.group === group);
                     const checkedCount  = groupModules.filter(m => formPerms.includes(m.key)).length;
                     const allChecked    = checkedCount === groupModules.length;
                     const someChecked   = checkedCount > 0 && !allChecked;
