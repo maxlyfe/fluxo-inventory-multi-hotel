@@ -203,6 +203,10 @@ const PurchaseOrders = () => {
             <Globe className="w-5 h-5 mr-2" />
             Orçamento Dinâmico
           </button>
+          <button onClick={() => navigate("/purchases/online")} className="flex items-center px-3 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition-colors text-sm sm:text-base">
+            <ShoppingCart className="w-5 h-5 mr-2" />
+            Orçamento Online
+          </button>
           <button onClick={() => navigate("/budget-history")} className="flex items-center px-3 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 transition-colors text-sm sm:text-base">
             <History className="w-5 h-5 mr-2" />
             Histórico
