@@ -708,7 +708,8 @@ export const getUserFCMTokens = async (userId: string) => {
   return data || [];
 };
 
-// Função para enviar notificação push
+// Envia push FCM para o utilizador via edge function send-fcm-notification
+// Converte data para Record<string,string> pois FCM só aceita strings
 export const sendPushNotificationToUser = async (
   userId: string,
   title: string,
@@ -716,40 +717,33 @@ export const sendPushNotificationToUser = async (
   data?: Record<string, any>
 ) => {
   try {
-    // Buscar tokens FCM do usuário
-    const tokens = await getUserFCMTokens(userId);
-    
-    if (tokens.length === 0) {
-      console.log("Usuário não tem tokens FCM registrados");
+    // Normalizar data — FCM exige que todos os valores sejam strings
+    const safeData: Record<string, string> = {};
+    if (data) {
+      Object.entries(data).forEach(([k, v]) => {
+        safeData[k] = v == null ? '' : String(v);
+      });
+    }
+
+    const { data: result, error } = await supabase.functions.invoke('send-fcm-notification', {
+      body: {
+        target_user_id: userId,
+        title,
+        body,
+        data: safeData,
+      },
+    });
+
+    if (error) {
+      console.error('[Push] Erro ao invocar send-fcm-notification:', error.message);
       return;
     }
 
-    // Chamar a função unificada create-notification para processar o push
-    // Nota: Se userId estiver presente, a função criará a notificação e o push para esse usuário específico.
-    const promise = supabase.functions.invoke('create-notification', {
-      body: {
-        eventKey: eventKey,
-        templateData: {
-          ...params.metadata,
-          title: title,
-          message: message
-        },
-        hotelId: hotelId,
-        sectorId: sectorId,
-        relatedEntityId: relatedEntityId,
-        relatedEntityType: relatedEntityType,
-        createdBy: createdBy
-      }
-    });
-    const promises = [promise];
-
-    const results = await Promise.allSettled(promises);
-    console.log("Resultados do envio de push:", results);
-    
-    return results;
+    console.info(`[Push] Enviado para ${userId} — enviados: ${result?.sent ?? 0}, falhas: ${result?.failed ?? 0}`);
+    return result;
   } catch (error) {
-    console.error("Erro ao enviar notificação push:", error);
-    throw error;
+    console.error('[Push] Erro inesperado ao enviar push:', error);
+    // Push é funcionalidade opcional — nunca propaga erro
   }
 };
 
