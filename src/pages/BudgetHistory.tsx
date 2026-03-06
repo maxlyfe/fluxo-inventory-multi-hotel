@@ -737,7 +737,6 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
           {filteredAndSortedBudgets.map(budget => renderBudgetCard(budget))}
         </div>
       )}
-    </div>
 
       {/* ── Modal Registrar Compra Online ── */}
       {purchaseModal && (
