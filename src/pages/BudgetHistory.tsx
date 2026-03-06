@@ -99,7 +99,7 @@ const BudgetHistory = () => {
   const setItemCarousel = (itemId: string, idx: number) =>
     setCarouselIndex(prev => ({ ...prev, [itemId]: idx }));
   const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  const [user?.email ?? null, setCurrentUserEmail] = useState<string | null>(null);
+  // email do usuário vem do hook useAuth (linha abaixo do navigate)
   
   const [suppliers, setSuppliers] = useState<string[]>([]);
 
