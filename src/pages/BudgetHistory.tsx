@@ -572,52 +572,129 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
             </h4>
             {budget.budget_items && budget.budget_items.length > 0 ? (
               isOnline ? (
-                /* ── Cards produto online ── */
-                <div className="space-y-3">
+                /* ── Cards produto online — visão completa ── */
+                <div className="space-y-4">
                   {budget.budget_items.map(item => {
                     const imgs = item.image_urls || [];
                     const imgIdx = carouselIndex[item.id] || 0;
+                    const priceAVista = item.unit_price || 0;
+                    const totalParcelado = item.payment_type === 'installment' && item.installments && item.installment_value
+                      ? item.installments * item.installment_value : 0;
+                    const frete = item.shipping_cost || 0;
+                    const usedPrice = item.payment_type === 'installment' ? totalParcelado : priceAVista;
+                    const totalItem = (usedPrice + frete) * (item.quantity || 1);
+
                     return (
-                      <div key={item.id} className="bg-white dark:bg-gray-700/60 rounded-xl border border-gray-200 dark:border-gray-600 overflow-hidden flex gap-3 p-3">
+                      <div key={item.id} className={`rounded-2xl border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm ${
+                        item.item_status === 'approved' ? 'border-green-400 dark:border-green-600'
+                        : item.item_status === 'rejected' ? 'border-red-300 dark:border-red-700 opacity-70'
+                        : 'border-gray-200 dark:border-gray-600'
+                      }`}>
+
+                        {/* Carrossel */}
                         {imgs.length > 0 && (
-                          <div className="relative flex-shrink-0 w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden group">
-                            <img src={imgs[imgIdx]} alt="" className="w-full h-full object-contain"
+                          <div className="relative h-44 bg-gray-100 dark:bg-gray-900 group">
+                            <img src={imgs[imgIdx]} alt={item.custom_item_name || ''}
+                              className="w-full h-full object-contain"
                               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                             {imgs.length > 1 && (
-                              <div className="absolute inset-0 flex items-center justify-between px-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => setItemCarousel(item.id, (imgIdx - 1 + imgs.length) % imgs.length)} className="p-0.5 bg-black/40 text-white rounded-full"><ChevronLeft className="h-3 w-3" /></button>
-                                <button onClick={() => setItemCarousel(item.id, (imgIdx + 1) % imgs.length)} className="p-0.5 bg-black/40 text-white rounded-full"><ChevronRight className="h-3 w-3" /></button>
-                              </div>
+                              <>
+                                <button onClick={() => setItemCarousel(item.id, (imgIdx - 1 + imgs.length) % imgs.length)}
+                                  className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <ChevronLeft className="h-4 w-4" />
+                                </button>
+                                <button onClick={() => setItemCarousel(item.id, (imgIdx + 1) % imgs.length)}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <ChevronRight className="h-4 w-4" />
+                                </button>
+                                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                                  {imgs.map((_, i) => (
+                                    <button key={i} onClick={() => setItemCarousel(item.id, i)}
+                                      className={`h-1.5 rounded-full transition-all ${i === imgIdx ? 'w-4 bg-white' : 'w-1.5 bg-white/50'}`} />
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            {/* badge status */}
+                            {(item.item_status === 'approved' || item.item_status === 'rejected') && (
+                              <span className={`absolute top-2 left-2 text-xs font-bold px-2 py-1 rounded-full shadow ${
+                                item.item_status === 'approved' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                              }`}>
+                                {item.item_status === 'approved' ? '✓ Aprovado' : '✗ Rejeitado'}
+                              </span>
                             )}
                           </div>
                         )}
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <div className="flex items-start justify-between gap-1">
-                            <p className="text-sm font-bold text-gray-800 dark:text-white">{item.custom_item_name || 'Produto'}</p>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              {item.item_status === 'approved' && <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full font-bold">✓ Aprovado</span>}
-                              {item.item_status === 'rejected' && <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-bold">✗ Rejeitado</span>}
-                              {item.product_link && (
-                                <a href={item.product_link} target="_blank" rel="noopener noreferrer" className="p-1 text-blue-400 hover:text-blue-600 rounded">
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                </a>
+
+                        <div className="p-4 space-y-3">
+                          {/* Nome + link */}
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-base font-bold text-gray-900 dark:text-white leading-snug flex-1">
+                              {item.custom_item_name || 'Produto'}
+                            </p>
+                            {item.product_link && (
+                              <a href={item.product_link} target="_blank" rel="noopener noreferrer"
+                                className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-medium hover:bg-blue-100 transition-colors border border-blue-200 dark:border-blue-700">
+                                <ExternalLink className="h-3.5 w-3.5" /> Ver anúncio
+                              </a>
+                            )}
+                          </div>
+
+                          {/* Preços lado a lado */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className={`rounded-xl p-2.5 border-2 ${
+                              item.payment_type !== 'installment'
+                                ? 'border-green-400 bg-green-50 dark:bg-green-900/20'
+                                : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-50'
+                            }`}>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">À vista</p>
+                              <p className="text-sm font-black text-green-700 dark:text-green-400">{fmtBRL(priceAVista)}</p>
+                            </div>
+                            <div className={`rounded-xl p-2.5 border-2 ${
+                              item.payment_type === 'installment'
+                                ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                                : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-50'
+                            }`}>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Parcelado</p>
+                              {item.installments && item.installment_value ? (
+                                <p className="text-sm font-black text-blue-700 dark:text-blue-400">
+                                  {item.installments}x {fmtBRL(item.installment_value)}
+                                </p>
+                              ) : (
+                                <p className="text-sm text-gray-400">—</p>
                               )}
                             </div>
                           </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {item.payment_type === 'installment' && item.installments && item.installment_value
-                              ? `${item.installments}x de ${fmtBRL(item.installment_value)}`
-                              : fmtBRL(item.unit_price || 0)
+
+                          {/* Frete */}
+                          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm ${
+                            frete === 0
+                              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                              : 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400'
+                          }`}>
+                            <Truck className="h-4 w-4 flex-shrink-0" />
+                            {frete === 0
+                              ? <span className="font-semibold">Frete grátis</span>
+                              : <span>Frete: <span className="font-bold">{fmtBRL(frete)}</span> por unidade</span>
                             }
-                            {' · '}
-                            {!item.shipping_cost || item.shipping_cost === 0
-                              ? <span className="text-emerald-600">frete grátis</span>
-                              : `frete ${fmtBRL(item.shipping_cost)}`
-                            }
-                          </p>
-                          <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                            {item.quantity}x · Total: {fmtBRL((item.quantity || 1) * (item.unit_price || 0))}
-                          </p>
+                          </div>
+
+                          {/* Pagamento escolhido + qtd + total */}
+                          <div className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-xl px-4 py-3 border border-indigo-100 dark:border-indigo-800/30 flex items-center justify-between">
+                            <div>
+                              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                                {item.quantity}x · {item.payment_type === 'installment' ? `${item.installments}x parcelado` : 'à vista'}
+                                {frete > 0 ? ' + frete' : ''}
+                              </p>
+                              <p className="text-xl font-black text-indigo-700 dark:text-indigo-300">{fmtBRL(totalItem)}</p>
+                            </div>
+                            {item.payment_type === 'installment' && totalParcelado > 0 && priceAVista > 0 && totalParcelado > priceAVista && (
+                              <p className="text-xs text-orange-500 dark:text-orange-400 text-right">
+                                +{fmtBRL(totalParcelado - priceAVista)}<br/>
+                                <span className="text-[10px]">juros</span>
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
