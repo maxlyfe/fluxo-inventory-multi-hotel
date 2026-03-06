@@ -1449,3 +1449,36 @@ export const updateBudgetItemStatus = async (
     return { success: false, error: err.message };
   }
 };
+
+/**
+ * Atualiza quantidade e forma de pagamento de um item de orçamento online.
+ * Chamado quando o autorizador altera qtd/pagamento antes de aprovar.
+ */
+export const updateBudgetItemPayment = async (
+  itemId: string,
+  updates: {
+    quantity?: number;
+    payment_type?: 'cash' | 'installment';
+    installments?: number | null;
+    installment_value?: number | null;
+    unit_price?: number | null;
+  }
+) => {
+  try {
+    const { data, error } = await supabase
+      .from('budget_items')
+      .update(updates)
+      .eq('id', itemId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating budget item payment:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true, data };
+  } catch (err: any) {
+    console.error('Unexpected error in updateBudgetItemPayment:', err);
+    return { success: false, error: err.message };
+  }
+};
