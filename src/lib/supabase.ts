@@ -181,6 +181,15 @@ export const saveBudget = async (
       weight: item.weight,
       unit: item.unit,
       stock_at_creation: item.stock_at_creation,
+      // Campos online
+      is_online: item.is_online ?? false,
+      product_link: item.product_link ?? null,
+      image_urls: item.image_urls ?? null,
+      shipping_cost: item.shipping_cost ?? null,
+      payment_type: item.payment_type ?? null,
+      installments: item.installments ?? null,
+      installment_value: item.installment_value ?? null,
+      item_status: item.item_status ?? 'pending',
     }));
 
     const { error: itemsError } = await supabase
@@ -226,7 +235,7 @@ export const getBudgetHistory = async (hotelId: string) => {
     const { data, error } = await supabase
       .from("budgets")
       .select(
-        "id, created_at, total_value, status, hotel_id, user_id, approved_by_user_email, approved_at, hotel:hotels(id, name), budget_items(id, product_id, custom_item_name, quantity, unit_price, supplier, last_purchase_quantity, last_purchase_price, last_purchase_date, weight, unit, stock_at_creation, product:products(id, name))"
+        "id, created_at, total_value, status, hotel_id, user_id, approved_by_user_email, approved_at, is_online, purchased_at, actual_value, purchased_by_email, hotel:hotels(id, name), budget_items(id, product_id, custom_item_name, quantity, unit_price, supplier, last_purchase_quantity, last_purchase_price, last_purchase_date, weight, unit, stock_at_creation, item_status, is_online, product_link, image_urls, shipping_cost, payment_type, installments, installment_value, product:products(id, name))"
       )
       .eq("hotel_id", hotelId)
       .order("created_at", { ascending: false });
@@ -249,7 +258,7 @@ export const getBudgetDetails = async (budgetId: string) => {
     const { data, error } = await supabase
       .from("budgets")
       .select(
-        "id, created_at, total_value, status, hotel_id, user_id, approved_by_user_email, approved_at, hotel:hotels(id, name), budget_items(id, product_id, custom_item_name, quantity, unit_price, supplier, last_purchase_quantity, last_purchase_price, last_purchase_date, weight, unit, stock_at_creation, product:products(id, name, category))"
+        "id, created_at, total_value, status, hotel_id, user_id, approved_by_user_email, approved_at, is_online, purchased_at, actual_value, purchased_by_email, hotel:hotels(id, name), budget_items(id, product_id, custom_item_name, quantity, unit_price, supplier, last_purchase_quantity, last_purchase_price, last_purchase_date, weight, unit, stock_at_creation, item_status, is_online, product_link, image_urls, shipping_cost, payment_type, installments, installment_value, product:products(id, name, category))"
       )
       .eq("id", budgetId)
       .single();
@@ -1376,5 +1385,67 @@ export const getProductPriceHistory = async (
         ? err.message
         : 'Erro ao buscar histórico de preços.';
     return { success: false, error: errorMessage };
+  }
+};
+
+// ─── Orçamentos Online ─────────────────────────────────────────────────────────
+
+/**
+ * Marca um orçamento online como "comprado" (delivered).
+ * Registra valor real pago, data e quem registrou.
+ */
+export const markBudgetPurchased = async (
+  budgetId: string,
+  actualValue: number,
+  purchasedByEmail: string
+) => {
+  try {
+    const { data, error } = await supabase
+      .from("budgets")
+      .update({
+        status: "delivered",
+        actual_value: actualValue,
+        purchased_at: new Date().toISOString(),
+        purchased_by_email: purchasedByEmail,
+      })
+      .eq("id", budgetId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error marking budget as purchased:", error);
+      return { success: false, error: error.message };
+    }
+    return { success: true, data };
+  } catch (err: any) {
+    console.error("Unexpected error in markBudgetPurchased:", err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * Atualiza o status de um item individual do orçamento online.
+ * item_status: 'pending' | 'approved' | 'rejected'
+ */
+export const updateBudgetItemStatus = async (
+  itemId: string,
+  itemStatus: "pending" | "approved" | "rejected"
+) => {
+  try {
+    const { data, error } = await supabase
+      .from("budget_items")
+      .update({ item_status: itemStatus })
+      .eq("id", itemId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating budget item status:", error);
+      return { success: false, error: error.message };
+    }
+    return { success: true, data };
+  } catch (err: any) {
+    console.error("Unexpected error in updateBudgetItemStatus:", err);
+    return { success: false, error: err.message };
   }
 };
