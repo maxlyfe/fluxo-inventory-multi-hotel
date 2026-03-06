@@ -5,18 +5,27 @@ import {
   Calendar,
   RefreshCw,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   Clock,
   Ban,
   Check,
   ThumbsUp,
   ShoppingBag,
+  Trash2,
+  Globe,
+  ExternalLink,
+  XCircle,
+  CreditCard,
+  Truck,
+  Image as ImageIcon,
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAuth } from "../context/AuthContext";
 import { useNotification } from "../context/NotificationContext";
-import { getBudgetHistory, updateBudgetStatus, getHotels } from "../lib/supabase"; 
+import { getBudgetHistory, updateBudgetStatus, getHotels, updateBudgetItems, updateBudgetItemStatus } from "../lib/supabase";
 import { createNotification } from "../lib/notifications";
 
 const unitOptions = [
@@ -47,6 +56,15 @@ interface BudgetItem {
   weight: number | null;
   unit: string | null;
   stock_at_creation: number | null;
+  // Campos online
+  item_status: 'pending' | 'approved' | 'rejected' | null;
+  is_online: boolean | null;
+  product_link: string | null;
+  image_urls: string[] | null;
+  shipping_cost: number | null;
+  payment_type: 'cash' | 'installment' | null;
+  installments: number | null;
+  installment_value: number | null;
   product: {
     id: string;
     name: string;
@@ -61,8 +79,9 @@ interface Budget {
   budget_items: BudgetItem[];
   status: "pending" | "approved" | "on_the_way" | "delivered" | "cancelled" | null;
   hotel_id: string;
-  approved_by_user_email?: string | null; 
-  approved_at?: string | null; 
+  approved_by_user_email?: string | null;
+  approved_at?: string | null;
+  is_online?: boolean | null;
   hotel?: { id: string; name: string; color_primary?: string; color_secondary?: string };
 }
 
@@ -223,6 +242,26 @@ const AuthorizationsPage: React.FC = () => {
     }));
   };
 
+  const handleRemoveItem = (budgetId: string, itemId: string) => {
+    if (!window.confirm("Tem certeza que deseja remover este item do orçamento?")) return;
+    
+    setAllBudgets(prevBudgets => prevBudgets.map(budget => {
+      if (budget.id !== budgetId) return budget;
+      
+      const updatedItems = budget.budget_items.filter(item => item.id !== itemId);
+      
+      if (updatedItems.length === 0) {
+        addNotification("O orçamento não pode ficar vazio. Cancele o orçamento se desejar removê-lo completamente.", "warning");
+        return budget;
+      }
+      
+      const newTotalValue = updatedItems.reduce((sum, item) => 
+        sum + (item.quantity * (item.unit_price || 0)), 0
+      );
+      
+      return { ...budget, budget_items: updatedItems, total_value: newTotalValue };
+    }));
+  };
 
   const handleApproveBudget = async (budgetId: string) => {
     if (!user || !user.email) {
@@ -238,7 +277,13 @@ const AuthorizationsPage: React.FC = () => {
       const budget = allBudgets.find(b => b.id === budgetId);
       if (!budget) throw new Error("Orçamento não encontrado.");
 
-      // Atualizar o status para aprovado (itens são editados em /budget/:id)
+      // 1. Salvar as alterações nos itens (se houver)
+      const updateItemsResult = await updateBudgetItems(budgetId, budget.budget_items, budget.total_value);
+      if (!updateItemsResult.success) {
+        throw new Error(updateItemsResult.error || "Falha ao atualizar itens do orçamento");
+      }
+
+      // 2. Atualizar o status para aprovado
       const result = await updateBudgetStatus(budgetId, "approved", approverUserEmail);
       if (result.success && result.data) {
         addNotification("Orçamento aprovado com sucesso!", "success");
@@ -333,6 +378,49 @@ const AuthorizationsPage: React.FC = () => {
     setExpandedBudget(prev => (prev === budgetId ? null : budgetId));
   };
 
+  // ── Estado de carrossel por item online ──
+  const [carouselIndex, setCarouselIndex] = useState<Record<string, number>>({});
+  const setItemCarouselIndex = (itemId: string, idx: number) =>
+    setCarouselIndex(prev => ({ ...prev, [itemId]: idx }));
+
+  // ── Aprovar / rejeitar item individual online ──
+  const handleItemStatus = async (
+    budgetId: string,
+    itemId: string,
+    status: 'approved' | 'rejected'
+  ) => {
+    const result = await updateBudgetItemStatus(itemId, status);
+    if (result.success) {
+      const label = status === 'approved' ? 'aprovado' : 'rejeitado';
+      addNotification(`Item ${label} com sucesso!`, 'success');
+      setAllBudgets(prev => prev.map(b => {
+        if (b.id !== budgetId) return b;
+        return {
+          ...b,
+          budget_items: b.budget_items.map(i =>
+            i.id === itemId ? { ...i, item_status: status } : i
+          ),
+        };
+      }));
+      // Sincroniza filteredBudgets
+      setFilteredBudgets(prev => prev.map(b => {
+        if (b.id !== budgetId) return b;
+        return {
+          ...b,
+          budget_items: b.budget_items.map(i =>
+            i.id === itemId ? { ...i, item_status: status } : i
+          ),
+        };
+      }));
+    } else {
+      addNotification('Erro ao atualizar item.', 'error');
+    }
+  };
+
+  // ── Helper: formatar valor monetário ──
+  const fmtBRL = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
   const getUnitLabel = (unitValue: string | null | undefined): string => {
     if (!unitValue) return "-";
     const option = unitOptions.find(opt => opt.value === unitValue);
@@ -424,6 +512,7 @@ const AuthorizationsPage: React.FC = () => {
               : "Data inválida";
             const mainSupplierName = getMainSupplier(budget);
             const hotelColorScheme = getHotelColors(hotelName);
+            const isOnline = !!budget.is_online;
             
             return (
               <div 
@@ -446,9 +535,19 @@ const AuthorizationsPage: React.FC = () => {
                     </div>
                   </div>
                   
-                  <h3 className={`text-lg font-medium mb-3 ${hotelColorScheme.light.text} ${hotelColorScheme.dark.text}`}>
+                  <h3 className={`text-lg font-medium mb-1 ${hotelColorScheme.light.text} ${hotelColorScheme.dark.text} flex items-center gap-2 flex-wrap`}>
+                    {isOnline && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 text-xs font-bold border border-cyan-200 dark:border-cyan-700">
+                        <Globe className="h-3 w-3" /> Online
+                      </span>
+                    )}
                     Orçamento: {mainSupplierName}
                   </h3>
+                  {isOnline && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      {budget.budget_items.length} produto{budget.budget_items.length !== 1 ? 's' : ''} · Aprovação individual por item
+                    </p>
+                  )}
                   
                   <div className="flex flex-wrap gap-2 mt-4">
                     <button
@@ -483,32 +582,210 @@ const AuthorizationsPage: React.FC = () => {
                 
                 {expandedBudget === budget.id && (
                   <div className="bg-white dark:bg-gray-800 p-4 border-t border-gray-200 dark:border-gray-700">
-                    <h4 className="text-gray-800 dark:text-gray-200 font-medium mb-2">Itens do Orçamento:</h4>
+                    <h4 className="text-gray-800 dark:text-gray-200 font-medium mb-3">
+                      {isOnline ? 'Produtos do Orçamento Online' : 'Itens do Orçamento:'}
+                    </h4>
+
                     {budget.budget_items && budget.budget_items.length > 0 ? (
-                      <div className="space-y-2 mt-2">
-                        {budget.budget_items.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
-                                {item.product?.name || item.custom_item_name || "Item sem nome"}
-                              </p>
-                              {item.product?.category && (
-                                <p className="text-[10px] text-gray-400 uppercase tracking-wide">{item.product.category}</p>
-                              )}
+                      isOnline ? (
+                        /* ── Cards de produto ONLINE ── */
+                        <div className="space-y-4">
+                          {budget.budget_items.map((item) => {
+                            const imgs = item.image_urls || [];
+                            const imgIdx = carouselIndex[item.id] || 0;
+                            const itemTotal = (item.quantity || 1) * (item.unit_price || 0);
+                            const isApproved = item.item_status === 'approved';
+                            const isRejected = item.item_status === 'rejected';
+
+                            return (
+                              <div key={item.id} className={`rounded-xl border-2 overflow-hidden transition-all ${
+                                isApproved ? 'border-green-400 dark:border-green-600 bg-green-50 dark:bg-green-900/10'
+                                : isRejected ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10 opacity-60'
+                                : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30'
+                              }`}>
+
+                                {/* Imagens — carrossel */}
+                                {imgs.length > 0 && (
+                                  <div className="relative h-36 bg-gray-100 dark:bg-gray-800 group">
+                                    <img
+                                      src={imgs[imgIdx]}
+                                      alt={item.custom_item_name || 'produto'}
+                                      className="w-full h-full object-contain"
+                                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                    />
+                                    {imgs.length > 1 && (
+                                      <>
+                                        <button onClick={() => setItemCarouselIndex(item.id, (imgIdx - 1 + imgs.length) % imgs.length)}
+                                          className="absolute left-1 top-1/2 -translate-y-1/2 p-1 bg-black/40 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <ChevronLeft className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button onClick={() => setItemCarouselIndex(item.id, (imgIdx + 1) % imgs.length)}
+                                          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 bg-black/40 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <ChevronRight className="h-3.5 w-3.5" />
+                                        </button>
+                                        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1">
+                                          {imgs.map((_, i) => (
+                                            <button key={i} onClick={() => setItemCarouselIndex(item.id, i)}
+                                              className={`w-1.5 h-1.5 rounded-full transition-all ${i === imgIdx ? 'bg-white w-3' : 'bg-white/50'}`} />
+                                          ))}
+                                        </div>
+                                      </>
+                                    )}
+                                    {/* badge status item */}
+                                    {(isApproved || isRejected) && (
+                                      <span className={`absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full ${
+                                        isApproved ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                                      }`}>
+                                        {isApproved ? '✓ Aprovado' : '✗ Rejeitado'}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Conteúdo do produto */}
+                                <div className="p-3 space-y-2">
+                                  {/* Nome + link */}
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="text-sm font-bold text-gray-800 dark:text-white leading-snug flex-1">
+                                      {item.custom_item_name || 'Produto sem nome'}
+                                    </p>
+                                    {item.product_link && (
+                                      <a href={item.product_link} target="_blank" rel="noopener noreferrer"
+                                        className="flex-shrink-0 p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                                        title="Abrir anúncio">
+                                        <ExternalLink className="h-4 w-4" />
+                                      </a>
+                                    )}
+                                  </div>
+
+                                  {/* Pagamento */}
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <CreditCard className="h-3.5 w-3.5 text-gray-400" />
+                                    {item.payment_type === 'installment' && item.installments && item.installment_value ? (
+                                      <span className="text-gray-600 dark:text-gray-300">
+                                        {item.installments}x de {fmtBRL(item.installment_value)}
+                                        {' '}· Total: {fmtBRL(item.installments * item.installment_value)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-600 dark:text-gray-300">
+                                        {fmtBRL(item.unit_price || 0)} à vista
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Frete */}
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <Truck className="h-3.5 w-3.5 text-gray-400" />
+                                    {!item.shipping_cost || item.shipping_cost === 0 ? (
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">Frete grátis</span>
+                                    ) : (
+                                      <span className="text-orange-600 dark:text-orange-400">Frete: {fmtBRL(item.shipping_cost)}</span>
+                                    )}
+                                  </div>
+
+                                  {/* Qtd + Total */}
+                                  <div className="flex items-center justify-between pt-1 border-t border-gray-200 dark:border-gray-600">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-gray-400">Qtd:</span>
+                                      <input
+                                        type="number"
+                                        value={item.quantity}
+                                        onChange={(e) => handleUpdateItemQuantity(budget.id, item.id, parseFloat(e.target.value) || 1)}
+                                        className="w-14 p-1 text-xs text-center border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-bold"
+                                        min="1" step="1"
+                                      />
+                                    </div>
+                                    <span className="text-sm font-black text-indigo-700 dark:text-indigo-300">
+                                      {fmtBRL(itemTotal)}
+                                    </span>
+                                  </div>
+
+                                  {/* Botões aprovar / rejeitar por item */}
+                                  {!isApproved && !isRejected && (
+                                    <div className="flex gap-2 pt-1">
+                                      <button
+                                        onClick={() => handleItemStatus(budget.id, item.id, 'approved')}
+                                        className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg text-xs font-bold transition-colors"
+                                      >
+                                        <Check className="h-3.5 w-3.5" /> Aprovar
+                                      </button>
+                                      <button
+                                        onClick={() => handleItemStatus(budget.id, item.id, 'rejected')}
+                                        className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg text-xs font-bold transition-colors"
+                                      >
+                                        <XCircle className="h-3.5 w-3.5" /> Rejeitar
+                                      </button>
+                                    </div>
+                                  )}
+                                  {(isApproved || isRejected) && (
+                                    <button
+                                      onClick={() => handleItemStatus(budget.id, item.id, 'pending')}
+                                      className="w-full py-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                                    >
+                                      ↩ Desfazer
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {/* Resumo dos itens online */}
+                          <div className="bg-gray-100 dark:bg-gray-700/50 rounded-xl p-3 flex items-center justify-between">
+                            <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                              <p>✅ Aprovados: {budget.budget_items.filter(i => i.item_status === 'approved').length}</p>
+                              <p>❌ Rejeitados: {budget.budget_items.filter(i => i.item_status === 'rejected').length}</p>
+                              <p>⏳ Pendentes: {budget.budget_items.filter(i => !i.item_status || i.item_status === 'pending').length}</p>
                             </div>
-                            <div className="flex items-center gap-3 ml-3 flex-shrink-0">
-                              <span className="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-lg">
-                                {item.quantity} {getUnitLabel(item.unit)}
-                              </span>
-                              <span className="text-sm font-bold text-gray-700 dark:text-gray-200 w-24 text-right">
-                                {item.unit_price
-                                  ? `R$ ${(item.quantity * item.unit_price).toFixed(2).replace(".", ",")}`
-                                  : "—"}
-                              </span>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-400">Total orçamento</p>
+                              <p className="text-lg font-black text-gray-800 dark:text-white">{fmtBRL(budget.total_value)}</p>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ) : (
+                        /* ── Tabela padrão FÍSICO ── */
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm text-gray-700 dark:text-gray-300">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                              <tr>
+                                <th className="px-3 py-2 text-left">Item</th>
+                                <th className="px-3 py-2 text-left">Qtd</th>
+                                <th className="px-3 py-2 text-left">Valor</th>
+                                <th className="px-3 py-2 text-right">Ações</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {budget.budget_items.map((item) => (
+                                <tr key={item.id} className="border-t border-gray-100 dark:border-gray-700">
+                                  <td className="px-3 py-2">{item.product?.name || item.custom_item_name || "Item sem nome"}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center">
+                                      <input
+                                        type="number"
+                                        value={item.quantity}
+                                        onChange={(e) => handleUpdateItemQuantity(budget.id, item.id, parseFloat(e.target.value) || 0)}
+                                        className="w-16 p-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 mr-1"
+                                        min="0" step="any"
+                                      />
+                                      <span className="text-xs text-gray-500">{getUnitLabel(item.unit)}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {item.unit_price ? `R$ ${(item.quantity * item.unit_price).toFixed(2).replace(".", ",")}` : "-"}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <button onClick={() => handleRemoveItem(budget.id, item.id)}
+                                      className="text-red-500 hover:text-red-700 transition-colors" title="Remover item">
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
                     ) : (
                       <p className="text-gray-500 dark:text-gray-400">Nenhum item encontrado neste orçamento.</p>
                     )}
