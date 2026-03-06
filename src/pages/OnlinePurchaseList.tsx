@@ -575,10 +575,25 @@ const AddProductModal: React.FC<{
       const { data, error } = await supabase.functions.invoke('scrape-product', {
         body: { url },
       });
-      if (error) throw error;
-      const r = data as ScrapeResult;
-      if (r.error) throw new Error(r.error);
 
+      // Erro de transporte (rede, CORS, timeout)
+      if (error) throw error;
+
+      const r = data as ScrapeResult;
+
+      // Erro retornado explicitamente pela Edge Function
+      if (r?.error) throw new Error(r.error);
+
+      // Dados vazios — Edge Function não conseguiu extrair nada útil
+      const hasData = !!(r?.title || r?.price !== null || r?.images?.length);
+      if (!hasData) {
+        throw new Error(
+          'Não foi possível extrair dados deste produto automaticamente. ' +
+          'Preencha o nome e preço manualmente.'
+        );
+      }
+
+      // Sucesso — preenche o formulário
       setDraft(prev => ({
         ...prev,
         name: r.title || prev.name,
@@ -591,11 +606,11 @@ const AddProductModal: React.FC<{
         installments: r.installments ?? 2,
         installmentValue: r.installmentValue ?? 0,
       }));
-      setTab('manual'); // vai para edição com dados pré-preenchidos
+      setTab('manual');
       addNotification('Dados carregados! Revise e ajuste.', 'success');
     } catch (err: any) {
+      // Mostra erro e deixa usuário preencher manualmente
       setScrapeError(err.message || 'Não foi possível carregar dados do link.');
-      // Mesmo com erro, preenche o link para edição manual
       setDraft(prev => ({ ...prev, productLink: url }));
       setTab('manual');
     } finally {
