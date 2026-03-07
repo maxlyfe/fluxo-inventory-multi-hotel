@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useHotel } from '../../context/HotelContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -14,6 +14,7 @@ import {
   ClipboardList,
   PlusCircle,
   X,
+  Printer,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -25,12 +26,127 @@ import {
   deleteSurplusReport,
   saveSurplusReportItems,
   getAvailableMonths,
+  getDistinctDestinations,
   SurplusReport as SurplusReportType,
   SurplusReportItem,
   SurplusReportWithItems,
 } from '../../lib/surplusReportService';
 
-const DESTINATION_OPTIONS = ['', 'funcionário', 'café', 'descarte', 'produção', 'suco', 'outro'];
+const DEFAULT_DESTINATIONS = ['funcionário', 'café', 'descarte', 'produção', 'suco'];
+
+// Combo-box component for destination field
+const DestinationComboBox = ({
+  value,
+  onChange,
+  allDestinations,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  allDestinations: string[];
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync external value
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const term = inputValue.toLowerCase().trim();
+    if (!term) return allDestinations;
+    return allDestinations.filter((d) => d.toLowerCase().includes(term));
+  }, [inputValue, allDestinations]);
+
+  const openDropdown = () => {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+    setIsOpen(true);
+  };
+
+  const handleSelect = (dest: string) => {
+    setInputValue(dest);
+    onChange(dest);
+    setIsOpen(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+    openDropdown();
+  };
+
+  const handleBlur = () => {
+    setTimeout(() => {
+      onChange(inputValue);
+      setIsOpen(false);
+    }, 200);
+  };
+
+  const showNewOption = inputValue.trim() && !allDestinations.some((d) => d.toLowerCase() === inputValue.toLowerCase().trim());
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <input
+        ref={inputRef}
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={openDropdown}
+        onBlur={handleBlur}
+        className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        placeholder="Digite ou selecione..."
+      />
+      {isOpen && (filtered.length > 0 || showNewOption) && (
+        <div
+          className="fixed z-[9999] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+        >
+          {filtered.map((dest) => (
+            <button
+              key={dest}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => handleSelect(dest)}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors ${
+                dest.toLowerCase() === inputValue.toLowerCase()
+                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                  : 'text-gray-700 dark:text-gray-200'
+              }`}
+            >
+              {dest}
+            </button>
+          ))}
+          {showNewOption && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => handleSelect(inputValue.trim())}
+              className="w-full text-left px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 border-t border-gray-100 dark:border-gray-700 font-medium"
+            >
+              + Criar "{inputValue.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MONTHS_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -58,6 +174,7 @@ const SurplusReport = () => {
   const [monthReports, setMonthReports] = useState<SurplusReportType[]>([]);
   const [activeReport, setActiveReport] = useState<SurplusReportWithItems | null>(null);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [knownDestinations, setKnownDestinations] = useState<string[]>([]);
 
   // Edit state
   const [editItems, setEditItems] = useState<EditableItem[]>([]);
@@ -102,6 +219,23 @@ const SurplusReport = () => {
   useEffect(() => {
     fetchAvailableMonths();
   }, [fetchAvailableMonths]);
+
+  // Fetch known destinations from DB
+  const fetchDestinations = useCallback(async () => {
+    if (!selectedHotel) return;
+    const { data } = await getDistinctDestinations(selectedHotel.id);
+    if (data) setKnownDestinations(data);
+  }, [selectedHotel]);
+
+  useEffect(() => {
+    fetchDestinations();
+  }, [fetchDestinations]);
+
+  // Merge default + DB destinations (unique, sorted)
+  const allDestinations = useMemo(() => {
+    const merged = new Set([...DEFAULT_DESTINATIONS, ...knownDestinations]);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [knownDestinations]);
 
   // Open a report detail
   const openReport = useCallback(async (reportId: string) => {
@@ -210,7 +344,8 @@ const SurplusReport = () => {
     } else {
       addNotification('Relatório salvo com sucesso!', 'success');
       setIsEditing(false);
-      // Refresh
+      // Refresh destinations list + report
+      await fetchDestinations();
       await openReport(activeReport.id);
     }
     setIsSaving(false);
@@ -249,6 +384,58 @@ const SurplusReport = () => {
 
   const removeItem = (index: number) => {
     setEditItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Print blank template (2 per A4 landscape)
+  const handlePrintTemplate = () => {
+    const EMPTY_ROWS = 20;
+    const rowsHtml = Array.from({ length: EMPTY_ROWS })
+      .map(() => `<tr><td class="cell">&nbsp;</td><td class="cell">&nbsp;</td><td class="cell">&nbsp;</td><td class="cell">&nbsp;</td></tr>`)
+      .join('');
+
+    const formHtml = `
+      <div class="form">
+        <h2 class="title">LANÇAMENTO DE SOBRANTE</h2>
+        <div class="meta">
+          <span><b>DATA:</b> ____/____/________</span>
+          <span><b>LANÇADO POR:</b> ________________________________________</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th class="th" style="width:15%">QTD SAÍDA</th>
+              <th class="th" style="width:40%">DESCRIÇÃO</th>
+              <th class="th" style="width:15%">QTD RETORNO</th>
+              <th class="th" style="width:30%">DESTINO</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Modelo Sobrante</title>
+<style>
+  @page { size: A4 landscape; margin: 8mm; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10px; }
+  .page { display: flex; gap: 8mm; width: 100%; height: 100vh; }
+  .form { flex: 1; border: 1.5px solid #000; padding: 4mm; display: flex; flex-direction: column; }
+  .title { text-align: center; font-size: 13px; font-weight: bold; margin-bottom: 3mm; letter-spacing: 1px; }
+  .meta { display: flex; gap: 6mm; margin-bottom: 3mm; font-size: 10px; }
+  table { width: 100%; border-collapse: collapse; flex: 1; }
+  .th { border: 1px solid #000; padding: 2mm 1.5mm; text-align: center; font-size: 9px; font-weight: bold; background: #e8e8e8; }
+  .cell { border: 1px solid #000; padding: 1.5mm 1.5mm; height: 5.5mm; font-size: 9px; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style></head>
+<body><div class="page">${formHtml}${formHtml}</div></body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => { w.print(); };
+    }
   };
 
   // Month navigation
@@ -485,17 +672,11 @@ const SurplusReport = () => {
                     </td>
                     <td className="px-4 py-2">
                       {isEditing ? (
-                        <select
+                        <DestinationComboBox
                           value={(item as EditableItem).destination}
-                          onChange={(e) => updateItem(index, 'destination', e.target.value)}
-                          className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-700 dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          {DESTINATION_OPTIONS.map((opt) => (
-                            <option key={opt} value={opt} className="bg-white dark:bg-gray-800 dark:text-white">
-                              {opt || 'Selecione...'}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => updateItem(index, 'destination', val)}
+                          allDestinations={allDestinations}
+                        />
                       ) : (
                         <span className="text-sm text-gray-800 dark:text-gray-200">
                           {item.destination || '—'}
@@ -597,17 +778,11 @@ const SurplusReport = () => {
                     Destino
                   </label>
                   {isEditing ? (
-                    <select
+                    <DestinationComboBox
                       value={(item as EditableItem).destination}
-                      onChange={(e) => updateItem(index, 'destination', e.target.value)}
-                      className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
-                    >
-                      {DESTINATION_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt} className="bg-white dark:bg-gray-800 dark:text-white">
-                          {opt || 'Selecione...'}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => updateItem(index, 'destination', val)}
+                      allDestinations={allDestinations}
+                    />
                   ) : (
                     <span className="text-sm text-gray-800 dark:text-gray-200 capitalize">
                       {item.destination || '—'}
@@ -683,16 +858,25 @@ const SurplusReport = () => {
           <ClipboardList className="w-5 h-5" />
           Sobrantes
         </h2>
-        <button
-          onClick={() => {
-            setNewReportDate(format(new Date(), 'yyyy-MM-dd'));
-            setShowCreateModal(true);
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Criar Novo
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePrintTemplate}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-medium flex items-center gap-2 shadow-sm"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir Modelo
+          </button>
+          <button
+            onClick={() => {
+              setNewReportDate(format(new Date(), 'yyyy-MM-dd'));
+              setShowCreateModal(true);
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Criar Novo
+          </button>
+        </div>
       </div>
 
       {/* Month/Year navigation */}

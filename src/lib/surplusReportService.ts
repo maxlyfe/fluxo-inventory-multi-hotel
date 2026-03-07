@@ -136,6 +136,19 @@ export const saveSurplusReportItems = async (
   return { error };
 };
 
+export const getDistinctDestinations = async (hotelId: string): Promise<{ data: string[] | null; error: any }> => {
+  const { data, error } = await supabase
+    .from('surplus_report_items')
+    .select('destination, surplus_reports!inner(hotel_id)')
+    .eq('surplus_reports.hotel_id', hotelId)
+    .neq('destination', '');
+
+  if (error) return { data: null, error };
+
+  const unique = [...new Set((data || []).map((r: any) => r.destination as string))].filter(Boolean).sort();
+  return { data: unique, error: null };
+};
+
 export const getAvailableMonths = async (hotelId: string) => {
   const { data, error } = await supabase
     .from('surplus_reports')
