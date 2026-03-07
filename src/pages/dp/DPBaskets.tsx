@@ -7,11 +7,9 @@ import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
 import {
   Package, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
-  Loader2, Printer, User, Calendar, AlertCircle, Info,
-  Building2,
+  Loader2, Printer, User, AlertCircle, Info,
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, parseISO, differenceInCalendarDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { format } from 'date-fns';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,36 +39,47 @@ interface Employee {
 interface ScheduleEntry {
   employee_id: string;
   day_date: string;   // YYYY-MM-DD
-  entry_type: string; // falta | atestado | shift | folga | etc.
+  entry_type: string; // falta | atestado | custom | etc.
+  occurrence_type_id: string | null;
+}
+
+interface OccurrenceType {
+  id: string;
+  slug: string;
+  name: string;
+  causes_basket_loss: boolean;
+  loss_threshold: number;
+}
+
+interface OccurrenceCount {
+  type: OccurrenceType;
+  dates: string[];
+  exceedsThreshold: boolean;
 }
 
 interface EligibilityResult {
   employee: Employee;
   eligible: boolean;
-  reasons: string[];        // motivos de recusa
-  faltas: string[];         // datas de falta
-  atestados: string[];      // datas de atestado
-  admissionOk: boolean;     // cumpriu 1 mês completo
+  reasons: string[];
+  occurrences: OccurrenceCount[];
+  admissionOk: boolean;
 }
 
-// ── Regras de elegibilidade ───────────────────────────────────────────────────
+// ── Regras de elegibilidade (dinâmicas) ─────────────────────────────────────
 // Referência: mês de ANÁLISE é o mês anterior ao mês de entrega.
-// Ex.: entrega em março → analisa fevereiro.
 // O colaborador precisa:
 //   1. Ter admission_date <= 1º dia do mês de análise (trabalhou o mês completo)
-//   2. Zero faltas no mês de análise
-//   3. ≤ 3 dias de atestado no mês de análise
+//   2. Não exceder o limite de nenhum tipo de ocorrência que causa perda de cesta
 // ─────────────────────────────────────────────────────────────────────────────
 
 function calcEligibility(
   employee: Employee,
   entries: ScheduleEntry[],
+  occTypes: OccurrenceType[],
   analysisYear: number,
   analysisMonth: number,  // 0-indexed
 ): EligibilityResult {
-  const reasons: string[]  = [];
-  const faltas: string[]   = [];
-  const atestados: string[] = [];
+  const reasons: string[] = [];
 
   const firstDay = new Date(analysisYear, analysisMonth, 1);
   const lastDay  = new Date(analysisYear, analysisMonth + 1, 0);
@@ -83,37 +92,43 @@ function calcEligibility(
     reasons.push(`Admitido em ${format(admDate, 'dd/MM/yyyy')} — primeiro mês completo começa em ${startMonth}`);
   }
 
-  // 2. Analisar entradas da escala no período
+  // 2. Filtrar entradas do período para este colaborador
   const periodEntries = entries.filter(e => {
     if (e.employee_id !== employee.id) return false;
     const d = parseLocalDate(e.day_date);
     return d >= firstDay && d <= lastDay;
   });
 
-  periodEntries.forEach(e => {
-    if (e.entry_type === 'falta') {
-      faltas.push(e.day_date);
-    } else if (e.entry_type === 'atestado') {
-      atestados.push(e.day_date);
+  // 3. Contar ocorrências por tipo dinamicamente
+  const occurrences: OccurrenceCount[] = occTypes.map(ot => {
+    const dates = periodEntries
+      .filter(e =>
+        e.occurrence_type_id === ot.id ||
+        (e.entry_type === ot.slug && !e.occurrence_type_id) // fallback para dados legados
+      )
+      .map(e => e.day_date);
+
+    const exceedsThreshold = dates.length >= ot.loss_threshold;
+
+    if (exceedsThreshold) {
+      const datas = dates.map(d => format(parseLocalDate(d), 'dd/MM')).join(', ');
+      if (ot.loss_threshold === 1) {
+        reasons.push(`${ot.name}: dia${dates.length > 1 ? 's' : ''} ${datas}`);
+      } else {
+        reasons.push(`${ot.name}: ${dates.length} dia${dates.length > 1 ? 's' : ''} (${datas}) — limite é ${ot.loss_threshold - 1}`);
+      }
     }
+
+    return { type: ot, dates, exceedsThreshold };
   });
 
-  if (faltas.length > 0) {
-    const datas = faltas.map(d => format(parseLocalDate(d), 'dd/MM')).join(', ');
-    reasons.push(`Falta${faltas.length > 1 ? 's' : ''}: dia${faltas.length > 1 ? 's' : ''} ${datas}`);
-  }
-
-  if (atestados.length > 3) {
-    const datas = atestados.map(d => format(parseLocalDate(d), 'dd/MM')).join(', ');
-    reasons.push(`Atestados: ${atestados.length} dias (${datas}) — limite é 3 dias`);
-  }
+  const anyLoss = occurrences.some(o => o.exceedsThreshold);
 
   return {
     employee,
-    eligible:     admissionOk && faltas.length === 0 && atestados.length <= 3,
+    eligible: admissionOk && !anyLoss,
     reasons,
-    faltas,
-    atestados,
+    occurrences,
     admissionOk,
   };
 }
@@ -127,11 +142,12 @@ const DPBaskets: React.FC = () => {
   const [deliveryYear,  setDeliveryYear]  = useState(() => today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear());
   const [deliveryMonth, setDeliveryMonth] = useState(() => (today.getMonth() + 1) % 12); // 0-indexed
 
-  const [employees,  setEmployees]  = useState<Employee[]>([]);
-  const [entries,    setEntries]    = useState<ScheduleEntry[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState<string | null>(null);
-  const [showDenied, setShowDenied] = useState(false);
+  const [employees,       setEmployees]       = useState<Employee[]>([]);
+  const [entries,         setEntries]         = useState<ScheduleEntry[]>([]);
+  const [occurrenceTypes, setOccurrenceTypes] = useState<OccurrenceType[]>([]);
+  const [loading,         setLoading]         = useState(true);
+  const [error,           setError]           = useState<string | null>(null);
+  const [showDenied,      setShowDenied]      = useState(false);
 
   // Mês de ANÁLISE = mês anterior ao mês de entrega
   const analysisMonth = deliveryMonth === 0 ? 11 : deliveryMonth - 1;
@@ -155,7 +171,17 @@ const DPBaskets: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // Colaboradores ativos
+      // 1. Tipos de ocorrência que causam perda de cesta
+      const { data: otData, error: otErr } = await supabase
+        .from('occurrence_types')
+        .select('id, slug, name, causes_basket_loss, loss_threshold')
+        .eq('hotel_id', selectedHotel.id)
+        .eq('causes_basket_loss', true);
+      if (otErr) throw otErr;
+      const occTypes = (otData || []) as OccurrenceType[];
+      setOccurrenceTypes(occTypes);
+
+      // 2. Colaboradores ativos
       const { data: empData, error: empErr } = await supabase
         .from('employees')
         .select('id, name, role, sector, hotel_id, admission_date, status, hotels:hotel_id(name)')
@@ -170,20 +196,27 @@ const DPBaskets: React.FC = () => {
       }));
       setEmployees(normalized);
 
-      // Entradas da escala — busca por employee_id diretamente
-      // Isso garante que faltas de hotel anterior também sejam consideradas
-      // após uma transferência de unidade.
-      const empIds = normalized.map((e: any) => e.id);
-      if (empIds.length > 0) {
+      // 3. Entradas da escala — busca dinâmica por tipos de ocorrência
+      const empIds   = normalized.map((e: any) => e.id);
+      const occSlugs = occTypes.map(ot => ot.slug);
+      const occIds   = occTypes.map(ot => ot.id);
+
+      if (empIds.length > 0 && (occSlugs.length > 0 || occIds.length > 0)) {
+        // Busca entradas que correspondem aos tipos de ocorrência (por FK ou por slug legado)
         const { data: entData, error: entErr } = await supabase
           .from('schedule_entries')
-          .select('employee_id, day_date, entry_type')
+          .select('employee_id, day_date, entry_type, occurrence_type_id')
           .in('employee_id', empIds)
-          .in('entry_type', ['falta', 'atestado'])
           .gte('day_date', analysisStart)
-          .lte('day_date', analysisEnd);
+          .lte('day_date', analysisEnd)
+          .or(
+            [
+              occIds.length > 0 ? `occurrence_type_id.in.(${occIds.join(',')})` : '',
+              occSlugs.length > 0 ? `entry_type.in.(${occSlugs.join(',')})` : '',
+            ].filter(Boolean).join(',')
+          );
         if (entErr) throw entErr;
-        setEntries(entData || []);
+        setEntries((entData || []) as ScheduleEntry[]);
       } else {
         setEntries([]);
       }
@@ -198,8 +231,8 @@ const DPBaskets: React.FC = () => {
 
   // ── Calcular elegibilidade ───────────────────────────────────────────────
   const results = useMemo<EligibilityResult[]>(() =>
-    employees.map(emp => calcEligibility(emp, entries, analysisYear, analysisMonth)),
-    [employees, entries, analysisYear, analysisMonth]
+    employees.map(emp => calcEligibility(emp, entries, occurrenceTypes, analysisYear, analysisMonth)),
+    [employees, entries, occurrenceTypes, analysisYear, analysisMonth]
   );
 
   const eligible = results.filter(r => r.eligible);
@@ -288,8 +321,8 @@ const DPBaskets: React.FC = () => {
       <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-sm text-emerald-800 dark:text-emerald-300">
         <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
         <p>
-          A cesta é gerada para colaboradores que <strong>trabalharam o mês completo anterior</strong>, 
-          sem faltas e com no máximo 3 dias de atestado. 
+          A cesta é gerada para colaboradores que <strong>trabalharam o mês completo anterior</strong> sem
+          ocorrências que excedam os limites configurados.
           Selecione o <strong>mês de entrega</strong> e o sistema analisa automaticamente o mês anterior.
         </p>
       </div>
@@ -362,12 +395,12 @@ const DPBaskets: React.FC = () => {
                   <p className="font-semibold text-gray-800 dark:text-gray-100 truncate">{r.employee.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{r.employee.role} · {r.employee.sector}</p>
                 </div>
-                {r.atestados.length > 0 && (
-                  <span className="text-xs text-orange-500 dark:text-orange-400 flex items-center gap-1 flex-shrink-0">
+                {r.occurrences.filter(o => o.dates.length > 0).map(o => (
+                  <span key={o.type.slug} className="text-xs text-orange-500 dark:text-orange-400 flex items-center gap-1 flex-shrink-0">
                     <AlertCircle className="w-3.5 h-3.5" />
-                    {r.atestados.length}d atestado
+                    {o.dates.length}d {o.type.name.toLowerCase()}
                   </span>
-                )}
+                ))}
                 <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
               </div>
             ))}
