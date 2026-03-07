@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__e5a7a863-fa9b-46b9-8270-654561990dc0__list_tables",
+      "mcp__e5a7a863-fa9b-46b9-8270-654561990dc0__list_migrations",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-0s-54-sheets.googleusercontent.com)",
+      "mcp__e5a7a863-fa9b-46b9-8270-654561990dc0__list_projects",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx vite build)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where npm.cmd)",
+      "Bash(where npm)"
+    ]
+  }
+}

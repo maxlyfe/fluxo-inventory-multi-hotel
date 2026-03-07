@@ -289,7 +289,7 @@ function App() {
                   </Route>{/* /MainLayout */}
                 </Routes>
 
-                <Chatbot />
+                {/* <Chatbot /> */}
               </div>
             </HotelProvider>
           </BrowserRouter>

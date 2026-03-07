@@ -135,6 +135,7 @@ const NewPurchaseList = () => {
   const [sectorStocks,      setSectorStocks]      = useState<Record<string, StockSector[]>>({});
   const [stockDropdownOpen, setStockDropdownOpen] = useState<string | null>(null); // productId com dropdown aberto
   const [loadingSectors,    setLoadingSectors]    = useState<string | null>(null); // productId carregando
+  const [dropdownPosition, setDropdownPosition] = useState<{top: number; left: number}>({top: 0, left: 0});
 
   const today = format(new Date(), "dd/MM/yyyy", { locale: ptBR });
 
@@ -816,9 +817,9 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           <select
                             value={product.editedUnit || ''}
                             onChange={(e) => handleUnitChange(product.id, e.target.value)}
-                            className="w-full bg-transparent text-sm text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
+                            className="w-full bg-transparent dark:bg-gray-800 text-sm text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
                           >
-                            {unitOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.value || '—'}</option>)}
+                            {unitOptions.map(opt => <option key={opt.value} value={opt.value} className="bg-white dark:bg-gray-800 dark:text-white">{opt.value || '—'}</option>)}
                           </select>
                         </div>
                         <div className="px-3 py-2.5">
@@ -912,6 +913,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                               />
                               {!product.isCustom && product.id && !product.id.startsWith('custom-') && (
                                 <button
+                                  data-stock-dropdown
                                   title="Stock por setor"
                                   onClick={() => {
                                     if (stockDropdownOpen === product.id) {
@@ -929,7 +931,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             </div>
                             {/* Dropdown stock por setor — mobile */}
                             {stockDropdownOpen === product.id && (
-                              <div className="absolute z-30 bottom-full left-0 mb-1 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                              <div data-stock-dropdown className="absolute z-30 bottom-full left-0 mb-1 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                                 <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
                                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Stock por Setor</span>
                                   <button onClick={() => setStockDropdownOpen(null)} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>
@@ -1047,9 +1049,9 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             <select 
                               value={product.editedUnit || ''}
                               onChange={(e) => handleUnitChange(product.id, e.target.value)}
-                              className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1 pr-6"
+                              className="w-full bg-transparent dark:bg-gray-800 border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1 pr-6"
                             >
-                              {unitOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                              {unitOptions.map(opt => <option key={opt.value} value={opt.value} className="bg-white dark:bg-gray-800 dark:text-white">{opt.label}</option>)}
                             </select>
                             {customUnitOpen[product.id] && (
                               <input 
@@ -1125,11 +1127,14 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             />
                             {!product.isCustom && product.id && !product.id.startsWith('custom-') && (
                               <button
+                                data-stock-dropdown
                                 title="Ver stock por setor"
-                                onClick={() => {
+                                onClick={(e) => {
                                   if (stockDropdownOpen === product.id) {
                                     setStockDropdownOpen(null);
                                   } else {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    setDropdownPosition({ top: rect.bottom + 4, left: Math.max(8, rect.left - 180) });
                                     fetchSectorStocks(product.id, product.name);
                                     setStockDropdownOpen(product.id);
                                   }
@@ -1142,7 +1147,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           </div>
                           {/* Dropdown de stock por setor */}
                           {stockDropdownOpen === product.id && (
-                            <div className="absolute z-20 top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                            <div data-stock-dropdown className="fixed z-50 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}>
                               <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
                                 <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stock por Setor</span>
                                 <button onClick={() => setStockDropdownOpen(null)} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>
@@ -1317,7 +1322,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   >
                     {unitOptions.filter(opt => opt.value !== '').map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <option key={opt.value} value={opt.value} className="bg-white dark:bg-gray-700 dark:text-white">{opt.label}</option>
                     ))}
                   </select>
                 </div>
