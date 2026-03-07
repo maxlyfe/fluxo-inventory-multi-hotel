@@ -36,9 +36,34 @@ interface ScheduleEntry {
   shift_end: string | null;
   custom_label: string | null;
   transfer_hotel_id: string | null;
+  occurrence_type_id: string | null;
 }
 
 interface Schedule { id: string; hotel_id: string; week_start: string; }
+
+interface OccurrenceType {
+  id: string;
+  hotel_id: string;
+  name: string;
+  slug: string;
+  color: string;
+  causes_basket_loss: boolean;
+  loss_threshold: number;
+  is_system: boolean;
+  sort_order: number;
+}
+
+const OCCURRENCE_COLORS: Record<string, { bg: string; text: string; ring: string }> = {
+  red:    { bg: 'bg-red-50 dark:bg-red-900/20',       text: 'text-red-700 dark:text-red-300',       ring: 'ring-red-400' },
+  orange: { bg: 'bg-orange-50 dark:bg-orange-900/20',  text: 'text-orange-700 dark:text-orange-300', ring: 'ring-orange-400' },
+  indigo: { bg: 'bg-indigo-50 dark:bg-indigo-900/20',  text: 'text-indigo-700 dark:text-indigo-300', ring: 'ring-indigo-400' },
+  amber:  { bg: 'bg-amber-50 dark:bg-amber-900/20',   text: 'text-amber-700 dark:text-amber-300',   ring: 'ring-amber-400' },
+  purple: { bg: 'bg-purple-50 dark:bg-purple-900/20',  text: 'text-purple-700 dark:text-purple-300', ring: 'ring-purple-400' },
+  pink:   { bg: 'bg-pink-50 dark:bg-pink-900/20',     text: 'text-pink-700 dark:text-pink-300',     ring: 'ring-pink-400' },
+  teal:   { bg: 'bg-teal-50 dark:bg-teal-900/20',     text: 'text-teal-700 dark:text-teal-300',     ring: 'ring-teal-400' },
+  blue:   { bg: 'bg-blue-50 dark:bg-blue-900/20',     text: 'text-blue-700 dark:text-blue-300',     ring: 'ring-blue-400' },
+  green:  { bg: 'bg-green-50 dark:bg-green-900/20',   text: 'text-green-700 dark:text-green-300',   ring: 'ring-green-400' },
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -137,17 +162,29 @@ interface CellEditorProps {
   entry: ScheduleEntry | null;
   employeeId: string; dayDate: string; sector: string; scheduleId: string;
   hotels: Hotel[];
+  occurrenceTypes: OccurrenceType[];
+  hotelId: string;
   onSave: (e: Partial<ScheduleEntry>) => Promise<void>;
   onClose: () => void;
+  onOccurrenceTypesChanged: (types: OccurrenceType[]) => void;
   position: { top: number; left: number };
 }
 
-function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, onSave, onClose, position }: CellEditorProps) {
+function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, hotelId, onSave, onClose, onOccurrenceTypesChanged, position }: CellEditorProps) {
   const [type, setType]          = useState(entry?.entry_type || 'shift');
   const [start, setStart]        = useState(entry?.shift_start?.slice(0, 5) || '');
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
   const [custom, setCustom]      = useState(entry?.custom_label || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
+  const [selectedOccurrence, setSelectedOccurrence] = useState<OccurrenceType | null>(
+    entry?.occurrence_type_id
+      ? occurrenceTypes.find(ot => ot.id === entry.occurrence_type_id) || null
+      : null
+  );
+  const [newOccName, setNewOccName] = useState('');
+  const [newOccCausesLoss, setNewOccCausesLoss] = useState(false);
+  const [newOccThreshold, setNewOccThreshold] = useState(1);
+  const [creatingOcc, setCreatingOcc] = useState(false);
   const [saving, setSaving]      = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -157,77 +194,178 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, on
     return () => { clearTimeout(t); document.removeEventListener('mousedown', h); };
   }, [onClose]);
 
+  const handleCreateOccurrenceType = async () => {
+    if (!newOccName.trim() || creatingOcc) return;
+    setCreatingOcc(true);
+    const slug = newOccName.trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+    const { data, error } = await supabase.from('occurrence_types').insert({
+      hotel_id: hotelId,
+      name: newOccName.trim(),
+      slug,
+      color: 'indigo',
+      causes_basket_loss: newOccCausesLoss,
+      loss_threshold: newOccCausesLoss ? newOccThreshold : 1,
+      is_system: false,
+      sort_order: occurrenceTypes.length + 1,
+    }).select().single();
+
+    if (data && !error) {
+      const updated = [...occurrenceTypes, data as OccurrenceType];
+      onOccurrenceTypesChanged(updated);
+      setSelectedOccurrence(data as OccurrenceType);
+      setNewOccName('');
+      setNewOccCausesLoss(false);
+      setNewOccThreshold(1);
+    }
+    setCreatingOcc(false);
+  };
+
   const save = async () => {
     setSaving(true);
+    let occTypeId: string | null = null;
+    if (type === 'custom' && selectedOccurrence) {
+      occTypeId = selectedOccurrence.id;
+    } else if (['falta', 'atestado'].includes(type)) {
+      const systemType = occurrenceTypes.find(ot => ot.slug === type);
+      occTypeId = systemType?.id || null;
+    }
+
     await onSave({
       employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
       entry_type: type,
       shift_start:  (['shift', 'meia_dobra', 'transfer'].includes(type)) ? (start || null) : null,
       shift_end:    (['shift', 'meia_dobra', 'transfer'].includes(type)) ? (end   || null) : null,
-      custom_label: type === 'custom' ? custom : null,
+      custom_label: type === 'custom' && selectedOccurrence ? selectedOccurrence.name : (type === 'custom' ? custom : null),
       transfer_hotel_id: type === 'transfer' ? (transferHotel || null) : null,
+      occurrence_type_id: occTypeId,
     });
     setSaving(false);
     onClose();
   };
 
+  const maxH = window.innerHeight - 24;
   const style: React.CSSProperties = {
     position: 'fixed',
-    top:  Math.min(position.top,  window.innerHeight - 380),
-    left: Math.min(position.left, window.innerWidth  - 276),
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
     zIndex: 200,
+    maxHeight: maxH,
+    display: 'flex',
+    flexDirection: 'column',
   };
 
   return (
     <div ref={ref} style={style}
-      className="w-64 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 space-y-3">
-      {/* Types */}
-      <div className="grid grid-cols-2 gap-1">
-        {ENTRY_TYPES.map(t => (
-          <button key={t.value} onClick={() => setType(t.value)}
-            className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
-              type === t.value
-                ? `${t.bg || 'bg-gray-100 dark:bg-gray-700'} ${t.color} ring-2 ring-blue-400`
-                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}>
-            {t.label}
-          </button>
-        ))}
+      className="w-72 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
+
+      {/* Área com scroll */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {/* Types */}
+        <div className="grid grid-cols-2 gap-1">
+          {ENTRY_TYPES.map(t => (
+            <button key={t.value} onClick={() => { setType(t.value); if (t.value !== 'custom') setSelectedOccurrence(null); }}
+              className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
+                type === t.value
+                  ? `${t.bg || 'bg-gray-100 dark:bg-gray-700'} ${t.color} ring-2 ring-blue-400`
+                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Time fields */}
+        {['shift', 'meia_dobra', 'transfer'].includes(type) && (
+          <div className="flex gap-2 items-center">
+            <input type="time" value={start} onChange={e => setStart(e.target.value)}
+              className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <span className="text-xs text-gray-400">AS</span>
+            <input type="time" value={end} onChange={e => setEnd(e.target.value)}
+              className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+        )}
+
+        {/* Transfer hotel */}
+        {type === 'transfer' && (
+          <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
+            className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
+            <option value="">Selecione a unidade...</option>
+            {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+        )}
+
+        {/* Occurrence type picker */}
+        {type === 'custom' && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo de ocorrência</p>
+            <div className="space-y-1">
+              {occurrenceTypes.map(ot => {
+                const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
+                const isSelected = selectedOccurrence?.id === ot.id;
+                return (
+                  <button key={ot.id}
+                    onClick={() => setSelectedOccurrence(ot)}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-between gap-2
+                      ${isSelected
+                        ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
+                    <span>{ot.name}</span>
+                    {ot.causes_basket_loss && (
+                      <span className="text-[10px] text-red-400 dark:text-red-400 whitespace-nowrap">
+                        {ot.loss_threshold === 1 ? 'perde cesta' : `perde após ${ot.loss_threshold}x`}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Inline create new occurrence type */}
+            <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Criar novo tipo</p>
+              <input type="text" value={newOccName} onChange={e => setNewOccName(e.target.value)}
+                placeholder="Nome da ocorrência..." maxLength={30}
+                className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              {newOccName.trim() && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" checked={newOccCausesLoss} onChange={e => setNewOccCausesLoss(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
+                      <span className="text-[11px] text-gray-600 dark:text-gray-300">Perde cesta básica</span>
+                    </label>
+                  </div>
+                  {newOccCausesLoss && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-gray-500">Após</span>
+                      <input type="number" min={1} max={31} value={newOccThreshold}
+                        onChange={e => setNewOccThreshold(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-12 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      <span className="text-[11px] text-gray-500">vez(es) no mês</span>
+                    </div>
+                  )}
+                  <button onClick={handleCreateOccurrenceType} disabled={creatingOcc || !newOccName.trim()}
+                    className="w-full flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-60 transition-colors">
+                    {creatingOcc ? <Loader2 className="h-3 w-3 animate-spin" /> : '+'} Criar tipo
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Time fields */}
-      {['shift', 'meia_dobra', 'transfer'].includes(type) && (
-        <div className="flex gap-2 items-center">
-          <input type="time" value={start} onChange={e => setStart(e.target.value)}
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-          <span className="text-xs text-gray-400">AS</span>
-          <input type="time" value={end} onChange={e => setEnd(e.target.value)}
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-        </div>
-      )}
-
-      {/* Transfer hotel */}
-      {type === 'transfer' && (
-        <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
-          className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
-          <option value="">Selecione a unidade...</option>
-          {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-        </select>
-      )}
-
-      {/* Custom label */}
-      {type === 'custom' && (
-        <input type="text" value={custom} onChange={e => setCustom(e.target.value)}
-          placeholder="Ex: EXTRA 15HS, REUNIÃO..." maxLength={20}
-          className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-      )}
-
-      <div className="flex gap-2">
+      {/* Botões fixos no rodapé — sempre visíveis */}
+      <div className="flex gap-2 p-3 pt-0 border-t border-gray-100 dark:border-gray-700 mt-0 flex-shrink-0">
         <button onClick={onClose}
           className="flex-1 py-1.5 text-xs font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
           Cancelar
         </button>
-        <button onClick={save} disabled={saving}
+        <button onClick={save} disabled={saving || (type === 'custom' && !selectedOccurrence)}
           className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-blue-500 hover:bg-blue-600 text-white rounded-xl disabled:opacity-60 transition-colors">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}Salvar
         </button>
@@ -721,6 +859,7 @@ export default function DPSchedule() {
   } | null>(null);
   const [autoFillEmp, setAutoFillEmp] = useState<Employee | null>(null);
   const [showExport, setShowExport]   = useState(false);
+  const [occurrenceTypes, setOccurrenceTypes] = useState<OccurrenceType[]>([]);
 
   // 8 days: Sunday of week → Sunday of next week
   const weekDays = Array.from({ length: 8 }, (_, i) => addDays(weekStart, i));
@@ -735,6 +874,13 @@ export default function DPSchedule() {
   useEffect(() => {
     supabase.from('hotels').select('id, name').order('name').then(({ data }) => setHotels(data || []));
   }, []);
+
+  // Fetch occurrence types whenever hotel changes
+  useEffect(() => {
+    if (!hotelId) return;
+    supabase.from('occurrence_types').select('*').eq('hotel_id', hotelId).order('sort_order')
+      .then(({ data }) => setOccurrenceTypes((data || []) as OccurrenceType[]));
+  }, [hotelId]);
 
   useEffect(() => {
     if (!canChangeHotel && selectedHotel?.id) setFilterHotel(selectedHotel.id);
@@ -839,8 +985,10 @@ export default function DPSchedule() {
           entry={cellEditor.entry} employeeId={cellEditor.empId}
           dayDate={cellEditor.dayDate} sector={cellEditor.sector}
           scheduleId={schedule.id} hotels={hotels}
+          occurrenceTypes={occurrenceTypes} hotelId={hotelId}
           position={cellEditor.pos}
           onSave={saveEntry} onClose={() => setCellEditor(null)}
+          onOccurrenceTypesChanged={setOccurrenceTypes}
         />
       )}
       {autoFillEmp && schedule && (
