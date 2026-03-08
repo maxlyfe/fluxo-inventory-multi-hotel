@@ -43,6 +43,9 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const [scanProduct,    setScanProduct]    = useState<Product | null>(null);
   const [scanQty,        setScanQty]        = useState('1');
   const [scanNotFound,   setScanNotFound]   = useState<string | null>(null);
+  // Cadastro de barcode: quando != null, scanner está em modo "vincular barcode ao produto"
+  const [registerBarcodeProduct, setRegisterBarcodeProduct] = useState<Product | null>(null);
+  const [productBarcodes, setProductBarcodes] = useState<Record<string, string[]>>({});  // product_id → barcodes[]
 
   // Organiza produtos por categoria
   const categories = useMemo(() => {
@@ -76,15 +79,17 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
     return products.filter(p => (p.category || 'Sem Categoria') === currentCategory);
   }, [products, currentCategory, searchTerm]);
 
-  // Busca rascunho ao abrir
+  // Busca rascunho e barcodes existentes ao abrir
   useEffect(() => {
     if (isOpen) {
       checkExistingDraft();
+      loadProductBarcodes();
     } else {
       setCounts({});
       setSearchTerm('');
       setCurrentCategoryIndex(0);
       setActiveCountId(null);
+      setProductBarcodes({});
     }
   }, [isOpen, hotelId, sectorId]);
 
@@ -124,6 +129,79 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
     } finally {
       setIsLoadingDraft(false);
     }
+  };
+
+  const loadProductBarcodes = async () => {
+    const productIds = products.map(p => p.id);
+    if (productIds.length === 0) return;
+    const { data } = await supabase
+      .from('product_barcodes')
+      .select('product_id, barcode')
+      .in('product_id', productIds);
+    if (data) {
+      const map: Record<string, string[]> = {};
+      data.forEach((row: any) => {
+        if (!map[row.product_id]) map[row.product_id] = [];
+        map[row.product_id].push(row.barcode);
+      });
+      setProductBarcodes(map);
+    }
+  };
+
+  // Handler: scanner em modo "cadastrar barcode" para um produto específico
+  const handleRegisterBarcode = useCallback(async (barcode: string) => {
+    if (!registerBarcodeProduct) return;
+
+    // Verifica se já existe
+    const { data: existing } = await supabase
+      .from('product_barcodes')
+      .select('id, product_id')
+      .eq('barcode', barcode)
+      .maybeSingle();
+
+    if (existing) {
+      const existingProduct = products.find(p => p.id === existing.product_id);
+      addNotification(`Este código já está vinculado a "${existingProduct?.name || 'outro produto'}".`, 'error');
+      setRegisterBarcodeProduct(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('product_barcodes')
+      .insert({ product_id: registerBarcodeProduct.id, barcode });
+
+    if (error) {
+      addNotification('Erro ao cadastrar código de barras.', 'error');
+    } else {
+      addNotification(`Código cadastrado em "${registerBarcodeProduct.name}"!`, 'success');
+      // Atualiza o mapa local
+      setProductBarcodes(prev => ({
+        ...prev,
+        [registerBarcodeProduct.id]: [...(prev[registerBarcodeProduct.id] || []), barcode],
+      }));
+    }
+    setRegisterBarcodeProduct(null);
+  }, [registerBarcodeProduct, products, addNotification]);
+
+  // Handler: vincular código não-encontrado a um produto selecionado
+  const handleLinkBarcodeToProduct = async (product: Product) => {
+    if (!scanNotFound) return;
+    const barcode = scanNotFound;
+
+    const { error } = await supabase
+      .from('product_barcodes')
+      .insert({ product_id: product.id, barcode });
+
+    if (error) {
+      addNotification('Erro ao vincular código de barras.', 'error');
+    } else {
+      addNotification(`Código vinculado a "${product.name}"!`, 'success');
+      setProductBarcodes(prev => ({
+        ...prev,
+        [product.id]: [...(prev[product.id] || []), barcode],
+      }));
+    }
+    setScanNotFound(null);
   };
 
   const handleCountChange = (productId: string, value: string) => {
@@ -414,10 +492,28 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-gray-800 dark:text-gray-200 truncate">{product.name}</h4>
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="font-bold text-gray-800 dark:text-gray-200 truncate">{product.name}</h4>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setRegisterBarcodeProduct(product); }}
+                        title={productBarcodes[product.id]?.length
+                          ? `${productBarcodes[product.id].length} código(s) cadastrado(s) · Clique para adicionar`
+                          : 'Cadastrar código de barras'}
+                        className={`flex-shrink-0 p-1 rounded-lg transition-colors ${
+                          productBarcodes[product.id]?.length
+                            ? 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
+                            : 'text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
+                        }`}
+                      >
+                        <Barcode className="w-4 h-4" />
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500">
                       {searchTerm && <span className="text-indigo-500 font-medium">{product.category} • </span>}
                       Estoque atual: {product.quantity}
+                      {productBarcodes[product.id]?.length ? (
+                        <span className="ml-1 text-green-500">· {productBarcodes[product.id].length} código(s)</span>
+                      ) : null}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -466,13 +562,23 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       </div>
     </div>
 
-    {/* ── Scanner de câmera ───────────────────────────────────────── */}
+    {/* ── Scanner de câmera (conferência) ────────────────────────── */}
     {showScanner && (
       <BarcodeScanner
         onDetected={handleBarcodeScan}
         onClose={() => setShowScanner(false)}
         title="Escanear para Conferência"
         hint="Aponte para o código de barras do produto"
+      />
+    )}
+
+    {/* ── Scanner de câmera (cadastrar barcode) ──────────────────── */}
+    {registerBarcodeProduct && (
+      <BarcodeScanner
+        onDetected={handleRegisterBarcode}
+        onClose={() => setRegisterBarcodeProduct(null)}
+        title={`Cadastrar código — ${registerBarcodeProduct.name}`}
+        hint="Leia o código de barras para vincular a este produto"
       />
     )}
 
@@ -538,23 +644,45 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       </div>
     )}
 
-    {/* ── Produto não encontrado ───────────────────────────────────── */}
+    {/* ── Produto não encontrado — com opção de vincular ────────── */}
     {scanNotFound && (
       <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-        <div className="w-full sm:max-w-sm bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-              <AlertCircle className="w-5 h-5 text-red-500" />
+        <div className="w-full sm:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+          <div className="p-5 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                <Barcode className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white">Código não cadastrado</h3>
+                <p className="text-xs text-gray-500 font-mono mt-0.5">{scanNotFound}</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Código não cadastrado</h3>
-              <p className="text-xs text-gray-500 font-mono mt-0.5">{scanNotFound}</p>
-            </div>
+            <p className="text-xs text-gray-500">
+              Selecione o produto para vincular este código ou tente novamente.
+            </p>
           </div>
-          <p className="text-xs text-gray-500 mb-4">
-            Este código não está vinculado a nenhum produto. Cadastre-o no inventário antes de usar na conferência.
-          </p>
-          <div className="flex gap-2">
+
+          {/* Lista de produtos para vincular */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-1">
+            {products.map(p => (
+              <button
+                key={p.id}
+                onClick={() => handleLinkBarcodeToProduct(p)}
+                className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors flex items-center justify-between gap-2 group"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                    {p.name}
+                  </p>
+                  <p className="text-[10px] text-gray-400">{p.category}</p>
+                </div>
+                <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2 p-4 border-t border-gray-100 dark:border-gray-700">
             <button
               onClick={() => setScanNotFound(null)}
               className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
