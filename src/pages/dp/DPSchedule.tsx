@@ -8,10 +8,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useHotel } from '../../context/HotelContext';
 import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
-  Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck,
+  Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2,
 } from 'lucide-react';
 import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useNotification } from '../../context/NotificationContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -839,6 +840,7 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, hotelName,
 export default function DPSchedule() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
+  const { addNotification } = useNotification();
 
   const canChangeHotel = ['admin', 'management'].includes(user?.role || '');
   const defaultHotelId = selectedHotel?.id || '';
@@ -956,6 +958,50 @@ export default function DPSchedule() {
         ...prev.filter(e => !(e.employee_id === empId && dayDates.includes(e.day_date))),
         ...(data as ScheduleEntry[]),
       ]);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Copy share link
+  // ---------------------------------------------------------------------------
+  const handleCopyScheduleLink = async (sector: string) => {
+    if (!schedule || !hotelId) return;
+    const weekStr = format(weekStart, 'yyyy-MM-dd');
+
+    // Busca token existente
+    let { data: existing } = await supabase
+      .from('schedule_share_tokens')
+      .select('token')
+      .eq('hotel_id', hotelId)
+      .eq('sector', sector)
+      .eq('week_start', weekStr)
+      .maybeSingle();
+
+    if (!existing) {
+      const { data: created, error } = await supabase
+        .from('schedule_share_tokens')
+        .insert({
+          hotel_id: hotelId,
+          schedule_id: schedule.id,
+          sector,
+          week_start: weekStr,
+          created_by: user?.id,
+        })
+        .select('token')
+        .single();
+      if (error || !created) {
+        addNotification('error', 'Erro ao gerar link de compartilhamento.');
+        return;
+      }
+      existing = created;
+    }
+
+    const link = `${window.location.origin}/schedule/edit/${existing.token}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      addNotification('success', `Link da escala de ${sector} copiado!`);
+    } catch {
+      addNotification('error', 'Falha ao copiar o link.');
     }
   };
 
@@ -1112,9 +1158,18 @@ export default function DPSchedule() {
             <tbody>
               {sectorGroups.map(({ sector, emps }) => (
                 <React.Fragment key={sector}>
-                  <tr className="bg-gray-100 dark:bg-gray-700">
+                  <tr className="bg-gray-100 dark:bg-gray-700 group/sector">
                     <td colSpan={9} className="px-4 py-2 text-xs font-black text-gray-700 dark:text-gray-200 uppercase tracking-widest sticky left-0 bg-gray-100 dark:bg-gray-700">
-                      {sector}
+                      <div className="flex items-center gap-2">
+                        {sector}
+                        <button
+                          onClick={() => handleCopyScheduleLink(sector)}
+                          title={`Copiar link da escala de ${sector}`}
+                          className="opacity-0 group-hover/sector:opacity-100 focus:opacity-100 transition-opacity p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                        >
+                          <Link2 className="h-3.5 w-3.5 text-gray-400 hover:text-blue-500 transition-colors" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {emps.map((emp, ei) => (

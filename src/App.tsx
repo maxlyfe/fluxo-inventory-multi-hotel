@@ -33,6 +33,7 @@ import BudgetAnalysis        from './pages/BudgetAnalysis';
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
 import DPEmployeeDetail        from './pages/dp/DPEmployeeDetail';
+import PublicScheduleEdit      from './pages/dp/PublicScheduleEdit';
 
 // ── Pages — Manutenção ───────────────────────────────────────────────────────
 import MaintenanceDashboard      from './pages/MaintenanceDashboard';
@@ -108,6 +109,9 @@ function App() {
                   <Route path="/login"           element={<Login />} />
                   <Route path="/select-hotel"    element={<HotelSelection />} />
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
+
+                  {/* ── Escala pública (link para líder de setor) ────────── */}
+                  <Route path="/schedule/edit/:token" element={<PublicScheduleEdit />} />
 
                   {/* ── Manutenção — rotas públicas (anônimo / QR) ─────────── */}
                   <Route path="/maintenance/ticket/new"      element={<MaintenanceNewTicket />} />
