@@ -29,6 +29,7 @@ import ReportsPage           from './pages/ReportsPage';
 import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
 import PublicQuotePage       from './pages/PublicQuotePage';
 import BudgetAnalysis        from './pages/BudgetAnalysis';
+import MultiHotelPurchase    from './pages/MultiHotelPurchase';
 
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
@@ -195,6 +196,12 @@ function App() {
                     <Route path="/purchases/list" element={
                       <PrivateRoute module="purchases">
                         <NewPurchaseList />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/purchases/multi-hotel" element={
+                      <PrivateRoute module="purchases">
+                        <MultiHotelPurchase />
                       </PrivateRoute>
                     } />
 

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
+import {
   ShoppingCart, Search, Filter, ChevronDown, ChevronUp,
   Package, ArrowRight, History, Globe, BarChart2,
-  Link as LinkIcon, Archive, ArchiveRestore, Loader2
+  Link as LinkIcon, Archive, ArchiveRestore, Loader2, Building2
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
@@ -30,6 +30,8 @@ interface DynamicBudget {
     name: string;
     created_at: string;
     status: 'open' | 'closed';
+    is_unified: boolean | null;
+    group_id: string | null;
     supplier_quotes: { count: number }[];
 }
 
@@ -85,10 +87,13 @@ const PurchaseOrders = () => {
                 name,
                 created_at,
                 status,
+                is_unified,
+                group_id,
                 supplier_quotes(count)
             `)
             .eq('hotel_id', selectedHotel.id)
             .in('status', ['open', 'closed'])
+            .or('is_unified.is.null,is_unified.eq.false')
             .order('created_at', { ascending: false });
 
         if (budgetsError) throw budgetsError;
@@ -198,6 +203,10 @@ const PurchaseOrders = () => {
           Compras
         </h1>
         <div className="flex items-center space-x-2 sm:space-x-4 mt-4 md:mt-0 flex-wrap">
+          <button onClick={() => navigate("/purchases/multi-hotel")} className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm sm:text-base">
+            <Building2 className="w-5 h-5 mr-2" />
+            Multi-Hotel
+          </button>
           {/* --- ALTERAÇÃO: Botão agora usa a nova função --- */}
           <button onClick={handleCreateDynamicBudget} className="flex items-center px-3 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors text-sm sm:text-base">
             <Globe className="w-5 h-5 mr-2" />
