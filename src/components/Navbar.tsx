@@ -36,6 +36,7 @@ import {
   // Novos ícones admin
   UserCog as RolesIcon,
   LayoutGrid as SectorsIcon,
+  Link2 as ErbonIcon,
   ChevronDown as ChevronDownIcon,
   BarChart2 as RelatoriosIcon,
   ShieldCheck as AutorizacoesIcon,
@@ -114,6 +115,7 @@ const adminItems = [
   { name: "Usuários",          href: "/users",         icon: UserManagementIcon },
   { name: "Gestão de Perfis",  href: "/admin/roles",   icon: RolesIcon          },
   { name: "Gestão de Setores", href: "/admin/sectors",  icon: SectorsIcon        },
+  { name: "Erbon PMS",        href: "/admin/erbon",    icon: ErbonIcon          },
 ];
 
 // ---------------------------------------------------------------------------

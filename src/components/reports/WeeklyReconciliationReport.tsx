@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Calendar, 
-  ChevronRight, 
-  FileText, 
-  Plus, 
-  Loader2, 
-  AlertCircle, 
-  CheckCircle, 
-  Clock, 
-  Star, 
-  Warehouse, 
-  Utensils, 
-  Trash2
+import {
+  Calendar,
+  ChevronRight,
+  FileText,
+  Plus,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  Star,
+  Warehouse,
+  Utensils,
+  Trash2,
+  RefreshCw,
+  Link2,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
@@ -21,11 +23,12 @@ import {
   DynamicReconciliationData, 
   SectorCountSelection 
 } from '../../lib/dynamicReconciliationService';
-import { 
-  reconciliationPersistenceService, 
+import {
+  reconciliationPersistenceService,
   SavedReconciliationReport,
   SectorCountPair
 } from '../../lib/reconciliationPersistenceService';
+import { erbonService, ErbonConfig } from '../../lib/erbonService';
 
 const WeeklyReconciliationReport: React.FC = () => {
   const { selectedHotel } = useHotel();
@@ -49,6 +52,9 @@ const WeeklyReconciliationReport: React.FC = () => {
   const [editableValues, setEditableValues] = useState<Record<string, number>>({});
   const [showOnlyStarred, setShowOnlyStarred] = useState(true);
   const [currentReportId, setCurrentReportId] = useState<string | undefined>();
+  const [erbonConfig, setErbonConfig] = useState<ErbonConfig | null>(null);
+  const [erbonFilledKeys, setErbonFilledKeys] = useState<Set<string>>(new Set());
+  const [syncingErbon, setSyncingErbon] = useState(false);
 
   useEffect(() => {
     if (selectedHotel) {
@@ -75,6 +81,12 @@ const WeeklyReconciliationReport: React.FC = () => {
       setSavedReports(reports);
       setCounts(countsRes.data || []);
       setSectors(sectorsRes.data || []);
+
+      // Verificar se hotel tem Erbon ativo
+      try {
+        const cfg = await erbonService.getConfig(selectedHotel!.id);
+        setErbonConfig(cfg?.is_active ? cfg : null);
+      } catch { setErbonConfig(null); }
       
       const initialSelections: Record<string, any> = {
         'main': { enabled: true, startCountId: '', endCountId: '' }
@@ -88,6 +100,77 @@ const WeeklyReconciliationReport: React.FC = () => {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ── Erbon auto-fill vendas ─────────────────────────────────────────────
+  const fetchErbonSales = async (
+    data: DynamicReconciliationData,
+    countIds: string[]
+  ): Promise<Record<string, number>> => {
+    if (!erbonConfig) return {};
+
+    try {
+      // Determinar range de datas das contagens selecionadas
+      const selectedCounts = counts.filter((c: any) => countIds.includes(c.id));
+      if (selectedCounts.length === 0) return {};
+
+      const allDates = selectedCounts.map((c: any) => new Date(c.finished_at).getTime());
+      const startDate = new Date(Math.min(...allDates)).toISOString().split('T')[0];
+      const endDate = new Date(Math.max(...allDates)).toISOString().split('T')[0];
+
+      const salesBySector = await erbonService.getAggregatedSales(
+        selectedHotel!.id,
+        startDate,
+        endDate
+      );
+
+      const newValues: Record<string, number> = {};
+      const filledKeys = new Set<string>();
+
+      data.sectors.forEach(sector => {
+        const sectorSales = salesBySector[sector.id];
+        if (!sectorSales) return;
+
+        data.rows.forEach(row => {
+          const qty = sectorSales[row.productId];
+          if (qty && qty > 0) {
+            const key = sector.id + '-' + row.productId + '-sales';
+            newValues[key] = qty;
+            filledKeys.add(key);
+          }
+        });
+      });
+
+      setErbonFilledKeys(filledKeys);
+      return newValues;
+    } catch (err) {
+      console.error('Erro ao buscar vendas Erbon:', err);
+      return {};
+    }
+  };
+
+  const handleSyncErbon = async () => {
+    if (!reportData || !erbonConfig) return;
+    setSyncingErbon(true);
+    try {
+      const allCountIds = Object.entries(sectorSelections)
+        .filter(([_, v]) => v.enabled)
+        .flatMap(([_, v]) => [v.startCountId, v.endCountId]);
+
+      // Limpar cache para re-fetch
+      const selectedCounts = counts.filter((c: any) => allCountIds.includes(c.id));
+      const allDates = selectedCounts.map((c: any) => new Date(c.finished_at).getTime());
+      const startDate = new Date(Math.min(...allDates)).toISOString().split('T')[0];
+      const endDate = new Date(Math.max(...allDates)).toISOString().split('T')[0];
+      await erbonService.clearCache(selectedHotel!.id, startDate, endDate);
+
+      const erbonValues = await fetchErbonSales(reportData, allCountIds);
+      setEditableValues(prev => ({ ...prev, ...erbonValues }));
+    } catch (err: any) {
+      setError('Erro ao sincronizar vendas Erbon: ' + err.message);
+    } finally {
+      setSyncingErbon(false);
     }
   };
 
@@ -130,11 +213,20 @@ const WeeklyReconciliationReport: React.FC = () => {
     try {
       const data = await dynamicReconciliationService.generateReport(selectedHotel!.id, activeSelections);
       setReportData(data);
-      
+
       if (!sectorSelections['main'].enabled && data.sectors.length > 0) {
         setActiveView(data.sectors[0].id);
       } else {
         setActiveView('main');
+      }
+
+      // Auto-fill vendas do Erbon (se configurado)
+      if (erbonConfig) {
+        const allCountIds = activeSelections.flatMap(s => [s.start_count_id, s.end_count_id]);
+        const erbonValues = await fetchErbonSales(data, allCountIds);
+        if (Object.keys(erbonValues).length > 0) {
+          setEditableValues(prev => ({ ...prev, ...erbonValues }));
+        }
       }
     } catch (err: any) {
       setError(err.message);
@@ -167,7 +259,8 @@ const WeeklyReconciliationReport: React.FC = () => {
             productId: row.productId,
             sectorId: s.id,
             sales: editableValues[keySales] || 0,
-            consumption: editableValues[keyCons] || 0
+            consumption: editableValues[keyCons] || 0,
+            sales_source: erbonFilledKeys.has(keySales) ? 'erbon' : 'manual',
           });
         });
         
@@ -534,7 +627,17 @@ const WeeklyReconciliationReport: React.FC = () => {
               </button>
             </div>
             <div className="flex gap-2">
-              <button 
+              {erbonConfig && (
+                <button
+                  onClick={handleSyncErbon}
+                  disabled={syncingErbon}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-lg font-medium transition-colors border border-purple-200 dark:border-purple-800"
+                >
+                  {syncingErbon ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Atualizar Vendas (Erbon)
+                </button>
+              )}
+              <button
                 onClick={() => handleSave(false)}
                 disabled={processing}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg font-medium transition-colors"
@@ -645,16 +748,35 @@ const WeeklyReconciliationReport: React.FC = () => {
                                 <td className="px-4 py-4 text-center font-mono">{sectorData?.initialStock || 0}</td>
                                 <td className="px-4 py-4 text-center font-mono text-green-600">+{sectorData?.received || 0}</td>
                                 <td className="px-4 py-4 text-center">
-                                  <input 
-                                    type="number" 
-                                    value={sales}
-                                    onChange={(e) => {
-                                      const newVals = { ...editableValues };
-                                      newVals[keySales] = Number(e.target.value);
-                                      setEditableValues(newVals);
-                                    }}
-                                    className="w-16 p-1 text-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded"
-                                  />
+                                  <div className="relative inline-block">
+                                    <input
+                                      type="number"
+                                      value={sales}
+                                      onChange={(e) => {
+                                        const newVals = { ...editableValues };
+                                        newVals[keySales] = Number(e.target.value);
+                                        setEditableValues(newVals);
+                                        // Remover indicador Erbon ao editar manualmente
+                                        if (erbonFilledKeys.has(keySales)) {
+                                          setErbonFilledKeys(prev => {
+                                            const next = new Set(prev);
+                                            next.delete(keySales);
+                                            return next;
+                                          });
+                                        }
+                                      }}
+                                      className={
+                                        'w-16 p-1 text-center border rounded ' +
+                                        (erbonFilledKeys.has(keySales)
+                                          ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                                          : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700')
+                                      }
+                                      title={erbonFilledKeys.has(keySales) ? 'Preenchido automaticamente via Erbon PMS' : ''}
+                                    />
+                                    {erbonFilledKeys.has(keySales) && (
+                                      <Link2 className="absolute -top-1 -right-1 w-3 h-3 text-blue-500" />
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-4 py-4 text-center">
                                   <input 
