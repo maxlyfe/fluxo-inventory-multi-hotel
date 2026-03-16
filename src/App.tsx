@@ -44,8 +44,9 @@ import MaintenanceEquipment      from './pages/MaintenanceEquipment';
 import MaintenanceEquipmentDetail from './pages/MaintenanceEquipmentDetail';
 
 // ── Pages — Administração (novos) ─────────────────────────────────────────────
-import RolesManagement   from './pages/admin/RolesManagement';
-import SectorsManagement from './pages/admin/SectorsManagement';
+import RolesManagement    from './pages/admin/RolesManagement';
+import SectorsManagement  from './pages/admin/SectorsManagement';
+import ErbonIntegration   from './pages/admin/ErbonIntegration';
 
 // ── Components ────────────────────────────────────────────────────────────────
 import PrivateRoute from './components/PrivateRoute';
@@ -150,6 +151,12 @@ function App() {
                     <Route path="/admin/sectors" element={
                       <PrivateRoute adminOnly>
                         <SectorsManagement />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/admin/erbon" element={
+                      <PrivateRoute adminOnly>
+                        <ErbonIntegration />
                       </PrivateRoute>
                     } />
 

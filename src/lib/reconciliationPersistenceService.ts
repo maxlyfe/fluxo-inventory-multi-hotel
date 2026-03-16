@@ -95,7 +95,8 @@ export const reconciliationPersistenceService = {
         product_id: item.productId,
         sector_id: item.sectorId,
         sales: item.sales || 0,
-        consumption: item.consumption || 0
+        consumption: item.consumption || 0,
+        sales_source: item.sales_source || 'manual',
       }));
       
       const { error: itemsError } = await supabase
