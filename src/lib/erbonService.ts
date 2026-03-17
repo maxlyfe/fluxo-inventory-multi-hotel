@@ -3,16 +3,31 @@
 
 import { supabase } from './supabase';
 
-// Em dev, usa proxy do Vite para evitar CORS. Em prod, chama direto.
+// Em dev, usa proxy do Vite. Em prod, usa Netlify Function para evitar CORS.
 const ERBON_PROXY_PREFIX = '/erbon-api';
+const NETLIFY_PROXY = '/.netlify/functions/erbon-proxy';
 const isDev = import.meta.env.DEV;
+
+/** Remove /swagger/index.html que o usuário pode colar por engano */
+function sanitizeBaseUrl(raw: string): string {
+  return raw.replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
+}
 
 function resolveErbonUrl(baseUrl: string, path: string): string {
   if (isDev) {
-    // Proxy: /erbon-api/auth/login → Vite reescreve para https://api.erbonsoftware.com/auth/login
     return `${ERBON_PROXY_PREFIX}${path}`;
   }
-  return `${baseUrl}${path}`;
+  // Em produção: usa Netlify Function como proxy server-side
+  return NETLIFY_PROXY;
+}
+
+/** Headers extras para o proxy em produção saber qual URL chamar */
+function proxyHeaders(baseUrl: string, path: string): Record<string, string> {
+  if (isDev) return {};
+  return {
+    'x-erbon-base-url': sanitizeBaseUrl(baseUrl),
+    'x-erbon-path': path,
+  };
 }
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
@@ -103,7 +118,7 @@ export const erbonService = {
           erbon_hotel_id: config.erbon_hotel_id,
           erbon_username: config.erbon_username,
           erbon_password: config.erbon_password,
-          erbon_base_url: config.erbon_base_url || 'https://api.erbonsoftware.com',
+          erbon_base_url: sanitizeBaseUrl(config.erbon_base_url || 'https://api.erbonsoftware.com'),
           is_active: config.is_active ?? true,
           updated_at: new Date().toISOString(),
         })
@@ -122,7 +137,7 @@ export const erbonService = {
           erbon_hotel_id: config.erbon_hotel_id,
           erbon_username: config.erbon_username,
           erbon_password: config.erbon_password,
-          erbon_base_url: config.erbon_base_url || 'https://api.erbonsoftware.com',
+          erbon_base_url: sanitizeBaseUrl(config.erbon_base_url || 'https://api.erbonsoftware.com'),
           is_active: config.is_active ?? true,
         })
         .select()
@@ -135,9 +150,13 @@ export const erbonService = {
   // ── Authentication ──────────────────────────────────────────────────────
 
   async authenticate(config: ErbonConfig): Promise<string> {
-    const res = await fetch(resolveErbonUrl(config.erbon_base_url, '/auth/login'), {
+    const authPath = '/auth/login';
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, authPath), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...proxyHeaders(config.erbon_base_url, authPath),
+      },
       body: JSON.stringify({
         username: config.erbon_username,
         password: config.erbon_password,
@@ -200,12 +219,16 @@ export const erbonService = {
 
   async testConnection(config: Partial<ErbonConfig>): Promise<{ success: boolean; hotelName?: string; error?: string }> {
     try {
-      const baseUrl = config.erbon_base_url || 'https://api.erbonsoftware.com';
+      const baseUrl = sanitizeBaseUrl(config.erbon_base_url || 'https://api.erbonsoftware.com');
 
       // 1) Auth
-      const authRes = await fetch(resolveErbonUrl(baseUrl, '/auth/login'), {
+      const authPath = '/auth/login';
+      const authRes = await fetch(resolveErbonUrl(baseUrl, authPath), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...proxyHeaders(baseUrl, authPath),
+        },
         body: JSON.stringify({
           username: config.erbon_username,
           password: config.erbon_password,
@@ -247,8 +270,12 @@ export const erbonService = {
       }
 
       // 2) Fetch hotel info
-      const hotelRes = await fetch(resolveErbonUrl(baseUrl, `/hotel/${config.erbon_hotel_id}`), {
-        headers: { 'Authorization': `Bearer ${token}` },
+      const hotelPath = `/hotel/${config.erbon_hotel_id}`;
+      const hotelRes = await fetch(resolveErbonUrl(baseUrl, hotelPath), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          ...proxyHeaders(baseUrl, hotelPath),
+        },
       });
 
       if (!hotelRes.ok) {
@@ -270,12 +297,14 @@ export const erbonService = {
 
     const token = await this.getToken(hotelId);
 
+    const productsPath = `/hotel/${config.erbon_hotel_id}/mapping/serviceproducts`;
     const res = await fetch(
-      resolveErbonUrl(config.erbon_base_url, `/hotel/${config.erbon_hotel_id}/mapping/serviceproducts`),
+      resolveErbonUrl(config.erbon_base_url, productsPath),
       {
         headers: {
           'Authorization': `Bearer ${token}`,
           'onlyProducts': 'true',
+          ...proxyHeaders(config.erbon_base_url, productsPath),
         },
       }
     );
@@ -303,12 +332,14 @@ export const erbonService = {
 
     const token = await this.getToken(hotelId);
 
+    const txPath = `/hotel/${config.erbon_hotel_id}/sales/transactions`;
     const res = await fetch(
-      resolveErbonUrl(config.erbon_base_url, `/hotel/${config.erbon_hotel_id}/sales/transactions`),
+      resolveErbonUrl(config.erbon_base_url, txPath),
       {
         headers: {
           'Authorization': `Bearer ${token}`,
           'transactionDate': date,
+          ...proxyHeaders(config.erbon_base_url, txPath),
         },
       }
     );
