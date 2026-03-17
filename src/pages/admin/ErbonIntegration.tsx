@@ -1,7 +1,7 @@
 // src/pages/admin/ErbonIntegration.tsx
 // Página de configuração e mapeamentos da integração Erbon PMS
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings,
   Link2,
@@ -16,6 +16,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ChevronDown,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { supabase } from '../../lib/supabase';
@@ -48,6 +49,86 @@ const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blu
 const btnDanger = 'p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors';
 
 type TabId = 'config' | 'products' | 'sectors';
+
+// ── Searchable Select ───────────────────────────────────────────────────────
+
+interface SearchableOption {
+  value: string;
+  label: string;
+  starred?: boolean;
+}
+
+const SearchableSelect: React.FC<{
+  options: SearchableOption[];
+  placeholder: string;
+  onSelect: (value: string) => void;
+}> = ({ options, placeholder, onSelect }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = query
+    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  const starred = filtered.filter(o => o.starred);
+  const rest = filtered.filter(o => !o.starred);
+
+  return (
+    <div ref={ref} className="relative max-w-xs w-full">
+      <div
+        className={inputCls + ' flex items-center gap-2 cursor-pointer'}
+        onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); }}
+      >
+        <Search className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="flex-1 bg-transparent border-none outline-none text-sm p-0 focus:ring-0"
+        />
+        <ChevronDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+          {filtered.length === 0 && (
+            <div className="px-3 py-2 text-sm text-gray-400">Nenhum resultado</div>
+          )}
+          {starred.map(o => (
+            <button
+              key={o.value}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 text-yellow-600 dark:text-yellow-400 font-medium"
+              onClick={() => { onSelect(o.value); setQuery(''); setOpen(false); }}
+            >
+              ★ {o.label}
+            </button>
+          ))}
+          {rest.map(o => (
+            <button
+              key={o.value}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-700 dark:text-gray-300"
+              onClick={() => { onSelect(o.value); setQuery(''); setOpen(false); }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -563,30 +644,16 @@ const ErbonIntegration: React.FC = () => {
                               {erbonProd.stocksGroupDescription} · {erbonProd.mensureUnite} · R${erbonProd.priceSale?.toFixed(2)}
                             </p>
                           </div>
-                          <select
-                            className={inputCls + ' max-w-xs'}
-                            defaultValue=""
-                            onChange={e => {
-                              if (e.target.value) {
-                                handleMapProduct(e.target.value, erbonProd);
-                                e.target.value = '';
-                              }
-                            }}
-                          >
-                            <option value="">Vincular a...</option>
-                            {suggested && (
-                              <option value={suggested.id}>
-                                ★ {suggested.name} ({suggested.category || 'Sem cat.'})
-                              </option>
-                            )}
-                            {unmappedFluxoProducts
-                              .filter(p => p.id !== suggested?.id)
-                              .map(p => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name} ({p.category || 'Sem cat.'})
-                                </option>
-                              ))}
-                          </select>
+                          <SearchableSelect
+                            placeholder="Vincular a..."
+                            onSelect={value => handleMapProduct(value, erbonProd)}
+                            options={[
+                              ...(suggested ? [{ value: suggested.id, label: `${suggested.name} (${suggested.category || 'Sem cat.'})`, starred: true }] : []),
+                              ...unmappedFluxoProducts
+                                .filter(p => p.id !== suggested?.id)
+                                .map(p => ({ value: p.id, label: `${p.name} (${p.category || 'Sem cat.'})` })),
+                            ]}
+                          />
                         </div>
                       );
                     })}
@@ -680,23 +747,13 @@ const ErbonIntegration: React.FC = () => {
                               </p>
                             )}
                           </div>
-                          <select
-                            className={inputCls + ' max-w-xs'}
-                            defaultValue=""
-                            onChange={e => {
-                              if (e.target.value) {
-                                handleMapSector(e.target.value, dept);
-                                e.target.value = '';
-                              }
-                            }}
-                          >
-                            <option value="">Vincular a setor...</option>
-                            {fluxoSectors
+                          <SearchableSelect
+                            placeholder="Vincular a setor..."
+                            onSelect={value => handleMapSector(value, dept)}
+                            options={fluxoSectors
                               .filter(s => !mappedSectorDepts.has(`${s.id}::${dept}`))
-                              .map(s => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                              ))}
-                          </select>
+                              .map(s => ({ value: s.id, label: s.name }))}
+                          />
                         </div>
                       );
                     })}
