@@ -28,6 +28,8 @@ const formInitialState = {
 type UtilityType = 'ENEL' | 'PROLAGOS';
 
 // --- NOVO COMPONENTE PARA O RESUMO MENSAL ---
+type SummaryView = 'total' | 'medidor' | 'pipas';
+
 interface MonthlyAverageBlockProps {
   type: UtilityType;
   readingsForYear: UtilityReading[];
@@ -35,6 +37,8 @@ interface MonthlyAverageBlockProps {
   currentMonth: Date;
 }
 const MonthlyAverageBlock: React.FC<MonthlyAverageBlockProps> = ({ type, readingsForYear, pipaEntriesForYear, currentMonth }) => {
+  const [view, setView] = useState<SummaryView>('total');
+
   const summary = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
@@ -48,37 +52,42 @@ const MonthlyAverageBlock: React.FC<MonthlyAverageBlockProps> = ({ type, reading
         .sort((a,b) => new Date(a.reading_date).getTime() - new Date(b.reading_date).getTime());
 
     if (readingsInMonth.length < 1) {
-      return { totalConsumption: 0, weeklyAverage: 0, weeks: 1, hasEnoughData: false };
+      return { meterConsumption: 0, pipaVolume: 0, totalConsumption: 0, weeks: 1, hasEnoughData: false };
     }
 
     const lastReadingBeforeMonth = readingsForYear
-        .filter(r => r.utility_type === type && new Date(r.reading_date) < monthStart)
+        .filter(r => r.utility_type === type && new Date(r.reading_date + 'T12:00:00') < monthStart)
         .sort((a,b) => new Date(b.reading_date).getTime() - new Date(a.reading_date).getTime())[0];
-    
+
     if(!lastReadingBeforeMonth) {
-        return { totalConsumption: 0, weeklyAverage: 0, weeks: 1, hasEnoughData: false, message: "Falta leitura do mês anterior para calcular." };
+        return { meterConsumption: 0, pipaVolume: 0, totalConsumption: 0, weeks: 1, hasEnoughData: false, message: "Falta leitura do mês anterior para calcular." };
     }
 
     const firstReading = lastReadingBeforeMonth;
     const lastReadingInMonth = readingsInMonth[readingsInMonth.length - 1];
 
     const meterConsumption = lastReadingInMonth.reading_value - firstReading.reading_value;
-    
-    const pipaVolumeForMonth = pipaEntriesForYear
-        .filter(p => {
-            const d = new Date(p.supply_date + 'T12:00:00');
-            return d >= monthStart && d <= monthEnd;
-        })
-        .reduce((sum, p) => sum + Number(p.volume_m3), 0);
 
-    const totalConsumption = meterConsumption + (type === 'PROLAGOS' ? pipaVolumeForMonth : 0);
+    // Calcular volume de pipas: filtrar por supply_date entre a leitura anterior e a última leitura do mês
+    const pipaVolume = type === 'PROLAGOS'
+        ? pipaEntriesForYear
+            .filter(p => {
+                const d = new Date(p.supply_date + 'T12:00:00');
+                const refStart = new Date(firstReading.reading_date + 'T12:00:00');
+                const refEnd = new Date(lastReadingInMonth.reading_date + 'T12:00:00');
+                return d > refStart && d <= refEnd;
+            })
+            .reduce((sum, p) => sum + Number(p.volume_m3), 0)
+        : 0;
+
+    const totalConsumption = meterConsumption + pipaVolume;
     const weeks = differenceInWeeks(endOfMonth(currentMonth), startOfMonth(currentMonth)) + 1;
-    const weeklyAverage = totalConsumption / weeks;
 
-    return { totalConsumption, weeklyAverage, weeks, hasEnoughData: true };
+    return { meterConsumption, pipaVolume, totalConsumption, weeks, hasEnoughData: true };
   }, [readingsForYear, pipaEntriesForYear, currentMonth, type]);
 
   const unit = type === 'ENEL' ? 'kWh' : 'm³';
+  const isProlagos = type === 'PROLAGOS';
 
   if (!summary.hasEnoughData) {
     return (
@@ -89,7 +98,87 @@ const MonthlyAverageBlock: React.FC<MonthlyAverageBlockProps> = ({ type, reading
     )
   }
 
-  return ( <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg"> <h4 className="font-bold text-lg text-gray-800 dark:text-white mb-3">Resumo do Mês</h4> <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center"> <div className="p-3 bg-white dark:bg-gray-800 rounded-md shadow-sm"> <p className="text-sm text-gray-500 dark:text-gray-400">Consumo Total no Mês</p> <p className="text-2xl font-bold text-gray-900 dark:text-white flex items-center justify-center gap-1"> <BarChart2 className="w-6 h-6" /> {summary.totalConsumption.toFixed(2)} <span className="text-lg font-normal">{unit}</span> </p> </div> <div className="p-3 bg-white dark:bg-gray-800 rounded-md shadow-sm"> <p className="text-sm text-gray-500 dark:text-gray-400">Média Semanal</p> <p className="text-2xl font-bold text-gray-900 dark:text-white flex items-center justify-center gap-1"> <TrendingUp className="w-6 h-6" /> {summary.weeklyAverage.toFixed(2)} <span className="text-lg font-normal">{unit}/semana</span> </p> </div> </div> </div> );
+  const displayValue = view === 'total' ? summary.totalConsumption
+    : view === 'medidor' ? summary.meterConsumption
+    : summary.pipaVolume;
+  const displayAvg = displayValue / summary.weeks;
+
+  const viewLabel = view === 'total' ? 'Consumo Total (Medidor + Pipas)'
+    : view === 'medidor' ? 'Consumo do Medidor'
+    : 'Volume de Pipas';
+
+  return (
+    <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-bold text-lg text-gray-800 dark:text-white">Resumo do Mês</h4>
+        {isProlagos && (
+          <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 text-xs">
+            <button
+              onClick={() => setView('total')}
+              className={`px-3 py-1.5 font-semibold transition-colors ${
+                view === 'total'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              Total
+            </button>
+            <button
+              onClick={() => setView('medidor')}
+              className={`px-3 py-1.5 font-semibold transition-colors border-x border-gray-200 dark:border-gray-600 ${
+                view === 'medidor'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              Medidor
+            </button>
+            <button
+              onClick={() => setView('pipas')}
+              className={`px-3 py-1.5 font-semibold transition-colors ${
+                view === 'pipas'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              Pipas
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isProlagos && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{viewLabel}</p>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
+        <div className="p-3 bg-white dark:bg-gray-800 rounded-md shadow-sm">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {view === 'pipas' ? 'Volume de Pipas no Mês' : view === 'medidor' ? 'Consumo do Medidor' : 'Consumo Total no Mês'}
+          </p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white flex items-center justify-center gap-1">
+            {view === 'pipas' ? <Truck className="w-6 h-6" /> : <BarChart2 className="w-6 h-6" />}
+            {displayValue.toFixed(2)} <span className="text-lg font-normal">{unit}</span>
+          </p>
+        </div>
+        <div className="p-3 bg-white dark:bg-gray-800 rounded-md shadow-sm">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Média Semanal</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white flex items-center justify-center gap-1">
+            <TrendingUp className="w-6 h-6" />
+            {displayAvg.toFixed(2)} <span className="text-lg font-normal">{unit}/semana</span>
+          </p>
+        </div>
+      </div>
+
+      {isProlagos && view === 'total' && summary.pipaVolume > 0 && (
+        <div className="mt-3 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 justify-center">
+          <span className="flex items-center gap-1"><BarChart2 className="w-3.5 h-3.5" /> Medidor: {summary.meterConsumption.toFixed(2)} {unit}</span>
+          <span className="text-gray-300 dark:text-gray-600">+</span>
+          <span className="flex items-center gap-1"><Truck className="w-3.5 h-3.5" /> Pipas: {summary.pipaVolume.toFixed(2)} {unit}</span>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // --- COMPONENTE PRINCIPAL ---
