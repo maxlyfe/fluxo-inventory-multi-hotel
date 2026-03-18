@@ -732,13 +732,21 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, hotelName,
                 <tbody>
                   {sectorGroups.map(({ sector, emps }) => (
                     <React.Fragment key={sector}>
-                      <tr style={{ background: '#e5e7eb' }}>
-                        <td colSpan={9} style={{ padding: '5px 10px', fontWeight: 900, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: '#374151' }}>
+                      {/* Repeat day/date header for each sector */}
+                      <tr style={{ background: '#374151', color: 'white' }}>
+                        <td style={{ padding: '5px 10px', fontWeight: 900, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'white' }}>
                           {sector}
                         </td>
+                        {weekDays.map((day, i) => (
+                          <td key={i} style={{ padding: '4px 4px', textAlign: 'center', fontWeight: 'bold', fontSize: 10,
+                            background: i === 0 || i === 7 ? '#4b5563' : '#374151', color: 'white' }}>
+                            <div>{DAY_LABELS[i]}</div>
+                            <div style={{ fontWeight: 'normal', opacity: 0.7, fontSize: 9 }}>{format(day, 'dd/MM')}</div>
+                          </td>
+                        ))}
                       </tr>
                       {emps.map((emp, ei) => (
-                        <tr key={emp.id} style={{ background: ei % 2 === 0 ? '#ffffff' : '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
+                        <tr key={emp.id} style={{ background: ei % 2 === 0 ? '#ffffff' : '#f9fafb', borderBottom: '2px solid #d1d5db' }}>
                           <td style={{ padding: '5px 10px', fontWeight: 600, fontSize: 10, color: '#111827', borderRight: '1px solid #e5e7eb' }}>
                             {emp.name.split(' ').slice(0, 2).join(' ')}
                           </td>
