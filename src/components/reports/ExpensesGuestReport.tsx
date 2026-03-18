@@ -10,7 +10,7 @@ import { useTheme } from '../../context/ThemeContext';
 import {
   Calendar, ChevronDown, Users, Save, Loader2,
   BarChartHorizontal, AlertCircle, ChevronLeft, ChevronRight,
-  Settings, LayoutList, Tag,
+  Settings, LayoutList, Tag, Package, Search, X, Plus,
 } from 'lucide-react';
 import {
   format, getYear, getMonth, startOfMonth, endOfYear,
@@ -33,6 +33,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
+import { supabase } from '../../lib/supabase';
 import ExpensesSettings from './ExpensesSettings';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -46,13 +47,34 @@ const SUPPLIER_COLORS = [
   '#8b5cf6','#f43f5e','#84cc16','#0ea5e9','#d97706',
 ];
 
-type ChartView = 'category' | 'supplier';
+type ChartView = 'category' | 'supplier' | 'item';
+
+type ItemMetric = 'total_value' | 'unit_price' | 'quantity';
+
+interface SelectedProduct {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface PurchaseItemRow {
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  purchases: { purchase_date: string } | { purchase_date: string }[];
+}
+
+const ITEM_COLORS = [
+  '#6366f1','#f97316','#06b6d4','#ec4899','#14b8a6',
+  '#8b5cf6','#f43f5e','#84cc16','#0ea5e9','#d97706',
+  '#a855f7','#22c55e','#ef4444','#3b82f6','#eab308',
+];
 
 // ── Gráfico Scrollável ────────────────────────────────────────────────────────
 interface ChartLine { key: string; name: string; color: string; dashed?: boolean }
-interface ChartProps { data: any[]; lines: ChartLine[]; theme: string }
+interface ChartProps { data: any[]; lines: ChartLine[]; theme: string; valuePrefix?: string; valueSuffix?: string }
 
-const ScrollableChart: React.FC<ChartProps> = ({ data, lines, theme }) => {
+const ScrollableChart: React.FC<ChartProps> = ({ data, lines, theme, valuePrefix = 'R$', valueSuffix = '' }) => {
   const scrollRef   = useRef<HTMLDivElement>(null);
   const isDragging  = useRef(false);
   const dragStartX  = useRef(0);
@@ -92,7 +114,7 @@ const ScrollableChart: React.FC<ChartProps> = ({ data, lines, theme }) => {
           <ResponsiveContainer width={Y_AXIS_WIDTH} height={CHART_HEIGHT}>
             <LineChart data={data} margin={{ top: 20, right: 0, left: 8, bottom: 5 }}>
               <YAxis
-                tickFormatter={v => `R$${v < 1000 ? v.toFixed(0) : (v / 1000).toFixed(1) + 'k'}`}
+                tickFormatter={v => `${valuePrefix}${v < 1000 ? v.toFixed(0) : (v / 1000).toFixed(1) + 'k'}${valueSuffix}`}
                 domain={[0, (max: number) => Math.ceil(max * 1.3 || 10)]}
                 tick={{ fill: tickColor, fontSize: 11 }}
                 width={Y_AXIS_WIDTH - 4}
@@ -137,7 +159,8 @@ const ScrollableChart: React.FC<ChartProps> = ({ data, lines, theme }) => {
                   borderRadius: 12, fontSize: 13,
                 }}
                 formatter={(v: number, name: string) =>
-                  v == null ? ['Sem dados', name] : [`R$ ${v.toFixed(2).replace('.', ',')}`, name]
+                  v == null ? ['Sem dados', name]
+                    : [`${valuePrefix}${valuePrefix ? ' ' : ''}${v.toFixed(2).replace('.', ',')}${valueSuffix}`, name]
                 }
                 labelFormatter={label => format(new Date(label), 'MMMM yyyy', { locale: ptBR })}
               />
@@ -195,6 +218,16 @@ const ExpensesGuestReport: React.FC = () => {
   const [chartView,    setChartView]    = useState<ChartView>('category');
   const [showSettings, setShowSettings] = useState(false);
 
+  // Item view state
+  const [allProducts,       setAllProducts]       = useState<{ id: string; name: string; category: string }[]>([]);
+  const [selectedProducts,  setSelectedProducts]  = useState<SelectedProduct[]>([]);
+  const [itemSearchTerm,    setItemSearchTerm]    = useState('');
+  const [itemSearchOpen,    setItemSearchOpen]    = useState(false);
+  const [itemPurchaseData,  setItemPurchaseData]  = useState<Record<string, { month: string; qty: number; value: number; avgPrice: number }[]>>({});
+  const [itemMetric,        setItemMetric]        = useState<ItemMetric>('total_value');
+  const [loadingItems,      setLoadingItems]      = useState(false);
+  const itemSearchRef = useRef<HTMLDivElement>(null);
+
   // Formulário do mês
   const [formGuests,  setFormGuests]  = useState({ first: 0, second: 0 });
   const [formEntries, setFormEntries] = useState<Record<string, { first: number; second: number }>>({});
@@ -208,6 +241,100 @@ const ExpensesGuestReport: React.FC = () => {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // ── Fechar busca de item ao clicar fora ─────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (itemSearchRef.current && !itemSearchRef.current.contains(e.target as Node))
+        setItemSearchOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // ── Carregar produtos quando mudar para view item ─────────────────────────
+  useEffect(() => {
+    if (chartView !== 'item' || !selectedHotel?.id || allProducts.length > 0) return;
+    (async () => {
+      const { data, error: err } = await supabase
+        .from('products')
+        .select('id, name, category')
+        .eq('hotel_id', selectedHotel.id)
+        .order('name');
+      if (!err && data) setAllProducts(data);
+    })();
+  }, [chartView, selectedHotel, allProducts.length]);
+
+  // ── Buscar dados de compras quando selecionar/remover produto ─────────────
+  const fetchItemPurchaseData = useCallback(async (productId: string) => {
+    if (!selectedHotel?.id) return;
+    setLoadingItems(true);
+    try {
+      const { data, error: err } = await supabase
+        .from('purchase_items')
+        .select('quantity, unit_price, total_price, purchases!inner(purchase_date)')
+        .eq('product_id', productId)
+        .eq('purchases.hotel_id', selectedHotel.id)
+        .order('purchase_date', { referencedTable: 'purchases', ascending: true });
+
+      if (err) { console.error('Erro ao buscar compras do item:', err); setLoadingItems(false); return; }
+
+      // Agregar por mês
+      const monthMap = new Map<string, { qty: number; value: number; totalUnitPrice: number; count: number }>();
+      ((data as unknown as PurchaseItemRow[]) || []).forEach(item => {
+        const purchase = Array.isArray(item.purchases) ? item.purchases[0] : item.purchases;
+        if (!purchase) return;
+        const monthKey = purchase.purchase_date.slice(0, 7); // 'YYYY-MM'
+        const existing = monthMap.get(monthKey) || { qty: 0, value: 0, totalUnitPrice: 0, count: 0 };
+        existing.qty += item.quantity || 0;
+        existing.value += item.total_price || (item.quantity * item.unit_price) || 0;
+        existing.totalUnitPrice += item.unit_price || 0;
+        existing.count += 1;
+        monthMap.set(monthKey, existing);
+      });
+
+      const monthlyData = Array.from(monthMap.entries())
+        .map(([month, d]) => ({
+          month,
+          qty: d.qty,
+          value: d.value,
+          avgPrice: d.count > 0 ? d.totalUnitPrice / d.count : 0,
+        }))
+        .sort((a, b) => a.month.localeCompare(b.month));
+
+      setItemPurchaseData(prev => ({ ...prev, [productId]: monthlyData }));
+    } catch (e) {
+      console.error('Erro ao buscar compras do item:', e);
+    }
+    setLoadingItems(false);
+  }, [selectedHotel]);
+
+  const handleAddProduct = useCallback((product: { id: string; name: string }) => {
+    if (selectedProducts.some(p => p.id === product.id)) return;
+    const color = ITEM_COLORS[selectedProducts.length % ITEM_COLORS.length];
+    setSelectedProducts(prev => [...prev, { id: product.id, name: product.name, color }]);
+    setItemSearchTerm('');
+    setItemSearchOpen(false);
+    fetchItemPurchaseData(product.id);
+  }, [selectedProducts, fetchItemPurchaseData]);
+
+  const handleRemoveProduct = useCallback((productId: string) => {
+    setSelectedProducts(prev => prev.filter(p => p.id !== productId));
+    setItemPurchaseData(prev => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  }, []);
+
+  // ── Filtrar produtos na busca ─────────────────────────────────────────────
+  const filteredProducts = useMemo(() => {
+    if (!itemSearchTerm.trim()) return [];
+    const term = itemSearchTerm.toLowerCase();
+    return allProducts
+      .filter(p => p.name.toLowerCase().includes(term) && !selectedProducts.some(sp => sp.id === p.id))
+      .slice(0, 15);
+  }, [allProducts, itemSearchTerm, selectedProducts]);
 
   // ── Carregar meta (categorias + fornecedores) ─────────────────────────────
   const loadMeta = useCallback(async () => {
@@ -337,9 +464,51 @@ const ExpensesGuestReport: React.FC = () => {
     return point;
   }), [allMonths, guestTotals, categories, suppliers, allEntries, chartView]);
 
+  // ── Dados do gráfico Por Item ────────────────────────────────────────────
+  const itemChartData = useMemo(() => {
+    if (chartView !== 'item' || selectedProducts.length === 0) return [];
+
+    // Colecionar todos os meses com dados
+    const monthSet = new Set<string>();
+    Object.values(itemPurchaseData).forEach(entries => {
+      entries.forEach(e => monthSet.add(e.month));
+    });
+    // Incluir todos os meses do intervalo completo
+    allMonths.forEach(m => monthSet.add(format(m, 'yyyy-MM')));
+
+    const sortedMonths = Array.from(monthSet).sort();
+
+    return sortedMonths.map(month => {
+      const point: Record<string, any> = { month: `${month}-01T00:00:00.000Z` };
+      selectedProducts.forEach(sp => {
+        const entries = itemPurchaseData[sp.id] || [];
+        const entry = entries.find(e => e.month === month);
+        if (entry) {
+          point[`item_val_${sp.id}`] = parseFloat(entry.value.toFixed(2));
+          point[`item_price_${sp.id}`] = parseFloat(entry.avgPrice.toFixed(2));
+          point[`item_qty_${sp.id}`] = entry.qty;
+        } else {
+          point[`item_val_${sp.id}`] = null;
+          point[`item_price_${sp.id}`] = null;
+          point[`item_qty_${sp.id}`] = null;
+        }
+      });
+      return point;
+    });
+  }, [chartView, selectedProducts, itemPurchaseData, allMonths]);
+
   const chartLines: ChartLine[] = useMemo(() => {
     if (chartView === 'category') {
       return categories.map(c => ({ key: `cat_${c.id}`, name: c.name, color: c.color_hex }));
+    }
+    if (chartView === 'item') {
+      return selectedProducts.map(sp => ({
+        key: itemMetric === 'total_value' ? `item_val_${sp.id}`
+          : itemMetric === 'unit_price' ? `item_price_${sp.id}`
+          : `item_qty_${sp.id}`,
+        name: sp.name,
+        color: sp.color,
+      }));
     }
     return suppliers.map((s, i) => {
       const cat = categories.find(c => c.id === s.category_id);
@@ -350,7 +519,7 @@ const ExpensesGuestReport: React.FC = () => {
         dashed: !!s.hidden_from,
       };
     });
-  }, [chartView, categories, suppliers]);
+  }, [chartView, categories, suppliers, selectedProducts, itemMetric]);
 
   // ── Categorias e fornecedores visíveis no mês selecionado ────────────────
   const visibleCategories = useMemo(() =>
@@ -386,32 +555,126 @@ const ExpensesGuestReport: React.FC = () => {
             Linha do Tempo: Gasto por Hóspede (R$)
           </h3>
 
-          {/* Toggle Por Categoria / Por Fornecedor */}
+          {/* Toggle Por Categoria / Por Fornecedor / Por Item */}
           <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
-            <button
-              onClick={() => setChartView('category')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                chartView === 'category'
-                  ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              <Tag className="w-3.5 h-3.5" /> Por Categoria
-            </button>
-            <button
-              onClick={() => setChartView('supplier')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                chartView === 'supplier'
-                  ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              <LayoutList className="w-3.5 h-3.5" /> Por Fornecedor
-            </button>
+            {([
+              { key: 'category' as ChartView, icon: Tag, label: 'Por Categoria' },
+              { key: 'supplier' as ChartView, icon: LayoutList, label: 'Por Fornecedor' },
+              { key: 'item' as ChartView, icon: Package, label: 'Por Item' },
+            ]).map(btn => (
+              <button
+                key={btn.key}
+                onClick={() => setChartView(btn.key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  chartView === btn.key
+                    ? 'bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                <btn.icon className="w-3.5 h-3.5" /> {btn.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {chartLines.length === 0 ? (
+        {/* Seletor de produtos (só no modo item) */}
+        {chartView === 'item' && (
+          <div className="mb-4 space-y-3">
+            {/* Busca de produto */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative flex-1 min-w-[250px]" ref={itemSearchRef}>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={itemSearchTerm}
+                    onChange={e => { setItemSearchTerm(e.target.value); setItemSearchOpen(true); }}
+                    onFocus={() => { if (itemSearchTerm.trim()) setItemSearchOpen(true); }}
+                    placeholder="Buscar produto do inventário..."
+                    className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-400 outline-none"
+                  />
+                </div>
+                {itemSearchOpen && filteredProducts.length > 0 && (
+                  <div className="absolute top-full mt-1 left-0 right-0 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto">
+                    {filteredProducts.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleAddProduct(p)}
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-indigo-50 dark:hover:bg-gray-600 flex items-center gap-2 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                        <span className="text-gray-800 dark:text-white truncate">{p.name}</span>
+                        <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{p.category}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Toggle métrica */}
+              <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-900/50 p-1 rounded-lg text-xs">
+                {([
+                  { key: 'total_value' as ItemMetric, label: 'R$ Total' },
+                  { key: 'unit_price' as ItemMetric, label: 'R$ Unit.' },
+                  { key: 'quantity' as ItemMetric, label: 'Qtd' },
+                ]).map(m => (
+                  <button
+                    key={m.key}
+                    onClick={() => setItemMetric(m.key)}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
+                      itemMetric === m.key
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Chips de produtos selecionados */}
+            {selectedProducts.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {selectedProducts.map(sp => (
+                  <span
+                    key={sp.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white shadow-sm"
+                    style={{ backgroundColor: sp.color }}
+                  >
+                    {sp.name}
+                    <button onClick={() => handleRemoveProduct(sp.id)} className="hover:opacity-70 transition-opacity">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {loadingItems && (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando histórico...
+              </div>
+            )}
+          </div>
+        )}
+
+        {chartView === 'item' ? (
+          selectedProducts.length === 0 ? (
+            <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
+              <Package className="w-10 h-10 opacity-30" />
+              <p className="text-sm">Busque e selecione produtos para ver o histórico de compras.</p>
+            </div>
+          ) : (
+            <ScrollableChart
+              data={itemChartData}
+              lines={chartLines}
+              theme={theme}
+              valuePrefix={itemMetric === 'quantity' ? '' : 'R$'}
+              valueSuffix={itemMetric === 'quantity' ? ' un' : ''}
+            />
+          )
+        ) : chartLines.length === 0 ? (
           <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
             <BarChartHorizontal className="w-10 h-10 opacity-30" />
             <p className="text-sm">Configure categorias e fornecedores para ver o gráfico.</p>
