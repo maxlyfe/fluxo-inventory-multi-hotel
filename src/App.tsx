@@ -128,13 +128,13 @@ function App() {
 
                     {/* Admin / gestão interna */}
                     <Route path="/admin" element={
-                      <PrivateRoute module="inventory">
+                      <PrivateRoute module="stock">
                         <AdminPanel />
                       </PrivateRoute>
                     } />
 
                     <Route path="/management" element={
-                      <PrivateRoute module="purchases">
+                      <PrivateRoute module="management">
                         <ManagementPanel />
                       </PrivateRoute>
                     } />
