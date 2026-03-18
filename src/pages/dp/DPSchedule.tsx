@@ -715,20 +715,6 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, hotelName,
               </div>
 
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead>
-                  <tr style={{ background: '#374151', color: 'white' }}>
-                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 'bold', fontSize: 10, width: 130 }}>
-                      COLABORADOR
-                    </th>
-                    {weekDays.map((day, i) => (
-                      <th key={i} style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold', fontSize: 10, width: 90,
-                        background: i === 0 || i === 7 ? '#4b5563' : '#374151' }}>
-                        <div>{DAY_LABELS[i]}</div>
-                        <div style={{ fontWeight: 'normal', opacity: 0.7, fontSize: 9 }}>{format(day, 'dd/MM')}</div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
                 <tbody>
                   {sectorGroups.map(({ sector, emps }) => (
                     <React.Fragment key={sector}>
