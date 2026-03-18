@@ -88,56 +88,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading]     = useState(true);
   const [needsName, setNeedsName] = useState(false);
 
+  // Carrega sessão + perfil completo (com custom_role/permissões) antes de liberar loading
   useEffect(() => {
     setLoading(true);
+
+    async function loadSessionAndProfile(session: Session | null) {
+      const baseUser = mapSupabaseUserToAppUser(session?.user ?? null);
+      if (!baseUser?.id) {
+        setSession(session);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      // Buscar perfil completo (role + permissões) ANTES de liberar loading
+      const profile = await fetchProfile(baseUser.id);
+      const fullUser = { ...baseUser, ...profile };
+      setSession(session);
+      setUser(fullUser);
+      if (profile.role === 'guest' && !profile.full_name) {
+        setNeedsName(true);
+      }
+      setLoading(false);
+    }
+
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.warn('[Auth] Sessão inválida:', error.message);
         setSession(null); setUser(null); setLoading(false);
         return;
       }
-      setSession(session);
-      setUser(mapSupabaseUserToAppUser(session?.user ?? null));
-      setLoading(false);
+      loadSessionAndProfile(session);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
         // Atualiza sessão e relança fetch do perfil (permissões podem ter mudado)
-        setSession(session);
-        const baseUser = mapSupabaseUserToAppUser(session?.user ?? null);
-        setUser(baseUser);
-        if (baseUser?.id) {
-          fetchProfile(baseUser.id).then(profile => {
-            setUser(prev => prev ? { ...prev, ...profile } : prev);
-          });
-        }
+        loadSessionAndProfile(session);
         return;
       }
       if (event === 'SIGNED_OUT' || !session) {
         setSession(null); setUser(null); setNeedsName(false); setLoading(false);
         return;
       }
-      setSession(session);
-      setUser(mapSupabaseUserToAppUser(session?.user ?? null));
-      setLoading(false);
+      loadSessionAndProfile(session);
     });
 
     return () => { authListener?.subscription.unsubscribe(); };
   }, []);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-    fetchProfile(user.id).then(profile => {
-      if (cancelled) return;
-      setUser(prev => prev ? { ...prev, ...profile } : prev);
-      if (profile.role === 'guest' && !profile.full_name) {
-        setNeedsName(true);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [user?.id]);
 
   // Sem timer de inatividade — sessão persiste até logout explícito
 
