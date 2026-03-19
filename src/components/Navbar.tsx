@@ -158,7 +158,7 @@ const Navbar = () => {
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
 
   return (
-    <nav className="bg-white dark:bg-gray-900 shadow-md w-full z-50">
+    <nav className="bg-white dark:bg-gray-900 shadow-md w-full z-50 sticky top-0">
       <div className="mx-auto px-2 sm:px-4 lg:px-6">
         <div className="relative flex items-center justify-between h-16">
 
