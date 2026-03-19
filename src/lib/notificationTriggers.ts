@@ -314,6 +314,100 @@ export const notifyTransferCompleted = async (eventData: NotificationEventData) 
   await triggerNotification('TRANSFER_COMPLETED', eventData, title, message);
 };
 
+// ── Contratos de experiência ──
+
+export const notifyContractEndingSoon = async (eventData: NotificationEventData) => {
+  const hotel = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title = `⏳ Contrato vence em ${eventData.days_remaining} dias — ${hotel}`;
+  const message = `O contrato de experiência de ${eventData.contract_name} vence em ${eventData.days_remaining} dias`;
+
+  await triggerNotification('EXP_CONTRACT_ENDING_SOON', {
+    ...eventData,
+    related_entity_table: 'employee_contracts',
+    related_entity_type: 'contract',
+  }, title, message);
+};
+
+export const notifyContractEndsToday = async (eventData: NotificationEventData) => {
+  const hotel = eventData.hotel_name || await resolveHotelName(eventData.hotel_id);
+  const title = `🚨 Contrato vence HOJE — ${hotel}`;
+  const message = `O contrato de experiência de ${eventData.contract_name} vence hoje!`;
+
+  await triggerNotification('EXP_CONTRACT_ENDS_TODAY', {
+    ...eventData,
+    related_entity_table: 'employee_contracts',
+    related_entity_type: 'contract',
+  }, title, message);
+};
+
+/**
+ * Verifica todos os contratos ativos e dispara notificações para os que vencem hoje ou em 5 dias.
+ * Usa sessionStorage para rodar apenas 1x por sessão do navegador.
+ * Verifica no banco se já existe notificação para o mesmo contrato hoje (evita duplicatas).
+ */
+export const checkContractExpirations = async () => {
+  const SESSION_KEY = 'contract_check_done';
+  if (sessionStorage.getItem(SESSION_KEY)) return;
+  sessionStorage.setItem(SESSION_KEY, '1');
+
+  try {
+    const { data: contracts, error } = await supabase
+      .from('employee_contracts')
+      .select('id, employee_name, start_date, hotel_id')
+      .eq('is_active', true);
+
+    if (error || !contracts) return;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayISO = today.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    // Buscar notificações de contrato já enviadas hoje para evitar duplicatas
+    const { data: existingToday } = await supabase
+      .from('notifications')
+      .select('related_entity_id')
+      .in('related_entity_type', ['contract'])
+      .gte('created_at', todayISO + 'T00:00:00')
+      .lte('created_at', todayISO + 'T23:59:59');
+
+    const alreadyNotified = new Set(existingToday?.map(n => n.related_entity_id) || []);
+
+    for (const contract of contracts) {
+      if (alreadyNotified.has(contract.id)) continue; // já notificado hoje
+
+      const startDate = new Date(contract.start_date + 'T12:00:00');
+
+      // Fim do 1º período (30 dias) e 2º período (90 dias)
+      const endDates = [
+        new Date(startDate.getTime() + 29 * 86400000),
+        new Date(startDate.getTime() + 89 * 86400000),
+      ];
+
+      for (const endDate of endDates) {
+        const diffMs = endDate.getTime() - today.getTime();
+        const diffDays = Math.round(diffMs / 86400000);
+
+        if (diffDays !== 0 && diffDays !== 5) continue;
+
+        const eventData: NotificationEventData = {
+          hotel_id: contract.hotel_id,
+          contract_name: contract.employee_name,
+          days_remaining: diffDays,
+          related_entity_id: contract.id,
+        };
+
+        if (diffDays === 0) {
+          await notifyContractEndsToday(eventData);
+        } else {
+          await notifyContractEndingSoon(eventData);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao verificar contratos:', err);
+  }
+};
+
 // Função para marcar notificação como lida
 export const markNotificationAsRead = async (notificationId: string) => {
   try {
