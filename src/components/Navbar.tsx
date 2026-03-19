@@ -38,6 +38,7 @@ import {
   LayoutGrid as SectorsIcon,
   Link2 as ErbonIcon,
   ChevronDown as ChevronDownIcon,
+  Check as CheckIcon,
   BarChart2 as RelatoriosIcon,
   ShieldCheck as AutorizacoesIcon,
   UserCheck as DpIcon,
@@ -131,11 +132,18 @@ const Navbar = () => {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hotelDisplayName, setHotelDisplayName] = useState("");
+  const [allHotels, setAllHotels] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     const name = selectedHotel?.name || "Hotel";
     setHotelDisplayName(hotelNameMapping[name] || name);
   }, [selectedHotel]);
+
+  useEffect(() => {
+    supabase.from('hotels').select('id, name').order('name').then(({ data }) => {
+      if (data) setAllHotels(data);
+    });
+  }, []);
 
   const handleSignOut = async () => {
     const { success } = await authLogout();
@@ -170,14 +178,61 @@ const Navbar = () => {
                 {hotelDisplayName}
               </span>
             </Link>
-            <button
-              onClick={handleChangeHotel}
-              className="ml-2 p-1.5 rounded-md text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center space-x-1 whitespace-nowrap flex-shrink-0"
-              title="Trocar Hotel"
-            >
-              <BuildingIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">Trocar Hotel</span>
-            </button>
+            <Menu as="div" className="relative ml-2">
+              <Menu.Button
+                className="p-1.5 rounded-md text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center space-x-1 whitespace-nowrap flex-shrink-0"
+                title="Trocar Hotel"
+              >
+                <BuildingIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">Trocar Hotel</span>
+                <ChevronDownIcon className="h-3 w-3 opacity-60" />
+              </Menu.Button>
+
+              <Transition
+                as={Fragment}
+                enter="transition ease-out duration-100"
+                enterFrom="transform opacity-0 scale-95"
+                enterTo="transform opacity-100 scale-100"
+                leave="transition ease-in duration-75"
+                leaveFrom="transform opacity-100 scale-100"
+                leaveTo="transform opacity-0 scale-95"
+              >
+                <Menu.Items className="absolute left-0 mt-2 w-56 rounded-2xl shadow-xl bg-white dark:bg-gray-800 ring-1 ring-black/5 dark:ring-gray-700 focus:outline-none z-50 overflow-hidden">
+                  <div className="py-1">
+                    <p className="px-4 pt-2 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Selecionar Hotel
+                    </p>
+                    {allHotels.map(hotel => (
+                      <Menu.Item key={hotel.id}>
+                        {({ active }) => (
+                          <button
+                            onClick={() => {
+                              setSelectedHotel(hotel as any);
+                              navigate('/');
+                            }}
+                            className={classNames(
+                              active ? "bg-gray-50 dark:bg-gray-700" : "",
+                              selectedHotel?.id === hotel.id
+                                ? "text-blue-600 dark:text-blue-400 font-semibold"
+                                : "text-gray-700 dark:text-gray-200",
+                              "flex items-center justify-between w-full px-4 py-2.5 text-sm transition-colors"
+                            )}
+                          >
+                            <span className="flex items-center gap-2">
+                              <BuildingIcon className="h-4 w-4 flex-shrink-0" />
+                              {hotel.name}
+                            </span>
+                            {selectedHotel?.id === hotel.id && (
+                              <CheckIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                            )}
+                          </button>
+                        )}
+                      </Menu.Item>
+                    ))}
+                  </div>
+                </Menu.Items>
+              </Transition>
+            </Menu>
           </div>
 
           {/* ── Nav desktop ──────────────────────────────────────────────── */}
