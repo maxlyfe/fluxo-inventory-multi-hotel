@@ -30,6 +30,8 @@ export const MODULES: Module[] = [
   { key: 'management',           label: 'Gerência',             description: 'Relatórios e análises de gestão',          group: 'Área Administrativa', icon: 'BarChart2'     },
   { key: 'personnel_department', label: 'Depart. Pessoal',      description: 'Colaboradores, escalas, contratos, DP',    group: 'Área Administrativa', icon: 'Users'         },
   { key: 'maintenance',          label: 'Manutenções',          description: 'Tickets, equipamentos, QR codes',           group: 'Área Administrativa', icon: 'Wrench'        },
+  { key: 'reservations',         label: 'Reservas',             description: 'Busca de reservas e disponibilidade',      group: 'Área Administrativa', icon: 'CalendarCheck' },
+  { key: 'reception',            label: 'Recepção',             description: 'Rack de UHs, check-in/out, in-house',     group: 'Área Administrativa', icon: 'Hotel'         },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },

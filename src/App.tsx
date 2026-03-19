@@ -48,6 +48,15 @@ import RolesManagement    from './pages/admin/RolesManagement';
 import SectorsManagement  from './pages/admin/SectorsManagement';
 import ErbonIntegration   from './pages/admin/ErbonIntegration';
 
+// ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
+import RoomRack          from './pages/erbon/RoomRack';
+import InHouse           from './pages/erbon/InHouse';
+import CheckInList       from './pages/erbon/CheckInList';
+import CheckOutList      from './pages/erbon/CheckOutList';
+import BookingSearch     from './pages/erbon/BookingSearch';
+import RoomAvailability  from './pages/erbon/RoomAvailability';
+import Planning          from './pages/erbon/Planning';
+
 // ── Components ────────────────────────────────────────────────────────────────
 import PrivateRoute from './components/PrivateRoute';
 import MainLayout   from './components/MainLayout';
@@ -279,6 +288,45 @@ function App() {
                     <Route path="/dp/employee/:id" element={
                       <PrivateRoute module="personnel_department">
                         <DPEmployeeDetail />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Recepção (Erbon) ────────────────────────────────── */}
+                    <Route path="/reception/rack" element={
+                      <PrivateRoute modules={['reception']}>
+                        <RoomRack />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reception/checkin" element={
+                      <PrivateRoute modules={['reception']}>
+                        <CheckInList />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reception/checkout" element={
+                      <PrivateRoute modules={['reception']}>
+                        <CheckOutList />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reception/inhouse" element={
+                      <PrivateRoute modules={['reception']}>
+                        <InHouse />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Reservas (Erbon) ────────────────────────────────── */}
+                    <Route path="/reservations/search" element={
+                      <PrivateRoute modules={['reservations']}>
+                        <BookingSearch />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reservations/availability" element={
+                      <PrivateRoute modules={['reservations']}>
+                        <RoomAvailability />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reservations/planning" element={
+                      <PrivateRoute modules={['reservations']}>
+                        <Planning />
                       </PrivateRoute>
                     } />
 

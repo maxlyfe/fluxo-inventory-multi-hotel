@@ -12,6 +12,7 @@ import {
   Monitor, Archive, Menu, X, UserCog, LayoutGrid, Link2,
   Sun, Cloud, Moon, CloudRain, CloudSnow, CloudLightning, CloudDrizzle,
   CloudFog, Wind, Thermometer, Droplets, Eye, MapPin, Clock,
+  BedDouble, LogIn, LogOut, Users, Search, CalendarCheck, CalendarRange,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -121,6 +122,23 @@ const SIDEBAR_GROUPS_DEF: {
     label: 'DP',
     items: [
       { module: 'personnel_department', label: 'Depart. Pessoal', href: '/personnel-department', icon: UsersRound, color: '#f43f5e' },
+    ],
+  },
+  {
+    label: 'Recepção',
+    items: [
+      { module: 'reception', label: 'Rack de UH\'s',  href: '/reception/rack',     icon: BedDouble, color: '#14b8a6' },
+      { module: 'reception', label: 'Check-in',       href: '/reception/checkin',   icon: LogIn,     color: '#22c55e' },
+      { module: 'reception', label: 'Check-out',      href: '/reception/checkout',  icon: LogOut,    color: '#ef4444' },
+      { module: 'reception', label: 'In House',       href: '/reception/inhouse',   icon: Users,     color: '#3b82f6' },
+    ],
+  },
+  {
+    label: 'Reservas',
+    items: [
+      { module: 'reservations', label: 'Reservas',          href: '/reservations/search',       icon: Search,        color: '#6366f1' },
+      { module: 'reservations', label: 'Disponibilidade',   href: '/reservations/availability', icon: CalendarCheck, color: '#8b5cf6' },
+      { module: 'reservations', label: 'Planning',          href: '/reservations/planning',     icon: CalendarRange, color: '#a855f7' },
     ],
   },
   {

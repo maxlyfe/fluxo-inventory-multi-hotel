@@ -82,6 +82,116 @@ export interface ErbonSectorMapping {
   erbon_department: string;
 }
 
+// ── Interfaces Recepção / Reservas ──────────────────────────────────────────
+
+export interface ErbonRoom {
+  idRoomType: number;
+  roomTypeDescription: string;
+  idRoom: number;
+  roomName: string;
+  numberFloor: number;
+  idHousekeepingStatus: 'CLEAN' | 'DIRTY';
+  descriptionHousekeepingStatus: string;
+  currentlyOccupiedOrAvailable: string;
+  hasCheckinToday: boolean;
+  adultCount: number | null;
+  childrenCount: number | null;
+  babyCount: number | null;
+  bookingHolderName: string | null;
+  currentBookingID: number | null;
+  inMaintenance: boolean;
+}
+
+export interface ErbonGuest {
+  roomDescription: string;
+  guestName: string;
+  lastName: string;
+  contactEmail: string;
+  checkInDate: string;
+  checkOutDate: string;
+  bookingNumber: string;
+  idBooking: number;
+  idGuest: number;
+  mealPlan: string;
+  localityGuest: string;
+  stateGuest: string;
+  countryGuestISO: string;
+  birthDate: string;
+}
+
+export interface ErbonBooking {
+  hotelID: string;
+  bookingInternalID: number;
+  erbonNumber: number;
+  status: string;
+  confirmedStatus: string;
+  roomTypeID: number;
+  roomTypeDescription: string;
+  roomID: number;
+  roomDescription: string;
+  checkInDateTime: string;
+  checkOutDateTime: string;
+  adultQuantity: number;
+  totalBookingRate: number;
+  totalBookingRateWithTax: number;
+  rateDesc: string | null;
+  segmentDesc: string;
+  sourceDesc: string;
+  guestList: Array<{
+    id: number;
+    name: string;
+    email: string;
+    phone: string;
+    documents: Array<{ documentType: string; number: string }>;
+  }>;
+  createdAt: string;
+}
+
+export interface ErbonRoomType {
+  id: number;
+  code: string;
+  description: string;
+  minPax: number;
+  maxPax: number;
+  roomCount: number;
+  roomCountOccupied: number;
+}
+
+export interface ErbonOTB {
+  stayDate: string;
+  totalInventory: number;
+  totalRoomsDeductedTransient: number;
+  totalRoomsDeductedBlocks: number;
+  netRoomRevenueTransient: number;
+  grossRoomRevenueTransient: number;
+  netFBRevenueTransient: number;
+  netOtherRevenueTransient: number;
+}
+
+export interface ErbonOccupancyPension {
+  date: string;
+  occupancy: number;
+  roomSalledConfirmed: number;
+  roomAvailable: number;
+  totalGuestByType: string;
+  totalCheckInsSingleDay: number;
+  totalCheckOutsSingleDay: number;
+  totalDailyRate: number;
+  totalBreakfast: number;
+  totalLunch: number;
+  totalDinner: number;
+  totalRevenue: number;
+  adr: number;
+}
+
+export interface ErbonAvailabilityDay {
+  [key: string]: any; // Estrutura a validar com dados reais
+}
+
+export interface ErbonAccountReceivable {
+  [key: string]: any; // Estrutura a validar com dados reais
+}
+
 // ── Token cache (in-memory) ────────────────────────────────────────────────
 
 interface TokenEntry {
@@ -546,6 +656,194 @@ export const erbonService = {
       .delete()
       .eq('id', id);
     if (error) throw error;
+  },
+
+  // ── Housekeeping (Rack de UH's) ─────────────────────────────────────────
+
+  async fetchHousekeeping(hotelId: string): Promise<ErbonRoom[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/housekeeping/get`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar housekeeping (${res.status})`);
+    return await res.json();
+  },
+
+  async updateHousekeepingStatus(hotelId: string, roomId: number, newStatus: string): Promise<void> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/housekeeping/update`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'roomID': String(roomId),
+        'newStatus': newStatus,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ao atualizar housekeeping (${res.status})`);
+  },
+
+  // ── Guests ─────────────────────────────────────────────────────────────
+
+  async fetchInHouseGuests(hotelId: string): Promise<ErbonGuest[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/guest/inhouse`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar hóspedes in-house (${res.status})`);
+    return await res.json();
+  },
+
+  async fetchTodayCheckouts(hotelId: string): Promise<ErbonGuest[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/guest/todaycheckout`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar checkouts do dia (${res.status})`);
+    return await res.json();
+  },
+
+  async fetchBreakfastGuests(hotelId: string): Promise<ErbonGuest[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/guest/breakfast`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar hóspedes café da manhã (${res.status})`);
+    return await res.json();
+  },
+
+  // ── Bookings ───────────────────────────────────────────────────────────
+
+  async searchBookings(hotelId: string, params: {
+    checkin?: string;
+    checkout?: string;
+    status?: string;
+    bookingNumber?: string;
+    guestEmail?: string;
+  }): Promise<ErbonBooking[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/search`;
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...proxyHeaders(config.erbon_base_url, path),
+    };
+    if (params.checkin) headers['checkin'] = params.checkin;
+    if (params.checkout) headers['checkout'] = params.checkout;
+    if (params.status) headers['status'] = params.status;
+    if (params.bookingNumber) headers['bookingNumber'] = params.bookingNumber;
+    if (params.guestEmail) headers['mainguestEmail'] = params.guestEmail;
+
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'POST',
+      headers,
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar reservas (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  },
+
+  // ── Room Types ─────────────────────────────────────────────────────────
+
+  async fetchRoomTypes(hotelId: string): Promise<ErbonRoomType[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/mapping/roomtype`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar tipos de quarto (${res.status})`);
+    return await res.json();
+  },
+
+  // ── OTB (On The Books) ────────────────────────────────────────────────
+
+  async fetchOTB(hotelId: string, dateFrom: string, dateTo: string): Promise<ErbonOTB[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/sales/otb`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'dateFrom': dateFrom,
+        'dateTo': dateTo,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar OTB (${res.status})`);
+    return await res.json();
+  },
+
+  // ── Occupancy with Pension ────────────────────────────────────────────
+
+  async fetchOccupancyWithPension(hotelId: string, dateFrom: string, dateTo: string): Promise<ErbonOccupancyPension[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/occupancy/withpension`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'dateFrom': dateFrom,
+        'dateTo': dateTo,
+        'currency': '0',
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar ocupação (${res.status})`);
+    return await res.json();
+  },
+
+  // ── Availability Inventory ────────────────────────────────────────────
+
+  async fetchAvailabilityInventory(hotelId: string, dateFrom: string, dateTo: string): Promise<ErbonAvailabilityDay[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/availability/inventory`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'dateFrom': dateFrom,
+        'dateTo': dateTo,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar disponibilidade (${res.status})`);
+    return await res.json();
+  },
+
+  // ── Accounts Receivable (Financeiro) ──────────────────────────────────
+
+  async fetchAccountsReceivable(hotelId: string): Promise<ErbonAccountReceivable[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/sales/financialaccountreceive`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar contas a receber (${res.status})`);
+    return await res.json();
   },
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────
