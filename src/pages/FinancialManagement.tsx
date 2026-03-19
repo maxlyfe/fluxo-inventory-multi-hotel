@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
-import { 
+import {
   DollarSign, Download, Filter, ChevronDown, ChevronUp,
   Building2, ArrowLeftRight, Calendar, Search, AlertTriangle,
-  Plus, X
+  Plus, X, RefreshCw, Loader2, Receipt
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { erbonService, ErbonAccountReceivable } from '../lib/erbonService';
+import { useErbonData } from '../hooks/useErbonData';
 
 interface Hotel {
   id: string;
@@ -43,8 +45,11 @@ interface Payment {
   };
 }
 
+type FinanceTab = 'transactions' | 'accounts_receivable';
+
 const FinancialManagement = () => {
   const { selectedHotel } = useHotel();
+  const [activeTab, setActiveTab] = useState<FinanceTab>('transactions');
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [filteredBalances, setFilteredBalances] = useState<Balance[]>([]);
@@ -292,44 +297,233 @@ const FinancialManagement = () => {
     );
   }
 
+  // ── Erbon Contas a Receber ──────────────────────────────────────────
+  const {
+    data: accountsReceivable,
+    loading: loadingAR,
+    error: errorAR,
+    refetch: refetchAR,
+    erbonConfigured,
+  } = useErbonData<ErbonAccountReceivable[]>(
+    (hotelId) => erbonService.fetchAccountsReceivable(hotelId),
+  );
+
+  const [arSearch, setArSearch] = useState('');
+  const filteredAR = (accountsReceivable || []).filter((ar: any) => {
+    if (!arSearch) return true;
+    const q = arSearch.toLowerCase();
+    return (
+      (ar.guestName || ar.description || ar.name || '').toLowerCase().includes(q) ||
+      String(ar.bookingNumber || ar.id || '').includes(q)
+    );
+  });
+
+  const totalAR = filteredAR.reduce((s: number, ar: any) => s + (ar.amount || ar.totalAmount || ar.value || 0), 0);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white flex items-center">
           <DollarSign className="h-8 w-8 text-blue-600 dark:text-blue-400 mr-3" />
           Controle Financeiro
         </h1>
         <div className="flex items-center space-x-4 mt-4 md:mt-0">
-          <button
-            onClick={() => setShowPaymentForm(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Novo Pagamento
-          </button>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-          >
-            <Filter className="w-5 h-5 mr-2" />
-            Filtros
-            {showFilters ? (
-              <ChevronUp className="w-5 h-5 ml-2" />
-            ) : (
-              <ChevronDown className="w-5 h-5 ml-2" />
-            )}
-          </button>
-          <button
-            onClick={exportFinancialReport}
-            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-          >
-            <Download className="w-5 h-5 mr-2" />
-            Exportar
-          </button>
+          {activeTab === 'transactions' && (
+            <>
+              <button
+                onClick={() => setShowPaymentForm(true)}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Novo Pagamento
+              </button>
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <Filter className="w-5 h-5 mr-2" />
+                Filtros
+                {showFilters ? (
+                  <ChevronUp className="w-5 h-5 ml-2" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 ml-2" />
+                )}
+              </button>
+              <button
+                onClick={exportFinancialReport}
+                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+              >
+                <Download className="w-5 h-5 mr-2" />
+                Exportar
+              </button>
+            </>
+          )}
+          {activeTab === 'accounts_receivable' && (
+            <button
+              onClick={refetchAR}
+              disabled={loadingAR}
+              className="flex items-center px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${loadingAR ? 'animate-spin' : ''}`} /> Atualizar
+            </button>
+          )}
         </div>
       </div>
 
-      {showFilters && (
+      {/* ── Tabs ──────────────────────────────────────────────────────────── */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
+        <button
+          onClick={() => setActiveTab('transactions')}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'transactions'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <ArrowLeftRight className="w-4 h-4" />
+            Movimentações
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('accounts_receivable')}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'accounts_receivable'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4" />
+            Contas a Receber (Erbon)
+            {erbonConfigured && accountsReceivable && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full">
+                {accountsReceivable.length}
+              </span>
+            )}
+          </div>
+        </button>
+      </div>
+
+      {/* ═══ TAB: Contas a Receber (Erbon) ═══════════════════════════════ */}
+      {activeTab === 'accounts_receivable' && (
+        <div>
+          {!erbonConfigured && !loadingAR ? (
+            <div className="text-center py-16">
+              <Receipt className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+              <p className="text-gray-500 dark:text-gray-400">Erbon PMS não configurado para este hotel.</p>
+              <p className="text-sm text-gray-400 mt-1">Configure a integração Erbon para visualizar contas a receber.</p>
+            </div>
+          ) : loadingAR ? (
+            <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
+          ) : (
+            <>
+              {/* Resumo */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Total a Receber</p>
+                      <h3 className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-1">
+                        {totalAR.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </h3>
+                    </div>
+                    <div className="bg-orange-100 dark:bg-orange-900/20 p-3 rounded-lg">
+                      <Receipt className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Contas</p>
+                      <h3 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                        {filteredAR.length}
+                      </h3>
+                    </div>
+                    <div className="bg-blue-100 dark:bg-blue-900/20 p-3 rounded-lg">
+                      <DollarSign className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Busca */}
+              <div className="mb-4">
+                <div className="relative max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={arSearch}
+                    onChange={e => setArSearch(e.target.value)}
+                    placeholder="Buscar por nome, reserva..."
+                    className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {errorAR && <p className="text-red-500 mb-4 text-sm">{errorAR}</p>}
+
+              {/* Tabela */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">ID</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Descrição</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Reserva</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Valor</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Vencimento</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {filteredAR.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="text-center py-10 text-gray-400">
+                            Nenhuma conta a receber encontrada.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredAR.map((ar: any, idx: number) => (
+                          <tr key={ar.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <td className="px-4 py-3 text-sm text-gray-500">{ar.id || idx + 1}</td>
+                            <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200 font-medium">
+                              {ar.guestName || ar.description || ar.name || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {ar.bookingNumber || ar.reservationNumber || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right font-bold text-gray-800 dark:text-white">
+                              {(ar.amount || ar.totalAmount || ar.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {ar.dueDate || ar.maturityDate ? format(new Date(ar.dueDate || ar.maturityDate), 'dd/MM/yyyy') : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                (ar.status || '').toLowerCase() === 'paid' || (ar.status || '').toLowerCase() === 'pago'
+                                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                  : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                              }`}>
+                                {ar.status || 'Pendente'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ═══ TAB: Movimentações ═══════════════════════════════════════════ */}
+      {activeTab === 'transactions' && showFilters && (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -375,50 +569,52 @@ const FinancialManagement = () => {
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Saldo Total</p>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                R$ {totalBalance.toFixed(2)}
-              </h3>
-            </div>
-            <div className="bg-blue-100 dark:bg-blue-900/20 p-3 rounded-lg">
-              <DollarSign className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+      {/* Summary Cards + Transactions Table (only on transactions tab) */}
+      {activeTab === 'transactions' && (
+        <>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Saldo Total</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  R$ {totalBalance.toFixed(2)}
+                </h3>
+              </div>
+              <div className="bg-blue-100 dark:bg-blue-900/20 p-3 rounded-lg">
+                <DollarSign className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Pagamentos no Período</p>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                R$ {getTotalPayments().toFixed(2)}
-              </h3>
-            </div>
-            <div className="bg-green-100 dark:bg-green-900/20 p-3 rounded-lg">
-              <ArrowLeftRight className="h-6 w-6 text-green-600 dark:text-green-400" />
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Pagamentos no Período</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  R$ {getTotalPayments().toFixed(2)}
+                </h3>
+              </div>
+              <div className="bg-green-100 dark:bg-green-900/20 p-3 rounded-lg">
+                <ArrowLeftRight className="h-6 w-6 text-green-600 dark:text-green-400" />
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Período</p>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mt-1">
-                {format(new Date(dateRange.start), 'dd/MM/yyyy')} - {format(new Date(dateRange.end), 'dd/MM/yyyy')}
-              </h3>
-            </div>
-            <div className="bg-purple-100 dark:bg-purple-900/20 p-3 rounded-lg">
-              <Calendar className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Período</p>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mt-1">
+                  {format(new Date(dateRange.start), 'dd/MM/yyyy')} - {format(new Date(dateRange.end), 'dd/MM/yyyy')}
+                </h3>
+              </div>
+              <div className="bg-purple-100 dark:bg-purple-900/20 p-3 rounded-lg">
+                <Calendar className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
       {/* Transactions Table */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-8">
@@ -478,6 +674,8 @@ const FinancialManagement = () => {
           </table>
         </div>
       </div>
+        </>
+      )}
 
       {/* Payment Form Modal */}
       {showPaymentForm && (

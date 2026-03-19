@@ -42,6 +42,9 @@ import {
   BarChart2 as RelatoriosIcon,
   ShieldCheck as AutorizacoesIcon,
   UserCheck as DpIcon,
+  // Erbon PMS — Recepção & Reservas
+  BedDouble as RackIcon,
+  Search as ReservasIcon,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +111,18 @@ const navigationItems = [
     href:   "/personnel-department",
     icon:   DpIcon,
     module: "personnel_department",
+  },
+  {
+    name:   "Recepção",
+    href:   "/reception/rack",
+    icon:   RackIcon,
+    module: "reception",
+  },
+  {
+    name:   "Reservas",
+    href:   "/reservations/search",
+    icon:   ReservasIcon,
+    module: "reservations",
   },
 ];
 

@@ -14,15 +14,17 @@ interface PrivateRouteProps {
   children:   React.ReactNode;
   // Nome do módulo conforme MODULES em usePermissions (ex: 'purchases', 'reports')
   module?:    string;
+  // Múltiplos módulos — acesso se tiver QUALQUER um (OR)
+  modules?:   string[];
   // Atalho para rotas exclusivas de admin
   adminOnly?: boolean;
   // Compatibilidade retroativa — ignorado (permissões agora vêm do perfil)
   roles?:     string[];
 }
 
-const PrivateRoute = ({ children, module, adminOnly }: PrivateRouteProps) => {
+const PrivateRoute = ({ children, module, modules, adminOnly }: PrivateRouteProps) => {
   const { user, loading } = useAuth();
-  const { can, isAdmin }  = usePermissions();
+  const { can, canAny, isAdmin } = usePermissions();
   const location          = useLocation();
 
   // ── Aguarda carregamento do perfil ────────────────────────────────────────
@@ -46,6 +48,11 @@ const PrivateRoute = ({ children, module, adminOnly }: PrivateRouteProps) => {
 
   // ── Rota com módulo específico ────────────────────────────────────────────
   if (module && !can(module)) {
+    return <Navigate to="/" replace />;
+  }
+
+  // ── Rota com múltiplos módulos (OR) ─────────────────────────────────────
+  if (modules && modules.length > 0 && !canAny(modules)) {
     return <Navigate to="/" replace />;
   }
 
