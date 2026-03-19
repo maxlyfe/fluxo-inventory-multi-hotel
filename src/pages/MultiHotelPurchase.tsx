@@ -7,7 +7,8 @@ import {
   ArrowLeft, Search, Filter, Building2, ShoppingCart,
   Check, Loader2, Link as LinkIcon, Copy, Package,
   ChevronDown, ChevronUp, Globe, AlertTriangle,
-  CheckSquare, Square, BarChart2
+  CheckSquare, Square, BarChart2, History, Clock,
+  ExternalLink, Edit3, Trash2,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -60,6 +61,22 @@ interface GeneratedBudget {
   itemCount: number;
 }
 
+interface BudgetHistoryGroup {
+  groupId: string;
+  customName: string;
+  createdAt: string;
+  isUnified: boolean;
+  budgets: {
+    id: string;
+    name: string;
+    hotelName: string;
+    isUnified: boolean;
+    itemCount: number;
+    quoteCount: number;
+    status: string;
+  }[];
+}
+
 const unitOptions = [
   { value: 'und', label: 'Unidade' },
   { value: 'kg', label: 'kg' },
@@ -102,6 +119,13 @@ const MultiHotelPurchase = () => {
   const [generatedBudgets, setGeneratedBudgets] = useState<GeneratedBudget[]>([]);
   const [unifiedLink, setUnifiedLink] = useState<string | null>(null);
   const [copiedBudgetId, setCopiedBudgetId] = useState<string | null>(null);
+  const [budgetCustomName, setBudgetCustomName] = useState('');
+
+  // ── State: History ──
+  const [historyGroups, setHistoryGroups] = useState<BudgetHistoryGroup[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [editingName, setEditingName] = useState<{ groupId: string; name: string } | null>(null);
 
   // ── Load hotels ──
   useEffect(() => {
@@ -122,6 +146,91 @@ const MultiHotelPurchase = () => {
     };
     fetchHotels();
   }, []);
+
+  // ── Fetch budget history ──
+  const fetchHistory = useCallback(async () => {
+    if (!user?.id) return;
+    setLoadingHistory(true);
+    try {
+      // Fetch all multi-hotel budgets (those with group_id) created by this user
+      const { data, error } = await supabase
+        .from('dynamic_budgets')
+        .select(`
+          id, name, hotel_id, group_id, is_unified, status, created_at,
+          hotels!inner(name),
+          dynamic_budget_items(id),
+          supplier_quotes(id)
+        `)
+        .eq('created_by', user.id)
+        .not('group_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+
+      // Group by group_id
+      const groupMap = new Map<string, BudgetHistoryGroup>();
+      for (const b of (data || [])) {
+        const gid = b.group_id as string;
+        if (!groupMap.has(gid)) {
+          groupMap.set(gid, {
+            groupId: gid,
+            customName: '',
+            createdAt: b.created_at,
+            isUnified: false,
+            budgets: [],
+          });
+        }
+        const group = groupMap.get(gid)!;
+        if (b.is_unified) {
+          group.isUnified = true;
+          // Use unified budget name as group name
+          group.customName = b.name;
+        }
+        group.budgets.push({
+          id: b.id,
+          name: b.name,
+          hotelName: (b.hotels as any)?.name || '—',
+          isUnified: b.is_unified || false,
+          itemCount: (b.dynamic_budget_items as any[])?.length || 0,
+          quoteCount: (b.supplier_quotes as any[])?.length || 0,
+          status: b.status || 'open',
+        });
+      }
+
+      // If group has no unified budget, use first per-hotel name
+      for (const group of groupMap.values()) {
+        if (!group.customName && group.budgets.length > 0) {
+          group.customName = group.budgets[0].name;
+        }
+      }
+
+      setHistoryGroups(Array.from(groupMap.values()));
+    } catch (err: any) {
+      console.error('Erro ao carregar histórico:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (showHistory) fetchHistory();
+  }, [showHistory, fetchHistory]);
+
+  const handleRenameBudgetGroup = async (groupId: string, newName: string) => {
+    try {
+      const { error } = await supabase
+        .from('dynamic_budgets')
+        .update({ name: newName })
+        .eq('group_id', groupId);
+      if (error) throw error;
+      addNotification('Nome atualizado!', 'success');
+      setEditingName(null);
+      fetchHistory();
+    } catch (err: any) {
+      addNotification('Erro ao renomear: ' + err.message, 'error');
+    }
+  };
 
   // ── Fetch products when selected hotels change ──
   useEffect(() => {
@@ -304,7 +413,8 @@ const MultiHotelPurchase = () => {
     try {
       const budgets: GeneratedBudget[] = [];
       const timestamp = new Date().toLocaleDateString('pt-BR');
-      const groupId = unified ? crypto.randomUUID() : null;
+      const groupId = crypto.randomUUID();
+      const baseName = budgetCustomName.trim() || `Multi-Hotel ${timestamp}`;
 
       // 1. Create per-hotel budgets
       for (const hotel of selectedHotels) {
@@ -321,7 +431,7 @@ const MultiHotelPurchase = () => {
         const { data: budgetData, error: budgetError } = await supabase
           .from('dynamic_budgets')
           .insert({
-            name: `Multi-Hotel — ${hotel.name} — ${timestamp}`,
+            name: `${baseName} — ${hotel.name}`,
             hotel_id: hotel.id,
             created_by: user.id,
             group_id: groupId,
@@ -380,7 +490,7 @@ const MultiHotelPurchase = () => {
           const { data: unifiedBudget, error: unifiedError } = await supabase
             .from('dynamic_budgets')
             .insert({
-              name: `Multi-Hotel — Unificado — ${timestamp}`,
+              name: `${baseName} — Unificado`,
               hotel_id: selectedHotels[0].id,
               created_by: user.id,
               group_id: groupId,
@@ -588,6 +698,135 @@ const MultiHotelPurchase = () => {
                 </button>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Budget History */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg mb-6">
+        <button
+          onClick={() => setShowHistory(v => !v)}
+          className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors rounded-lg"
+        >
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-purple-500" />
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Histórico de Orçamentos</h2>
+            {historyGroups.length > 0 && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                {historyGroups.length}
+              </span>
+            )}
+          </div>
+          {showHistory
+            ? <ChevronUp className="h-5 w-5 text-gray-400" />
+            : <ChevronDown className="h-5 w-5 text-gray-400" />
+          }
+        </button>
+
+        {showHistory && (
+          <div className="px-4 sm:px-5 pb-4 sm:pb-5 space-y-3">
+            {loadingHistory ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+              </div>
+            ) : historyGroups.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 py-6">Nenhum orçamento multi-hotel criado ainda.</p>
+            ) : (
+              historyGroups.map(group => {
+                const unifiedBudget = group.budgets.find(b => b.isUnified);
+                const perHotelBudgets = group.budgets.filter(b => !b.isUnified);
+                const totalQuotes = group.budgets.reduce((sum, b) => sum + b.quoteCount, 0);
+                const createdDate = new Date(group.createdAt);
+
+                return (
+                  <div key={group.groupId} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                    {/* Group header */}
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex-1 min-w-0">
+                        {editingName?.groupId === group.groupId ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editingName.name}
+                              onChange={e => setEditingName({ ...editingName, name: e.target.value })}
+                              onKeyDown={e => { if (e.key === 'Enter') handleRenameBudgetGroup(group.groupId, editingName.name); if (e.key === 'Escape') setEditingName(null); }}
+                              className="flex-1 px-2 py-1 text-sm rounded border border-purple-300 dark:border-purple-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-purple-400 outline-none"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleRenameBudgetGroup(group.groupId, editingName.name)}
+                              className="p-1 text-green-500 hover:text-green-600"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-gray-800 dark:text-white text-sm truncate">
+                              {group.customName}
+                            </h3>
+                            <button
+                              onClick={() => setEditingName({ groupId: group.groupId, name: group.customName })}
+                              className="p-1 text-gray-400 hover:text-purple-500 transition-colors shrink-0"
+                              title="Renomear"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 dark:text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {createdDate.toLocaleDateString('pt-BR')} {createdDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <span>{perHotelBudgets.length} hotel(is)</span>
+                          {totalQuotes > 0 && (
+                            <span className="text-green-500">{totalQuotes} cotação(ões)</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {group.isUnified && unifiedBudget && (
+                        <button
+                          onClick={() => handleCopyLink(`${window.location.origin}/quote/${unifiedBudget.id}`, unifiedBudget.id)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors shrink-0"
+                        >
+                          {copiedBudgetId === unifiedBudget.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          Link Unificado
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Per-hotel budgets */}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {perHotelBudgets.map(b => (
+                        <div key={b.id} className="flex items-center gap-1.5 text-xs bg-gray-50 dark:bg-gray-700/50 rounded-lg px-2.5 py-1.5">
+                          <Building2 className="w-3 h-3 text-blue-500" />
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">{b.hotelName}</span>
+                          <span className="text-gray-400">({b.itemCount} itens)</span>
+                          <button
+                            onClick={() => navigate(`/purchases/dynamic-budget/analysis/${b.id}`)}
+                            className="ml-1 p-0.5 text-blue-500 hover:text-blue-600"
+                            title="Analisar"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                          {!group.isUnified && (
+                            <button
+                              onClick={() => handleCopyLink(`${window.location.origin}/quote/${b.id}`, b.id)}
+                              className="p-0.5 text-gray-400 hover:text-purple-500"
+                              title="Copiar link"
+                            >
+                              {copiedBudgetId === b.id ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
       </div>
@@ -876,6 +1115,20 @@ const MultiHotelPurchase = () => {
                     </div>
                   </div>
                 </div>
+                {/* Nome do orçamento */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                    Nome do Orçamento (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={budgetCustomName}
+                    onChange={e => setBudgetCustomName(e.target.value)}
+                    placeholder={`Multi-Hotel ${new Date().toLocaleDateString('pt-BR')}`}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-purple-400 outline-none"
+                  />
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-2">
                   <button
                     onClick={() => handleGenerateBudgets(true)}
