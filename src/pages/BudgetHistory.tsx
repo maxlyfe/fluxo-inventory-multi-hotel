@@ -67,7 +67,7 @@ interface Budget {
   purchased_by_email?: string | null;
 }
 
-type ViewMode = 'active' | 'archived';
+type ViewMode = 'pending' | 'approved' | 'on_the_way' | 'archived';
 
 const BudgetHistory = () => {
   const navigate = useNavigate();
@@ -79,7 +79,7 @@ const BudgetHistory = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedBudget, setExpandedBudget] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('active');
+  const [viewMode, setViewMode] = useState<ViewMode>('pending');
   
   const [filters, setFilters] = useState({
     supplier: '',
@@ -190,15 +190,15 @@ const BudgetHistory = () => {
       );
     }
 
-    // Then filter by view mode (active/archived)
-    if (viewMode === 'active') {
-      result = result.filter(budget => 
-        budget.status === 'pending' || budget.status === 'approved' || budget.status === 'on_the_way' || budget.status === null
-      );
+    // Then filter by view mode
+    if (viewMode === 'pending') {
+      result = result.filter(budget => budget.status === 'pending' || budget.status === null);
+    } else if (viewMode === 'approved') {
+      result = result.filter(budget => budget.status === 'approved');
+    } else if (viewMode === 'on_the_way') {
+      result = result.filter(budget => budget.status === 'on_the_way');
     } else { // archived
-      result = result.filter(budget => 
-        budget.status === 'delivered' || budget.status === 'cancelled'
-      );
+      result = result.filter(budget => budget.status === 'delivered' || budget.status === 'cancelled');
     }
     
     setFilteredAndSortedBudgets(result);
@@ -555,7 +555,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                 </button>
               )}
 
-              {(isPending || isApproved) && (<button onClick={() => handleCancelBudget(budget.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors duration-150"><Ban className="h-4 w-4 mr-1" /> Cancelar</button>)}
+              {(isPending || isApproved || isOnTheWay) && (<button onClick={() => handleCancelBudget(budget.id)} className="flex items-center px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors duration-150"><Ban className="h-4 w-4 mr-1" /> Cancelar</button>)}
               {!isOnline && (
                 <button onClick={() => captureAndCopyToClipboard(budget)} className="flex items-center px-3 py-1.5 text-sm text-gray-600 hover:text-purple-600 dark:text-gray-300 dark:hover:text-purple-400 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-150" title="Copiar Imagem">
                   <ImageIcon className="h-4 w-4 mr-1" /><span>Copiar Imagem</span>
@@ -731,26 +731,43 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
         <div className="w-10"> {/* Placeholder */} </div>
       </div>
 
-      {/* View Mode Toggle Buttons */}
-      <div className="mb-6 flex justify-center space-x-2">
-        <button 
-          onClick={() => setViewMode('active')}
-          className={`px-4 py-2 rounded-md text-sm font-medium flex items-center transition-colors duration-150 
-            ${viewMode === 'active' 
-              ? 'bg-purple-600 text-white shadow-md'
-              : 'bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200'}`}
-        >
-          <ListFilter className="h-4 w-4 mr-2" /> Ativos
-        </button>
-        <button 
-          onClick={() => setViewMode('archived')}
-          className={`px-4 py-2 rounded-md text-sm font-medium flex items-center transition-colors duration-150 
-            ${viewMode === 'archived' 
-              ? 'bg-purple-600 text-white shadow-md'
-              : 'bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200'}`}
-        >
-          <Archive className="h-4 w-4 mr-2" /> Arquivados
-        </button>
+      {/* View Mode Quick Filters */}
+      <div className="mb-6 flex justify-center flex-wrap gap-2">
+        {([
+          { key: 'pending' as ViewMode, label: 'Pendentes', icon: Clock, color: 'yellow' },
+          { key: 'approved' as ViewMode, label: 'Aprovados', icon: ThumbsUp, color: 'cyan' },
+          { key: 'on_the_way' as ViewMode, label: 'A Caminho', icon: Send, color: 'indigo' },
+          { key: 'archived' as ViewMode, label: 'Histórico', icon: Archive, color: 'gray' },
+        ]).map(tab => {
+          const count = budgets.filter(b => {
+            if (tab.key === 'pending') return b.status === 'pending' || b.status === null;
+            if (tab.key === 'approved') return b.status === 'approved';
+            if (tab.key === 'on_the_way') return b.status === 'on_the_way';
+            return b.status === 'delivered' || b.status === 'cancelled';
+          }).length;
+          const isActive = viewMode === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setViewMode(tab.key)}
+              className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all duration-150 ${
+                isActive
+                  ? 'bg-purple-600 text-white shadow-md scale-105'
+                  : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200'
+              }`}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+              {count > 0 && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Filter Section */}
@@ -793,14 +810,12 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
         <div className="text-center py-10">
           <Package className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
           <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-gray-100">
-            Nenhum orçamento encontrado para "{viewMode === 'active' ? 'Ativos' : 'Arquivados'}"
+            Nenhum orçamento encontrado para "{{ pending: 'Pendentes', approved: 'Aprovados', on_the_way: 'A Caminho', archived: 'Histórico' }[viewMode]}"
           </h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {(filters.supplier || filters.startDate || filters.endDate || filters.productName) 
+            {(filters.supplier || filters.startDate || filters.endDate || filters.productName)
               ? "Tente ajustar seus filtros ou limpar a busca."
-              : (viewMode === 'active' 
-                  ? "Não há orçamentos pendentes, aprovados ou a caminho no momento."
-                  : "Não há orçamentos entregues ou cancelados.")
+              : ({ pending: 'Não há orçamentos pendentes de aprovação.', approved: 'Não há orçamentos aprovados no momento.', on_the_way: 'Não há orçamentos a caminho.', archived: 'Não há orçamentos entregues ou cancelados.' }[viewMode])
             }
           </p>
           {(filters.supplier || filters.startDate || filters.endDate || filters.productName) && (
