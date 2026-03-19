@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { BarChart3, RefreshCw, Loader2, TrendingUp, Users, DollarSign, Coffee, UtensilsCrossed, CalendarRange } from 'lucide-react';
+import { BarChart3, RefreshCw, Loader2, TrendingUp, Users, DollarSign, Coffee, UtensilsCrossed, CalendarRange, BedDouble } from 'lucide-react';
 import { format, addDays, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { erbonService, ErbonOTB, ErbonOccupancyPension } from '../../lib/erbonService';

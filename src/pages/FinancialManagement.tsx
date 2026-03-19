@@ -71,6 +71,29 @@ const FinancialManagement = () => {
     notes: ''
   });
 
+  // ── Erbon Contas a Receber (hooks ANTES de qualquer early return) ────
+  const {
+    data: accountsReceivable,
+    loading: loadingAR,
+    error: errorAR,
+    refetch: refetchAR,
+    erbonConfigured,
+  } = useErbonData<ErbonAccountReceivable[]>(
+    (hotelId) => erbonService.fetchAccountsReceivable(hotelId),
+  );
+
+  const [arSearch, setArSearch] = useState('');
+  const filteredAR = (accountsReceivable || []).filter((ar: any) => {
+    if (!arSearch) return true;
+    const q = arSearch.toLowerCase();
+    return (
+      (ar.guestName || ar.description || ar.name || '').toLowerCase().includes(q) ||
+      String(ar.bookingNumber || ar.id || '').includes(q)
+    );
+  });
+
+  const totalAR = filteredAR.reduce((s: number, ar: any) => s + (ar.amount || ar.totalAmount || ar.value || 0), 0);
+
   useEffect(() => {
     if (!selectedHotel?.id) {
       setError('Selecione um hotel para visualizar os dados financeiros');
@@ -296,29 +319,6 @@ const FinancialManagement = () => {
       </div>
     );
   }
-
-  // ── Erbon Contas a Receber ──────────────────────────────────────────
-  const {
-    data: accountsReceivable,
-    loading: loadingAR,
-    error: errorAR,
-    refetch: refetchAR,
-    erbonConfigured,
-  } = useErbonData<ErbonAccountReceivable[]>(
-    (hotelId) => erbonService.fetchAccountsReceivable(hotelId),
-  );
-
-  const [arSearch, setArSearch] = useState('');
-  const filteredAR = (accountsReceivable || []).filter((ar: any) => {
-    if (!arSearch) return true;
-    const q = arSearch.toLowerCase();
-    return (
-      (ar.guestName || ar.description || ar.name || '').toLowerCase().includes(q) ||
-      String(ar.bookingNumber || ar.id || '').includes(q)
-    );
-  });
-
-  const totalAR = filteredAR.reduce((s: number, ar: any) => s + (ar.amount || ar.totalAmount || ar.value || 0), 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
