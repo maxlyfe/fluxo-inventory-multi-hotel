@@ -16,8 +16,8 @@ const EVENT_ROUTE_MAP: Record<string, string> = {
   NEW_BUDGET:               '/authorizations',
   BUDGET_APPROVED:          '/authorizations',
   BUDGET_CANCELLED:         '/authorizations',
-  EXP_CONTRACT_ENDING_SOON: '/purchases',
-  EXP_CONTRACT_ENDS_TODAY:  '/purchases',
+  EXP_CONTRACT_ENDING_SOON: '/personnel-department',
+  EXP_CONTRACT_ENDS_TODAY:  '/personnel-department',
 };
 
 /**

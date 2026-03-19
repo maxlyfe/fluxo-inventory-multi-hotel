@@ -18,6 +18,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useHotel } from '../context/HotelContext';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { checkContractExpirations } from '../lib/notificationTriggers';
 
 // ---------------------------------------------------------------------------
 // Mapeamento de ícone + gradiente por nome de setor (normalizado)
@@ -274,6 +275,9 @@ const Home = () => {
     const interval = setInterval(fetchWeather, 30 * 60_000); // 30min
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
+
+  // Verificação de contratos de experiência (1x por sessão)
+  useEffect(() => { checkContractExpirations(); }, []);
 
   // Fecha sidebar mobile ao clicar fora
   useEffect(() => {
