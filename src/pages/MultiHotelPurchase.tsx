@@ -8,7 +8,7 @@ import {
   Check, Loader2, Link as LinkIcon, Copy, Package,
   ChevronDown, ChevronUp, Globe, AlertTriangle,
   CheckSquare, Square, BarChart2, History, Clock,
-  ExternalLink, Edit3, Trash2,
+  ExternalLink, Edit3, Trash2, Link2, X,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -127,6 +127,9 @@ const MultiHotelPurchase = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [editingName, setEditingName] = useState<{ groupId: string; name: string } | null>(null);
 
+  // ── State: Merge/link items ──
+  const [mergeSource, setMergeSource] = useState<string | null>(null); // key of item being linked
+
   // ── Load hotels ──
   useEffect(() => {
     const fetchHotels = async () => {
@@ -230,6 +233,42 @@ const MultiHotelPurchase = () => {
     } catch (err: any) {
       addNotification('Erro ao renomear: ' + err.message, 'error');
     }
+  };
+
+  // ── Merge two items (link products) ──
+  const handleMergeItems = (sourceKey: string, targetKey: string) => {
+    if (sourceKey === targetKey) { setMergeSource(null); return; }
+    setItems(prev => {
+      const source = prev.find(i => i.key === sourceKey);
+      const target = prev.find(i => i.key === targetKey);
+      if (!source || !target) return prev;
+
+      // Merge source hotel data into target, preserving existing target hotels
+      const mergedHotels = { ...target.hotels };
+      for (const [hotelId, hotelData] of Object.entries(source.hotels)) {
+        if (!mergedHotels[hotelId]) {
+          mergedHotels[hotelId] = hotelData;
+        }
+      }
+
+      return prev
+        .map(item => {
+          if (item.key === targetKey) {
+            return {
+              ...item,
+              hotels: mergedHotels,
+              selected: item.selected || source.selected,
+              image_url: item.image_url || source.image_url,
+              supplier: item.supplier || source.supplier,
+              category: item.category || source.category,
+            };
+          }
+          return item;
+        })
+        .filter(item => item.key !== sourceKey);
+    });
+    setMergeSource(null);
+    addNotification('Produtos vinculados com sucesso!', 'success');
   };
 
   // ── Fetch products when selected hotels change ──
@@ -954,7 +993,7 @@ const MultiHotelPurchase = () => {
                 <p className="text-gray-600 dark:text-gray-400">Nenhum item encontrado com os filtros atuais.</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+              <div className="space-y-3">
                 {filteredItems.map(item => {
                   const hasLowStock = Object.values(item.hotels).some(h => h.quantity <= h.min_quantity);
                   return (
@@ -999,12 +1038,52 @@ const MultiHotelPurchase = () => {
                             {hasLowStock && (
                               <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                             )}
+                            {/* Hotels count badge — shows which hotels have this product */}
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0">
+                              {Object.keys(item.hotels).length}/{selectedHotels.length}
+                            </span>
                           </div>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             {item.supplier && `${item.supplier} · `}{item.category}
                           </p>
                         </div>
+
+                        {/* Link/merge button */}
+                        {mergeSource === null ? (
+                          Object.keys(item.hotels).length < selectedHotels.length && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setMergeSource(item.key); }}
+                              className="p-1.5 text-gray-400 hover:text-blue-500 transition-colors shrink-0"
+                              title="Vincular com outro produto"
+                            >
+                              <Link2 className="w-4 h-4" />
+                            </button>
+                          )
+                        ) : mergeSource === item.key ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); setMergeSource(null); }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-md shrink-0"
+                          >
+                            <X className="w-3 h-3" />
+                            Cancelar
+                          </button>
+                        ) : (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleMergeItems(mergeSource, item.key); }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-200 dark:hover:bg-blue-900/50 shrink-0"
+                          >
+                            <Link2 className="w-3 h-3" />
+                            Vincular aqui
+                          </button>
+                        )}
                       </div>
+
+                      {/* Merge mode banner */}
+                      {mergeSource === item.key && (
+                        <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800 text-xs text-blue-600 dark:text-blue-400">
+                          Clique em "Vincular aqui" em outro produto para unir os dados de hotel.
+                        </div>
+                      )}
 
                       {/* Per-hotel details */}
                       <div className="border-t border-gray-100 dark:border-gray-700">
@@ -1091,60 +1170,52 @@ const MultiHotelPurchase = () => {
             )}
           </div>
 
-          {/* Bottom action bar */}
+          {/* Bottom action bar — compact */}
           {selectedItems.length > 0 && (
-            <div className="sticky bottom-0 bg-white dark:bg-gray-800 rounded-lg shadow-lg border-t-2 border-purple-400 dark:border-purple-500 p-4 mt-6">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-gray-800 dark:text-white">
-                      {selectedItems.length} item(ns) selecionado(s)
-                    </p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                      {selectedHotels.map(hotel => {
-                        const info = budgetSummary[hotel.id] || { included: 0, excluded: 0 };
-                        return (
-                          <span key={hotel.id} className="text-xs text-gray-500 dark:text-gray-400">
-                            {hotel.name}: <span className="font-semibold text-purple-600 dark:text-purple-400">{info.included}</span> itens
-                            {info.excluded > 0 && (
-                              <span className="text-red-400 dark:text-red-500 ml-1">({info.excluded} excluído{info.excluded > 1 ? 's' : ''})</span>
-                            )}
-                          </span>
-                        );
-                      })}
-                    </div>
+            <div className="sticky bottom-0 z-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-t-xl shadow-[0_-4px_12px_rgba(0,0,0,0.1)] border-t border-purple-300 dark:border-purple-600 px-4 py-3 mt-6">
+              <div className="flex items-center gap-3">
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-800 dark:text-white whitespace-nowrap">
+                      {selectedItems.length} item(ns)
+                    </span>
+                    <span className="text-xs text-gray-400">|</span>
+                    {selectedHotels.map(hotel => {
+                      const info = budgetSummary[hotel.id] || { included: 0, excluded: 0 };
+                      return (
+                        <span key={hotel.id} className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                          {hotel.name}: <span className="font-semibold text-purple-600 dark:text-purple-400">{info.included}</span>
+                        </span>
+                      );
+                    })}
                   </div>
-                </div>
-                {/* Nome do orçamento */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
-                    Nome do Orçamento (opcional)
-                  </label>
                   <input
                     type="text"
                     value={budgetCustomName}
                     onChange={e => setBudgetCustomName(e.target.value)}
-                    placeholder={`Multi-Hotel ${new Date().toLocaleDateString('pt-BR')}`}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-purple-400 outline-none"
+                    placeholder={`Nome do orçamento (opcional)`}
+                    className="mt-1.5 w-full max-w-sm px-2.5 py-1.5 text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-purple-400 outline-none"
                   />
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2">
+                {/* Buttons */}
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => handleGenerateBudgets(true)}
                     disabled={isGenerating}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-semibold rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Globe className="h-5 w-5" />}
-                    Link Unificado
+                    {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                    <span className="hidden sm:inline">Unificado</span>
                   </button>
                   <button
                     onClick={() => handleGenerateBudgets(false)}
                     disabled={isGenerating}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-gray-600 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Building2 className="h-5 w-5" />}
-                    Links Individuais
+                    {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
+                    <span className="hidden sm:inline">Individual</span>
                   </button>
                 </div>
               </div>
