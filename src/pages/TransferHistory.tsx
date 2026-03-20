@@ -10,7 +10,7 @@ import {
   ArrowLeftRight, ChevronDown, ChevronRight, Package,
   TrendingUp, TrendingDown, Scale, Building2, Search,
   Filter, ArrowUpRight, ArrowDownLeft, CheckCircle2,
-  AlertCircle, Clock, X,
+  AlertCircle, Clock, X, HandCoins, Loader2, AlertTriangle,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -40,7 +40,7 @@ interface HotelPairSummary {
   products: ProductDebtSummary[];
   totalSent: number;
   totalReceived: number;
-  netItems: number; // positive = they owe us, negative = we owe them
+  netItems: number; // positive = they owe us (sent more), negative = we owe them (received more)
   totalValueSent: number;
   totalValueReceived: number;
 }
@@ -52,7 +52,7 @@ interface ProductDebtSummary {
   productCategory: string;
   totalSent: number;
   totalReceived: number;
-  net: number; // positive = received more (they owe), negative = sent more (we owe)
+  net: number; // positive = sent more (they owe us), negative = received more (we owe them)
   transfers: TransferLine[];
 }
 
@@ -81,6 +81,8 @@ const TransferHistory: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('completed');
   const [expandedHotels, setExpandedHotels] = useState<Set<string>>(new Set());
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+  const [forgiveConfirm, setForgiveConfirm] = useState<{ hotelId: string; hotelName: string; products: ProductDebtSummary[] } | null>(null);
+  const [forgiving, setForgiving] = useState(false);
 
   // ── Fetch transfers ──────────────────────────────────────────────────────
   const fetchTransfers = useCallback(async () => {
@@ -201,7 +203,7 @@ const TransferHistory: React.FC = () => {
       let totalValueReceived = 0;
 
       for (const [, ps] of pair.productMap) {
-        ps.net = ps.totalReceived - ps.totalSent;
+        ps.net = ps.totalSent - ps.totalReceived; // positive = they owe us
         ps.transfers.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         products.push(ps);
         totalSent += ps.totalSent;
@@ -223,7 +225,7 @@ const TransferHistory: React.FC = () => {
         products,
         totalSent,
         totalReceived,
-        netItems: totalReceived - totalSent,
+        netItems: totalSent - totalReceived, // positive = they owe us
         totalValueSent,
         totalValueReceived,
       });
@@ -247,8 +249,49 @@ const TransferHistory: React.FC = () => {
       totalValueReceived += pair.totalValueReceived;
     }
 
-    return { totalSent, totalReceived, totalValueSent, totalValueReceived, net: totalReceived - totalSent };
+    return { totalSent, totalReceived, totalValueSent, totalValueReceived, net: totalSent - totalReceived };
   }, [hotelPairs]);
+
+  // ── Perdoar dívida ──────────────────────────────────────────────────────
+  const handleForgiveDebt = async () => {
+    if (!forgiveConfirm || !selectedHotel?.id) return;
+    setForgiving(true);
+    try {
+      // Para cada produto com dívida, criar transferência compensatória
+      for (const ps of forgiveConfirm.products) {
+        if (ps.net === 0) continue;
+
+        // Se net > 0 (devem-nos), criamos uma "recebimento virtual" para zerar
+        // Se net < 0 (devemos), criamos um "envio virtual" para zerar
+        const sourceId = ps.net > 0 ? forgiveConfirm.hotelId : selectedHotel.id;
+        const destId = ps.net > 0 ? selectedHotel.id : forgiveConfirm.hotelId;
+
+        const { error: insertErr } = await supabase
+          .from('hotel_transfers')
+          .insert({
+            source_hotel_id: sourceId,
+            destination_hotel_id: destId,
+            product_id: ps.productId,
+            quantity: Math.abs(ps.net),
+            unit_value: null,
+            status: 'completed',
+            notes: 'Dívida cancelada',
+            completed_at: new Date().toISOString(),
+          });
+
+        if (insertErr) throw insertErr;
+      }
+
+      addNotification('Dívida cancelada com sucesso! O balanço foi zerado.', 'success');
+      setForgiveConfirm(null);
+      fetchTransfers();
+    } catch (err: any) {
+      console.error('Erro ao perdoar dívida:', err);
+      addNotification('Erro ao cancelar dívida: ' + (err.message || 'Erro desconhecido'), 'error');
+    } finally {
+      setForgiving(false);
+    }
+  };
 
   // ── Toggle helpers ───────────────────────────────────────────────────────
   const toggleHotel = (hotelId: string) => {
@@ -278,12 +321,12 @@ const TransferHistory: React.FC = () => {
     );
     if (net > 0) return (
       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
-        <TrendingUp className="w-3.5 h-3.5" /> Recebemos +{net}
+        <TrendingUp className="w-3.5 h-3.5" /> Devem {net}
       </span>
     );
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">
-        <TrendingDown className="w-3.5 h-3.5" /> Devemos {Math.abs(net)}
+        <TrendingDown className="w-3.5 h-3.5" /> Devendo {Math.abs(net)}
       </span>
     );
   };
@@ -376,7 +419,7 @@ const TransferHistory: React.FC = () => {
             {globalStats.net > 0 ? '+' : ''}{globalStats.net}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {globalStats.net > 0 ? 'A nosso favor' : globalStats.net < 0 ? 'Devemos' : 'Equilibrado'}
+            {globalStats.net > 0 ? 'Devem-nos' : globalStats.net < 0 ? 'Devendo' : 'Equilibrado'}
           </p>
         </div>
 
@@ -448,11 +491,8 @@ const TransferHistory: React.FC = () => {
         return (
           <div key={pair.otherHotelId} className="mb-4">
             {/* Hotel pair header */}
-            <button
-              onClick={() => toggleHotel(pair.otherHotelId)}
-              className="w-full bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-center justify-between">
+            <div className="w-full bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleHotel(pair.otherHotelId)}>
                 <div className="flex items-center gap-3">
                   {isExpanded ? (
                     <ChevronDown className="w-5 h-5 text-gray-400" />
@@ -468,7 +508,25 @@ const TransferHistory: React.FC = () => {
                   {getDebtBadge(pair.netItems)}
                 </div>
 
-                <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-4 text-sm">
+                  {/* Botão cancelar dívida — só aparece se há dívida */}
+                  {pair.netItems !== 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setForgiveConfirm({
+                          hotelId: pair.otherHotelId,
+                          hotelName: pair.otherHotelName,
+                          products: pair.products.filter(p => p.net !== 0),
+                        });
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition-colors"
+                      title="Cancelar todas as dívidas com este hotel"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancelar dívida
+                    </button>
+                  )}
                   <div className="text-right">
                     <span className="text-gray-500 dark:text-gray-400 text-xs">Enviados</span>
                     <p className="font-semibold text-red-600 dark:text-red-400">{pair.totalSent} un</p>
@@ -483,7 +541,7 @@ const TransferHistory: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </button>
+            </div>
 
             {/* Products list */}
             {isExpanded && (
@@ -532,15 +590,15 @@ const TransferHistory: React.FC = () => {
                             {/* Net badge per product */}
                             {ps.net === 0 ? (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">
-                                Pago
+                                Quitado
                               </span>
                             ) : ps.net > 0 ? (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium">
-                                +{ps.net}
+                                Devem {ps.net}
                               </span>
                             ) : (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-medium">
-                                {ps.net}
+                                Devendo {Math.abs(ps.net)}
                               </span>
                             )}
                           </div>
@@ -620,8 +678,8 @@ const TransferHistory: React.FC = () => {
                               {ps.net === 0
                                 ? 'Dívida quitada'
                                 : ps.net > 0
-                                  ? `Recebemos ${ps.net} a mais`
-                                  : `Devemos ${Math.abs(ps.net)} unidades`}
+                                  ? `Devem ${ps.net} unidades`
+                                  : `Devendo ${Math.abs(ps.net)} unidades`}
                             </span>
                           </div>
                         </div>
@@ -634,6 +692,64 @@ const TransferHistory: React.FC = () => {
           </div>
         );
       })}
+      {/* ── Modal confirmação cancelar dívida ────────────────────────────── */}
+      {forgiveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800 dark:text-white">Cancelar dívida?</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {forgiveConfirm.hotelName}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Isto irá zerar o balanço de <strong>{forgiveConfirm.products.length} produto(s)</strong> com dívida pendente.
+              Será criado um registro de compensação para cada item.
+            </p>
+
+            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 mb-6 max-h-40 overflow-y-auto space-y-1">
+              {forgiveConfirm.products.map(p => (
+                <div key={p.productId} className="flex items-center justify-between text-sm">
+                  <span className="text-gray-700 dark:text-gray-300 truncate">{p.productName}</span>
+                  <span className={`font-medium ${p.net > 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                    {p.net > 0 ? `Devem ${p.net}` : `Devendo ${Math.abs(p.net)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setForgiveConfirm(null)}
+                disabled={forgiving}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={handleForgiveDebt}
+                disabled={forgiving}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {forgiving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <X className="w-4 h-4" />
+                    Cancelar dívida
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
