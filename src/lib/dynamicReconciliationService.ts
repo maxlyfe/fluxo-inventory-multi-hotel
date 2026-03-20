@@ -16,6 +16,8 @@ export interface DynamicReconciliationRow {
   sectorStocks: Record<string, {
     initialStock: number;
     received: number;
+    exits: number;
+    entries: number;
     calculatedFinalStock: number;
     actualFinalStock: number;
     loss: number;
@@ -65,7 +67,7 @@ export const dynamicReconciliationService = {
     const products = productsRes.data || [];
     const sectors = sectorsRes.data || [];
 
-    const [purchasesRes, requisitionsRes] = await Promise.all([
+    const [purchasesRes, requisitionsRes, sectorMovementsRes] = await Promise.all([
       supabase.from('purchase_items')
         .select('product_id, quantity, purchases!inner(purchase_date)')
         .eq('purchases.hotel_id', hotelId)
@@ -76,11 +78,18 @@ export const dynamicReconciliationService = {
         .eq('hotel_id', hotelId)
         .eq('status', 'delivered')
         .gte('updated_at', startDate)
-        .lte('updated_at', endDate)
+        .lte('updated_at', endDate),
+      supabase.from('sector_stock_movements')
+        .select('sector_id, product_id, quantity, movement_type')
+        .eq('hotel_id', hotelId)
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
     ]);
 
     if (purchasesRes.error) throw purchasesRes.error;
     if (requisitionsRes.error) throw requisitionsRes.error;
+    // sector_stock_movements pode não existir ainda — não falha se der erro
+    const sectorMovements = sectorMovementsRes.data || [];
 
     const countItemsMap = new Map<string, Map<string, number>>();
     counts.forEach((count: any) => {
@@ -102,12 +111,25 @@ export const dynamicReconciliationService = {
       const pId = r.substituted_product_id || r.product_id;
       if (!pId) return;
       deliveriesMap.set(pId, (deliveriesMap.get(pId) || 0) + (r.delivered_quantity || 0));
-      
+
       if (r.sector_id) {
         if (!sectorReceivedMap.has(r.sector_id)) sectorReceivedMap.set(r.sector_id, new Map());
         const sMap = sectorReceivedMap.get(r.sector_id)!;
         sMap.set(pId, (sMap.get(pId) || 0) + (r.delivered_quantity || 0));
       }
+    });
+
+    // Movimentos setoriais (saídas e entradas por transferência)
+    // key: sectorId -> productId -> { exits, entries }
+    const sectorMovementsMap = new Map<string, Map<string, { exits: number; entries: number }>>();
+    sectorMovements.forEach((m: any) => {
+      if (!m.sector_id || !m.product_id) return;
+      if (!sectorMovementsMap.has(m.sector_id)) sectorMovementsMap.set(m.sector_id, new Map());
+      const sMap = sectorMovementsMap.get(m.sector_id)!;
+      if (!sMap.has(m.product_id)) sMap.set(m.product_id, { exits: 0, entries: 0 });
+      const entry = sMap.get(m.product_id)!;
+      if (m.movement_type === 'saida') entry.exits += Number(m.quantity);
+      else if (m.movement_type === 'entrada') entry.entries += Number(m.quantity);
     });
 
     const rows: DynamicReconciliationRow[] = products.map(p => {
@@ -135,11 +157,16 @@ export const dynamicReconciliationService = {
           const sInitial = countItemsMap.get(sectorSelection.start_count_id)?.get(p.id) || 0;
           const sReceived = sectorReceivedMap.get(s.id)?.get(p.id) || 0;
           const sActual = countItemsMap.get(sectorSelection.end_count_id)?.get(p.id) || 0;
-          
+          const movData = sectorMovementsMap.get(s.id)?.get(p.id);
+          const sExits = movData?.exits || 0;
+          const sEntries = movData?.entries || 0;
+
           sectorStocks[s.id] = {
             initialStock: sInitial,
             received: sReceived,
-            calculatedFinalStock: sInitial + sReceived,
+            exits: sExits,
+            entries: sEntries,
+            calculatedFinalStock: sInitial + sReceived + sEntries - sExits,
             actualFinalStock: sActual,
             loss: 0
           };
