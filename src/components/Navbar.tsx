@@ -325,16 +325,101 @@ const Navbar = () => {
               </Transition>
             </Menu>
 
-            {/* Separador + breadcrumb da seção ativa */}
-            {activeSection && (
-              <div className="hidden sm:flex items-center gap-1 ml-2 text-gray-400 dark:text-gray-500">
-                <ChevronRight className="h-3.5 w-3.5" />
-                <activeSection.icon className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                  {activeSection.label}
-                </span>
-              </div>
-            )}
+            {/* Separador + breadcrumb clicável — abre mega-menu de módulos */}
+            <div className="hidden sm:flex items-center gap-1 ml-2 text-gray-400 dark:text-gray-500">
+              <ChevronRight className="h-3.5 w-3.5" />
+              <Menu as="div" className="relative">
+                <Menu.Button className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                  {activeSection ? (
+                    <>
+                      <activeSection.icon className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                        {activeSection.label}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Home className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                        Dashboard
+                      </span>
+                    </>
+                  )}
+                  <ChevronDownIcon className="h-3.5 w-3.5 text-gray-400" />
+                </Menu.Button>
+
+                <Transition
+                  as={Fragment}
+                  enter="transition ease-out duration-150"
+                  enterFrom="transform opacity-0 scale-95 -translate-y-1"
+                  enterTo="transform opacity-100 scale-100 translate-y-0"
+                  leave="transition ease-in duration-100"
+                  leaveFrom="transform opacity-100 scale-100"
+                  leaveTo="transform opacity-0 scale-95"
+                >
+                  <Menu.Items className="absolute left-0 mt-2 w-72 max-h-[70vh] overflow-y-auto rounded-2xl shadow-2xl bg-white dark:bg-gray-800 ring-1 ring-black/5 dark:ring-gray-700 focus:outline-none z-50">
+                    <div className="py-2">
+                      {/* Dashboard */}
+                      <Menu.Item>
+                        {({ active }) => (
+                          <Link
+                            to="/"
+                            className={classNames(
+                              active ? 'bg-gray-50 dark:bg-gray-700' : '',
+                              location.pathname === '/' ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-700 dark:text-gray-200',
+                              'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors'
+                            )}
+                          >
+                            <Home className="h-4 w-4 flex-shrink-0" />
+                            Dashboard
+                          </Link>
+                        )}
+                      </Menu.Item>
+
+                      <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
+
+                      {/* Módulos com sub-itens */}
+                      {visibleSections.map(section => {
+                        const isCurrent = activeSection?.key === section.key;
+                        return (
+                          <div key={section.key}>
+                            <p className={classNames(
+                              'px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5',
+                              isCurrent ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
+                            )}>
+                              <section.icon className="h-3.5 w-3.5" />
+                              {section.label}
+                            </p>
+                            {section.items.map(item => (
+                              <Menu.Item key={item.href}>
+                                {({ active }) => (
+                                  <Link
+                                    to={item.href}
+                                    className={classNames(
+                                      active ? 'bg-gray-50 dark:bg-gray-700' : '',
+                                      isActive(item.href)
+                                        ? 'text-blue-600 dark:text-blue-400 font-semibold bg-blue-50/50 dark:bg-blue-900/20'
+                                        : 'text-gray-600 dark:text-gray-300',
+                                      'flex items-center gap-3 pl-8 pr-4 py-2 text-sm transition-colors'
+                                    )}
+                                  >
+                                    <item.icon className="h-4 w-4 flex-shrink-0" />
+                                    {item.name}
+                                    {isActive(item.href) && (
+                                      <CheckIcon className="h-3.5 w-3.5 ml-auto text-blue-500" />
+                                    )}
+                                  </Link>
+                                )}
+                              </Menu.Item>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Menu.Items>
+                </Transition>
+              </Menu>
+            </div>
           </div>
 
           {/* ── Nav contextual desktop ─────────────────────────────────────── */}
