@@ -11,6 +11,7 @@ import SectorRequests        from './pages/SectorRequests';
 import AdminPanel            from './pages/AdminPanel';
 import ManagementPanel       from './pages/ManagementPanel';
 import Inventory             from './pages/Inventory';
+import TransferHistory       from './pages/TransferHistory';
 import ShoppingList          from './pages/ShoppingList';
 import Login                 from './pages/Login';
 import UserManagement        from './pages/UserManagement';
@@ -180,6 +181,12 @@ function App() {
                     <Route path="/inventory" element={
                       <PrivateRoute module="inventory">
                         <Inventory />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/inventory/transfers" element={
+                      <PrivateRoute module="inventory">
+                        <TransferHistory />
                       </PrivateRoute>
                     } />
 

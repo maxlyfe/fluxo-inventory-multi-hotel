@@ -13,6 +13,7 @@ import {
   Sun, Cloud, Moon, CloudRain, CloudSnow, CloudLightning, CloudDrizzle,
   CloudFog, Wind, Thermometer, Droplets, Eye, MapPin, Clock,
   BedDouble, LogIn, LogOut, Users, Search, CalendarCheck, CalendarRange,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -103,7 +104,8 @@ const SIDEBAR_GROUPS_DEF: {
     label: 'Stock',
     dynamicKey: 'stockSectors',
     items: [
-      { module: 'inventory', label: 'Inventário', href: '/inventory', icon: Boxes, color: '#8b5cf6' },
+      { module: 'inventory', label: 'Inventário',     href: '/inventory',            icon: Boxes,           color: '#8b5cf6' },
+      { module: 'inventory', label: 'Transferências', href: '/inventory/transfers',  icon: ArrowLeftRight,  color: '#f97316' },
     ],
   },
   {
