@@ -124,19 +124,15 @@ const TransferHistory: React.FC = () => {
   const hotelPairs = useMemo(() => {
     if (!selectedHotel?.id) return [];
 
-    const filtered = transfers.filter(t => {
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false;
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        const productName = t.product?.name?.toLowerCase() || '';
-        const sourceName = t.source_hotel?.name?.toLowerCase() || '';
-        const destName = t.destination_hotel?.name?.toLowerCase() || '';
-        if (!productName.includes(term) && !sourceName.includes(term) && !destName.includes(term)) {
-          return false;
-        }
-      }
-      return true;
-    });
+    // Filtro de busca (aplicado a tudo)
+    const matchesSearch = (t: Transfer) => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      const productName = t.product?.name?.toLowerCase() || '';
+      const sourceName = t.source_hotel?.name?.toLowerCase() || '';
+      const destName = t.destination_hotel?.name?.toLowerCase() || '';
+      return productName.includes(term) || sourceName.includes(term) || destName.includes(term);
+    };
 
     // Group by other hotel
     const pairMap = new Map<string, {
@@ -145,7 +141,9 @@ const TransferHistory: React.FC = () => {
       productMap: Map<string, ProductDebtSummary>;
     }>();
 
-    for (const t of filtered) {
+    for (const t of transfers) {
+      if (!matchesSearch(t)) continue;
+
       const isSent = t.source_hotel_id === selectedHotel.id;
       const otherHotelId = isSent ? t.destination_hotel_id : t.source_hotel_id;
       const otherHotelName = isSent
@@ -179,22 +177,28 @@ const TransferHistory: React.FC = () => {
 
       const ps = pair.productMap.get(productId)!;
 
-      if (isSent) {
-        ps.totalSent += t.quantity;
-      } else {
-        ps.totalReceived += t.quantity;
+      // Dívida: sempre conta completed + cancelled (independente do filtro visual)
+      if (t.status === 'completed' || t.status === 'cancelled') {
+        if (isSent) {
+          ps.totalSent += t.quantity;
+        } else {
+          ps.totalReceived += t.quantity;
+        }
       }
 
-      ps.transfers.push({
-        id: t.id,
-        date: t.created_at,
-        quantity: t.quantity,
-        direction: isSent ? 'sent' : 'received',
-        otherHotelName,
-        unitValue: t.unit_value,
-        status: t.status,
-        notes: t.notes,
-      });
+      // Linhas de transferência: respeita o filtro de status para exibição
+      if (statusFilter === 'all' || t.status === statusFilter) {
+        ps.transfers.push({
+          id: t.id,
+          date: t.created_at,
+          quantity: t.quantity,
+          direction: isSent ? 'sent' : 'received',
+          otherHotelName,
+          unitValue: t.unit_value,
+          status: t.status,
+          notes: t.notes,
+        });
+      }
     }
 
     // Calculate nets and build final array
@@ -213,13 +217,18 @@ const TransferHistory: React.FC = () => {
         totalSent += ps.totalSent;
         totalReceived += ps.totalReceived;
 
-        // Calculate values from individual transfers
+        // Valores monetários: usa todos (completed + cancelled)
         for (const tl of ps.transfers) {
           const val = (tl.unitValue || 0) * tl.quantity;
           if (tl.direction === 'sent') totalValueSent += val;
           else totalValueReceived += val;
         }
       }
+
+      // Só mostra pares que têm alguma dívida ou transferências visíveis
+      const hasVisibleTransfers = products.some(p => p.transfers.length > 0);
+      const hasDebt = products.some(p => p.net !== 0 || p.totalSent > 0 || p.totalReceived > 0);
+      if (!hasVisibleTransfers && !hasDebt) continue;
 
       products.sort((a, b) => a.productName.localeCompare(b.productName));
 
@@ -315,7 +324,7 @@ const TransferHistory: React.FC = () => {
             product_id: ps.productId,
             quantity: ps.qty,
             unit_value: null,
-            status: 'completed',
+            status: 'cancelled',
             notes: 'Dívida cancelada',
             completed_at: new Date().toISOString(),
           });
