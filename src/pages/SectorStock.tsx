@@ -6,7 +6,8 @@ import {
   Package, Scale, History, ChevronDown, ChevronUp,
   ImageIcon, Trash2,
   CalendarCheck, X, ListChecks, Filter,
-  ChevronLeftSquare, ChevronRightSquare, GitCommit, Loader2, Edit2, ArrowRightLeft
+  ChevronLeftSquare, ChevronRightSquare, GitCommit, Loader2, Edit2, ArrowRightLeft,
+  ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
@@ -52,15 +53,25 @@ interface StockBalance {
   };
 }
 
+interface SectorMovementDetail {
+  quantity: number;
+  destinationLabel: string;
+  createdAt: string;
+}
+
 interface BalanceItem {
   productId: string;
   productName: string;
   productImageUrl?: string;
   initialStock: number;
   receivedSinceLastBalance: number;
-  currentCount?: number; 
-  displayConsumption?: number; 
-  discrepancy?: number; 
+  exitsSinceLastBalance: number;
+  exitDetails: SectorMovementDetail[];
+  entriesFromTransfers: number;
+  entryDetails: SectorMovementDetail[];
+  currentCount?: number;
+  displayConsumption?: number;
+  discrepancy?: number;
 }
 
 interface PendingEntry {
@@ -383,13 +394,51 @@ const SectorStock = () => {
         }
 
         const receivedSinceLastBalance = deliveries.reduce((sum, req) => sum + (req.delivered_quantity || 0), 0);
-        
+
+        // Buscar saídas por transferência desde o último balanço
+        const { data: exits } = await supabase
+          .from('sector_stock_movements')
+          .select('quantity, destination_label, created_at')
+          .eq('hotel_id', selectedHotel.id)
+          .eq('sector_id', sectorId)
+          .eq('product_id', product.id)
+          .eq('movement_type', 'saida')
+          .gte('created_at', lastBalanceDate);
+
+        const exitsSinceLastBalance = (exits || []).reduce((sum, m) => sum + Number(m.quantity), 0);
+        const exitDetails: SectorMovementDetail[] = (exits || []).map(m => ({
+          quantity: Number(m.quantity),
+          destinationLabel: m.destination_label || 'Destino desconhecido',
+          createdAt: m.created_at,
+        }));
+
+        // Buscar entradas por transferência (de outros setores) desde o último balanço
+        const { data: entries } = await supabase
+          .from('sector_stock_movements')
+          .select('quantity, destination_label, created_at')
+          .eq('hotel_id', selectedHotel.id)
+          .eq('sector_id', sectorId)
+          .eq('product_id', product.id)
+          .eq('movement_type', 'entrada')
+          .gte('created_at', lastBalanceDate);
+
+        const entriesFromTransfers = (entries || []).reduce((sum, m) => sum + Number(m.quantity), 0);
+        const entryDetails: SectorMovementDetail[] = (entries || []).map(m => ({
+          quantity: Number(m.quantity),
+          destinationLabel: m.destination_label || 'Origem desconhecida',
+          createdAt: m.created_at,
+        }));
+
         balanceItems.push({
           productId: product.id,
           productName: product.name,
           productImageUrl: product.image_url,
           initialStock: initialStock,
           receivedSinceLastBalance: receivedSinceLastBalance,
+          exitsSinceLastBalance,
+          exitDetails,
+          entriesFromTransfers,
+          entryDetails,
         });
       }
       setBalanceData(balanceItems.sort((a, b) => a.productName.localeCompare(b.productName)));
@@ -404,13 +453,14 @@ const SectorStock = () => {
 
   const handleBalanceInputChange = (productId: string, value: string) => {
     const currentCount = value === '' ? undefined : parseFloat(value.replace(',', '.'));
-    setBalanceData(prevData => 
+    setBalanceData(prevData =>
       prevData.map(item => {
         if (item.productId === productId) {
           let displayConsumption: number | undefined;
           let discrepancy: number | undefined;
           if (currentCount !== undefined && !isNaN(currentCount)) {
-            const totalAvailable = item.initialStock + item.receivedSinceLastBalance;
+            // Consumo = anterior + recebidos + entradas_transferência - saídas_transferência - contagem_atual
+            const totalAvailable = item.initialStock + item.receivedSinceLastBalance + item.entriesFromTransfers - item.exitsSinceLastBalance;
             const rawConsumption = totalAvailable - currentCount;
             displayConsumption = Math.max(0, rawConsumption);
             discrepancy = rawConsumption < 0 ? Math.abs(rawConsumption) : 0;
@@ -433,15 +483,15 @@ const SectorStock = () => {
       for (const item of balanceData) {
         if (item.currentCount === undefined || isNaN(item.currentCount)) continue;
         
-        const totalAvailable = item.initialStock + item.receivedSinceLastBalance;
+        const totalAvailable = item.initialStock + item.receivedSinceLastBalance + item.entriesFromTransfers - item.exitsSinceLastBalance;
         const consumed = totalAvailable - item.currentCount;
 
         balanceEntries.push({
           sector_id: sectorId,
           product_id: item.productId,
-          previous_quantity: item.initialStock, 
-          current_quantity: item.currentCount, 
-          received_quantity: item.receivedSinceLastBalance, 
+          previous_quantity: item.initialStock,
+          current_quantity: item.currentCount,
+          received_quantity: item.receivedSinceLastBalance,
           consumed_quantity: Math.max(0, consumed),
           balance_date: balanceDate,
           hotel_id: selectedHotel.id,
@@ -783,6 +833,35 @@ const SectorStock = () => {
             });
 
           if (transferErr) console.error('Erro ao registrar transferência:', transferErr);
+
+          // 2c. Registrar saída no setor de origem
+          const destLabel = `${destHotelName} > ${destSectorName}`;
+          await supabase.from('sector_stock_movements').insert({
+            hotel_id: selectedHotel!.id,
+            sector_id: sectorId!,
+            product_id: item.productId,
+            quantity: item.qty,
+            movement_type: 'saida',
+            destination_hotel_id: transferDestHotel,
+            destination_sector_id: transferDestSector,
+            destination_label: destLabel,
+            notes: `Transferência inter-hotel → ${destLabel}`,
+            created_by: user?.email || null,
+          });
+
+          // 2d. Registrar entrada no setor de destino
+          await supabase.from('sector_stock_movements').insert({
+            hotel_id: transferDestHotel,
+            sector_id: transferDestSector,
+            product_id: item.productId,
+            quantity: item.qty,
+            movement_type: 'entrada',
+            destination_hotel_id: selectedHotel!.id,
+            destination_sector_id: sectorId!,
+            destination_label: `${selectedHotel!.name} > ${srcSectorName}`,
+            notes: `Recebido de ${selectedHotel!.name} > ${srcSectorName}`,
+            created_by: user?.email || null,
+          });
         } else {
           // 2. Local: soma no setor do mesmo hotel
           const { error: dstError } = await supabase.rpc('update_sector_stock_on_delivery', {
@@ -793,6 +872,32 @@ const SectorStock = () => {
           });
 
           if (dstError) throw new Error(`Erro ao adicionar "${item.productName}" no destino: ${dstError.message}`);
+
+          // 2b. Registrar saída no setor de origem
+          await supabase.from('sector_stock_movements').insert({
+            hotel_id: selectedHotel!.id,
+            sector_id: sectorId!,
+            product_id: item.productId,
+            quantity: item.qty,
+            movement_type: 'saida',
+            destination_sector_id: transferDestSector,
+            destination_label: destSectorName,
+            notes: `Transferência local → ${destSectorName}`,
+            created_by: user?.email || null,
+          });
+
+          // 2c. Registrar entrada no setor de destino
+          await supabase.from('sector_stock_movements').insert({
+            hotel_id: selectedHotel!.id,
+            sector_id: transferDestSector,
+            product_id: item.productId,
+            quantity: item.qty,
+            movement_type: 'entrada',
+            destination_sector_id: sectorId!,
+            destination_label: srcSectorName,
+            notes: `Recebido de ${srcSectorName}`,
+            created_by: user?.email || null,
+          });
         }
       }
 
@@ -925,7 +1030,8 @@ const SectorStock = () => {
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Produto</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Est. Anterior</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Recebimentos</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Entradas</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Saídas</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Contagem Física</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Consumo</th>
                       <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Sobra</th>
@@ -946,9 +1052,58 @@ const SectorStock = () => {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center text-sm text-gray-500 dark:text-gray-400">{item.initialStock}</td>
-                        <td className="px-4 py-3 text-center text-sm text-green-600 dark:text-green-400 font-semibold">+{item.receivedSinceLastBalance}</td>
+                        {/* Entradas: requisições + transferências recebidas */}
+                        <td className="px-4 py-3 text-center text-sm">
+                          <div className="relative group/entry inline-flex items-center gap-1 cursor-default">
+                            <span className="text-green-600 dark:text-green-400 font-semibold">
+                              +{item.receivedSinceLastBalance + item.entriesFromTransfers}
+                            </span>
+                            {(item.receivedSinceLastBalance > 0 || item.entriesFromTransfers > 0) && (
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/entry:block z-30">
+                                <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl">
+                                  {item.receivedSinceLastBalance > 0 && (
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                      <Package size={12} className="text-green-400" />
+                                      <span>Requisições: +{item.receivedSinceLastBalance}</span>
+                                    </div>
+                                  )}
+                                  {item.entryDetails.map((d, i) => (
+                                    <div key={i} className="flex items-center gap-1.5 mb-0.5">
+                                      <ArrowDownLeft size={12} className="text-blue-400" />
+                                      <span>+{d.quantity} de {d.destinationLabel}</span>
+                                    </div>
+                                  ))}
+                                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-900 dark:border-t-gray-700" />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        {/* Saídas: transferências enviadas */}
+                        <td className="px-4 py-3 text-center text-sm">
+                          {item.exitsSinceLastBalance > 0 ? (
+                            <div className="relative group/exit inline-flex items-center gap-1 cursor-default">
+                              <span className="text-red-500 dark:text-red-400 font-semibold">
+                                -{item.exitsSinceLastBalance}
+                              </span>
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/exit:block z-30">
+                                <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl">
+                                  {item.exitDetails.map((d, i) => (
+                                    <div key={i} className="flex items-center gap-1.5 mb-0.5">
+                                      <ArrowUpRight size={12} className="text-orange-400" />
+                                      <span>{d.quantity} → {d.destinationLabel}</span>
+                                    </div>
+                                  ))}
+                                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-900 dark:border-t-gray-700" />
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-600">0</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
-                          <input 
+                          <input
                             type="number"
                             value={item.currentCount ?? ''}
                             onChange={(e) => handleBalanceInputChange(item.productId, e.target.value)}

@@ -721,7 +721,8 @@ const WeeklyReconciliationReport: React.FC = () => {
                       <tr>
                         <th className="px-6 py-4 sticky left-0 bg-gray-50 dark:bg-gray-700 z-10">Item</th>
                         <th className="px-4 py-4 text-center">Est. Anterior</th>
-                        <th className="px-4 py-4 text-center">Recebidos</th>
+                        <th className="px-4 py-4 text-center">Entradas</th>
+                        <th className="px-4 py-4 text-center">Saídas</th>
                         <th className="px-4 py-4 text-center">Vendas</th>
                         <th className="px-4 py-4 text-center">Consumo</th>
                         <th className="px-4 py-4 text-center">Est. Atual (Contagem)</th>
@@ -732,7 +733,7 @@ const WeeklyReconciliationReport: React.FC = () => {
                       {Object.entries(groupedRows).map(([category, rows]) => (
                         <React.Fragment key={category}>
                           <tr className="bg-gray-50/50 dark:bg-gray-800/50">
-                            <td colSpan={7} className="px-6 py-2 font-bold text-blue-600 dark:text-blue-400 text-xs uppercase tracking-wider">{category}</td>
+                            <td colSpan={8} className="px-6 py-2 font-bold text-blue-600 dark:text-blue-400 text-xs uppercase tracking-wider">{category}</td>
                           </tr>
                           {rows.map(row => {
                             const sectorData = row.sectorStocks[activeView];
@@ -740,13 +741,18 @@ const WeeklyReconciliationReport: React.FC = () => {
                             const keyCons = activeView + '-' + row.productId + '-consumption';
                             const sales = editableValues[keySales] || 0;
                             const consumption = editableValues[keyCons] || 0;
-                            const expected = (sectorData?.initialStock || 0) + (sectorData?.received || 0) - sales - consumption;
+                            const sReceived = sectorData?.received || 0;
+                            const sEntries = sectorData?.entries || 0;
+                            const sExits = sectorData?.exits || 0;
+                            const totalIn = sReceived + sEntries;
+                            const expected = (sectorData?.initialStock || 0) + totalIn - sExits - sales - consumption;
                             const loss = (sectorData?.actualFinalStock || 0) - expected;
                             return (
                               <tr key={row.productId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                                 <td className="px-6 py-4 font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800 z-10">{row.productName}</td>
                                 <td className="px-4 py-4 text-center font-mono">{sectorData?.initialStock || 0}</td>
-                                <td className="px-4 py-4 text-center font-mono text-green-600">+{sectorData?.received || 0}</td>
+                                <td className="px-4 py-4 text-center font-mono text-green-600">+{totalIn}</td>
+                                <td className="px-4 py-4 text-center font-mono text-red-500">{sExits > 0 ? `-${sExits}` : '0'}</td>
                                 <td className="px-4 py-4 text-center">
                                   <div className="relative inline-block">
                                     <input

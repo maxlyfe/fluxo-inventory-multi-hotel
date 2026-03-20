@@ -225,10 +225,9 @@ const TransferHistory: React.FC = () => {
         }
       }
 
-      // Só mostra pares que têm alguma dívida ou transferências visíveis
+      // Só mostra pares que têm transferências visíveis no filtro atual
       const hasVisibleTransfers = products.some(p => p.transfers.length > 0);
-      const hasDebt = products.some(p => p.net !== 0 || p.totalSent > 0 || p.totalReceived > 0);
-      if (!hasVisibleTransfers && !hasDebt) continue;
+      if (!hasVisibleTransfers) continue;
 
       products.sort((a, b) => a.productName.localeCompare(b.productName));
 
