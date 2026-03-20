@@ -41,17 +41,11 @@ export function usePushNotifications(options?: UsePushNotificationsOptions) {
           navigator.platform || 'Unknown',
         ].join('/');
 
-        const { error } = await supabase
-          .from('user_fcm_tokens')
-          .upsert(
-            {
-              user_id:     userId,
-              token,
-              device_info: deviceInfo,
-              last_seen:   new Date().toISOString(),
-            },
-            { onConflict: 'token' }
-          );
+        const { error } = await supabase.rpc('upsert_fcm_token', {
+          p_user_id: userId,
+          p_token: token,
+          p_device_info: deviceInfo,
+        });
 
         if (error) {
           console.warn('[Push] Erro ao salvar token FCM:', error.message);
