@@ -10,6 +10,7 @@ import { useHotel } from '../../context/HotelContext';
 import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
   Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2, Pencil,
+  Trash2, GripVertical, ArrowUp, ArrowDown, Save,
 } from 'lucide-react';
 import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -188,6 +189,11 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [newOccThreshold, setNewOccThreshold] = useState(1);
   const [creatingOcc, setCreatingOcc] = useState(false);
   const [saving, setSaving]      = useState(false);
+  const [editingOccId, setEditingOccId] = useState<string | null>(null);
+  const [editOccName, setEditOccName] = useState('');
+  const [editOccCausesLoss, setEditOccCausesLoss] = useState(false);
+  const [editOccThreshold, setEditOccThreshold] = useState(1);
+  const [savingOcc, setSavingOcc] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -195,6 +201,59 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     const t = setTimeout(() => document.addEventListener('mousedown', h), 60);
     return () => { clearTimeout(t); document.removeEventListener('mousedown', h); };
   }, [onClose]);
+
+  const startEditOcc = (ot: OccurrenceType) => {
+    setEditingOccId(ot.id);
+    setEditOccName(ot.name);
+    setEditOccCausesLoss(ot.causes_basket_loss);
+    setEditOccThreshold(ot.loss_threshold);
+  };
+
+  const handleSaveEditOcc = async () => {
+    if (!editingOccId || !editOccName.trim() || savingOcc) return;
+    setSavingOcc(true);
+    const { error } = await supabase.from('occurrence_types')
+      .update({
+        name: editOccName.trim(),
+        causes_basket_loss: editOccCausesLoss,
+        loss_threshold: editOccCausesLoss ? editOccThreshold : 1,
+      })
+      .eq('id', editingOccId);
+    if (!error) {
+      onOccurrenceTypesChanged(occurrenceTypes.map(ot =>
+        ot.id === editingOccId
+          ? { ...ot, name: editOccName.trim(), causes_basket_loss: editOccCausesLoss, loss_threshold: editOccCausesLoss ? editOccThreshold : 1 }
+          : ot
+      ));
+      setEditingOccId(null);
+    }
+    setSavingOcc(false);
+  };
+
+  const handleDeleteOcc = async (id: string) => {
+    const { error } = await supabase.from('occurrence_types').delete().eq('id', id);
+    if (!error) {
+      const updated = occurrenceTypes.filter(ot => ot.id !== id);
+      onOccurrenceTypesChanged(updated);
+      if (selectedOccurrence?.id === id) setSelectedOccurrence(null);
+      if (editingOccId === id) setEditingOccId(null);
+    }
+  };
+
+  const handleMoveOcc = async (id: string, direction: 'up' | 'down') => {
+    const idx = occurrenceTypes.findIndex(ot => ot.id === id);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= occurrenceTypes.length) return;
+    const reordered = [...occurrenceTypes];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    // Update sort_order in DB
+    const updates = reordered.map((ot, i) => ({ id: ot.id, sort_order: i + 1 }));
+    for (const u of updates) {
+      await supabase.from('occurrence_types').update({ sort_order: u.sort_order }).eq('id', u.id);
+    }
+    onOccurrenceTypesChanged(reordered.map((ot, i) => ({ ...ot, sort_order: i + 1 })));
+  };
 
   const handleCreateOccurrenceType = async () => {
     if (!newOccName.trim() || creatingOcc) return;
@@ -300,28 +359,107 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </select>
         )}
 
-        {/* Occurrence type picker */}
+        {/* Occurrence type picker with edit/delete/reorder */}
         {type === 'custom' && (
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo de ocorrência</p>
             <div className="space-y-1">
-              {occurrenceTypes.map(ot => {
+              {occurrenceTypes.map((ot, idx) => {
                 const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
                 const isSelected = selectedOccurrence?.id === ot.id;
+                const isEditing = editingOccId === ot.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={ot.id} className="rounded-xl border-2 border-blue-400 bg-gray-50 dark:bg-gray-700 p-2 space-y-1.5">
+                      <input type="text" value={editOccName} onChange={e => setEditOccName(e.target.value)}
+                        maxLength={30} autoFocus
+                        className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={editOccCausesLoss} onChange={e => setEditOccCausesLoss(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
+                        <span className="text-[10px] text-gray-600 dark:text-gray-300">Perde cesta básica</span>
+                      </label>
+                      {editOccCausesLoss && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-500">Após</span>
+                          <input type="number" min={1} max={31} value={editOccThreshold}
+                            onChange={e => setEditOccThreshold(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-10 px-1 py-0.5 text-xs text-center border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                          <span className="text-[10px] text-gray-500">vez(es)</span>
+                        </div>
+                      )}
+                      <div className="flex gap-1">
+                        <button onClick={() => setEditingOccId(null)}
+                          className="flex-1 py-1 text-[10px] font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600">
+                          Cancelar
+                        </button>
+                        <button onClick={handleSaveEditOcc} disabled={savingOcc || !editOccName.trim()}
+                          className="flex-1 py-1 text-[10px] font-bold bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-60 flex items-center justify-center gap-1">
+                          {savingOcc ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />} Salvar
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
-                  <button key={ot.id}
-                    onClick={() => setSelectedOccurrence(ot)}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-between gap-2
-                      ${isSelected
+                  <div key={ot.id}
+                    className={`group/occ flex items-center gap-1 rounded-xl transition-all ${
+                      isSelected
                         ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
-                    <span>{ot.name}</span>
-                    {ot.causes_basket_loss && (
-                      <span className="text-[10px] text-red-400 dark:text-red-400 whitespace-nowrap">
-                        {ot.loss_threshold === 1 ? 'perde cesta' : `perde após ${ot.loss_threshold}x`}
-                      </span>
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}>
+                    {/* Reorder arrows */}
+                    <div className="flex flex-col pl-1 opacity-0 group-hover/occ:opacity-100 transition-opacity">
+                      <button onClick={(e) => { e.stopPropagation(); handleMoveOcc(ot.id, 'up'); }}
+                        disabled={idx === 0}
+                        className="p-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20">
+                        <ArrowUp className="h-2.5 w-2.5" />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); handleMoveOcc(ot.id, 'down'); }}
+                        disabled={idx === occurrenceTypes.length - 1}
+                        className="p-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20">
+                        <ArrowDown className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                    {/* Select button */}
+                    <button
+                      onClick={() => setSelectedOccurrence(ot)}
+                      className="flex-1 text-left px-2 py-2 text-xs font-semibold flex items-center justify-between gap-1">
+                      <span className={isSelected ? '' : 'text-gray-600 dark:text-gray-300'}>{ot.name}</span>
+                      {ot.causes_basket_loss && (
+                        <span className="text-[9px] text-red-400 whitespace-nowrap">
+                          {ot.loss_threshold === 1 ? 'perde cesta' : `após ${ot.loss_threshold}x`}
+                        </span>
+                      )}
+                    </button>
+                    {/* Edit/Delete — only for non-system types */}
+                    {!ot.is_system && (
+                      <div className="flex items-center gap-0.5 pr-1.5 opacity-0 group-hover/occ:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); startEditOcc(ot); }}
+                          className="p-1 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                          title="Editar">
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteOcc(ot.id); }}
+                          className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          title="Excluir">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
                     )}
-                  </button>
+                    {/* Edit/Delete for system types — only edit */}
+                    {ot.is_system && (
+                      <div className="flex items-center pr-1.5 opacity-0 group-hover/occ:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); startEditOcc(ot); }}
+                          className="p-1 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                          title="Editar">
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
