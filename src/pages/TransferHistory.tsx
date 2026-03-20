@@ -78,7 +78,7 @@ const TransferHistory: React.FC = () => {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('completed');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('all');
   const [expandedHotels, setExpandedHotels] = useState<Set<string>>(new Set());
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [forgiveConfirm, setForgiveConfirm] = useState<{
@@ -177,13 +177,15 @@ const TransferHistory: React.FC = () => {
 
       const ps = pair.productMap.get(productId)!;
 
-      // Dívida: sempre conta completed + cancelled (independente do filtro visual)
-      if (t.status === 'completed' || t.status === 'cancelled') {
-        if (isSent) {
-          ps.totalSent += t.quantity;
-        } else {
-          ps.totalReceived += t.quantity;
-        }
+      // Dívida inteligente: conta completed (transferências reais)
+      // Cancelled com "Dívida cancelada" são compensações que também afetam o saldo
+      if (t.status === 'completed') {
+        if (isSent) ps.totalSent += t.quantity;
+        else ps.totalReceived += t.quantity;
+      } else if (t.status === 'cancelled' && t.notes?.includes('Dívida cancelada')) {
+        // Compensações de dívida: contam para zerar o saldo
+        if (isSent) ps.totalSent += t.quantity;
+        else ps.totalReceived += t.quantity;
       }
 
       // Linhas de transferência: respeita o filtro de status para exibição
@@ -213,11 +215,15 @@ const TransferHistory: React.FC = () => {
       for (const [, ps] of pair.productMap) {
         ps.net = ps.totalSent - ps.totalReceived; // positive = they owe us
         ps.transfers.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        products.push(ps);
+
+        // Só inclui o produto se tiver transferências visíveis OU dívida pendente
+        if (ps.transfers.length > 0 || ps.net !== 0) {
+          products.push(ps);
+        }
         totalSent += ps.totalSent;
         totalReceived += ps.totalReceived;
 
-        // Valores monetários: usa todos (completed + cancelled)
+        // Valores monetários
         for (const tl of ps.transfers) {
           const val = (tl.unitValue || 0) * tl.quantity;
           if (tl.direction === 'sent') totalValueSent += val;
@@ -225,9 +231,8 @@ const TransferHistory: React.FC = () => {
         }
       }
 
-      // Só mostra pares que têm transferências visíveis no filtro atual
-      const hasVisibleTransfers = products.some(p => p.transfers.length > 0);
-      if (!hasVisibleTransfers) continue;
+      // Não mostra pares sem produtos visíveis
+      if (products.length === 0) continue;
 
       products.sort((a, b) => a.productName.localeCompare(b.productName));
 

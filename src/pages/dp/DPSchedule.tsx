@@ -2,13 +2,14 @@
 // Escala semanal DOM→DOM (8 colunas)
 // Auto-preenchimento por padrão, célula editável, transferência de unidade, exportar como imagem
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useHotel } from '../../context/HotelContext';
 import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
-  Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2,
+  Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2, Pencil,
 } from 'lucide-react';
 import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -835,6 +836,7 @@ export default function DPSchedule() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification();
+  const navigate = useNavigate();
 
   const canChangeHotel = ['admin', 'management'].includes(user?.role || '');
   const defaultHotelId = selectedHotel?.id || '';
@@ -1004,10 +1006,40 @@ export default function DPSchedule() {
     setCellEditor({ empId, dayDate, sector, entry: getEntry(empId, dayDate), pos: { top: rect.bottom + 4, left: rect.left } });
   };
 
-  // Sector groups for display
-  const sectorGroups = SECTORS_ORDER
-    .map(s => ({ sector: s, emps: employees.filter(e => e.sector === s) }))
-    .filter(g => g.emps.length > 0);
+  // Sector groups for display — sorted by dominant shift (morning first, night last)
+  const sectorGroups = useMemo(() => {
+    const getShiftScore = (emp: Employee): number => {
+      // Check entries for this employee: count how many days start in morning vs afternoon/night
+      const empEntries = entries.filter(e => e.employee_id === emp.id && e.entry_type === 'shift');
+      if (empEntries.length === 0) {
+        // Fallback to default_shift_start
+        const start = emp.default_shift_start;
+        if (!start) return 12; // no info, middle
+        const hour = parseInt(start.split(':')[0] || '12');
+        return hour;
+      }
+      // Average start hour across entries
+      let totalHour = 0;
+      let count = 0;
+      for (const e of empEntries) {
+        if (e.shift_start) {
+          const hour = parseInt(e.shift_start.split(':')[0] || '12');
+          totalHour += hour;
+          count++;
+        }
+      }
+      return count > 0 ? totalHour / count : 12;
+    };
+
+    return SECTORS_ORDER
+      .map(s => {
+        const emps = employees
+          .filter(e => e.sector === s)
+          .sort((a, b) => getShiftScore(a) - getShiftScore(b));
+        return { sector: s, emps };
+      })
+      .filter(g => g.emps.length > 0);
+  }, [employees, entries]);
 
   // ---------------------------------------------------------------------------
   if (loading) return (
@@ -1128,11 +1160,11 @@ export default function DPSchedule() {
 
       {/* Schedule table */}
       {hotelId && employees.length > 0 && (
-        <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="overflow-x-auto overflow-y-auto rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm" style={{ maxHeight: 'calc(100vh - 220px)' }}>
           <table className="w-full border-collapse text-xs" style={{ minWidth: 920 }}>
-            <thead>
+            <thead className="sticky top-0 z-20">
               <tr className="bg-gray-800 dark:bg-gray-950 text-white">
-                <th className="text-left px-4 py-3 font-bold uppercase tracking-wider w-36 sticky left-0 bg-gray-800 dark:bg-gray-950 z-10 border-r border-gray-700">
+                <th className="text-left px-4 py-3 font-bold uppercase tracking-wider w-36 sticky left-0 bg-gray-800 dark:bg-gray-950 z-30 border-r border-gray-700">
                   Colaborador
                 </th>
                 {weekDays.map((day, i) => {
@@ -1172,16 +1204,27 @@ export default function DPSchedule() {
                         ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/40 dark:bg-gray-800/50'
                       }`}>
                       {/* Name — click to auto-fill */}
-                      <td onClick={() => setAutoFillEmp(emp)}
-                        className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-100 dark:border-gray-700 cursor-pointer group">
+                      <td className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-100 dark:border-gray-700 group">
                         <div className="flex items-center gap-1">
-                          <span className="font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors text-xs">
+                          <span
+                            onClick={() => setAutoFillEmp(emp)}
+                            title={emp.name}
+                            className="font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors text-xs cursor-pointer">
                             {emp.name.split(' ')[0]}&nbsp;
                             <span className="text-gray-400 font-normal">
                               {emp.name.split(' ').slice(1, 2).join('')?.charAt(0) || ''}.
                             </span>
                           </span>
                           <Zap className="h-2.5 w-2.5 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          {['admin', 'management', 'dp'].includes(user?.role || '') && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); navigate(`/dp/employee/${emp.id}`); }}
+                              title="Editar ficha do colaborador"
+                              className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+                            >
+                              <Pencil className="h-2.5 w-2.5 text-gray-400 hover:text-blue-500" />
+                            </button>
+                          )}
                         </div>
                         {emp.work_schedule && (
                           <span className="text-[10px] text-gray-400 dark:text-gray-500">
