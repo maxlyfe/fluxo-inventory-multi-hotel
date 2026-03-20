@@ -1128,6 +1128,7 @@ const SectorStock = () => {
         onClose={() => setShowCountHistoryModal(false)}
         hotelId={selectedHotel?.id || ''}
         sectorId={sectorId}
+        onReopened={fetchSectorAndStockData}
       />
       {showConfirmDelete && productToDelete && (
         <Modal isOpen={showConfirmDelete} onClose={() => setShowConfirmDelete(false)} title="Confirmar Remoção">

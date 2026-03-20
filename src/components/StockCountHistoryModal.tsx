@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, User, Package, ChevronDown, ChevronUp, History } from 'lucide-react';
+import { X, Calendar, User, Package, ChevronDown, ChevronUp, History, RotateCcw, Loader2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useNotification } from '../context/NotificationContext';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -18,17 +19,22 @@ interface StockCountHistoryModalProps {
   onClose: () => void;
   hotelId: string;
   sectorId?: string;
+  onReopened?: () => void; // callback quando uma conferência é reaberta
 }
 
 const StockCountHistoryModal: React.FC<StockCountHistoryModalProps> = ({
   isOpen,
   onClose,
   hotelId,
-  sectorId
+  sectorId,
+  onReopened
 }) => {
+  const { addNotification } = useNotification();
   const [history, setHistory] = useState<StockCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reopening, setReopening] = useState(false);
+  const [confirmReopenId, setConfirmReopenId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -67,6 +73,29 @@ const StockCountHistoryModal: React.FC<StockCountHistoryModalProps> = ({
     }
   };
 
+  const handleReopen = async (countId: string) => {
+    setReopening(true);
+    try {
+      // 1. Mudar status para 'draft' e limpar finished_at
+      const { error: updateError } = await supabase
+        .from('stock_counts')
+        .update({ status: 'draft', finished_at: null })
+        .eq('id', countId);
+
+      if (updateError) throw updateError;
+
+      addNotification('Conferência reaberta como rascunho. Abra "Conferência" para continuar.', 'success');
+      setConfirmReopenId(null);
+      fetchHistory();
+      onReopened?.();
+    } catch (err: any) {
+      console.error('Erro ao reabrir conferência:', err);
+      addNotification('Erro ao reabrir: ' + (err.message || 'Erro desconhecido'), 'error');
+    } finally {
+      setReopening(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -93,24 +122,44 @@ const StockCountHistoryModal: React.FC<StockCountHistoryModalProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
-              {history.map((count) => (
+              {history.map((count, index) => (
                 <div key={count.id} className="border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
-                  <button
+                  <div
+                    className="w-full p-4 flex items-center justify-between bg-gray-50 dark:bg-gray-900/30 hover:bg-gray-100 dark:hover:bg-gray-900/50 transition-colors cursor-pointer"
                     onClick={() => setExpandedId(expandedId === count.id ? null : count.id)}
-                    className="w-full p-4 flex items-center justify-between bg-gray-50 dark:bg-gray-900/30 hover:bg-gray-100 dark:hover:bg-gray-900/50 transition-colors"
                   >
                     <div className="flex items-center gap-6">
                       <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                         <Calendar className="w-4 h-4" />
-                        {format(parseISO(count.finished_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                        {count.finished_at
+                          ? format(parseISO(count.finished_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+                          : 'Rascunho'}
                       </div>
                       <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
                         <Package className="w-4 h-4" />
                         {count.items?.length || 0} itens conferidos
                       </div>
+                      {index === 0 && count.finished_at && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium">
+                          Mais recente
+                        </span>
+                      )}
                     </div>
-                    {expandedId === count.id ? <ChevronUp /> : <ChevronDown />}
-                  </button>
+                    <div className="flex items-center gap-2">
+                      {/* Botão reabrir — só no mais recente finalizado */}
+                      {index === 0 && count.finished_at && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmReopenId(count.id); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 transition-colors"
+                          title="Reabrir esta conferência como rascunho"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Reabrir
+                        </button>
+                      )}
+                      {expandedId === count.id ? <ChevronUp /> : <ChevronDown />}
+                    </div>
+                  </div>
 
                   {expandedId === count.id && (
                     <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
@@ -143,6 +192,49 @@ const StockCountHistoryModal: React.FC<StockCountHistoryModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Modal de confirmação de reabertura */}
+        {confirmReopenId && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 dark:text-white">Reabrir conferência?</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Esta ação transforma em rascunho</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
+                A conferência será reaberta como rascunho. Você poderá ajustar as contagens e finalizar novamente pelo botão "Conferência".
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmReopenId(null)}
+                  disabled={reopening}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => handleReopen(confirmReopenId)}
+                  disabled={reopening}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {reopening ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4" />
+                      Reabrir
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
