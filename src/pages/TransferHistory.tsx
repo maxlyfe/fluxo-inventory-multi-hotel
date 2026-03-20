@@ -81,7 +81,11 @@ const TransferHistory: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('completed');
   const [expandedHotels, setExpandedHotels] = useState<Set<string>>(new Set());
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
-  const [forgiveConfirm, setForgiveConfirm] = useState<{ hotelId: string; hotelName: string; products: ProductDebtSummary[] } | null>(null);
+  const [forgiveConfirm, setForgiveConfirm] = useState<{
+    hotelId: string;
+    hotelName: string;
+    products: (ProductDebtSummary & { cancelQty: string })[];
+  } | null>(null);
   const [forgiving, setForgiving] = useState(false);
 
   // ── Fetch transfers ──────────────────────────────────────────────────────
@@ -252,17 +256,54 @@ const TransferHistory: React.FC = () => {
     return { totalSent, totalReceived, totalValueSent, totalValueReceived, net: totalSent - totalReceived };
   }, [hotelPairs]);
 
-  // ── Perdoar dívida ──────────────────────────────────────────────────────
+  // ── Cancelar dívida ─────────────────────────────────────────────────────
+  const openForgiveModal = (hotelId: string, hotelName: string, products: ProductDebtSummary[]) => {
+    setForgiveConfirm({
+      hotelId,
+      hotelName,
+      products: products
+        .filter(p => p.net !== 0)
+        .map(p => ({ ...p, cancelQty: String(Math.abs(p.net)) })),
+    });
+  };
+
+  const handleForgiveQtyChange = (productId: string, value: string) => {
+    if (!forgiveConfirm) return;
+    setForgiveConfirm({
+      ...forgiveConfirm,
+      products: forgiveConfirm.products.map(p =>
+        p.productId === productId ? { ...p, cancelQty: value } : p
+      ),
+    });
+  };
+
   const handleForgiveDebt = async () => {
     if (!forgiveConfirm || !selectedHotel?.id) return;
+
+    const itemsToCancel = forgiveConfirm.products
+      .map(p => ({ ...p, qty: parseInt(p.cancelQty) || 0 }))
+      .filter(p => p.qty > 0);
+
+    if (itemsToCancel.length === 0) {
+      addNotification('Informe ao menos uma quantidade para cancelar.', 'error');
+      return;
+    }
+
+    // Validar que não excede a dívida
+    const overLimit = itemsToCancel.find(p => p.qty > Math.abs(p.net));
+    if (overLimit) {
+      addNotification(
+        `"${overLimit.productName}": quantidade (${overLimit.qty}) excede a dívida (${Math.abs(overLimit.net)}).`,
+        'error'
+      );
+      return;
+    }
+
     setForgiving(true);
     try {
-      // Para cada produto com dívida, criar transferência compensatória
-      for (const ps of forgiveConfirm.products) {
-        if (ps.net === 0) continue;
-
-        // Se net > 0 (devem-nos), criamos uma "recebimento virtual" para zerar
-        // Se net < 0 (devemos), criamos um "envio virtual" para zerar
+      for (const ps of itemsToCancel) {
+        // Se net > 0 (devem-nos), criamos "recebimento virtual"
+        // Se net < 0 (devemos), criamos "envio virtual"
         const sourceId = ps.net > 0 ? forgiveConfirm.hotelId : selectedHotel.id;
         const destId = ps.net > 0 ? selectedHotel.id : forgiveConfirm.hotelId;
 
@@ -272,7 +313,7 @@ const TransferHistory: React.FC = () => {
             source_hotel_id: sourceId,
             destination_hotel_id: destId,
             product_id: ps.productId,
-            quantity: Math.abs(ps.net),
+            quantity: ps.qty,
             unit_value: null,
             status: 'completed',
             notes: 'Dívida cancelada',
@@ -282,11 +323,11 @@ const TransferHistory: React.FC = () => {
         if (insertErr) throw insertErr;
       }
 
-      addNotification('Dívida cancelada com sucesso! O balanço foi zerado.', 'success');
+      addNotification(`Dívida de ${itemsToCancel.length} item(s) cancelada com sucesso!`, 'success');
       setForgiveConfirm(null);
       fetchTransfers();
     } catch (err: any) {
-      console.error('Erro ao perdoar dívida:', err);
+      console.error('Erro ao cancelar dívida:', err);
       addNotification('Erro ao cancelar dívida: ' + (err.message || 'Erro desconhecido'), 'error');
     } finally {
       setForgiving(false);
@@ -514,11 +555,7 @@ const TransferHistory: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setForgiveConfirm({
-                          hotelId: pair.otherHotelId,
-                          hotelName: pair.otherHotelName,
-                          products: pair.products.filter(p => p.net !== 0),
-                        });
+                        openForgiveModal(pair.otherHotelId, pair.otherHotelName, pair.products);
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition-colors"
                       title="Cancelar todas as dívidas com este hotel"
@@ -692,39 +729,78 @@ const TransferHistory: React.FC = () => {
           </div>
         );
       })}
-      {/* ── Modal confirmação cancelar dívida ────────────────────────────── */}
+      {/* ── Modal cancelar dívida ────────────────────────────────────────── */}
       {forgiveConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <h3 className="font-bold text-gray-800 dark:text-white">Cancelar dívida?</h3>
+                <h3 className="font-bold text-gray-800 dark:text-white">Cancelar dívida</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {forgiveConfirm.hotelName}
+                  {forgiveConfirm.hotelName} — Escolha os itens e quantidades
                 </p>
               </div>
             </div>
 
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              Isto irá zerar o balanço de <strong>{forgiveConfirm.products.length} produto(s)</strong> com dívida pendente.
-              Será criado um registro de compensação para cada item.
-            </p>
+            {/* Lista de produtos com inputs */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-2">
+              {forgiveConfirm.products.map(p => {
+                const maxQty = Math.abs(p.net);
+                const currentQty = parseInt(p.cancelQty) || 0;
+                const isOver = currentQty > maxQty;
+                const isEmpty = currentQty === 0 || p.cancelQty === '' || p.cancelQty === '0';
 
-            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 mb-6 max-h-40 overflow-y-auto space-y-1">
-              {forgiveConfirm.products.map(p => (
-                <div key={p.productId} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700 dark:text-gray-300 truncate">{p.productName}</span>
-                  <span className={`font-medium ${p.net > 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                    {p.net > 0 ? `Devem ${p.net}` : `Devendo ${Math.abs(p.net)}`}
-                  </span>
-                </div>
-              ))}
+                return (
+                  <div
+                    key={p.productId}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                      isOver
+                        ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10'
+                        : isEmpty
+                          ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40'
+                          : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                        {p.productName}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {p.net > 0 ? (
+                          <span className="text-blue-600 dark:text-blue-400">Devem {maxQty}</span>
+                        ) : (
+                          <span className="text-orange-600 dark:text-orange-400">Devendo {maxQty}</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxQty}
+                        value={p.cancelQty}
+                        onChange={e => handleForgiveQtyChange(p.productId, e.target.value)}
+                        className={`w-20 px-2.5 py-1.5 text-sm text-center border rounded-lg focus:outline-none focus:ring-2 transition-all dark:bg-gray-700 dark:text-gray-100 ${
+                          isOver
+                            ? 'border-red-400 focus:ring-red-400'
+                            : 'border-gray-300 dark:border-gray-600 focus:ring-red-500'
+                        }`}
+                      />
+                      {isOver && (
+                        <span className="text-[10px] text-red-500 font-medium">máx. {maxQty}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="flex gap-3">
+            {/* Footer */}
+            <div className="p-5 border-t border-gray-100 dark:border-gray-700 flex gap-3">
               <button
                 onClick={() => setForgiveConfirm(null)}
                 disabled={forgiving}
@@ -742,7 +818,7 @@ const TransferHistory: React.FC = () => {
                 ) : (
                   <>
                     <X className="w-4 h-4" />
-                    Cancelar dívida
+                    Confirmar cancelamento
                   </>
                 )}
               </button>

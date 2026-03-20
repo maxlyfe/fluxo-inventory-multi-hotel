@@ -124,6 +124,11 @@ const SectorStock = () => {
   const [transferDestSector, setTransferDestSector] = useState<string>('');
   const [hotelSectors, setHotelSectors]             = useState<any[]>([]);
   const [isTransferring, setIsTransferring]         = useState(false);
+  // Inter-hotel transfer
+  const [transferMode, setTransferMode]             = useState<'local' | 'inter-hotel'>('local');
+  const [transferDestHotel, setTransferDestHotel]   = useState<string>('');
+  const [allHotels, setAllHotels]                   = useState<{ id: string; name: string }[]>([]);
+  const [destHotelSectors, setDestHotelSectors]     = useState<any[]>([]);
   // --- FIM NOVO ---
 
   const [isBalancing, setIsBalancing] = useState(false);
@@ -242,6 +247,14 @@ const SectorStock = () => {
               .eq('hotel_id', selectedHotel.id)
               .order('name');
             if (sectorsData) setHotelSectors(sectorsData);
+
+            // Busca todos os hotéis para transferência inter-hotel
+            const { data: hotelsData } = await supabase
+              .from('hotels')
+              .select('id, name')
+              .neq('id', selectedHotel.id)
+              .order('name');
+            if (hotelsData) setAllHotels(hotelsData);
         }
     };
     fetchInitialData();
@@ -658,7 +671,24 @@ const SectorStock = () => {
       }))
     );
     setTransferDestSector('');
+    setTransferMode('local');
+    setTransferDestHotel('');
+    setDestHotelSectors([]);
     setShowTransferModal(true);
+  };
+
+  /** Quando seleciona hotel destino, busca setores desse hotel */
+  const handleDestHotelChange = async (hotelId: string) => {
+    setTransferDestHotel(hotelId);
+    setTransferDestSector('');
+    setDestHotelSectors([]);
+    if (!hotelId) return;
+    const { data } = await supabase
+      .from('sectors')
+      .select('id, name')
+      .eq('hotel_id', hotelId)
+      .order('name');
+    if (data) setDestHotelSectors(data);
   };
 
   /** Atualiza a quantidade a transferir de um produto */
@@ -674,8 +704,16 @@ const SectorStock = () => {
       addNotification('Selecione o setor de destino.', 'error');
       return;
     }
-    if (transferDestSector === sectorId) {
+
+    const isInterHotel = transferMode === 'inter-hotel';
+
+    if (!isInterHotel && transferDestSector === sectorId) {
       addNotification('O setor de destino não pode ser o mesmo setor de origem.', 'error');
+      return;
+    }
+
+    if (isInterHotel && !transferDestHotel) {
+      addNotification('Selecione o hotel de destino.', 'error');
       return;
     }
 
@@ -701,6 +739,14 @@ const SectorStock = () => {
 
     setIsTransferring(true);
     try {
+      const srcSectorName = sector?.name || 'origem';
+      const destSectorName = isInterHotel
+        ? destHotelSectors.find(s => s.id === transferDestSector)?.name || 'destino'
+        : hotelSectors.find(s => s.id === transferDestSector)?.name || 'destino';
+      const destHotelName = isInterHotel
+        ? allHotels.find(h => h.id === transferDestHotel)?.name || 'hotel destino'
+        : '';
+
       for (const item of itemsToTransfer) {
         // 1. Desconta do setor de origem
         const { error: srcError } = await supabase
@@ -712,22 +758,49 @@ const SectorStock = () => {
 
         if (srcError) throw new Error(`Erro ao descontar "${item.productName}": ${srcError.message}`);
 
-        // 2. Soma no setor de destino (INSERT … ON CONFLICT DO UPDATE)
-        const { error: dstError } = await supabase.rpc('update_sector_stock_on_delivery', {
-          p_hotel_id: selectedHotel!.id,
-          p_sector_id: transferDestSector,
-          p_product_id: item.productId,
-          p_quantity: item.qty,
-        });
+        if (isInterHotel) {
+          // 2a. Inter-hotel: soma no setor do hotel destino
+          const { error: dstError } = await supabase.rpc('update_sector_stock_on_delivery', {
+            p_hotel_id: transferDestHotel,
+            p_sector_id: transferDestSector,
+            p_product_id: item.productId,
+            p_quantity: item.qty,
+          });
 
-        if (dstError) throw new Error(`Erro ao adicionar "${item.productName}" no destino: ${dstError.message}`);
+          if (dstError) throw new Error(`Erro ao adicionar "${item.productName}" no destino: ${dstError.message}`);
+
+          // 2b. Registrar em hotel_transfers para histórico
+          const { error: transferErr } = await supabase
+            .from('hotel_transfers')
+            .insert({
+              source_hotel_id: selectedHotel!.id,
+              destination_hotel_id: transferDestHotel,
+              product_id: item.productId,
+              quantity: item.qty,
+              status: 'completed',
+              completed_at: new Date().toISOString(),
+              notes: `Setor: ${srcSectorName} → ${destSectorName} (${destHotelName})`,
+            });
+
+          if (transferErr) console.error('Erro ao registrar transferência:', transferErr);
+        } else {
+          // 2. Local: soma no setor do mesmo hotel
+          const { error: dstError } = await supabase.rpc('update_sector_stock_on_delivery', {
+            p_hotel_id: selectedHotel!.id,
+            p_sector_id: transferDestSector,
+            p_product_id: item.productId,
+            p_quantity: item.qty,
+          });
+
+          if (dstError) throw new Error(`Erro ao adicionar "${item.productName}" no destino: ${dstError.message}`);
+        }
       }
 
-      const destName = hotelSectors.find(s => s.id === transferDestSector)?.name || 'destino';
-      addNotification(
-        `${itemsToTransfer.length} item(s) transferido(s) para "${destName}" com sucesso!`,
-        'success'
-      );
+      const successMsg = isInterHotel
+        ? `${itemsToTransfer.length} item(s) transferido(s) para "${destSectorName}" em "${destHotelName}"!`
+        : `${itemsToTransfer.length} item(s) transferido(s) para "${destSectorName}" com sucesso!`;
+
+      addNotification(successMsg, 'success');
       setShowTransferModal(false);
       fetchSectorAndStockData();
     } catch (err: any) {
@@ -983,24 +1056,96 @@ const SectorStock = () => {
               </button>
             </div>
 
-            {/* Setor destino */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
-                Setor de Destino
-              </label>
-              <select
-                value={transferDestSector}
-                onChange={e => setTransferDestSector(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
-              >
-                <option value="">— Selecione o setor destino —</option>
-                {hotelSectors
-                  .filter(s => s.id !== sectorId)
-                  .map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))
-                }
-              </select>
+            {/* Modo de transferência */}
+            <div className="px-5 pt-4 pb-2 flex-shrink-0 space-y-3">
+              {/* Toggle local vs inter-hotel */}
+              <div className="flex rounded-xl bg-gray-100 dark:bg-gray-800 p-1">
+                <button
+                  type="button"
+                  onClick={() => { setTransferMode('local'); setTransferDestHotel(''); setTransferDestSector(''); setDestHotelSectors([]); }}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                    transferMode === 'local'
+                      ? 'bg-teal-600 text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  Mesmo hotel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTransferMode('inter-hotel'); setTransferDestSector(''); }}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                    transferMode === 'inter-hotel'
+                      ? 'bg-orange-600 text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  Outro hotel
+                </button>
+              </div>
+
+              {/* Local: setor do mesmo hotel */}
+              {transferMode === 'local' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                    Setor de Destino
+                  </label>
+                  <select
+                    value={transferDestSector}
+                    onChange={e => setTransferDestSector(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+                  >
+                    <option value="">— Selecione o setor destino —</option>
+                    {hotelSectors
+                      .filter(s => s.id !== sectorId)
+                      .map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+              )}
+
+              {/* Inter-hotel: hotel + setor */}
+              {transferMode === 'inter-hotel' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                      Hotel de Destino
+                    </label>
+                    <select
+                      value={transferDestHotel}
+                      onChange={e => handleDestHotelChange(e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                    >
+                      <option value="">— Selecione o hotel —</option>
+                      {allHotels.map(h => (
+                        <option key={h.id} value={h.id}>{h.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {transferDestHotel && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                        Setor de Destino
+                      </label>
+                      <select
+                        value={transferDestSector}
+                        onChange={e => setTransferDestSector(e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                      >
+                        <option value="">— Selecione o setor —</option>
+                        {destHotelSectors.map(s => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                      {destHotelSectors.length === 0 && (
+                        <p className="text-xs text-gray-400 mt-1">Nenhum setor encontrado neste hotel.</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Lista de produtos */}
@@ -1059,12 +1204,28 @@ const SectorStock = () => {
                 const q = parseFloat(i.transferQty.replace(',', '.'));
                 return !isNaN(q) && q > 0;
               }) && (
-                <div className="mt-4 p-3 bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800 rounded-xl">
-                  <p className="text-xs font-semibold text-teal-700 dark:text-teal-300 mb-1">Resumo da transferência:</p>
+                <div className={`mt-4 p-3 rounded-xl border ${
+                  transferMode === 'inter-hotel'
+                    ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+                    : 'bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800'
+                }`}>
+                  <p className={`text-xs font-semibold mb-1 ${
+                    transferMode === 'inter-hotel'
+                      ? 'text-orange-700 dark:text-orange-300'
+                      : 'text-teal-700 dark:text-teal-300'
+                  }`}>
+                    Resumo da transferência{transferMode === 'inter-hotel' && transferDestHotel
+                      ? ` → ${allHotels.find(h => h.id === transferDestHotel)?.name || ''}`
+                      : ''}:
+                  </p>
                   {transferItems
                     .filter(i => { const q = parseFloat(i.transferQty.replace(',', '.')); return !isNaN(q) && q > 0; })
                     .map(i => (
-                      <p key={i.productId} className="text-xs text-teal-600 dark:text-teal-400">
+                      <p key={i.productId} className={`text-xs ${
+                        transferMode === 'inter-hotel'
+                          ? 'text-orange-600 dark:text-orange-400'
+                          : 'text-teal-600 dark:text-teal-400'
+                      }`}>
                         • {i.productName}: <strong>{i.transferQty}</strong> unid.
                       </p>
                     ))
@@ -1085,8 +1246,12 @@ const SectorStock = () => {
               <button
                 type="button"
                 onClick={handleConfirmTransfer}
-                disabled={isTransferring || !transferDestSector}
-                className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+                disabled={isTransferring || !transferDestSector || (transferMode === 'inter-hotel' && !transferDestHotel)}
+                className={`flex items-center gap-2 px-5 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors ${
+                  transferMode === 'inter-hotel'
+                    ? 'bg-orange-600 hover:bg-orange-700'
+                    : 'bg-teal-600 hover:bg-teal-700'
+                }`}
               >
                 {isTransferring
                   ? <Loader2 className="w-4 h-4 animate-spin" />
