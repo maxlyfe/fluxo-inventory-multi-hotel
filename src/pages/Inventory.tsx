@@ -428,14 +428,6 @@ const Inventory = () => {
             Principais Itens
           </button>
           
-          {/* Botões existentes (Lista de Compras, Novo Produto, etc.) permanecem aqui */}
-          {lowStockItems.length > 0 && (
-            <Link to="/shopping-list" className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm">
-              <ShoppingCart className="w-4 h-4 mr-1.5" />
-              Lista de Compras
-              <span className="ml-2 bg-purple-800 px-1.5 py-0.5 rounded-full text-xs">{lowStockItems.length}</span>
-            </Link>
-          )}
           <button onClick={() => setShowFilters(!showFilters)} className="flex items-center px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm">
             <Filter className="w-4 h-4 mr-1.5" />Filtros
             {showFilters ? <ChevronUp className="w-4 h-4 ml-1.5" /> : <ChevronDown className="w-4 h-4 ml-1.5" />}
@@ -462,12 +454,6 @@ const Inventory = () => {
           </button>
           <button onClick={handleCreateNew} className="flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 dark:focus:ring-offset-gray-800 transition-all duration-150 ease-in-out text-sm">
             <Plus className="w-4 h-4 mr-2" />Novo Item
-          </button>
-          <button onClick={handleSaveSnapshot} disabled={isSavingSnapshot} className={`flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm ${isSavingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            {isSavingSnapshot ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>Salvando...</> : <><Camera className="w-4 h-4 mr-1.5" />Salvar Snapshot</>}
-          </button>
-          <button onClick={handleGenerateWeeklyReport} disabled={isGeneratingReport} className={`flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm ml-2 ${isGeneratingReport ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            {isGeneratingReport ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>Gerando...</> : <><BarChart2 className="w-4 h-4 mr-1.5" />Gerar Relatório</>}
           </button>
         </div>
       </div>
@@ -592,6 +578,7 @@ const Inventory = () => {
         isOpen={showCountHistoryModal}
         onClose={() => setShowCountHistoryModal(false)}
         hotelId={selectedHotel?.id || ''}
+        onReopened={fetchProducts}
       />
 
       {/* Todos os seus modais existentes são mantidos aqui */}
