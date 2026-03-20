@@ -12,6 +12,23 @@ function sanitizeBaseUrl(raw?: string): string {
   return url || DEFAULT_BASE;
 }
 
+// Headers customizados da API Erbon que devem ser repassados pelo proxy
+// Chave = lowercase (como chega via HTTP), Valor = nome original esperado pela API Erbon
+const ERBON_CUSTOM_HEADERS: Record<string, string> = {
+  'onlyproducts': 'onlyProducts',
+  'transactiondate': 'transactionDate',
+  'datefrom': 'dateFrom',
+  'dateto': 'dateTo',
+  'currency': 'currency',
+  'roomid': 'roomID',
+  'newstatus': 'newStatus',
+  'checkin': 'checkin',
+  'checkout': 'checkout',
+  'status': 'status',
+  'bookingnumber': 'bookingNumber',
+  'mainguestemail': 'mainguestEmail',
+};
+
 const handler: Handler = async (event: HandlerEvent) => {
   // CORS preflight
   if (event.httpMethod === 'OPTIONS') {
@@ -20,7 +37,11 @@ const handler: Handler = async (event: HandlerEvent) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-erbon-base-url, x-erbon-path, onlyProducts, transactionDate',
+        'Access-Control-Allow-Headers': [
+          'Content-Type', 'Authorization',
+          'x-erbon-base-url', 'x-erbon-path',
+          ...Object.values(ERBON_CUSTOM_HEADERS),
+        ].join(', '),
       },
       body: '',
     };
@@ -42,8 +63,13 @@ const handler: Handler = async (event: HandlerEvent) => {
   const forwardHeaders: Record<string, string> = {};
   if (event.headers['content-type']) forwardHeaders['Content-Type'] = event.headers['content-type'];
   if (event.headers['authorization']) forwardHeaders['Authorization'] = event.headers['authorization'];
-  if (event.headers['onlyproducts']) forwardHeaders['onlyProducts'] = event.headers['onlyproducts'];
-  if (event.headers['transactiondate']) forwardHeaders['transactionDate'] = event.headers['transactiondate'];
+
+  // Forward todos os headers customizados Erbon
+  for (const [lowerKey, originalName] of Object.entries(ERBON_CUSTOM_HEADERS)) {
+    if (event.headers[lowerKey]) {
+      forwardHeaders[originalName] = event.headers[lowerKey];
+    }
+  }
 
   try {
     const res = await fetch(targetUrl, {

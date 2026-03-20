@@ -220,8 +220,6 @@ const Navbar = () => {
     if (success) navigate("/login");
   };
 
-  if (!user) return null;
-
   // Helper: is current path
   const isActive = (href: string) =>
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
@@ -238,7 +236,7 @@ const Navbar = () => {
 
   // Seção ativa baseada na rota atual
   const activeSection = useMemo(() => {
-    if (location.pathname === '/') return null; // Dashboard — sem seção
+    if (location.pathname === '/') return null;
     return visibleSections.find(s =>
       s.activePrefixes.some(prefix => location.pathname.startsWith(prefix))
     ) || null;
@@ -246,6 +244,9 @@ const Navbar = () => {
 
   // Itens contextuais a mostrar na navbar
   const contextItems = activeSection?.items || [];
+
+  // Early return DEPOIS de todos os hooks
+  if (!user) return null;
 
   return (
     <nav className="bg-white dark:bg-gray-900 shadow-md w-full z-50 sticky top-0">
