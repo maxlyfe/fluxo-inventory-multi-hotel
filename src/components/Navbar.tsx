@@ -89,21 +89,21 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Compras',
     icon: ShoppingCart,
     module: 'purchases',
-    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list'],
+    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin'],
     items: [
-      { name: 'Compras',     href: '/purchases',       icon: ShoppingCart },
-      { name: 'Orçamentos',  href: '/budget-history',  icon: FileText },
-      { name: 'Aprovações',  href: '/authorizations',  icon: ShieldCheck },
+      { name: 'Compras',      href: '/purchases',       icon: ShoppingCart },
+      { name: 'Orçamentos',   href: '/budget-history',  icon: FileText },
+      { name: 'Aprovações',   href: '/authorizations',  icon: ShieldCheck },
+      { name: 'Requisições',  href: '/admin',            icon: ClipboardList },
     ],
   },
   {
     key: 'stock',
-    label: 'Requisições',
-    icon: ClipboardList,
+    label: 'Stock',
+    icon: Boxes,
     module: 'stock',
-    activePrefixes: ['/admin', '/governance', '/sector-stock/'],
+    activePrefixes: ['/governance', '/sector-stock/', '/inventory'],
     items: [
-      { name: 'Requisições', href: '/admin',       icon: ClipboardList },
       { name: 'Inventário',  href: '/inventory',   icon: Boxes },
     ],
   },
@@ -234,12 +234,18 @@ const Navbar = () => {
     [isAdmin, can]
   );
 
-  // Seção ativa baseada na rota atual
+  // Seção ativa baseada na rota atual — prioriza o prefix mais longo (mais específico)
   const activeSection = useMemo(() => {
     if (location.pathname === '/') return null;
-    return visibleSections.find(s =>
-      s.activePrefixes.some(prefix => location.pathname.startsWith(prefix))
-    ) || null;
+    let best: { section: typeof visibleSections[0]; len: number } | null = null;
+    for (const s of visibleSections) {
+      for (const prefix of s.activePrefixes) {
+        if (location.pathname.startsWith(prefix) && prefix.length > (best?.len ?? 0)) {
+          best = { section: s, len: prefix.length };
+        }
+      }
+    }
+    return best?.section || null;
   }, [location.pathname, visibleSections]);
 
   // Itens contextuais a mostrar na navbar

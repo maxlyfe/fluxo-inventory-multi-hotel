@@ -96,6 +96,7 @@ const SIDEBAR_GROUPS_DEF: {
       { module: 'authorizations', label: 'Orçamentos',    href: '/budget-history',  icon: FileText,    color: '#6366f1' },
       { module: 'authorizations', label: 'Autorizações',  href: '/authorizations',  icon: CreditCard,  color: '#14b8a6' },
       { module: 'purchases',     label: 'Compras',        href: '/purchases',       icon: ShoppingCart, color: '#f59e0b' },
+      { module: 'stock',          label: 'Requisições',   href: '/admin',            icon: Package,     color: '#3b82f6' },
     ],
   },
   {
@@ -382,8 +383,8 @@ const Home = () => {
     setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));
   };
 
-  // Default: todos expandidos
-  const isGroupExpanded = (label: string) => expandedGroups[label] !== false;
+  // Default: todos recolhidos — o utilizador abre manualmente
+  const isGroupExpanded = (label: string) => expandedGroups[label] === true;
 
   const greeting = getGreeting();
   const GreetingIcon = greeting.icon;
