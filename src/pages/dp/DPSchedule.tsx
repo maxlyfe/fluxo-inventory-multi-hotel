@@ -54,6 +54,8 @@ interface OccurrenceType {
   loss_threshold: number;
   is_system: boolean;
   sort_order: number;
+  entry_type_key: string | null; // maps to ScheduleEntry.entry_type (folga, compensa, etc). null = custom
+  visible: boolean;
 }
 
 const OCCURRENCE_COLORS: Record<string, { bg: string; text: string; ring: string }> = {
@@ -71,20 +73,49 @@ const OCCURRENCE_COLORS: Record<string, { bg: string; text: string; ring: string
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const ENTRY_TYPES = [
-  { value: 'shift',      label: 'Turno',          color: 'text-gray-800 dark:text-gray-100',         bg: '' },
-  { value: 'folga',      label: 'FOLGA',           color: 'text-green-700 dark:text-green-300',        bg: 'bg-green-50 dark:bg-green-900/30' },
-  { value: 'compensa',   label: 'COMPENSA',        color: 'text-blue-700 dark:text-blue-300',          bg: 'bg-blue-50 dark:bg-blue-900/30' },
-  { value: 'meia_dobra', label: 'MEIA DOBRA',      color: 'text-amber-700 dark:text-amber-300',        bg: 'bg-amber-50 dark:bg-amber-900/30' },
-  { value: 'transfer',   label: 'Outra unidade',   color: 'text-violet-700 dark:text-violet-300',      bg: 'bg-violet-50 dark:bg-violet-900/20' },
-  { value: 'curso',      label: 'CURSO',           color: 'text-purple-700 dark:text-purple-300',      bg: 'bg-purple-50 dark:bg-purple-900/30' },
-  { value: 'inss',       label: 'INSS',            color: 'text-gray-500 dark:text-gray-400',          bg: 'bg-gray-50 dark:bg-gray-700' },
-  { value: 'ferias',     label: 'FÉRIAS',          color: 'text-cyan-700 dark:text-cyan-300',          bg: 'bg-cyan-50 dark:bg-cyan-900/30' },
-  { value: 'falta',      label: 'FALTA',           color: 'text-red-600 dark:text-red-400',            bg: 'bg-red-50 dark:bg-red-900/20' },
-  { value: 'atestado',   label: 'ATESTADO',        color: 'text-orange-600 dark:text-orange-400',      bg: 'bg-orange-50 dark:bg-orange-900/20' },
-  { value: 'custom',     label: 'Outro',           color: 'text-indigo-700 dark:text-indigo-300',      bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
-  { value: 'empty',      label: '------',          color: 'text-gray-300 dark:text-gray-600',          bg: '' },
+// Style map for entry types — used by formatEntry / getEntryStyle (read-only rendering)
+const ENTRY_TYPE_STYLES: Record<string, { color: string; bg: string }> = {
+  shift:      { color: 'text-gray-800 dark:text-gray-100',    bg: '' },
+  folga:      { color: 'text-green-700 dark:text-green-300',  bg: 'bg-green-50 dark:bg-green-900/30' },
+  compensa:   { color: 'text-blue-700 dark:text-blue-300',    bg: 'bg-blue-50 dark:bg-blue-900/30' },
+  meia_dobra: { color: 'text-amber-700 dark:text-amber-300',  bg: 'bg-amber-50 dark:bg-amber-900/30' },
+  transfer:   { color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-50 dark:bg-violet-900/20' },
+  curso:      { color: 'text-purple-700 dark:text-purple-300', bg: 'bg-purple-50 dark:bg-purple-900/30' },
+  inss:       { color: 'text-gray-500 dark:text-gray-400',    bg: 'bg-gray-50 dark:bg-gray-700' },
+  ferias:     { color: 'text-cyan-700 dark:text-cyan-300',    bg: 'bg-cyan-50 dark:bg-cyan-900/30' },
+  falta:      { color: 'text-red-600 dark:text-red-400',      bg: 'bg-red-50 dark:bg-red-900/20' },
+  atestado:   { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20' },
+  custom:     { color: 'text-indigo-700 dark:text-indigo-300', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
+  empty:      { color: 'text-gray-300 dark:text-gray-600',    bg: '' },
+};
+
+// Legacy compat: ENTRY_TYPES array for legend and old references
+const ENTRY_TYPES = Object.entries(ENTRY_TYPE_STYLES).map(([value, s]) => ({
+  value, label: value === 'shift' ? 'Turno' : value === 'folga' ? 'FOLGA' : value === 'compensa' ? 'COMPENSA'
+    : value === 'meia_dobra' ? 'MEIA DOBRA' : value === 'transfer' ? 'Outra unidade' : value === 'curso' ? 'CURSO'
+    : value === 'inss' ? 'INSS' : value === 'ferias' ? 'FÉRIAS' : value === 'falta' ? 'FALTA'
+    : value === 'atestado' ? 'ATESTADO' : value === 'custom' ? 'Outro' : '------',
+  color: s.color, bg: s.bg,
+}));
+
+// System seed: these get auto-created in occurrence_types per hotel (excluding 'shift' which is always fixed)
+const SYSTEM_ENTRY_SEEDS: { key: string; name: string; color: string; causes_loss: boolean; threshold: number }[] = [
+  { key: 'folga',      name: 'FOLGA',          color: 'green',  causes_loss: false, threshold: 1 },
+  { key: 'compensa',   name: 'COMPENSA',       color: 'blue',   causes_loss: false, threshold: 1 },
+  { key: 'meia_dobra', name: 'MEIA DOBRA',     color: 'amber',  causes_loss: false, threshold: 1 },
+  { key: 'transfer',   name: 'Outra unidade',  color: 'purple', causes_loss: false, threshold: 1 },
+  { key: 'curso',      name: 'CURSO',          color: 'purple', causes_loss: false, threshold: 1 },
+  { key: 'inss',       name: 'INSS',           color: 'teal',   causes_loss: false, threshold: 1 },
+  { key: 'ferias',     name: 'FÉRIAS',         color: 'blue',   causes_loss: false, threshold: 1 },
+  { key: 'falta',      name: 'FALTA',          color: 'red',    causes_loss: true,  threshold: 1 },
+  { key: 'atestado',   name: 'ATESTADO',       color: 'orange', causes_loss: true,  threshold: 4 },
+  { key: 'empty',      name: '------',         color: 'teal',   causes_loss: false, threshold: 1 },
 ];
+
+// Entry type keys that need time inputs
+const NEEDS_TIME = new Set(['shift', 'meia_dobra', 'transfer']);
+// Entry type keys that need hotel selection
+const NEEDS_HOTEL = new Set(['transfer']);
 
 const WORK_SCHEDULES = [
   { value: '12x36', label: '12×36' },
@@ -154,8 +185,8 @@ function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[]): { line1: str
 
 function getEntryStyle(entry: ScheduleEntry | null) {
   if (!entry || entry.entry_type === 'empty') return { color: 'text-gray-300 dark:text-gray-600', bg: '' };
-  const cfg = ENTRY_TYPES.find(t => t.value === entry.entry_type);
-  return { color: cfg?.color || '', bg: cfg?.bg || '' };
+  const s = ENTRY_TYPE_STYLES[entry.entry_type];
+  return s ? { color: s.color, bg: s.bg } : { color: '', bg: '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -174,16 +205,21 @@ interface CellEditorProps {
 }
 
 function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, hotelId, onSave, onClose, onOccurrenceTypesChanged, position }: CellEditorProps) {
-  const [type, setType]          = useState(entry?.entry_type || 'shift');
+  // Determine initial selected type from entry
+  const initSelectedId = (() => {
+    if (!entry) return null;
+    if (entry.entry_type === 'shift') return '__shift__';
+    // Find occurrence type matching the entry
+    if (entry.occurrence_type_id) return entry.occurrence_type_id;
+    // Fallback: find by entry_type_key
+    const byKey = occurrenceTypes.find(ot => ot.entry_type_key === entry.entry_type);
+    return byKey?.id || null;
+  })();
+
+  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(initSelectedId);
   const [start, setStart]        = useState(entry?.shift_start?.slice(0, 5) || '');
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
-  const [custom, setCustom]      = useState(entry?.custom_label || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
-  const [selectedOccurrence, setSelectedOccurrence] = useState<OccurrenceType | null>(
-    entry?.occurrence_type_id
-      ? occurrenceTypes.find(ot => ot.id === entry.occurrence_type_id) || null
-      : null
-  );
   const [newOccName, setNewOccName] = useState('');
   const [newOccCausesLoss, setNewOccCausesLoss] = useState(false);
   const [newOccThreshold, setNewOccThreshold] = useState(1);
@@ -195,6 +231,17 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [editOccThreshold, setEditOccThreshold] = useState(1);
   const [savingOcc, setSavingOcc] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Derived: which entry_type_key is active
+  const selectedOcc = selectedTypeId && selectedTypeId !== '__shift__'
+    ? occurrenceTypes.find(ot => ot.id === selectedTypeId) || null
+    : null;
+  const activeEntryTypeKey = selectedTypeId === '__shift__' ? 'shift' : (selectedOcc?.entry_type_key || 'custom');
+  const needsTime = NEEDS_TIME.has(activeEntryTypeKey);
+  const needsHotel = NEEDS_HOTEL.has(activeEntryTypeKey);
+
+  // Only show visible types
+  const visibleTypes = occurrenceTypes.filter(ot => ot.visible !== false);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
@@ -231,28 +278,41 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   };
 
   const handleDeleteOcc = async (id: string) => {
-    const { error } = await supabase.from('occurrence_types').delete().eq('id', id);
-    if (!error) {
-      const updated = occurrenceTypes.filter(ot => ot.id !== id);
-      onOccurrenceTypesChanged(updated);
-      if (selectedOccurrence?.id === id) setSelectedOccurrence(null);
-      if (editingOccId === id) setEditingOccId(null);
+    const ot = occurrenceTypes.find(o => o.id === id);
+    // System entry types (with entry_type_key) get hidden instead of deleted
+    if (ot?.entry_type_key) {
+      await supabase.from('occurrence_types').update({ visible: false }).eq('id', id);
+      onOccurrenceTypesChanged(occurrenceTypes.map(o => o.id === id ? { ...o, visible: false } : o));
+    } else {
+      const { error } = await supabase.from('occurrence_types').delete().eq('id', id);
+      if (!error) onOccurrenceTypesChanged(occurrenceTypes.filter(o => o.id !== id));
     }
+    if (selectedTypeId === id) setSelectedTypeId(null);
+    if (editingOccId === id) setEditingOccId(null);
+  };
+
+  const handleRestoreOcc = async (id: string) => {
+    await supabase.from('occurrence_types').update({ visible: true }).eq('id', id);
+    onOccurrenceTypesChanged(occurrenceTypes.map(o => o.id === id ? { ...o, visible: true } : o));
   };
 
   const handleMoveOcc = async (id: string, direction: 'up' | 'down') => {
-    const idx = occurrenceTypes.findIndex(ot => ot.id === id);
+    const list = visibleTypes;
+    const idx = list.findIndex(ot => ot.id === id);
     if (idx < 0) return;
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= occurrenceTypes.length) return;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+    // Swap sort_order values
     const reordered = [...occurrenceTypes];
-    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
-    // Update sort_order in DB
-    const updates = reordered.map((ot, i) => ({ id: ot.id, sort_order: i + 1 }));
-    for (const u of updates) {
-      await supabase.from('occurrence_types').update({ sort_order: u.sort_order }).eq('id', u.id);
-    }
-    onOccurrenceTypesChanged(reordered.map((ot, i) => ({ ...ot, sort_order: i + 1 })));
+    const aIdx = reordered.findIndex(o => o.id === list[idx].id);
+    const bIdx = reordered.findIndex(o => o.id === list[swapIdx].id);
+    const tmpSort = reordered[aIdx].sort_order;
+    reordered[aIdx] = { ...reordered[aIdx], sort_order: reordered[bIdx].sort_order };
+    reordered[bIdx] = { ...reordered[bIdx], sort_order: tmpSort };
+    await supabase.from('occurrence_types').update({ sort_order: reordered[aIdx].sort_order }).eq('id', reordered[aIdx].id);
+    await supabase.from('occurrence_types').update({ sort_order: reordered[bIdx].sort_order }).eq('id', reordered[bIdx].id);
+    reordered.sort((a, b) => a.sort_order - b.sort_order);
+    onOccurrenceTypesChanged(reordered);
   };
 
   const handleCreateOccurrenceType = async () => {
@@ -271,12 +331,14 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       loss_threshold: newOccCausesLoss ? newOccThreshold : 1,
       is_system: false,
       sort_order: occurrenceTypes.length + 1,
+      entry_type_key: null,
+      visible: true,
     }).select().single();
 
     if (data && !error) {
       const updated = [...occurrenceTypes, data as OccurrenceType];
       onOccurrenceTypesChanged(updated);
-      setSelectedOccurrence(data as OccurrenceType);
+      setSelectedTypeId(data.id);
       setNewOccName('');
       setNewOccCausesLoss(false);
       setNewOccThreshold(1);
@@ -285,27 +347,27 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   };
 
   const save = async () => {
+    if (!selectedTypeId) return;
     setSaving(true);
-    let occTypeId: string | null = null;
-    if (type === 'custom' && selectedOccurrence) {
-      occTypeId = selectedOccurrence.id;
-    } else if (['falta', 'atestado'].includes(type)) {
-      const systemType = occurrenceTypes.find(ot => ot.slug === type);
-      occTypeId = systemType?.id || null;
-    }
+
+    const entryType = activeEntryTypeKey;
+    let occTypeId: string | null = selectedOcc?.id || null;
 
     await onSave({
       employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
-      entry_type: type,
-      shift_start:  (['shift', 'meia_dobra', 'transfer'].includes(type)) ? (start || null) : null,
-      shift_end:    (['shift', 'meia_dobra', 'transfer'].includes(type)) ? (end   || null) : null,
-      custom_label: type === 'custom' && selectedOccurrence ? selectedOccurrence.name : (type === 'custom' ? custom : null),
-      transfer_hotel_id: type === 'transfer' ? (transferHotel || null) : null,
+      entry_type: entryType,
+      shift_start:  needsTime ? (start || null) : null,
+      shift_end:    needsTime ? (end   || null) : null,
+      custom_label: entryType === 'custom' && selectedOcc ? selectedOcc.name : null,
+      transfer_hotel_id: needsHotel ? (transferHotel || null) : null,
       occurrence_type_id: occTypeId,
     });
     setSaving(false);
     onClose();
   };
+
+  // Hidden types that can be restored
+  const hiddenTypes = occurrenceTypes.filter(ot => ot.visible === false);
 
   const maxH = window.innerHeight - 24;
   const style: React.CSSProperties = {
@@ -321,27 +383,116 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
   return (
     <div ref={ref} style={style}
-      className="w-72 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
+      className="w-80 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
 
       {/* Área com scroll */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Types */}
-        <div className="grid grid-cols-2 gap-1">
-          {ENTRY_TYPES.map(t => (
-            <button key={t.value} onClick={() => { setType(t.value); if (t.value !== 'custom') setSelectedOccurrence(null); }}
-              className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
-                type === t.value
-                  ? `${t.bg || 'bg-gray-100 dark:bg-gray-700'} ${t.color} ring-2 ring-blue-400`
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-              }`}>
-              {t.label}
-            </button>
-          ))}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+
+        {/* TURNO — always fixed at top */}
+        <button onClick={() => setSelectedTypeId('__shift__')}
+          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+            selectedTypeId === '__shift__'
+              ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white ring-2 ring-blue-400'
+              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}>
+          Turno
+        </button>
+
+        <div className="border-t border-gray-100 dark:border-gray-700" />
+
+        {/* All visible types from DB */}
+        <div className="space-y-0.5">
+          {visibleTypes.map((ot, idx) => {
+            const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
+            const isSelected = selectedTypeId === ot.id;
+            const isEditing = editingOccId === ot.id;
+
+            if (isEditing) {
+              return (
+                <div key={ot.id} className="rounded-xl border-2 border-blue-400 bg-gray-50 dark:bg-gray-700 p-2 space-y-1.5">
+                  <input type="text" value={editOccName} onChange={e => setEditOccName(e.target.value)}
+                    maxLength={30} autoFocus
+                    className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={editOccCausesLoss} onChange={e => setEditOccCausesLoss(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
+                    <span className="text-[10px] text-gray-600 dark:text-gray-300">Perde cesta básica</span>
+                  </label>
+                  {editOccCausesLoss && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-gray-500">Após</span>
+                      <input type="number" min={1} max={31} value={editOccThreshold}
+                        onChange={e => setEditOccThreshold(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-10 px-1 py-0.5 text-xs text-center border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                      <span className="text-[10px] text-gray-500">vez(es)</span>
+                    </div>
+                  )}
+                  <div className="flex gap-1">
+                    <button onClick={() => setEditingOccId(null)}
+                      className="flex-1 py-1 text-[10px] font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600">
+                      Cancelar
+                    </button>
+                    <button onClick={handleSaveEditOcc} disabled={savingOcc || !editOccName.trim()}
+                      className="flex-1 py-1 text-[10px] font-bold bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-60 flex items-center justify-center gap-1">
+                      {savingOcc ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />} Salvar
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={ot.id}
+                className={`group/occ flex items-center gap-0.5 rounded-xl transition-all ${
+                  isSelected
+                    ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}>
+                {/* Reorder arrows */}
+                <div className="flex flex-col pl-0.5 opacity-0 group-hover/occ:opacity-100 transition-opacity">
+                  <button onClick={(e) => { e.stopPropagation(); handleMoveOcc(ot.id, 'up'); }}
+                    disabled={idx === 0}
+                    className="p-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20">
+                    <ArrowUp className="h-2.5 w-2.5" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleMoveOcc(ot.id, 'down'); }}
+                    disabled={idx === visibleTypes.length - 1}
+                    className="p-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20">
+                    <ArrowDown className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+                {/* Select */}
+                <button
+                  onClick={() => setSelectedTypeId(ot.id)}
+                  className="flex-1 text-left px-2 py-2 text-xs font-semibold flex items-center justify-between gap-1 min-w-0">
+                  <span className={`truncate ${isSelected ? '' : 'text-gray-600 dark:text-gray-300'}`}>{ot.name}</span>
+                  {ot.causes_basket_loss && (
+                    <span className="text-[9px] text-red-400 whitespace-nowrap flex-shrink-0">
+                      {ot.loss_threshold === 1 ? 'perde cesta' : `após ${ot.loss_threshold}x`}
+                    </span>
+                  )}
+                </button>
+                {/* Edit + Delete/Hide */}
+                <div className="flex items-center gap-0.5 pr-1 opacity-0 group-hover/occ:opacity-100 transition-opacity flex-shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); startEditOcc(ot); }}
+                    className="p-1 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    title="Editar">
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteOcc(ot.id); }}
+                    className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    title={ot.entry_type_key ? 'Ocultar' : 'Excluir'}>
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        {/* Time fields */}
-        {['shift', 'meia_dobra', 'transfer'].includes(type) && (
-          <div className="flex gap-2 items-center">
+        {/* Time fields — shown when selected type needs them */}
+        {needsTime && (
+          <div className="flex gap-2 items-center pt-1">
             <input type="time" value={start} onChange={e => setStart(e.target.value)}
               className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
             <span className="text-xs text-gray-400">AS</span>
@@ -350,8 +501,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </div>
         )}
 
-        {/* Transfer hotel */}
-        {type === 'transfer' && (
+        {/* Transfer hotel selector */}
+        {needsHotel && (
           <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
             className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
             <option value="">Selecione a unidade...</option>
@@ -359,153 +510,62 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </select>
         )}
 
-        {/* Occurrence type picker with edit/delete/reorder */}
-        {type === 'custom' && (
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo de ocorrência</p>
-            <div className="space-y-1">
-              {occurrenceTypes.map((ot, idx) => {
-                const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
-                const isSelected = selectedOccurrence?.id === ot.id;
-                const isEditing = editingOccId === ot.id;
-
-                if (isEditing) {
-                  return (
-                    <div key={ot.id} className="rounded-xl border-2 border-blue-400 bg-gray-50 dark:bg-gray-700 p-2 space-y-1.5">
-                      <input type="text" value={editOccName} onChange={e => setEditOccName(e.target.value)}
-                        maxLength={30} autoFocus
-                        className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input type="checkbox" checked={editOccCausesLoss} onChange={e => setEditOccCausesLoss(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
-                        <span className="text-[10px] text-gray-600 dark:text-gray-300">Perde cesta básica</span>
-                      </label>
-                      {editOccCausesLoss && (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-gray-500">Após</span>
-                          <input type="number" min={1} max={31} value={editOccThreshold}
-                            onChange={e => setEditOccThreshold(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-10 px-1 py-0.5 text-xs text-center border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
-                          <span className="text-[10px] text-gray-500">vez(es)</span>
-                        </div>
-                      )}
-                      <div className="flex gap-1">
-                        <button onClick={() => setEditingOccId(null)}
-                          className="flex-1 py-1 text-[10px] font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600">
-                          Cancelar
-                        </button>
-                        <button onClick={handleSaveEditOcc} disabled={savingOcc || !editOccName.trim()}
-                          className="flex-1 py-1 text-[10px] font-bold bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-60 flex items-center justify-center gap-1">
-                          {savingOcc ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />} Salvar
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div key={ot.id}
-                    className={`group/occ flex items-center gap-1 rounded-xl transition-all ${
-                      isSelected
-                        ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-700'
-                    }`}>
-                    {/* Reorder arrows */}
-                    <div className="flex flex-col pl-1 opacity-0 group-hover/occ:opacity-100 transition-opacity">
-                      <button onClick={(e) => { e.stopPropagation(); handleMoveOcc(ot.id, 'up'); }}
-                        disabled={idx === 0}
-                        className="p-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20">
-                        <ArrowUp className="h-2.5 w-2.5" />
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); handleMoveOcc(ot.id, 'down'); }}
-                        disabled={idx === occurrenceTypes.length - 1}
-                        className="p-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20">
-                        <ArrowDown className="h-2.5 w-2.5" />
-                      </button>
-                    </div>
-                    {/* Select button */}
-                    <button
-                      onClick={() => setSelectedOccurrence(ot)}
-                      className="flex-1 text-left px-2 py-2 text-xs font-semibold flex items-center justify-between gap-1">
-                      <span className={isSelected ? '' : 'text-gray-600 dark:text-gray-300'}>{ot.name}</span>
-                      {ot.causes_basket_loss && (
-                        <span className="text-[9px] text-red-400 whitespace-nowrap">
-                          {ot.loss_threshold === 1 ? 'perde cesta' : `após ${ot.loss_threshold}x`}
-                        </span>
-                      )}
-                    </button>
-                    {/* Edit/Delete — only for non-system types */}
-                    {!ot.is_system && (
-                      <div className="flex items-center gap-0.5 pr-1.5 opacity-0 group-hover/occ:opacity-100 transition-opacity">
-                        <button onClick={(e) => { e.stopPropagation(); startEditOcc(ot); }}
-                          className="p-1 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                          title="Editar">
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteOcc(ot.id); }}
-                          className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                          title="Excluir">
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                    {/* Edit/Delete for system types — only edit */}
-                    {ot.is_system && (
-                      <div className="flex items-center pr-1.5 opacity-0 group-hover/occ:opacity-100 transition-opacity">
-                        <button onClick={(e) => { e.stopPropagation(); startEditOcc(ot); }}
-                          className="p-1 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                          title="Editar">
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Inline create new occurrence type */}
-            <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Criar novo tipo</p>
-              <input type="text" value={newOccName} onChange={e => setNewOccName(e.target.value)}
-                placeholder="Nome da ocorrência..." maxLength={30}
-                className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-              {newOccName.trim() && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="checkbox" checked={newOccCausesLoss} onChange={e => setNewOccCausesLoss(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
-                      <span className="text-[11px] text-gray-600 dark:text-gray-300">Perde cesta básica</span>
-                    </label>
-                  </div>
-                  {newOccCausesLoss && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-gray-500">Após</span>
-                      <input type="number" min={1} max={31} value={newOccThreshold}
-                        onChange={e => setNewOccThreshold(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-12 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                      <span className="text-[11px] text-gray-500">vez(es) no mês</span>
-                    </div>
-                  )}
-                  <button onClick={handleCreateOccurrenceType} disabled={creatingOcc || !newOccName.trim()}
-                    className="w-full flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-60 transition-colors">
-                    {creatingOcc ? <Loader2 className="h-3 w-3 animate-spin" /> : '+'} Criar tipo
-                  </button>
-                </>
+        {/* Create new type */}
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Criar novo tipo</p>
+          <input type="text" value={newOccName} onChange={e => setNewOccName(e.target.value)}
+            placeholder="Nome da ocorrência..." maxLength={30}
+            className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          {newOccName.trim() && (
+            <>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={newOccCausesLoss} onChange={e => setNewOccCausesLoss(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
+                  <span className="text-[11px] text-gray-600 dark:text-gray-300">Perde cesta básica</span>
+                </label>
+              </div>
+              {newOccCausesLoss && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-gray-500">Após</span>
+                  <input type="number" min={1} max={31} value={newOccThreshold}
+                    onChange={e => setNewOccThreshold(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-12 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                  <span className="text-[11px] text-gray-500">vez(es) no mês</span>
+                </div>
               )}
-            </div>
+              <button onClick={handleCreateOccurrenceType} disabled={creatingOcc || !newOccName.trim()}
+                className="w-full flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-60 transition-colors">
+                {creatingOcc ? <Loader2 className="h-3 w-3 animate-spin" /> : '+'} Criar tipo
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Hidden types — can be restored */}
+        {hiddenTypes.length > 0 && (
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipos ocultos</p>
+            {hiddenTypes.map(ot => (
+              <div key={ot.id} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                <span className="text-[11px] text-gray-400 line-through">{ot.name}</span>
+                <button onClick={() => handleRestoreOcc(ot.id)}
+                  className="text-[10px] text-blue-500 hover:text-blue-600 font-semibold">
+                  Restaurar
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Botões fixos no rodapé — sempre visíveis */}
-      <div className="flex gap-2 p-3 pt-0 border-t border-gray-100 dark:border-gray-700 mt-0 flex-shrink-0">
+      {/* Botões fixos no rodapé */}
+      <div className="flex gap-2 p-3 pt-2 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
         <button onClick={onClose}
           className="flex-1 py-1.5 text-xs font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
           Cancelar
         </button>
-        <button onClick={save} disabled={saving || (type === 'custom' && !selectedOccurrence)}
+        <button onClick={save} disabled={saving || !selectedTypeId}
           className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-blue-500 hover:bg-blue-600 text-white rounded-xl disabled:opacity-60 transition-colors">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}Salvar
         </button>
@@ -1011,11 +1071,38 @@ export default function DPSchedule() {
     supabase.from('hotels').select('id, name').order('name').then(({ data }) => setHotels(data || []));
   }, []);
 
-  // Fetch occurrence types whenever hotel changes
+  // Fetch occurrence types + auto-seed system types if missing
   useEffect(() => {
     if (!hotelId) return;
-    supabase.from('occurrence_types').select('*').eq('hotel_id', hotelId).order('sort_order')
-      .then(({ data }) => setOccurrenceTypes((data || []) as OccurrenceType[]));
+    (async () => {
+      const { data } = await supabase.from('occurrence_types').select('*').eq('hotel_id', hotelId).order('sort_order');
+      let types = (data || []) as OccurrenceType[];
+
+      // Auto-seed system entry types if none exist with entry_type_key
+      const hasSystemTypes = types.some(t => t.entry_type_key);
+      if (!hasSystemTypes && types.length <= 2) {
+        // Only auto-seed if the hotel has no system-keyed types (first time)
+        const seeds = SYSTEM_ENTRY_SEEDS.map((s, i) => ({
+          hotel_id: hotelId,
+          name: s.name,
+          slug: s.key,
+          color: s.color,
+          causes_basket_loss: s.causes_loss,
+          loss_threshold: s.threshold,
+          is_system: ['falta', 'atestado'].includes(s.key),
+          sort_order: i + 1,
+          entry_type_key: s.key,
+          visible: true,
+        }));
+        const { data: seeded } = await supabase.from('occurrence_types').insert(seeds).select();
+        if (seeded) {
+          // Merge: existing custom types come after seeded system types
+          const existingCustom = types.map((t, i) => ({ ...t, sort_order: seeds.length + i + 1 }));
+          types = [...(seeded as OccurrenceType[]), ...existingCustom];
+        }
+      }
+      setOccurrenceTypes(types);
+    })();
   }, [hotelId]);
 
   useEffect(() => {
