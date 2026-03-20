@@ -49,6 +49,7 @@ import {
   Link2,
   Home,
   ChevronRight,
+  ArrowLeftRight,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,8 @@ const NAV_SECTIONS: NavSection[] = [
     module: 'stock',
     activePrefixes: ['/governance', '/sector-stock/', '/inventory'],
     items: [
-      { name: 'Inventário',  href: '/inventory',   icon: Boxes },
+      { name: 'Inventário',     href: '/inventory',            icon: Boxes },
+      { name: 'Transferências', href: '/inventory/transfers',  icon: ArrowLeftRight },
     ],
   },
   {
