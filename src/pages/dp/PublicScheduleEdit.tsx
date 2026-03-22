@@ -41,6 +41,7 @@ interface Schedule { id: string; hotel_id: string; week_start: string; }
 interface OccurrenceType {
   id: string; hotel_id: string; name: string; slug: string; color: string;
   causes_basket_loss: boolean; loss_threshold: number; is_system: boolean; sort_order: number;
+  entry_type_key: string | null;
 }
 
 interface ShareToken {
@@ -72,7 +73,10 @@ const OCCURRENCE_COLORS: Record<string, { bg: string; text: string; ring: string
   indigo: { bg: 'bg-indigo-50 dark:bg-indigo-900/20',  text: 'text-indigo-700 dark:text-indigo-300', ring: 'ring-indigo-400' },
   amber:  { bg: 'bg-amber-50 dark:bg-amber-900/20',   text: 'text-amber-700 dark:text-amber-300',   ring: 'ring-amber-400' },
   purple: { bg: 'bg-purple-50 dark:bg-purple-900/20',  text: 'text-purple-700 dark:text-purple-300', ring: 'ring-purple-400' },
+  violet: { bg: 'bg-violet-50 dark:bg-violet-900/20',  text: 'text-violet-700 dark:text-violet-300', ring: 'ring-violet-400' },
   pink:   { bg: 'bg-pink-50 dark:bg-pink-900/20',     text: 'text-pink-700 dark:text-pink-300',     ring: 'ring-pink-400' },
+  cyan:   { bg: 'bg-cyan-50 dark:bg-cyan-900/20',     text: 'text-cyan-700 dark:text-cyan-300',     ring: 'ring-cyan-400' },
+  gray:   { bg: 'bg-gray-50 dark:bg-gray-700',        text: 'text-gray-500 dark:text-gray-400',     ring: 'ring-gray-400' },
   teal:   { bg: 'bg-teal-50 dark:bg-teal-900/20',     text: 'text-teal-700 dark:text-teal-300',     ring: 'ring-teal-400' },
   blue:   { bg: 'bg-blue-50 dark:bg-blue-900/20',     text: 'text-blue-700 dark:text-blue-300',     ring: 'ring-blue-400' },
   green:  { bg: 'bg-green-50 dark:bg-green-900/20',   text: 'text-green-700 dark:text-green-300',   ring: 'ring-green-400' },
@@ -95,6 +99,28 @@ function getWeekSunday(d: Date): Date {
   return startOfWeek(d, { weekStartsOn: 0 });
 }
 
+const DEFAULT_OCCURRENCE_SEEDS: Omit<OccurrenceType, 'id' | 'hotel_id'>[] = [
+  { entry_type_key: 'folga',      name: 'FOLGA',         slug: 'folga',      color: 'green',  causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 1 },
+  { entry_type_key: 'compensa',   name: 'COMPENSA',      slug: 'compensa',   color: 'blue',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 2 },
+  { entry_type_key: 'meia_dobra', name: 'MEIA DOBRA',    slug: 'meia_dobra', color: 'amber',  causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 3 },
+  { entry_type_key: 'transfer',   name: 'Outra unidade', slug: 'transfer',   color: 'violet', causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 4 },
+  { entry_type_key: 'curso',      name: 'CURSO',         slug: 'curso',      color: 'purple', causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 5 },
+  { entry_type_key: 'inss',       name: 'INSS',          slug: 'inss',       color: 'gray',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 6 },
+  { entry_type_key: 'ferias',     name: 'FÉRIAS',        slug: 'ferias',     color: 'cyan',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 7 },
+  { entry_type_key: 'falta',      name: 'FALTA',         slug: 'falta',      color: 'red',    causes_basket_loss: true,  loss_threshold: 1, is_system: true,  sort_order: 8 },
+  { entry_type_key: 'atestado',   name: 'ATESTADO',      slug: 'atestado',   color: 'orange', causes_basket_loss: true,  loss_threshold: 4, is_system: true,  sort_order: 9 },
+];
+
+async function ensureDefaultTypes(hotelId: string, existing: OccurrenceType[]): Promise<OccurrenceType[]> {
+  const existingKeys = new Set(existing.map(ot => ot.entry_type_key).filter(Boolean));
+  const missing = DEFAULT_OCCURRENCE_SEEDS.filter(s => s.entry_type_key && !existingKeys.has(s.entry_type_key));
+  if (missing.length === 0) return existing;
+  const { data } = await supabase.from('occurrence_types')
+    .insert(missing.map(s => ({ ...s, hotel_id: hotelId }))).select();
+  if (data && data.length > 0) return [...existing, ...(data as OccurrenceType[])].sort((a, b) => a.sort_order - b.sort_order);
+  return existing;
+}
+
 function getPatternForWeek(schedule: string, sundayIsWork: boolean, folgaDays: number[]): boolean[] {
   if (schedule === '12x36') {
     return Array.from({ length: 8 }, (_, i) => sundayIsWork ? i % 2 === 0 : i % 2 !== 0);
@@ -102,21 +128,16 @@ function getPatternForWeek(schedule: string, sundayIsWork: boolean, folgaDays: n
   return Array.from({ length: 8 }, (_, i) => !folgaDays.includes(i));
 }
 
-function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[]): { line1: string; line2?: string } {
+function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[], occTypes?: OccurrenceType[]): { line1: string; line2?: string } {
   if (!entry || entry.entry_type === 'empty') return { line1: '------' };
   const t = entry.entry_type;
-  if (t === 'folga')      return { line1: 'FOLGA' };
-  if (t === 'compensa')   return { line1: 'COMPENSA' };
   if (t === 'meia_dobra') {
+    const ot = occTypes?.find(o => o.id === entry.occurrence_type_id || o.entry_type_key === 'meia_dobra');
+    const label = ot?.name || 'MEIA DOBRA';
     const times = entry.shift_start && entry.shift_end
       ? `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` : '';
-    return { line1: 'MEIA DOBRA', line2: times ? `(${times})` : undefined };
+    return { line1: label, line2: times ? `(${times})` : undefined };
   }
-  if (t === 'curso')    return { line1: 'CURSO' };
-  if (t === 'inss')     return { line1: 'INSS' };
-  if (t === 'ferias')   return { line1: 'FÉRIAS' };
-  if (t === 'falta')    return { line1: 'FALTA' };
-  if (t === 'atestado') return { line1: 'ATESTADO' };
   if (t === 'transfer') {
     const hotelName = hotels.find(h => h.id === entry.transfer_hotel_id)?.name || 'Outra un.';
     const shortName = hotelName.split(' ')[0];
@@ -124,21 +145,42 @@ function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[]): { line1: str
       ? `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` : '';
     return { line1: shortName, line2: times || undefined };
   }
-  if (t === 'custom') return { line1: entry.custom_label || '—' };
   if (t === 'shift' && entry.shift_start && entry.shift_end)
     return { line1: `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` };
+  if (entry.occurrence_type_id && occTypes) {
+    const ot = occTypes.find(o => o.id === entry.occurrence_type_id);
+    if (ot) return { line1: ot.name };
+  }
+  if (t === 'custom') return { line1: entry.custom_label || '—' };
+  const legacy: Record<string, string> = {
+    folga: 'FOLGA', compensa: 'COMPENSA', curso: 'CURSO', inss: 'INSS',
+    ferias: 'FÉRIAS', falta: 'FALTA', atestado: 'ATESTADO',
+  };
+  if (legacy[t]) return { line1: legacy[t] };
   return { line1: '—' };
 }
 
-function getEntryStyle(entry: ScheduleEntry | null) {
+function getEntryStyle(entry: ScheduleEntry | null, occTypes?: OccurrenceType[]) {
   if (!entry || entry.entry_type === 'empty') return { color: 'text-gray-300 dark:text-gray-600', bg: '' };
+  if (entry.occurrence_type_id && occTypes) {
+    const ot = occTypes.find(o => o.id === entry.occurrence_type_id);
+    if (ot) {
+      const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
+      return { color: colors.text, bg: colors.bg };
+    }
+  }
   const cfg = ENTRY_TYPES.find(t => t.value === entry.entry_type);
   return { color: cfg?.color || '', bg: cfg?.bg || '' };
 }
 
 // ---------------------------------------------------------------------------
-// Cell Editor (simplified — no occurrence type creation)
+// Cell Editor (simplified — no manage section, unified grid)
 // ---------------------------------------------------------------------------
+type CellSelection =
+  | { kind: 'shift' }
+  | { kind: 'occurrence'; ot: OccurrenceType }
+  | { kind: 'empty' };
+
 interface CellEditorProps {
   entry: ScheduleEntry | null;
   employeeId: string; dayDate: string; sector: string; scheduleId: string;
@@ -149,15 +191,22 @@ interface CellEditorProps {
 }
 
 function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, onSave, onClose }: CellEditorProps) {
-  const [type, setType]          = useState(entry?.entry_type || 'shift');
+  const getInitialSelection = (): CellSelection => {
+    if (!entry || entry.entry_type === 'empty') return { kind: 'empty' };
+    if (entry.entry_type === 'shift') return { kind: 'shift' };
+    if (entry.occurrence_type_id) {
+      const ot = occurrenceTypes.find(o => o.id === entry.occurrence_type_id);
+      if (ot) return { kind: 'occurrence', ot };
+    }
+    const byKey = occurrenceTypes.find(o => o.entry_type_key === entry.entry_type);
+    if (byKey) return { kind: 'occurrence', ot: byKey };
+    return { kind: 'shift' };
+  };
+
+  const [selection, setSelection] = useState<CellSelection>(getInitialSelection);
   const [start, setStart]        = useState(entry?.shift_start?.slice(0, 5) || '');
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
-  const [selectedOccurrence, setSelectedOccurrence] = useState<OccurrenceType | null>(
-    entry?.occurrence_type_id
-      ? occurrenceTypes.find(ot => ot.id === entry.occurrence_type_id) || null
-      : null
-  );
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -167,62 +216,95 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     return () => { clearTimeout(t); document.removeEventListener('mousedown', h); };
   }, [onClose]);
 
+  const sortedOccurrences = [...occurrenceTypes].sort((a, b) => a.sort_order - b.sort_order);
+  const selectedKey = selection.kind === 'occurrence' ? (selection.ot.entry_type_key || '') : '';
+  const needsTimePicker = selection.kind === 'shift' || ['meia_dobra', 'transfer'].includes(selectedKey);
+  const needsHotelSelector = selectedKey === 'transfer';
+
   const save = async () => {
     setSaving(true);
-    let occTypeId: string | null = null;
-    if (type === 'custom' && selectedOccurrence) {
-      occTypeId = selectedOccurrence.id;
-    } else if (['falta', 'atestado'].includes(type)) {
-      const systemType = occurrenceTypes.find(ot => ot.slug === type);
-      occTypeId = systemType?.id || null;
+    if (selection.kind === 'shift') {
+      await onSave({
+        employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
+        entry_type: 'shift',
+        shift_start: start || null, shift_end: end || null,
+        custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
+      });
+    } else if (selection.kind === 'empty') {
+      await onSave({
+        employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
+        entry_type: 'empty',
+        shift_start: null, shift_end: null,
+        custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
+      });
+    } else {
+      const ot = selection.ot;
+      const key = ot.entry_type_key;
+      const entryType = key || 'custom';
+      const wantsTime = ['meia_dobra', 'transfer'].includes(key || '');
+      await onSave({
+        employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
+        entry_type: entryType,
+        shift_start: wantsTime ? (start || null) : null,
+        shift_end: wantsTime ? (end || null) : null,
+        custom_label: !key ? ot.name : null,
+        transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
+        occurrence_type_id: ot.id,
+      });
     }
-
-    await onSave({
-      employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
-      entry_type: type,
-      shift_start:  (['shift', 'meia_dobra', 'transfer'].includes(type)) ? (start || null) : null,
-      shift_end:    (['shift', 'meia_dobra', 'transfer'].includes(type)) ? (end   || null) : null,
-      custom_label: type === 'custom' && selectedOccurrence ? selectedOccurrence.name : null,
-      transfer_hotel_id: type === 'transfer' ? (transferHotel || null) : null,
-      occurrence_type_id: occTypeId,
-    });
     setSaving(false);
     onClose();
   };
 
   const maxH = window.innerHeight - 24;
   const style: React.CSSProperties = {
-    position: 'fixed',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
-    zIndex: 200,
-    maxHeight: maxH,
-    display: 'flex',
-    flexDirection: 'column',
+    position: 'fixed', top: '50%', left: '50%',
+    transform: 'translate(-50%, -50%)', zIndex: 200,
+    maxHeight: maxH, display: 'flex', flexDirection: 'column',
   };
 
   return (
     <div ref={ref} style={style}
-      className="w-72 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
+      className="w-80 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Types */}
+        {/* Unified grid: Turno + DB types + ------ */}
         <div className="grid grid-cols-2 gap-1">
-          {ENTRY_TYPES.map(t => (
-            <button key={t.value} onClick={() => { setType(t.value); if (t.value !== 'custom') setSelectedOccurrence(null); }}
-              className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
-                type === t.value
-                  ? `${t.bg || 'bg-gray-100 dark:bg-gray-700'} ${t.color} ring-2 ring-blue-400`
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
-              }`}>
-              {t.label}
-            </button>
-          ))}
+          <button onClick={() => setSelection({ kind: 'shift' })}
+            className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
+              selection.kind === 'shift'
+                ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 ring-2 ring-blue-400'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}>
+            Turno
+          </button>
+
+          {sortedOccurrences.map(ot => {
+            const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
+            const isSelected = selection.kind === 'occurrence' && selection.ot.id === ot.id;
+            return (
+              <button key={ot.id} onClick={() => setSelection({ kind: 'occurrence', ot })}
+                className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left truncate ${
+                  isSelected
+                    ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}>
+                {ot.name}
+              </button>
+            );
+          })}
+
+          <button onClick={() => setSelection({ kind: 'empty' })}
+            className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
+              selection.kind === 'empty'
+                ? 'bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 ring-2 ring-blue-400'
+                : 'text-gray-300 dark:text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}>
+            ------
+          </button>
         </div>
 
-        {/* Time fields */}
-        {['shift', 'meia_dobra', 'transfer'].includes(type) && (
+        {needsTimePicker && (
           <div className="flex gap-2 items-center">
             <input type="time" value={start} onChange={e => setStart(e.target.value)}
               className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -232,51 +314,22 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </div>
         )}
 
-        {/* Transfer hotel */}
-        {type === 'transfer' && (
+        {needsHotelSelector && (
           <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
             className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
             <option value="">Selecione a unidade...</option>
             {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
         )}
-
-        {/* Occurrence type picker (read-only list — no creation) */}
-        {type === 'custom' && (
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tipo de ocorrência</p>
-            <div className="space-y-1">
-              {occurrenceTypes.map(ot => {
-                const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
-                const isSelected = selectedOccurrence?.id === ot.id;
-                return (
-                  <button key={ot.id}
-                    onClick={() => setSelectedOccurrence(ot)}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-between gap-2
-                      ${isSelected
-                        ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
-                    <span>{ot.name}</span>
-                    {ot.causes_basket_loss && (
-                      <span className="text-[10px] text-red-400 whitespace-nowrap">
-                        {ot.loss_threshold === 1 ? 'perde cesta' : `perde após ${ot.loss_threshold}x`}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Footer buttons */}
-      <div className="flex gap-2 p-3 pt-0 border-t border-gray-100 dark:border-gray-700 mt-0 flex-shrink-0">
+      <div className="flex gap-2 p-3 pt-2 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
         <button onClick={onClose}
           className="flex-1 py-1.5 text-xs font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
           Cancelar
         </button>
-        <button onClick={save} disabled={saving || (type === 'custom' && !selectedOccurrence)}
+        <button onClick={save} disabled={saving}
           className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-blue-500 hover:bg-blue-600 text-white rounded-xl disabled:opacity-60 transition-colors">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}Salvar
         </button>
@@ -561,13 +614,14 @@ export default function PublicScheduleEdit() {
           .eq('sector', tk.sector);
         setEntries((entryData || []) as ScheduleEntry[]);
 
-        // 6. Load occurrence types
+        // 6. Load occurrence types + auto-seed defaults
         const { data: occData } = await supabase
           .from('occurrence_types')
           .select('*')
           .eq('hotel_id', tk.hotel_id)
           .order('sort_order');
-        setOccurrenceTypes((occData || []) as OccurrenceType[]);
+        const withDefaults = await ensureDefaultTypes(tk.hotel_id, (occData || []) as OccurrenceType[]);
+        setOccurrenceTypes(withDefaults);
 
       } catch (e: any) {
         setError(e.message || 'Erro ao carregar dados.');
@@ -768,8 +822,8 @@ export default function PublicScheduleEdit() {
                   {weekDays.map((day, di) => {
                     const dayStr = format(day, 'yyyy-MM-dd');
                     const ent    = getEntry(emp.id, dayStr);
-                    const text   = formatEntry(ent, hotels);
-                    const style  = getEntryStyle(ent);
+                    const text   = formatEntry(ent, hotels, occurrenceTypes);
+                    const style  = getEntryStyle(ent, occurrenceTypes);
                     const isSun  = di === 0 || di === 7;
                     const isToday = isSameDay(day, new Date());
 
@@ -808,12 +862,15 @@ export default function PublicScheduleEdit() {
       {/* Legend */}
       <div className="max-w-6xl mx-auto px-4 pb-6">
         <div className="flex flex-wrap gap-2">
-          {ENTRY_TYPES.filter(t => t.value !== 'empty' && t.value !== 'shift').map(t => (
-            <span key={t.value}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${t.bg} ${t.color}`}>
-              {t.label}
-            </span>
-          ))}
+          {[...occurrenceTypes].sort((a, b) => a.sort_order - b.sort_order).map(ot => {
+            const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
+            return (
+              <span key={ot.id}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${colors.bg} ${colors.text}`}>
+                {ot.name}
+              </span>
+            );
+          })}
         </div>
       </div>
     </div>
