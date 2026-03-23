@@ -310,7 +310,7 @@ const DynamicBudgetCreation = () => {
               {budgetItems.map(item => (
                 <li key={item.product_id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded-md">
                   <p className="font-medium text-sm text-gray-800 dark:text-gray-200">{item.name}</p>
-                  <button onClick={() => handleRemoveItem(item.product_id)} className="p-1 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+                  <button onClick={() => handleRemoveItem(item.product_id)} className="p-1.5 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>
@@ -352,7 +352,7 @@ const DynamicBudgetCreation = () => {
                   <img src={item.image_url || 'https://placehold.co/40x40/e2e8f0/a0aec0?text=?'} alt={item.name} className="w-10 h-10 rounded-md object-cover" />
                   <p className="font-medium text-sm text-gray-800 dark:text-gray-200">{item.name}</p>
                 </div>
-                <button onClick={() => handleRemoveItem(item.product_id)} className="p-1 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+                <button onClick={() => handleRemoveItem(item.product_id)} className="p-1.5 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>

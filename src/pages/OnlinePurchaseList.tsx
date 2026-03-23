@@ -364,7 +364,7 @@ const ProductCard: React.FC<{
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <p className="text-[10px] text-gray-400 mb-1 font-medium">Parcelas</p>
+                  <p className="text-[11px] text-gray-400 mb-1 font-medium">Parcelas</p>
                   <input
                     type="number"
                     value={product.installments}
@@ -375,7 +375,7 @@ const ProductCard: React.FC<{
                   />
                 </div>
                 <div>
-                  <p className="text-[10px] text-gray-400 mb-1 font-medium">Vlr. parcela</p>
+                  <p className="text-[11px] text-gray-400 mb-1 font-medium">Vlr. parcela</p>
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-gray-400">R$</span>
                     <input
@@ -754,14 +754,14 @@ const AddProductModal: React.FC<{
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Parcelas</p>
+                      <p className="text-[11px] text-gray-400 mb-1">Parcelas</p>
                       <input type="number" value={draft.installments} onChange={e => upDraft({ installments: parseInt(e.target.value) || 2 })}
                         min="2" max="48"
                         className="w-full px-2 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-sm text-center font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
-                      <p className="text-[10px] text-gray-400 mb-1">Vlr. parcela</p>
+                      <p className="text-[11px] text-gray-400 mb-1">Vlr. parcela</p>
                       <input type="number" value={draft.installmentValue || ''} onChange={e => upDraft({ installmentValue: parseFloat(e.target.value) || 0 })}
                         placeholder="0,00" step="0.01" min="0"
                         className="w-full px-2 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-sm font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1064,7 +1064,7 @@ const OnlinePurchaseList: React.FC = () => {
           {/* Total */}
           {products.length > 0 && (
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Total geral</p>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Total geral</p>
               <p className="text-lg font-black text-gray-900 dark:text-white leading-none">
                 {fmtBRL(grandTotal)}
               </p>

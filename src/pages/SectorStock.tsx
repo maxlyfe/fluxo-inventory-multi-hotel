@@ -1344,7 +1344,7 @@ const SectorStock = () => {
                           }`}
                         />
                         {isOver && (
-                          <span className="text-[10px] text-red-500 font-medium">excede estoque</span>
+                          <span className="text-[11px] text-red-500 font-medium">excede estoque</span>
                         )}
                       </div>
                     </div>

@@ -462,15 +462,15 @@ const BudgetDetail = () => {
               <>
                 <div className="bg-green-50 dark:bg-green-900/10 rounded-xl p-2.5 text-center">
                   <p className="text-lg font-black text-green-600">{approvedItems}</p>
-                  <p className="text-[10px] text-green-500 font-bold uppercase">Aprovados</p>
+                  <p className="text-[11px] text-green-500 font-bold uppercase">Aprovados</p>
                 </div>
                 <div className="bg-red-50 dark:bg-red-900/10 rounded-xl p-2.5 text-center">
                   <p className="text-lg font-black text-red-500">{rejectedItems}</p>
-                  <p className="text-[10px] text-red-400 font-bold uppercase">Rejeitados</p>
+                  <p className="text-[11px] text-red-400 font-bold uppercase">Rejeitados</p>
                 </div>
                 <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl p-2.5 text-center">
                   <p className="text-lg font-black text-amber-600">{pendingItems}</p>
-                  <p className="text-[10px] text-amber-500 font-bold uppercase">Pendentes</p>
+                  <p className="text-[11px] text-amber-500 font-bold uppercase">Pendentes</p>
                 </div>
               </>
             ) : (
@@ -629,7 +629,7 @@ const BudgetDetail = () => {
                           ? 'border-green-400 bg-green-50 dark:bg-green-900/20'
                           : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-60'
                       }`}>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">À vista</p>
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">À vista</p>
                         <p className="text-base font-black text-green-700 dark:text-green-400">{fmt(priceAVista)}</p>
                       </div>
                       <div className={`rounded-xl p-3 border-2 transition-all ${
@@ -637,7 +637,7 @@ const BudgetDetail = () => {
                           ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
                           : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-60'
                       }`}>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Parcelado</p>
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Parcelado</p>
                         {item.installments && item.installment_value ? (
                           <p className="text-base font-black text-blue-700 dark:text-blue-400">
                             {item.installments}x {fmt(item.installment_value)}
@@ -748,7 +748,7 @@ const BudgetDetail = () => {
                     {/* Total do item */}
                     <div className="flex items-center justify-between bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-xl px-4 py-3 border border-indigo-100 dark:border-indigo-800/30">
                       <div>
-                        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                        <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-wide">
                           Total · {edit.quantity} un · {edit.payment_type === 'cash' ? 'à vista' : `${edit.installments}x parcelado`}
                           {frete > 0 ? ' + frete' : ''}
                         </p>
@@ -757,7 +757,7 @@ const BudgetDetail = () => {
                       {edit.payment_type === 'installment' && totalParc > priceAVista && priceAVista > 0 && (
                         <div className="text-right">
                           <p className="text-xs text-orange-500 dark:text-orange-400">+{fmt(totalParc - priceAVista)}</p>
-                          <p className="text-[10px] text-orange-400">acréscimo</p>
+                          <p className="text-[11px] text-orange-400">acréscimo</p>
                         </div>
                       )}
                     </div>

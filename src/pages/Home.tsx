@@ -734,7 +734,7 @@ const Home = () => {
                           </h3>
                         </div>
                         {sector.has_stock && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">
+                          <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">
                             Stock
                           </span>
                         )}

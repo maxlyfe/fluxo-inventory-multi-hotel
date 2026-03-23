@@ -331,7 +331,7 @@ export default function RolesManagement() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-sm font-bold text-gray-900 dark:text-white truncate">{role.name}</h3>
                       {role.is_system && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded-md">SISTEMA</span>
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded-md">SISTEMA</span>
                       )}
                     </div>
                     {role.description && (
@@ -349,14 +349,14 @@ export default function RolesManagement() {
                     if (!mod) return null;
                     return (
                       <span key={perm}
-                        className="text-[10px] font-semibold px-2 py-1 rounded-lg"
+                        className="text-[11px] font-semibold px-2 py-1 rounded-lg"
                         style={{ background: hexToRgba(role.color, 0.1), color: role.color }}>
                         {mod.label}
                       </span>
                     );
                   })}
                   {role.permissions.length > 5 && (
-                    <span className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500">
+                    <span className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500">
                       +{role.permissions.length - 5}
                     </span>
                   )}
@@ -422,7 +422,7 @@ export default function RolesManagement() {
                             {u.display_name}
                           </p>
                           {u.email && u.display_name !== u.email && (
-                            <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
+                            <p className="text-[11px] text-gray-400 truncate">{u.email}</p>
                           )}
                         </div>
                         <button

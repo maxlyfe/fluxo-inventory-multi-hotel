@@ -273,7 +273,7 @@ const Navbar = () => {
             {/* Hotel switcher dropdown */}
             <Menu as="div" className="relative">
               <Menu.Button
-                className="p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 title="Trocar Hotel"
               >
                 <ChevronDownIcon className="h-4 w-4" />
@@ -290,7 +290,7 @@ const Navbar = () => {
               >
                 <Menu.Items className="absolute left-0 mt-2 w-56 rounded-2xl shadow-xl bg-white dark:bg-gray-800 ring-1 ring-black/5 dark:ring-gray-700 focus:outline-none z-50 overflow-hidden">
                   <div className="py-1">
-                    <p className="px-4 pt-2 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    <p className="px-4 pt-2 pb-1 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                       Selecionar Hotel
                     </p>
                     {allHotels.map(hotel => (
@@ -384,7 +384,7 @@ const Navbar = () => {
                         return (
                           <div key={section.key}>
                             <p className={classNames(
-                              'px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5',
+                              'px-4 pt-2.5 pb-1 text-[11px] font-bold uppercase tracking-widest flex items-center gap-1.5',
                               isCurrent ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
                             )}>
                               <section.icon className="h-3.5 w-3.5" />
@@ -499,7 +499,7 @@ const Navbar = () => {
                         <p className="text-sm font-semibold text-gray-800 dark:text-white truncate mt-0.5">
                           {user.email}
                         </p>
-                        <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                        <span className="inline-block mt-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 uppercase tracking-wide">
                           {isAdmin ? 'Admin' : (user as any).custom_role?.name || user.role || 'Sem perfil'}
                         </span>
                       </div>
@@ -549,7 +549,7 @@ const Navbar = () => {
             {/* Sub-itens contextuais (seção ativa) */}
             {activeSection && contextItems.length > 0 && (
               <div className="px-3 pt-3 pb-2">
-                <p className="px-3 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                <p className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
                   <activeSection.icon className="h-3.5 w-3.5" />
                   {activeSection.label}
                 </p>
@@ -577,7 +577,7 @@ const Navbar = () => {
             {/* Todos os módulos */}
             <div className="px-3 pt-2 pb-2">
               {activeSection && <div className="border-t border-gray-100 dark:border-gray-700 my-2" />}
-              <p className="px-3 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              <p className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                 Módulos
               </p>
               <div className="space-y-0.5">

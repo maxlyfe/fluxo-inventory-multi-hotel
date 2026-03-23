@@ -126,7 +126,7 @@ const RoomAvailability: React.FC = () => {
                   >
                     <div>{format(parseISO(date), 'EEE', { locale: ptBR })}</div>
                     <div className="font-bold text-sm">{format(parseISO(date), 'dd')}</div>
-                    <div className="text-[10px]">{format(parseISO(date), 'MMM', { locale: ptBR })}</div>
+                    <div className="text-[11px]">{format(parseISO(date), 'MMM', { locale: ptBR })}</div>
                   </th>
                 ))}
               </tr>

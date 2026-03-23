@@ -675,7 +675,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
                     {p.name}
                   </p>
-                  <p className="text-[10px] text-gray-400">{p.category}</p>
+                  <p className="text-[11px] text-gray-400">{p.category}</p>
                 </div>
                 <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 flex-shrink-0" />
               </button>

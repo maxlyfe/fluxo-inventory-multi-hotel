@@ -164,7 +164,7 @@ const NewHotelTransferModal: React.FC<NewHotelTransferModalProps> = ({ isOpen, o
                             <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Subtotal: {((item.product.average_price || 0) * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
                         </div>
                         <input type="number" value={item.quantity} onChange={e => handleQuantityChange(item.product.id, parseInt(e.target.value))} max={item.product.quantity} min="1" className="w-20 p-1 text-center border rounded-md dark:bg-gray-800 dark:border-gray-600"/>
-                        <button onClick={() => handleRemoveProduct(item.product.id)} className="p-1 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full"><Trash2 className="w-4 h-4"/></button>
+                        <button onClick={() => handleRemoveProduct(item.product.id)} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full"><Trash2 className="w-4 h-4"/></button>
                     </div>
                 ))
             )}

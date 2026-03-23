@@ -804,7 +804,7 @@ const TransferHistory: React.FC = () => {
                         }`}
                       />
                       {isOver && (
-                        <span className="text-[10px] text-red-500 font-medium">máx. {maxQty}</span>
+                        <span className="text-[11px] text-red-500 font-medium">máx. {maxQty}</span>
                       )}
                     </div>
                   </div>

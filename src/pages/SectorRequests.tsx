@@ -785,7 +785,7 @@ const SectorRequests = () => {
               </h2>
               <button
                 onClick={closeModal}
-                className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -929,7 +929,7 @@ const SectorRequests = () => {
               </h2>
               <button
                 onClick={() => setShowCustomForm(false)}
-                className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>

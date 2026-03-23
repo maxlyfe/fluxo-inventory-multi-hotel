@@ -510,25 +510,25 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                             <label className="flex items-center gap-1.5 cursor-pointer">
                               <input type="checkbox" checked={editCausesLoss} onChange={e => setEditCausesLoss(e.target.checked)}
                                 className="w-3.5 h-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
-                              <span className="text-[10px] text-gray-600 dark:text-gray-300">Perde cesta</span>
+                              <span className="text-[11px] text-gray-600 dark:text-gray-300">Perde cesta</span>
                             </label>
                             {editCausesLoss && (
                               <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-gray-500">após</span>
+                                <span className="text-[11px] text-gray-500">após</span>
                                 <input type="number" min={1} max={31} value={editThreshold}
                                   onChange={e => setEditThreshold(Math.max(1, parseInt(e.target.value) || 1))}
-                                  className="w-10 px-1 py-0.5 text-[10px] text-center border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
-                                <span className="text-[10px] text-gray-500">x</span>
+                                  className="w-10 px-1 py-0.5 text-[11px] text-center border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                                <span className="text-[11px] text-gray-500">x</span>
                               </div>
                             )}
                           </div>
                           <div className="flex gap-1.5">
                             <button onClick={cancelEditing}
-                              className="flex-1 py-1 text-[10px] font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                              className="flex-1 py-1 text-[11px] font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                               Cancelar
                             </button>
                             <button onClick={() => saveEdit(ot)} disabled={savingEdit || !editName.trim()}
-                              className="flex-1 flex items-center justify-center gap-1 py-1 text-[10px] font-bold bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-60">
+                              className="flex-1 flex items-center justify-center gap-1 py-1 text-[11px] font-bold bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-60">
                               {savingEdit ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />} Salvar
                             </button>
                           </div>
@@ -559,11 +559,11 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                         </div>
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => startEditing(ot)}
-                            className="p-1 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
                             <Pencil className="w-3 h-3" />
                           </button>
                           <button onClick={() => deleteType(ot)}
-                            className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
@@ -575,7 +575,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
               {/* Criar novo tipo */}
               <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Criar novo tipo</p>
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Criar novo tipo</p>
                 <input type="text" value={newOccName} onChange={e => setNewOccName(e.target.value)}
                   placeholder="Nome da ocorrência..." maxLength={30}
                   className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -782,8 +782,8 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
                     works ? 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                           : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                   }`}>
-                    <p className="text-[10px] font-bold text-gray-400">{DAY_LABELS[i]}</p>
-                    <p className="text-[10px] font-bold mt-0.5 leading-tight">
+                    <p className="text-[11px] font-bold text-gray-400">{DAY_LABELS[i]}</p>
+                    <p className="text-[11px] font-bold mt-0.5 leading-tight">
                       {works
                         ? <span className="text-gray-700 dark:text-gray-200 block">{shiftStart}<br/>AS<br/>{shiftEnd}</span>
                         : <span className="text-green-600 dark:text-green-400">FOLGA</span>
@@ -1478,7 +1478,7 @@ export default function DPSchedule() {
                           )}
                         </div>
                         {emp.work_schedule && (
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500">
                             {WORK_SCHEDULES.find(w => w.value === emp.work_schedule)?.label || emp.work_schedule}
                           </span>
                         )}

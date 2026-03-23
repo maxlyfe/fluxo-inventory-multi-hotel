@@ -164,13 +164,13 @@ const RoomRack: React.FC = () => {
 
                       {/* Status badges */}
                       <div className="flex flex-wrap gap-1 mb-2">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
                           isClean ? 'bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200'
                                   : 'bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200'
                         }`}>
                           {room.descriptionHousekeepingStatus}
                         </span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
                           isOccupied ? 'bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200'
                                      : 'bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200'
                         }`}>
@@ -185,7 +185,7 @@ const RoomRack: React.FC = () => {
                         </p>
                       )}
                       {isOccupied && (room.adultCount || room.childrenCount || room.babyCount) && (
-                        <p className="text-[10px] text-gray-400">
+                        <p className="text-[11px] text-gray-400">
                           {room.adultCount || 0} ADL {room.childrenCount ? `· ${room.childrenCount} CHD` : ''} {room.babyCount ? `· ${room.babyCount} INF` : ''}
                         </p>
                       )}
@@ -195,7 +195,7 @@ const RoomRack: React.FC = () => {
                         <button
                           onClick={() => handleToggleStatus(room)}
                           disabled={isUpdating}
-                          className="mt-2 w-full text-[10px] font-semibold py-1 rounded-md transition-colors disabled:opacity-50
+                          className="mt-2 w-full text-[11px] font-semibold py-1 rounded-md transition-colors disabled:opacity-50
                             bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200"
                         >
                           {isUpdating ? <Loader2 className="w-3 h-3 mx-auto animate-spin" /> : `→ ${isClean ? 'Sujo' : 'Limpo'}`}

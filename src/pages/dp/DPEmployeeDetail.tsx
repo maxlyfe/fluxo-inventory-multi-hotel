@@ -721,7 +721,7 @@ export default function DPEmployeeDetail() {
                 <p className="text-xs text-gray-400 truncate">{linkedUser.email}</p>
               )}
             </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 uppercase tracking-wide flex-shrink-0">
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 uppercase tracking-wide flex-shrink-0">
               Ativo
             </span>
           </div>

@@ -802,7 +802,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                       {/* Row 1: Qtd + Unidade + Fornecedor */}
                       <div className="grid grid-cols-3 gap-0 border-t border-gray-200 dark:border-gray-700">
                         <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Qtd.</p>
+                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Qtd.</p>
                           <input
                             type="number"
                             value={product.editedQuantity ?? ''}
@@ -812,7 +812,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           />
                         </div>
                         <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Unid.</p>
+                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Unid.</p>
                           <select
                             value={product.editedUnit || ''}
                             onChange={(e) => handleUnitChange(product.id, e.target.value)}
@@ -822,7 +822,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           </select>
                         </div>
                         <div className="px-3 py-2.5">
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Fornecedor</p>
+                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Fornecedor</p>
                           <input
                             type="text"
                             value={product.editedSupplier || product.supplier || ''}
@@ -836,7 +836,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                       {/* Row 2: Preço unit + Total destacado */}
                       <div className="grid grid-cols-2 gap-0 border-t border-gray-200 dark:border-gray-700">
                         <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Preço Unit.</p>
+                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Preço Unit.</p>
                           <div className="flex items-center gap-1">
                             <span className="text-[11px] text-gray-400">R$</span>
                             <input
@@ -850,7 +850,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           </div>
                         </div>
                         <div className="px-3 py-2.5 bg-blue-50 dark:bg-blue-900/20">
-                          <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide mb-1">Total</p>
+                          <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wide mb-1">Total</p>
                           <p className="text-base font-black text-blue-700 dark:text-blue-300">
                             R$ {((product.editedQuantity ?? 0) * (product.editedPrice ?? 0)).toFixed(2).replace('.', ',')}
                           </p>
@@ -867,7 +867,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                         </summary>
                         <div className="grid grid-cols-2 gap-0 bg-gray-100/50 dark:bg-gray-800/30">
                           <div className="px-3 py-2.5 border-r border-b border-gray-200 dark:border-gray-700">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Últ. Qtd.</p>
+                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Últ. Qtd.</p>
                             <input
                               type="number"
                               value={product.editedLastQuantity ?? ''}
@@ -877,7 +877,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             />
                           </div>
                           <div className="px-3 py-2.5 border-b border-gray-200 dark:border-gray-700">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Últ. Preço</p>
+                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Últ. Preço</p>
                             <div className="flex items-center gap-1">
                               <span className="text-[11px] text-gray-400">R$</span>
                               <input
@@ -891,7 +891,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             </div>
                           </div>
                           <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Últ. Data</p>
+                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Últ. Data</p>
                             <input
                               type="date"
                               value={product.editedLastPurchaseDate || ''}
@@ -901,7 +901,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             />
                           </div>
                           <div className="px-3 py-2.5 relative">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Stock</p>
+                            <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Stock</p>
                             <div className="flex items-center gap-1">
                               <input
                                 type="text"
@@ -922,7 +922,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                                       setStockDropdownOpen(product.id);
                                     }
                                   }}
-                                  className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-indigo-500 transition-colors"
+                                  className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-indigo-500 transition-colors"
                                 >
                                   <Layers className="h-3.5 w-3.5" />
                                 </button>
@@ -1138,7 +1138,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                                     setStockDropdownOpen(product.id);
                                   }
                                 }}
-                                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-indigo-500 transition-colors"
+                                className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-indigo-500 transition-colors"
                               >
                                 <Layers className="h-3.5 w-3.5" />
                               </button>

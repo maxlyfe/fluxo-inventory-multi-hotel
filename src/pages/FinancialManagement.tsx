@@ -397,7 +397,7 @@ const FinancialManagement = () => {
             <Receipt className="w-4 h-4" />
             Contas a Receber (Erbon)
             {erbonConfigured && accountsReceivable && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full">
+              <span className="ml-1 px-1.5 py-0.5 text-[11px] font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full">
                 {accountsReceivable.length}
               </span>
             )}

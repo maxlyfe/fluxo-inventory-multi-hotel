@@ -794,7 +794,7 @@ const MultiHotelPurchase = () => {
                             />
                             <button
                               onClick={() => handleRenameBudgetGroup(group.groupId, editingName.name)}
-                              className="p-1 text-green-500 hover:text-green-600"
+                              className="p-1.5 text-green-500 hover:text-green-600"
                             >
                               <Check className="w-4 h-4" />
                             </button>
@@ -806,7 +806,7 @@ const MultiHotelPurchase = () => {
                             </h3>
                             <button
                               onClick={() => setEditingName({ groupId: group.groupId, name: group.customName })}
-                              className="p-1 text-gray-400 hover:text-purple-500 transition-colors shrink-0"
+                              className="p-1.5 text-gray-400 hover:text-purple-500 transition-colors shrink-0"
                               title="Renomear"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -1039,7 +1039,7 @@ const MultiHotelPurchase = () => {
                               <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                             )}
                             {/* Hotels count badge — shows which hotels have this product */}
-                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0">
+                            <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0">
                               {Object.keys(item.hotels).length}/{selectedHotels.length}
                             </span>
                           </div>

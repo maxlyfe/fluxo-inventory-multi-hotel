@@ -496,8 +496,8 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
                     works ? 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                           : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                   }`}>
-                    <p className="text-[10px] font-bold text-gray-400">{DAY_LABELS[i]}</p>
-                    <p className="text-[10px] font-bold mt-0.5 leading-tight">
+                    <p className="text-[11px] font-bold text-gray-400">{DAY_LABELS[i]}</p>
+                    <p className="text-[11px] font-bold mt-0.5 leading-tight">
                       {works
                         ? <span className="text-gray-700 dark:text-gray-200 block">{shiftStart}<br/>AS<br/>{shiftEnd}</span>
                         : <span className="text-green-600 dark:text-green-400">FOLGA</span>
@@ -749,7 +749,7 @@ export default function PublicScheduleEdit() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full font-bold">
+            <span className="text-[11px] text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full font-bold">
               Salvamento automático
             </span>
           </div>
@@ -812,7 +812,7 @@ export default function PublicScheduleEdit() {
                       <Zap className="h-2.5 w-2.5 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                     {emp.work_schedule && (
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                      <span className="text-[11px] text-gray-400 dark:text-gray-500">
                         {WORK_SCHEDULES.find(w => w.value === emp.work_schedule)?.label || emp.work_schedule}
                       </span>
                     )}
@@ -866,7 +866,7 @@ export default function PublicScheduleEdit() {
             const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
             return (
               <span key={ot.id}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${colors.bg} ${colors.text}`}>
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${colors.bg} ${colors.text}`}>
                 {ot.name}
               </span>
             );

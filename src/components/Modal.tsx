@@ -38,21 +38,22 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
 
   return (
     // Backdrop escuro que cobre a tela inteira.
-    <div 
+    <div
       className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"
-      onClick={onClose} // Fecha o modal ao clicar no fundo.
+      onClick={onClose}
     >
-      {/* Container principal do modal. */}
-      <div 
-        // Aplica a classe de tamanho dinamicamente.
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
         className={`bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full ${sizeClass} mx-4 max-h-[90vh] flex flex-col`}
-        onClick={(e) => e.stopPropagation()} // Impede que o clique dentro do modal o feche.
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Cabeçalho do Modal */}
         <div className="flex justify-between items-center p-4 border-b dark:border-gray-700 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white">{title}</h2>
-          <button 
+          <h2 id="modal-title" className="text-lg font-semibold text-gray-800 dark:text-white">{title}</h2>
+          <button
             onClick={onClose}
+            aria-label="Fechar modal"
             className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
           >
             <X className="w-5 h-5" />

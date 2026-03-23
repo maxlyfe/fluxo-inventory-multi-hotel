@@ -300,11 +300,11 @@ const ExpensesSettings: React.FC<Props> = ({ isOpen, onClose, onChanged }) => {
                                     autoFocus
                                   />
                                   <button onClick={handleUpdateSupplier} disabled={savingSupp}
-                                    className="p-1 rounded bg-green-100 text-green-700 hover:bg-green-200">
+                                    className="p-1.5 rounded bg-green-100 text-green-700 hover:bg-green-200">
                                     {savingSupp ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
                                   </button>
                                   <button onClick={() => setEditingSuppId(null)}
-                                    className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600">
+                                    className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600">
                                     <X className="w-3 h-3 text-gray-400" />
                                   </button>
                                 </div>
@@ -320,7 +320,7 @@ const ExpensesSettings: React.FC<Props> = ({ isOpen, onClose, onChanged }) => {
                                   )}
                                   <div className="flex items-center gap-1">
                                     <button onClick={() => { setEditingSuppId(s.id); setNewSuppName(s.name); }}
-                                      className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                                      className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
                                       <Pencil className="w-3 h-3 text-gray-400" />
                                     </button>
                                     <button onClick={() => handleToggleSupplierVisibility(s)}
@@ -329,7 +329,7 @@ const ExpensesSettings: React.FC<Props> = ({ isOpen, onClose, onChanged }) => {
                                       {visible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                                     </button>
                                     <button onClick={() => handleDeleteSupplier(s)}
-                                      className="p-1 rounded hover:bg-red-50 text-red-400 transition-colors">
+                                      className="p-1.5 rounded hover:bg-red-50 text-red-400 transition-colors">
                                       <Trash2 className="w-3 h-3" />
                                     </button>
                                   </div>

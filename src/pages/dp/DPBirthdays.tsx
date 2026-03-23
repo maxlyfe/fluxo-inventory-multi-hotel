@@ -232,7 +232,7 @@ const DPBirthdays: React.FC = () => {
             >
               <span className="tracking-wide">{monthName.slice(0, 3)}</span>
               {count > 0 ? (
-                <span className={`mt-1 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                <span className={`mt-1 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[11px] font-bold ${
                   isActive
                     ? 'bg-white/30 text-white'
                     : 'bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300'
@@ -277,7 +277,7 @@ const DPBirthdays: React.FC = () => {
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
                 }`}>
                   <span className="text-xl leading-none">{String(day).padStart(2, '0')}</span>
-                  <span className="text-[10px] uppercase tracking-wider opacity-70 mt-0.5">
+                  <span className="text-[11px] uppercase tracking-wider opacity-70 mt-0.5">
                     {MONTHS[monthIdx].slice(0, 3)}
                   </span>
                 </div>
@@ -291,7 +291,7 @@ const DPBirthdays: React.FC = () => {
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-gray-800 dark:text-gray-100 truncate">{emp.name}</p>
                       {isToday && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pink-500 text-white text-[10px] font-bold">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pink-500 text-white text-[11px] font-bold">
                           🎂 Hoje!
                         </span>
                       )}

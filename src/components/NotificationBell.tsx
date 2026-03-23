@@ -177,7 +177,7 @@ const NotificationBell: React.FC = () => {
         <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 z-50 overflow-hidden">
           <div className="p-3 flex justify-between items-center border-b dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Notificações</h3>
-            <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <button onClick={() => setIsOpen(false)} aria-label="Fechar notificações" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5">
                 <X size={18}/>
             </button>
           </div>
@@ -222,11 +222,11 @@ const NotificationBell: React.FC = () => {
               </button>
               {totalPages > 1 && (
                 <div className="flex items-center space-x-1">
-                  <button onClick={handlePreviousPage} disabled={currentPage === 1 || loading} className="p-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50">
+                  <button onClick={handlePreviousPage} disabled={currentPage === 1 || loading} className="p-1.5 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50">
                     Anterior
                   </button>
                   <span className="text-xs text-gray-500 dark:text-gray-400">{currentPage}/{totalPages}</span>
-                  <button onClick={handleNextPage} disabled={currentPage === totalPages || loading} className="p-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50">
+                  <button onClick={handleNextPage} disabled={currentPage === totalPages || loading} className="p-1.5 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50">
                     Próxima
                   </button>
                 </div>

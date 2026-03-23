@@ -67,7 +67,7 @@ const FloatingCard: React.FC<FloatingCardProps> = ({ activity, style, animClass 
     <span className="text-lg leading-none flex-shrink-0">{activity.icon}</span>
     <div className="min-w-0">
       <p
-        className="text-[10px] font-bold uppercase tracking-widest leading-none mb-0.5"
+        className="text-[11px] font-bold uppercase tracking-widest leading-none mb-0.5"
         style={{ color: activity.color, opacity: 0.9 }}
       >
         {activity.dept}
@@ -291,7 +291,7 @@ function NameOverlay() {
           </p>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-bold text-amber-400/80 uppercase tracking-widest mb-1.5">
+              <label className="block text-[11px] font-bold text-amber-400/80 uppercase tracking-widest mb-1.5">
                 Nome completo
               </label>
               <input
@@ -485,7 +485,7 @@ const Login: React.FC = () => {
               {/* Divisor */}
               <div className="flex items-center gap-3 py-1">
                 <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
-                <span className="text-[10px] tracking-widest uppercase font-medium" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                <span className="text-[11px] tracking-widest uppercase font-medium" style={{ color: 'rgba(255,255,255,0.2)' }}>
                   ou acesso admin
                 </span>
                 <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
@@ -599,7 +599,7 @@ const Login: React.FC = () => {
           </div>
 
           {/* Rodapé */}
-          <p className="text-center mt-5 text-[10px] tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.12)' }}>
+          <p className="text-center mt-5 text-[11px] tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.12)' }}>
             LyFe Hoteles · Todos os direitos reservados
           </p>
         </div>

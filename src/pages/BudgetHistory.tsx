@@ -647,7 +647,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                                 ? 'border-green-400 bg-green-50 dark:bg-green-900/20'
                                 : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-50'
                             }`}>
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">À vista</p>
+                              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">À vista</p>
                               <p className="text-sm font-black text-green-700 dark:text-green-400">{fmtBRL(priceAVista)}</p>
                             </div>
                             <div className={`rounded-xl p-2.5 border-2 ${
@@ -655,7 +655,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                                 ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
                                 : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-50'
                             }`}>
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Parcelado</p>
+                              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Parcelado</p>
                               {item.installments && item.installment_value ? (
                                 <p className="text-sm font-black text-blue-700 dark:text-blue-400">
                                   {item.installments}x {fmtBRL(item.installment_value)}
@@ -682,7 +682,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           {/* Pagamento escolhido + qtd + total */}
                           <div className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-xl px-4 py-3 border border-indigo-100 dark:border-indigo-800/30 flex items-center justify-between">
                             <div>
-                              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                              <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-wide">
                                 {item.quantity}x · {item.payment_type === 'installment' ? `${item.installments}x parcelado` : 'à vista'}
                                 {frete > 0 ? ' + frete' : ''}
                               </p>
@@ -691,7 +691,7 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             {item.payment_type === 'installment' && totalParcelado > 0 && priceAVista > 0 && totalParcelado > priceAVista && (
                               <p className="text-xs text-orange-500 dark:text-orange-400 text-right">
                                 +{fmtBRL(totalParcelado - priceAVista)}<br/>
-                                <span className="text-[10px]">juros</span>
+                                <span className="text-[11px]">juros</span>
                               </p>
                             )}
                           </div>

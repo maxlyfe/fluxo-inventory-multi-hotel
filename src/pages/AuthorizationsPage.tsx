@@ -751,7 +751,7 @@ const AuthorizationsPage: React.FC = () => {
                                         ? 'border-green-400 bg-green-50 dark:bg-green-900/20'
                                         : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-60'
                                     }`}>
-                                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">À vista</p>
+                                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">À vista</p>
                                       <p className="text-sm font-black text-green-700 dark:text-green-400">
                                         {fmtBRL(priceAVista)}
                                       </p>
@@ -761,7 +761,7 @@ const AuthorizationsPage: React.FC = () => {
                                         ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
                                         : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 opacity-60'
                                     }`}>
-                                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Parcelado</p>
+                                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Parcelado</p>
                                       {item.installments && item.installment_value ? (
                                         <p className="text-sm font-black text-blue-700 dark:text-blue-400">
                                           {item.installments}x {fmtBRL(item.installment_value)}
@@ -858,7 +858,7 @@ const AuthorizationsPage: React.FC = () => {
                                   {/* ── Total do item ── */}
                                   <div className="flex items-center justify-between bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-xl px-4 py-3 border border-indigo-100 dark:border-indigo-800/30">
                                     <div>
-                                      <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                                      <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-wide">
                                         Total ({edit.quantity} un. · {edit.payment_type === 'cash' ? 'à vista' : `${edit.installments}x`})
                                       </p>
                                       <p className="text-xl font-black text-indigo-700 dark:text-indigo-300">{fmtBRL(totalItem)}</p>
@@ -902,15 +902,15 @@ const AuthorizationsPage: React.FC = () => {
                             <div className="grid grid-cols-3 gap-3 text-center mb-3">
                               <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-2">
                                 <p className="text-lg font-black text-green-600">{budget.budget_items.filter(i => i.item_status === 'approved').length}</p>
-                                <p className="text-[10px] text-green-500 font-bold uppercase">Aprovados</p>
+                                <p className="text-[11px] text-green-500 font-bold uppercase">Aprovados</p>
                               </div>
                               <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-2">
                                 <p className="text-lg font-black text-red-500">{budget.budget_items.filter(i => i.item_status === 'rejected').length}</p>
-                                <p className="text-[10px] text-red-400 font-bold uppercase">Rejeitados</p>
+                                <p className="text-[11px] text-red-400 font-bold uppercase">Rejeitados</p>
                               </div>
                               <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2">
                                 <p className="text-lg font-black text-amber-600">{budget.budget_items.filter(i => !i.item_status || i.item_status === 'pending').length}</p>
-                                <p className="text-[10px] text-amber-500 font-bold uppercase">Pendentes</p>
+                                <p className="text-[11px] text-amber-500 font-bold uppercase">Pendentes</p>
                               </div>
                             </div>
                             <div className="flex items-center justify-between">
