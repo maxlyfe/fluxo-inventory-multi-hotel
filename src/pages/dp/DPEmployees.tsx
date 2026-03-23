@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { format, differenceInDays, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { whatsappService, formatWhatsAppNumber, isValidWhatsAppNumber } from '../../lib/whatsappService';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -434,6 +435,48 @@ export default function DPEmployees() {
       } else {
         const { error } = await supabase.from('employees').insert(payload);
         if (error) throw error;
+      }
+
+      // ── Sync contato na agenda ──────────────────────────────
+      if (form.phone && isValidWhatsAppNumber(form.phone)) {
+        try {
+          const formatted = formatWhatsAppNumber(form.phone);
+          // Buscar se já existe contato com esse número
+          const existing = (await whatsappService.getContacts()).find(c => c.whatsapp_number === formatted);
+          // Buscar categoria "Colaborador"
+          const cats = await whatsappService.getCategories();
+          const colabCat = cats.find(c => c.name === 'Colaborador');
+
+          if (existing) {
+            // Vincular employee_id se não vinculado
+            if (!existing.employee_id) {
+              const empId = editId || (await supabase.from('employees').select('id').eq('phone', form.phone).order('created_at', { ascending: false }).limit(1).single()).data?.id;
+              if (empId) {
+                await supabase.from('supplier_contacts').update({
+                  employee_id: empId,
+                  category_id: colabCat?.id || existing.category_id,
+                  contact_name: form.name.trim(),
+                  email: form.email || existing.email,
+                  updated_at: new Date().toISOString(),
+                }).eq('id', existing.id);
+              }
+            }
+          } else {
+            // Criar contato novo
+            const empId = editId || (await supabase.from('employees').select('id').eq('phone', form.phone).order('created_at', { ascending: false }).limit(1).single()).data?.id;
+            await whatsappService.saveContact({
+              company_name: form.name.trim(),
+              contact_name: form.name.trim(),
+              whatsapp_number: formatted,
+              email: form.email || null,
+              category_id: colabCat?.id || null,
+              employee_id: empId || null,
+              notes: `${form.role} — ${form.sector}`,
+            });
+          }
+        } catch {
+          // Não bloqueia o save do colaborador se falhar sync do contato
+        }
       }
 
       setShowForm(false);

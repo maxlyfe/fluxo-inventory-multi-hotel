@@ -53,6 +53,20 @@ export function buildSectorModules(
   }));
 }
 
+// Gera módulos dinâmicos de categoria de contato — chamado pelo RolesManagement
+// Chave: 'contacts:UUID'  →  aparece no grupo 'Agenda de Contatos'
+export function buildContactCategoryModules(
+  categories: { id: string; name: string; color?: string }[]
+): Module[] {
+  return categories.map(c => ({
+    key:         `contacts:${c.id}`,
+    label:       c.name,
+    description: `Acesso a contatos da categoria "${c.name}"`,
+    group:       'Agenda de Contatos',
+    icon:        'Phone',
+  }));
+}
+
 export const MODULE_GROUPS = [...new Set(MODULES.map(m => m.group))];
 
 // -----------------------------------------------------------------------
@@ -104,8 +118,26 @@ export function usePermissions() {
   const canAny = (keys: string[]) => keys.some(k => can(k));
   const canAll = (keys: string[]) => keys.every(k => can(k));
 
+  /** Retorna IDs das categorias de contato liberadas para o usuário */
+  const allowedContactCategories = useMemo(() => {
+    if (!user) return [];
+    if (isAdmin) return []; // admin vê tudo — array vazio = sem filtro
+    const perms = user.custom_role?.permissions ?? [];
+    return perms
+      .filter(p => p.startsWith('contacts:'))
+      .map(p => p.replace('contacts:', ''));
+  }, [user, isAdmin]);
+
+  /** Verifica se o usuário tem acesso a pelo menos uma categoria de contatos */
+  const canAccessContacts = useMemo(() => {
+    if (!user) return false;
+    if (isAdmin) return true;
+    const perms = user.custom_role?.permissions ?? [];
+    return perms.some(p => p.startsWith('contacts:'));
+  }, [user, isAdmin]);
+
   const roleName  = isAdmin ? 'Admin' : (user?.custom_role?.name ?? 'Sem perfil');
   const roleColor = isAdmin ? '#ef4444' : (user?.custom_role?.color ?? '#94a3b8');
 
-  return { can, canAny, canAll, isAdmin, roleName, roleColor };
+  return { can, canAny, canAll, isAdmin, roleName, roleColor, allowedContactCategories, canAccessContacts };
 }

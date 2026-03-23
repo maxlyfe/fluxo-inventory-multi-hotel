@@ -17,6 +17,14 @@ export interface WhatsAppConfig {
   is_active: boolean;
 }
 
+export interface ContactCategory {
+  id: string;
+  name: string;
+  color: string;
+  icon: string;
+  is_active: boolean;
+}
+
 export interface SupplierContact {
   id: string;
   hotel_id: string;
@@ -25,9 +33,12 @@ export interface SupplierContact {
   whatsapp_number: string;
   email: string | null;
   notes: string | null;
+  category_id: string | null;
+  employee_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  contact_categories?: ContactCategory | null;
 }
 
 export interface WhatsAppMessageTemplate {
@@ -277,11 +288,55 @@ export const whatsappService = {
 
   // ── Contacts CRUD ─────────────────────────────────────────────────────
 
-  /** Busca todos os contatos ativos (compartilhados entre hotéis) */
+  // ── Categories CRUD ──────────────────────────────────────────────────
+
+  async getCategories(): Promise<ContactCategory[]> {
+    const { data, error } = await supabase
+      .from('contact_categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('name');
+    if (error) throw error;
+    return data || [];
+  },
+
+  async saveCategory(cat: Partial<ContactCategory> & { name: string }): Promise<ContactCategory> {
+    if (cat.id) {
+      const { data, error } = await supabase
+        .from('contact_categories')
+        .update({ name: cat.name, color: cat.color || '#6B7280', icon: cat.icon || 'Tag', updated_at: new Date().toISOString() })
+        .eq('id', cat.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    }
+    const { data, error } = await supabase
+      .from('contact_categories')
+      .insert({ name: cat.name, color: cat.color || '#6B7280', icon: cat.icon || 'Tag' })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteCategory(categoryId: string): Promise<void> {
+    // Desvincula contatos dessa categoria antes de desativar
+    await supabase.from('supplier_contacts').update({ category_id: null }).eq('category_id', categoryId);
+    const { error } = await supabase
+      .from('contact_categories')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', categoryId);
+    if (error) throw error;
+  },
+
+  // ── Contacts CRUD ─────────────────────────────────────────────────────
+
+  /** Busca todos os contatos ativos (compartilhados entre hotéis) com categoria */
   async getContacts(): Promise<SupplierContact[]> {
     const { data, error } = await supabase
       .from('supplier_contacts')
-      .select('*')
+      .select('*, contact_categories(*)')
       .eq('is_active', true)
       .order('company_name');
     if (error) throw error;
@@ -298,11 +353,12 @@ export const whatsappService = {
           whatsapp_number: contact.whatsapp_number,
           email: contact.email || null,
           notes: contact.notes || null,
+          category_id: contact.category_id || null,
           is_active: contact.is_active ?? true,
           updated_at: new Date().toISOString(),
         })
         .eq('id', contact.id)
-        .select()
+        .select('*, contact_categories(*)')
         .single();
       if (error) throw error;
       return data;
@@ -316,8 +372,10 @@ export const whatsappService = {
           whatsapp_number: contact.whatsapp_number,
           email: contact.email || null,
           notes: contact.notes || null,
+          category_id: contact.category_id || null,
+          employee_id: contact.employee_id || null,
         })
-        .select()
+        .select('*, contact_categories(*)')
         .single();
       if (error) throw error;
       return data;

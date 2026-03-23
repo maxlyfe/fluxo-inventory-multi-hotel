@@ -75,6 +75,7 @@ import { NotificationProvider } from './context/NotificationContext';
 
 // ── Auth hook ─────────────────────────────────────────────────────────────────
 import { useAuth } from './context/AuthContext';
+import { usePermissions } from './hooks/usePermissions';
 
 // ── Push notifications ────────────────────────────────────────────────────────
 import { usePushNotifications } from './hooks/usePushNotifications';
@@ -102,6 +103,25 @@ function PushNotificationSetup() {
   });
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// ContactsRouteGuard — acesso a contatos por purchases OU categorias liberadas
+// ---------------------------------------------------------------------------
+function ContactsRouteGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const { can, isAdmin, canAccessContacts } = usePermissions();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (isAdmin || can('purchases') || canAccessContacts) return <>{children}</>;
+  return <Navigate to="/" replace />;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,9 +201,9 @@ function App() {
                     } />
 
                     <Route path="/admin/supplier-contacts" element={
-                      <PrivateRoute module="purchases">
+                      <ContactsRouteGuard>
                         <SupplierContacts />
-                      </PrivateRoute>
+                      </ContactsRouteGuard>
                     } />
 
                     {/* ── Usuários ────────────────────────────────────────── */}

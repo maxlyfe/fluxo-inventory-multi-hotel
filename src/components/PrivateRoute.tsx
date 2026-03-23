@@ -18,11 +18,13 @@ interface PrivateRouteProps {
   modules?:   string[];
   // Atalho para rotas exclusivas de admin
   adminOnly?: boolean;
+  // Verificação customizada adicional (ex: canAccessContacts)
+  customCheck?: boolean;
   // Compatibilidade retroativa — ignorado (permissões agora vêm do perfil)
   roles?:     string[];
 }
 
-const PrivateRoute = ({ children, module, modules, adminOnly }: PrivateRouteProps) => {
+const PrivateRoute = ({ children, module, modules, adminOnly, customCheck }: PrivateRouteProps) => {
   const { user, loading } = useAuth();
   const { can, canAny, isAdmin } = usePermissions();
   const location          = useLocation();
@@ -47,8 +49,11 @@ const PrivateRoute = ({ children, module, modules, adminOnly }: PrivateRouteProp
   }
 
   // ── Rota com módulo específico ────────────────────────────────────────────
+  // Se customCheck é fornecido, aceita o módulo OU a condição customizada
   if (module && !can(module)) {
-    return <Navigate to="/" replace />;
+    if (customCheck !== true) {
+      return <Navigate to="/" replace />;
+    }
   }
 
   // ── Rota com múltiplos módulos (OR) ─────────────────────────────────────

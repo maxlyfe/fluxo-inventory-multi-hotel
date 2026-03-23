@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
-import { usePermissions, MODULES, MODULE_GROUPS, buildSectorModules, type Module } from '../../hooks/usePermissions';
+import { usePermissions, MODULES, MODULE_GROUPS, buildSectorModules, buildContactCategoryModules, type Module } from '../../hooks/usePermissions';
 import {
   Plus, Loader2, AlertTriangle, Edit2, Trash2, X, Check,
   Shield, UserCog, Users, ChevronDown, ChevronRight, Info,
@@ -109,15 +109,17 @@ export default function RolesManagement() {
   // Collapsed groups
   const [collapsedGroups,  setCollapsedGroups]  = useState<string[]>([]);
   const [sectorModules,    setSectorModules]    = useState<Module[]>([]);
+  const [contactCatModules, setContactCatModules] = useState<Module[]>([]);
 
   // ---------------------------------------------------------------------------
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Busca roles + setores em paralelo
-      const [rolesRes, sectorsRes] = await Promise.all([
+      // Busca roles + setores + categorias de contato em paralelo
+      const [rolesRes, sectorsRes, categoriesRes] = await Promise.all([
         supabase.from('custom_roles').select('*').order('is_system', { ascending: false }).order('name'),
         supabase.from('sectors').select('id, name, hotels(name)').eq('has_stock', true).order('display_order', { ascending: true }),
+        supabase.from('contact_categories').select('id, name, color').eq('is_active', true).order('name'),
       ]);
 
       if (rolesRes.error) throw rolesRes.error;
@@ -130,6 +132,11 @@ export default function RolesManagement() {
           hotelName: s.hotels?.name ?? null,
         }));
         setSectorModules(buildSectorModules(sectorsWithHotel));
+      }
+
+      // Atualiza módulos dinâmicos de categorias de contato
+      if (categoriesRes.data) {
+        setContactCatModules(buildContactCategoryModules(categoriesRes.data));
       }
 
       // Busca profiles — tenta com custom_role_id, cai em fallback se coluna não existir
@@ -183,8 +190,12 @@ export default function RolesManagement() {
     setFormPerms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
 
   // Todos os módulos disponíveis (fixos + dinâmicos de setor)
-  const allModules = [...MODULES, ...sectorModules];
-  const allGroups  = [...MODULE_GROUPS, ...(sectorModules.length > 0 ? ['Stock por Setor'] : [])];
+  const allModules = [...MODULES, ...sectorModules, ...contactCatModules];
+  const allGroups  = [
+    ...MODULE_GROUPS,
+    ...(sectorModules.length > 0 ? ['Stock por Setor'] : []),
+    ...(contactCatModules.length > 0 ? ['Agenda de Contatos'] : []),
+  ];
 
   const toggleGroup = (group: string) => {
     const keys = allModules.filter(m => m.group === group).map(m => m.key);

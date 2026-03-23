@@ -9,6 +9,9 @@ import { supabase } from "../lib/supabase";
 import NotificationBell from "./NotificationBell";
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
+
+// Sub-itens que requerem permissão especial (além do módulo da seção)
+const CONTACT_ITEM_HREF = '/admin/supplier-contacts';
 import { useHotel } from "../context/HotelContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -200,7 +203,7 @@ const NAV_SECTIONS: NavSection[] = [
 // ---------------------------------------------------------------------------
 const Navbar = () => {
   const { user, logout: authLogout } = useAuth();
-  const { can, isAdmin }              = usePermissions();
+  const { can, isAdmin, canAccessContacts } = usePermissions();
   const { selectedHotel, setSelectedHotel } = useHotel();
   const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
@@ -234,10 +237,22 @@ const Navbar = () => {
   const visibleSections = useMemo(() =>
     NAV_SECTIONS.filter(s => {
       if (s.adminOnly) return isAdmin;
-      if (s.module) return can(s.module);
+      if (s.module) {
+        if (can(s.module)) return true;
+        // Compras aparece também se o user tem acesso a contatos
+        if (s.key === 'compras' && canAccessContacts) return true;
+        return false;
+      }
       return true;
+    }).map(s => {
+      // Filtrar sub-itens que o user não pode acessar
+      if (s.key === 'compras' && !isAdmin && !can('purchases')) {
+        // User só tem acesso a contatos, não a compras completo
+        return { ...s, items: s.items.filter(i => i.href === CONTACT_ITEM_HREF) };
+      }
+      return s;
     }),
-    [isAdmin, can]
+    [isAdmin, can, canAccessContacts]
   );
 
   // Seção ativa baseada na rota atual — prioriza o prefix mais longo (mais específico)

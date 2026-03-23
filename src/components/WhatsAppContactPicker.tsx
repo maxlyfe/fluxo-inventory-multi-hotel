@@ -51,6 +51,9 @@ Acesse o link abaixo:
 
 Obrigado!`;
 
+const LS_KEY_SINGLE = 'whatsapp_msg_template_single';
+const LS_KEY_GROUP = 'whatsapp_msg_template_group';
+
 const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
   isOpen, onClose, budgetIds, links, isUnified = false, groupName,
 }) => {
@@ -71,7 +74,10 @@ const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
   // Carregar contatos vinculados aos orçamentos
   useEffect(() => {
     if (!isOpen || budgetIds.length === 0) return;
-    setMessageTemplate(isUnified ? DEFAULT_MESSAGE_GROUP : DEFAULT_MESSAGE_SINGLE);
+    // Carregar mensagem salva do localStorage ou usar default
+    const lsKey = isUnified ? LS_KEY_GROUP : LS_KEY_SINGLE;
+    const saved = localStorage.getItem(lsKey);
+    setMessageTemplate(saved || (isUnified ? DEFAULT_MESSAGE_GROUP : DEFAULT_MESSAGE_SINGLE));
     const load = async () => {
       setLoading(true);
       try {
@@ -96,6 +102,17 @@ const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
     };
     load();
   }, [isOpen, budgetIds, isUnified]);
+
+  // Persistir mensagem editada no localStorage
+  useEffect(() => {
+    if (!messageTemplate) return;
+    const lsKey = isUnified ? LS_KEY_GROUP : LS_KEY_SINGLE;
+    const defaultMsg = isUnified ? DEFAULT_MESSAGE_GROUP : DEFAULT_MESSAGE_SINGLE;
+    // Só salvar se diferente do default
+    if (messageTemplate !== defaultMsg) {
+      localStorage.setItem(lsKey, messageTemplate);
+    }
+  }, [messageTemplate, isUnified]);
 
   // Reset ao fechar
   useEffect(() => {
