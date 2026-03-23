@@ -93,7 +93,7 @@ async function ensureDefaultTypes(hotelId: string, existing: OccurrenceType[]): 
   if (missing.length === 0) return existing;
 
   const { data } = await supabase.from('occurrence_types')
-    .insert(missing.map(s => ({ ...s, hotel_id: hotelId })))
+    .upsert(missing.map(s => ({ ...s, hotel_id: hotelId })), { onConflict: 'hotel_id,entry_type_key', ignoreDuplicates: true })
     .select();
 
   if (data && data.length > 0) {

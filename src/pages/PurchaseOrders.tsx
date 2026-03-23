@@ -318,7 +318,8 @@ const PurchaseOrders = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                       <div className="h-12 w-12 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
-                        {product.image_url ? (<img src={product.image_url} alt={product.name} className="h-full w-full object-contain" />) : (<Package className="h-6 w-6 text-gray-400" />)}
+                        {product.image_url ? (<img src={product.image_url} alt={product.name} className="h-full w-full object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; e.currentTarget.parentElement?.querySelector('.img-fallback')?.classList.remove('hidden'); }} />) : null}
+                        <Package className={`h-6 w-6 text-gray-400 img-fallback ${product.image_url ? 'hidden' : ''}`} />
                       </div>
                       <div>
                         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-200">{product.name}</h3>
