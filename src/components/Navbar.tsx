@@ -50,6 +50,8 @@ import {
   Home,
   ChevronRight,
   ArrowLeftRight,
+  Phone,
+  MessageSquare,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -90,12 +92,13 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Compras',
     icon: ShoppingCart,
     module: 'purchases',
-    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin'],
+    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin/supplier-contacts', '/admin'],
     items: [
-      { name: 'Compras',      href: '/purchases',       icon: ShoppingCart },
-      { name: 'Orçamentos',   href: '/budget-history',  icon: FileText },
-      { name: 'Aprovações',   href: '/authorizations',  icon: ShieldCheck },
-      { name: 'Requisições',  href: '/admin',            icon: ClipboardList },
+      { name: 'Compras',      href: '/purchases',                icon: ShoppingCart },
+      { name: 'Orçamentos',   href: '/budget-history',           icon: FileText },
+      { name: 'Aprovações',   href: '/authorizations',           icon: ShieldCheck },
+      { name: 'Contatos',     href: '/admin/supplier-contacts',  icon: Phone },
+      { name: 'Requisições',  href: '/admin',                    icon: ClipboardList },
     ],
   },
   {
@@ -181,12 +184,13 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Configurações',
     icon: SettingsIcon,
     adminOnly: true,
-    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/erbon'],
+    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/erbon', '/admin/whatsapp'],
     items: [
-      { name: 'Usuários',         href: '/users',          icon: UsersRound },
-      { name: 'Gestão de Perfis', href: '/admin/roles',    icon: UserCog },
-      { name: 'Gestão de Setores',href: '/admin/sectors',  icon: LayoutGrid },
-      { name: 'Erbon PMS',        href: '/admin/erbon',    icon: Link2 },
+      { name: 'Usuários',         href: '/users',            icon: UsersRound },
+      { name: 'Gestão de Perfis', href: '/admin/roles',      icon: UserCog },
+      { name: 'Gestão de Setores',href: '/admin/sectors',    icon: LayoutGrid },
+      { name: 'Erbon PMS',        href: '/admin/erbon',      icon: Link2 },
+      { name: 'WhatsApp',         href: '/admin/whatsapp',   icon: MessageSquare },
     ],
   },
 ];

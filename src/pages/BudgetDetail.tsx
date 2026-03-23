@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, History, Database, ShoppingBag,
   Package, ChevronDown, ChevronUp, Layers,
   Globe, ExternalLink, CreditCard, ChevronLeft, ChevronRight,
-  ShoppingCart,
+  ShoppingCart, MessageSquare, Loader2,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -20,6 +20,7 @@ import {
   updateBudgetItemPayment,
 } from '../lib/supabase';
 import { createNotification } from '../lib/notifications';
+import { whatsappService, getGreeting } from '../lib/whatsappService';
 import * as XLSX from 'xlsx';
 
 // ── Opções de unidade ──────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ const BudgetDetail = () => {
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState<string | null>(null);
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
 
   // Stock por setor (físico)
   const [expandedStock, setExpandedStock] = useState<string | null>(null);
@@ -318,6 +320,47 @@ const BudgetDetail = () => {
             metadata:   { budget_id: budgetId, total_value: budget.total_value, supplier: getMainSupplier(), approved_by: user.email },
           });
         } catch (e) { console.error(e); }
+
+        // Tentar enviar notificação WhatsApp ao fornecedor
+        try {
+          const hotelId = result.data.hotel_id;
+          const supplierName = getMainSupplier();
+          const contacts = await whatsappService.getBudgetContacts(budgetId);
+          // Buscar contato que corresponde ao fornecedor principal
+          const match = contacts.find(c =>
+            c.company_name.toLowerCase().includes(supplierName.toLowerCase()) ||
+            supplierName.toLowerCase().includes(c.company_name.toLowerCase())
+          );
+          if (match) {
+            setSendingWhatsApp(true);
+            const sendResult = await whatsappService.sendTemplate({
+              hotelId,
+              recipientPhone: match.whatsapp_number,
+              templateName: 'fluxo_compra_aprovada',
+              bodyParams: [budget.hotel?.name || 'Hotel', supplierName],
+            });
+            await whatsappService.logMessage({
+              hotel_id: hotelId,
+              contact_id: match.id,
+              template_key: 'purchase_approved',
+              whatsapp_message_id: sendResult.messageId,
+              status: sendResult.success ? 'sent' : 'failed',
+              error_message: sendResult.error,
+              metadata: { budget_id: budgetId, supplier: supplierName },
+              sent_by: user.id,
+            });
+            if (sendResult.success) {
+              addNotification(`Comprovante enviado via WhatsApp para ${match.company_name}!`, 'success');
+            } else {
+              addNotification(`WhatsApp: ${sendResult.error}`, 'warning');
+            }
+            setSendingWhatsApp(false);
+          }
+        } catch (waErr) {
+          console.error('WhatsApp send error:', waErr);
+          setSendingWhatsApp(false);
+        }
+
         navigate('/authorizations');
       } else throw new Error(result.error || 'Falha ao aprovar');
     } catch (err) {

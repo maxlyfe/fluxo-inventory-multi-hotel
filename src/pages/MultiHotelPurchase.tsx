@@ -8,8 +8,9 @@ import {
   Check, Loader2, Link as LinkIcon, Copy, Package,
   ChevronDown, ChevronUp, Globe, AlertTriangle,
   CheckSquare, Square, BarChart2, History, Clock,
-  ExternalLink, Edit3, Trash2, Link2, X,
+  ExternalLink, Edit3, Trash2, Link2, X, MessageSquare,
 } from 'lucide-react';
+import WhatsAppContactPicker from '../components/WhatsAppContactPicker';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -119,6 +120,7 @@ const MultiHotelPurchase = () => {
   const [generatedBudgets, setGeneratedBudgets] = useState<GeneratedBudget[]>([]);
   const [unifiedLink, setUnifiedLink] = useState<string | null>(null);
   const [copiedBudgetId, setCopiedBudgetId] = useState<string | null>(null);
+  const [showWhatsAppPicker, setShowWhatsAppPicker] = useState(false);
   const [budgetCustomName, setBudgetCustomName] = useState('');
 
   // ── State: History ──
@@ -666,6 +668,12 @@ const MultiHotelPurchase = () => {
 
         <div className="flex gap-3 mt-6">
           <button
+            onClick={() => setShowWhatsAppPicker(true)}
+            className="flex items-center justify-center gap-2 py-3 px-5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700"
+          >
+            <MessageSquare className="w-4 h-4" /> Enviar via WhatsApp
+          </button>
+          <button
             onClick={() => { setGeneratedBudgets([]); setUnifiedLink(null); }}
             className="flex-1 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg font-semibold hover:bg-gray-300 dark:hover:bg-gray-600"
           >
@@ -678,6 +686,15 @@ const MultiHotelPurchase = () => {
             Voltar para Compras
           </button>
         </div>
+
+        <WhatsAppContactPicker
+          isOpen={showWhatsAppPicker}
+          onClose={() => setShowWhatsAppPicker(false)}
+          budgetIds={generatedBudgets.map(b => b.budgetId)}
+          links={generatedBudgets.map(b => ({ budgetId: b.budgetId, link: b.link, hotelName: b.hotelName }))}
+          isUnified={!!unifiedLink}
+          groupName={budgetCustomName || undefined}
+        />
       </div>
     );
   }

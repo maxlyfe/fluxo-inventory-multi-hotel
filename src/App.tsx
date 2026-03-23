@@ -47,7 +47,9 @@ import MaintenanceEquipmentDetail from './pages/MaintenanceEquipmentDetail';
 // ── Pages — Administração (novos) ─────────────────────────────────────────────
 import RolesManagement    from './pages/admin/RolesManagement';
 import SectorsManagement  from './pages/admin/SectorsManagement';
-import ErbonIntegration   from './pages/admin/ErbonIntegration';
+import ErbonIntegration     from './pages/admin/ErbonIntegration';
+import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
+import SupplierContacts    from './pages/SupplierContacts';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import RoomRack          from './pages/erbon/RoomRack';
@@ -169,6 +171,18 @@ function App() {
                     <Route path="/admin/erbon" element={
                       <PrivateRoute adminOnly>
                         <ErbonIntegration />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/admin/whatsapp" element={
+                      <PrivateRoute adminOnly>
+                        <WhatsAppIntegration />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/admin/supplier-contacts" element={
+                      <PrivateRoute module="purchases">
+                        <SupplierContacts />
                       </PrivateRoute>
                     } />
 

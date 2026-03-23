@@ -1,10 +1,11 @@
 // src/components/NewProductModal.tsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { X, Loader2, Check, Barcode, Plus, Camera } from 'lucide-react';
+import { X, Loader2, Check, Barcode, Plus, Camera, Phone, Search, ChevronDown, ChevronUp, Building2, MessageSquare } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
+import { whatsappService, SupplierContact } from '../lib/whatsappService';
 
 interface Product {
   id: string;
@@ -57,12 +58,28 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showScanner,  setShowScanner]  = useState(false);
 
+  // ── Fornecedores (contatos WhatsApp + manuais) ─────────────────────
+  const [supplierContacts,    setSupplierContacts]    = useState<SupplierContact[]>([]);
+  const [selectedContactIds,  setSelectedContactIds]  = useState<Set<string>>(new Set());
+  const [manualSuppliers,     setManualSuppliers]     = useState<string[]>([]);
+  const [supplierSearch,      setSupplierSearch]      = useState('');
+  const [manualInput,         setManualInput]         = useState('');
+  const [showContactList,     setShowContactList]     = useState(false);
+
   // ── Carregar dados ao abrir ──────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !selectedHotel) return;
 
     const load = async () => {
       setLoadingSectors(true);
+
+      // Contatos de fornecedores do hotel
+      try {
+        const contacts = await whatsappService.getContacts(selectedHotel.id);
+        setSupplierContacts(contacts);
+      } catch {
+        setSupplierContacts([]);
+      }
 
       // Setores do hotel
       const { data: sectorsData, error: sectorsError } = await supabase
@@ -100,6 +117,22 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           .order('created_at');
         setBarcodes((bcData || []).map((b: any) => b.barcode));
 
+        // Fornecedores vinculados
+        try {
+          const linkedIds = await whatsappService.getProductContacts(editingProduct.id);
+          setSelectedContactIds(new Set(linkedIds));
+        } catch {
+          setSelectedContactIds(new Set());
+        }
+
+        // Fornecedores manuais (campo texto antigo, separados por vírgula)
+        const existingSupplier = editingProduct.supplier || '';
+        if (existingSupplier.trim()) {
+          setManualSuppliers(existingSupplier.split(',').map(s => s.trim()).filter(Boolean));
+        } else {
+          setManualSuppliers([]);
+        }
+
         // Dados do produto
         setFormData({
           name:           editingProduct.name,
@@ -116,6 +149,8 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
       } else {
         if (sectorsData) setSelectedSectors(new Set(sectorsData.map(s => s.id)));
         setBarcodes([]);
+        setSelectedContactIds(new Set());
+        setManualSuppliers([]);
         setFormData({
           name: '', quantity: 0, min_quantity: 0, max_quantity: 100,
           category: 'Outros', supplier: '', image_url: '', description: '',
@@ -186,18 +221,26 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
       if (formData.min_quantity > formData.max_quantity)
         throw new Error('Quantidade mínima não pode ser maior que a máxima.');
 
+      // Consolidar fornecedores manuais + nomes dos contatos selecionados no campo supplier
+      const contactNames = supplierContacts
+        .filter(c => selectedContactIds.has(c.id))
+        .map(c => c.company_name);
+      const allSupplierNames = [...new Set([...manualSuppliers, ...contactNames])];
+      const supplierField = allSupplierNames.join(', ');
+      const dataToSave = { ...formData, supplier: supplierField };
+
       let savedProduct: Product | null = null;
 
       if (editingProduct) {
         const { data, error: updateError } = await supabase
-          .from('products').update({ ...formData })
+          .from('products').update(dataToSave)
           .eq('id', editingProduct.id).select().single();
         if (updateError) throw updateError;
         savedProduct = data;
       } else {
         const { data, error: insertError } = await supabase
           .from('products')
-          .insert([{ ...formData, hotel_id: selectedHotel.id, is_active: !createAsHidden }])
+          .insert([{ ...dataToSave, hotel_id: selectedHotel.id, is_active: !createAsHidden }])
           .select().single();
         if (insertError) throw insertError;
         savedProduct = data;
@@ -224,6 +267,13 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           const { error: bcErr } = await supabase.from('product_barcodes')
             .insert(unique.map(barcode => ({ product_id: savedProduct!.id, barcode })));
           if (bcErr) console.error('Erro ao salvar barcodes:', bcErr);
+        }
+
+        // Fornecedores — sincroniza vínculos produto-contato
+        try {
+          await whatsappService.syncProductContacts(savedProduct.id, Array.from(selectedContactIds));
+        } catch (err) {
+          console.error('Erro ao salvar fornecedores:', err);
         }
       }
 
@@ -306,11 +356,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                       required min="1" />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fornecedor</label>
-                  <input name="supplier" type="text" value={formData.supplier} onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
-                </div>
+                <div>{/* placeholder — fornecedores movidos para seção dedicada abaixo */}</div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL da Imagem</label>
                   <input name="image_url" type="url" value={formData.image_url} onChange={handleInputChange}
@@ -399,6 +445,146 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                     <p className="text-xs text-gray-500 dark:text-gray-400">Marque se este item é o resultado do porcionamento de outro item (ex: bife, dose de bebida).</p>
                   </div>
                 </label>
+              </div>
+
+              {/* ── Fornecedores ────────────────────────────────── */}
+              <div className="rounded-xl border border-green-100 dark:border-green-900/50 bg-green-50/50 dark:bg-green-900/10 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-green-500" />
+                    Fornecedores
+                    <span className="text-xs font-normal text-gray-400">
+                      ({selectedContactIds.size + manualSuppliers.length})
+                    </span>
+                  </h3>
+                  {supplierContacts.length > 0 && (
+                    <button type="button" onClick={() => setShowContactList(!showContactList)}
+                      className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline font-medium">
+                      {showContactList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      {showContactList ? 'Ocultar lista' : 'Ver lista de contatos'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Tags dos fornecedores selecionados */}
+                {(selectedContactIds.size > 0 || manualSuppliers.length > 0) && (
+                  <div className="flex flex-wrap gap-2">
+                    {/* Contatos da lista */}
+                    {supplierContacts.filter(c => selectedContactIds.has(c.id)).map(contact => (
+                      <span key={contact.id}
+                        className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-green-600 text-white text-xs font-medium shadow-sm">
+                        <MessageSquare className="w-3 h-3" />
+                        {contact.company_name}
+                        <button type="button" onClick={() => setSelectedContactIds(prev => {
+                          const next = new Set(prev); next.delete(contact.id); return next;
+                        })} className="ml-0.5 w-5 h-5 flex items-center justify-center rounded-md hover:bg-green-700 transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {/* Fornecedores manuais */}
+                    {manualSuppliers.map((name, idx) => (
+                      <span key={`manual-${idx}`}
+                        className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-gray-500 text-white text-xs font-medium shadow-sm">
+                        <Building2 className="w-3 h-3" />
+                        {name}
+                        <button type="button" onClick={() => setManualSuppliers(prev => prev.filter((_, i) => i !== idx))}
+                          className="ml-0.5 w-5 h-5 flex items-center justify-center rounded-md hover:bg-gray-600 transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Busca na lista de contatos */}
+                {showContactList && supplierContacts.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={supplierSearch}
+                        onChange={e => setSupplierSearch(e.target.value)}
+                        placeholder="Buscar por nome ou telefone..."
+                        className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
+                      {supplierContacts
+                        .filter(c => {
+                          if (!supplierSearch) return true;
+                          const q = supplierSearch.toLowerCase();
+                          return c.company_name.toLowerCase().includes(q)
+                            || (c.contact_name || '').toLowerCase().includes(q)
+                            || c.whatsapp_number.includes(q);
+                        })
+                        .map(contact => (
+                          <button type="button" key={contact.id}
+                            onClick={() => setSelectedContactIds(prev => {
+                              const next = new Set(prev);
+                              next.has(contact.id) ? next.delete(contact.id) : next.add(contact.id);
+                              return next;
+                            })}
+                            className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                              selectedContactIds.has(contact.id) ? 'bg-green-50 dark:bg-green-900/20' : ''
+                            }`}>
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                              selectedContactIds.has(contact.id)
+                                ? 'bg-green-600 border-green-600 text-white'
+                                : 'border-gray-300 dark:border-gray-500'
+                            }`}>
+                              {selectedContactIds.has(contact.id) && <Check className="w-3 h-3" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{contact.company_name}</p>
+                              <p className="text-xs text-gray-400 truncate">
+                                {contact.whatsapp_number}
+                                {contact.contact_name && ` — ${contact.contact_name}`}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Adicionar fornecedor manualmente */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={manualInput}
+                    onChange={e => setManualInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const val = manualInput.trim();
+                        if (val && !manualSuppliers.includes(val)) {
+                          setManualSuppliers(prev => [...prev, val]);
+                          setManualInput('');
+                        }
+                      }
+                    }}
+                    placeholder="Digitar fornecedor manualmente → Enter"
+                    className="flex-1 rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
+                  />
+                  <button type="button"
+                    onClick={() => {
+                      const val = manualInput.trim();
+                      if (val && !manualSuppliers.includes(val)) {
+                        setManualSuppliers(prev => [...prev, val]);
+                        setManualInput('');
+                      }
+                    }}
+                    disabled={!manualInput.trim()}
+                    className="flex items-center gap-1 px-3 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors">
+                    <Plus className="w-4 h-4" /> Add
+                  </button>
+                </div>
+
+                <p className="text-xs text-green-500/70">
+                  Selecione da lista de contatos (com WhatsApp) ou adicione manualmente.
+                </p>
               </div>
 
               {/* ── Visibilidade por Setor ───────────────────────── */}

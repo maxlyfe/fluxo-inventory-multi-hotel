@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
-import { ArrowLeft, Search, Plus, Trash2, Link as LinkIcon, Copy, Check, Loader2, Globe, ListChecks, Edit2 } from 'lucide-react';
+import { ArrowLeft, Search, Plus, Trash2, Link as LinkIcon, Copy, Check, Loader2, Globe, ListChecks, Edit2, MessageSquare } from 'lucide-react';
+import WhatsAppContactPicker from '../components/WhatsAppContactPicker';
 
 interface Product {
   id: string;
@@ -74,8 +75,10 @@ const DynamicBudgetCreation = () => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [generatedLink, setGeneratedLink] = useState('');
+  const [generatedBudgetId, setGeneratedBudgetId] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const [view, setView] = useState<'selection' | 'review'>('selection');
+  const [showWhatsAppPicker, setShowWhatsAppPicker] = useState(false);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -196,6 +199,7 @@ const DynamicBudgetCreation = () => {
 
       const link = `${window.location.origin}/quote/${budgetId}`;
       setGeneratedLink(link);
+      setGeneratedBudgetId(budgetId);
       addNotification('Orçamento criado e link gerado com sucesso!', 'success');
 
     } catch (err: any) {
@@ -233,12 +237,27 @@ const DynamicBudgetCreation = () => {
                     {isCopied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
                 </button>
             </div>
-            <button
+            <div className="mt-8 flex items-center justify-center gap-3">
+              <button
+                onClick={() => setShowWhatsAppPicker(true)}
+                className="px-5 py-2.5 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2 font-medium text-sm"
+              >
+                <MessageSquare className="w-4 h-4" /> Enviar via WhatsApp
+              </button>
+              <button
                 onClick={() => navigate('/purchases')}
-                className="mt-8 px-6 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
-            >
+                className="px-6 py-2.5 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 text-sm"
+              >
                 Concluir
-            </button>
+              </button>
+            </div>
+
+            <WhatsAppContactPicker
+              isOpen={showWhatsAppPicker}
+              onClose={() => setShowWhatsAppPicker(false)}
+              budgetIds={[generatedBudgetId]}
+              links={[{ budgetId: generatedBudgetId, link: generatedLink, hotelName: selectedHotel?.name }]}
+            />
         </div>
       );
     }
