@@ -355,7 +355,6 @@ const AuthorizationsPage: React.FC = () => {
               }
             });
             
-            console.log('Notificação de orçamento cancelado enviada com sucesso');
           } catch (notificationError) {
             console.error('Erro ao enviar notificação de orçamento cancelado:', notificationError);
             // Não interrompe o fluxo principal se a notificação falhar

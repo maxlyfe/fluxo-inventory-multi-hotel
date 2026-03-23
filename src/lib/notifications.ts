@@ -115,8 +115,6 @@ export const createNotification = async (params: CreateNotificationParams | stri
 
     // Se não houver userId, precisamos buscar usuários interessados neste evento
     if (!userId) {
-      console.log("UserId não fornecido, disparando notificações para todos os usuários interessados no evento:", eventKey);
-      
       // Preparar dados para o template
       const templateData: Record<string, any> = { 
         message, 
@@ -176,8 +174,6 @@ export const createNotification = async (params: CreateNotificationParams | stri
       console.error("Erro ao criar notificação no banco:", insertError);
       throw insertError;
     }
-
-    console.log("Notificação criada com sucesso:", newNotification);
 
     if (sendPush && newNotification) {
       try {
@@ -251,7 +247,6 @@ export const createNotificationsForEvent = async (
     }
 
     if (!preferences || preferences.length === 0) {
-      console.log("Nenhum usuário configurado para receber notificações do tipo:", eventKey);
       return [];
     }
 
@@ -314,7 +309,6 @@ export const createNotificationsForEvent = async (
       }
     }
 
-    console.log(`Criadas ${notifications.length} notificações para o evento ${eventKey}`);
     return notifications;
   } catch (error) {
     console.error("Erro ao criar notificações para evento:", error);
@@ -466,7 +460,6 @@ export const saveUserNotificationPreferences = async (
         throw insertError;
       }
 
-      console.log("Preferências salvas com sucesso:", data);
       return data;
     }
 
@@ -687,7 +680,6 @@ export const saveFCMToken = async (userId: string, token: string, deviceInfo?: a
     throw error;
   }
   
-  console.log("Token FCM salvo com sucesso:", data);
   return data;
 };
 

@@ -10,16 +10,16 @@ import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messagi
 // Config — projeto gestaohotel-23603
 // ---------------------------------------------------------------------------
 const firebaseConfig = {
-  apiKey:            'AIzaSyA4wMk6km4kphnshBrycNaBRclzGUVRiRI',
-  authDomain:        'gestaohotel-23603.firebaseapp.com',
-  projectId:         'gestaohotel-23603',
-  storageBucket:     'gestaohotel-23603.firebasestorage.app',
-  messagingSenderId: '446108850138',
-  appId:             '1:446108850138:web:6426819e7d3962d81952e3',
-  measurementId:     'G-EXXQWBXFL2',
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-const VAPID_KEY = 'BF_6aeE_xpPknXkfKeugaPKcmVK1u6Q_y4RMyaMcpUUTI215B2SFVig1nS3MUG-yWoahwzGPI1JBZUrVqMMthWQ';
+const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY || '';
 
 // ---------------------------------------------------------------------------
 // Lazy getter — inicializa o app Firebase apenas quando necessário

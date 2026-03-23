@@ -87,21 +87,16 @@ const NewHotelTransferModal: React.FC<NewHotelTransferModalProps> = ({ isOpen, o
   };
   
   const handleTransfer = async () => {
-    console.log("[DEBUG] Clicou em 'Confirmar Transferência'");
-
     if (!destinationHotelId) {
       addNotification("Selecione um hotel de destino.", 'error');
-      console.log("[DEBUG] Falha na validação: Hotel de destino não selecionado.");
       return;
     }
     if (itemsToTransfer.length === 0) {
       addNotification("Adicione pelo menos um item para transferir.", 'error');
-      console.log("[DEBUG] Falha na validação: Nenhum item na lista.");
       return;
     }
     if (itemsToTransfer.some(item => item.quantity <= 0)) {
       addNotification("Todos os itens devem ter quantidade maior que zero.", 'error');
-      console.log("[DEBUG] Falha na validação: Item com quantidade zero ou negativa.");
       return;
     }
     
@@ -112,20 +107,12 @@ const NewHotelTransferModal: React.FC<NewHotelTransferModalProps> = ({ isOpen, o
       quantity: item.quantity
     }));
 
-    console.log("[DEBUG] Enviando para o backend:", {
-        sourceHotelId: selectedHotel!.id,
-        destinationHotelId,
-        itemsPayload
-    });
-
     const result = await transferMultipleProducts(
       selectedHotel!.id,
       destinationHotelId,
       itemsPayload,
       user?.email || 'Sistema'
     );
-    
-    console.log("[DEBUG] Resultado recebido do backend:", result);
     
     if (result?.success) {
       addNotification("Transferência realizada com sucesso!", 'success');

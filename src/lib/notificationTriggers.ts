@@ -44,8 +44,6 @@ interface NotificationEventData {
 // Função para buscar usuários que devem receber notificação
 const getUsersToNotify = async (eventType: string, hotelId: string, sectorId?: string) => {
   try {
-    console.log(`Buscando usuários para notificar - Evento: ${eventType}, Hotel: ${hotelId}, Setor: ${sectorId}`);
-    
     let query = supabase
       .from('user_notification_preferences')
       .select(`
@@ -69,7 +67,6 @@ const getUsersToNotify = async (eventType: string, hotelId: string, sectorId?: s
     }
 
     if (!notificationTypes || notificationTypes.length === 0) {
-      console.log(`Nenhum tipo de notificação encontrado para evento: ${eventType}`);
       return [];
     }
 
@@ -84,7 +81,6 @@ const getUsersToNotify = async (eventType: string, hotelId: string, sectorId?: s
     }
 
     if (!preferences || preferences.length === 0) {
-      console.log('Nenhuma preferência encontrada');
       return [];
     }
 
@@ -103,7 +99,6 @@ const getUsersToNotify = async (eventType: string, hotelId: string, sectorId?: s
       return pref.sector_id === sectorId;
     });
 
-    console.log(`Usuários encontrados para notificar: ${usersToNotify.length}`);
     return usersToNotify;
   } catch (error) {
     console.error('Erro ao buscar usuários para notificar:', error);
@@ -114,8 +109,6 @@ const getUsersToNotify = async (eventType: string, hotelId: string, sectorId?: s
 // Função para criar notificação individual
 const createNotificationInternal = async (notificationData: NotificationData) => {
   try {
-    console.log('Criando notificação:', notificationData);
-    
     const { data, error } = await supabase
       .from('notifications')
       .insert({
@@ -141,7 +134,6 @@ const createNotificationInternal = async (notificationData: NotificationData) =>
       throw error;
     }
 
-    console.log('Notificação criada com sucesso:', data);
     return data;
   } catch (error) {
     console.error('Erro ao criar notificação:', error);
@@ -176,8 +168,6 @@ const triggerNotification = async (
       eventData = { ...eventData, hotel_name: await resolveHotelName(eventData.hotel_id) };
     }
 
-    console.log('Disparando notificação:', { eventType, eventData });
-
     // Buscar usuários que devem receber a notificação
     const usersToNotify = await getUsersToNotify(
       eventType,
@@ -186,11 +176,8 @@ const triggerNotification = async (
     );
 
     if (usersToNotify.length === 0) {
-      console.log('Nenhum usuário configurado para receber esta notificação');
       return;
     }
-
-    console.log(`Enviando notificação para ${usersToNotify.length} usuário(s):`, usersToNotify);
 
     // Criar notificações para cada usuário
     const notifications = usersToNotify.map(user => ({
@@ -212,7 +199,6 @@ const triggerNotification = async (
       await createNotificationInternal(notification);
     }
 
-    console.log('Notificações criadas com sucesso');
   } catch (error) {
     console.error('Erro ao disparar notificação:', error);
     throw error;
@@ -421,7 +407,6 @@ export const markNotificationAsRead = async (notificationId: string) => {
       .eq('id', notificationId);
 
     if (error) throw error;
-    console.log('Notificação marcada como lida:', notificationId);
   } catch (error) {
     console.error('Erro ao marcar notificação como lida:', error);
     throw error;

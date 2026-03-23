@@ -326,7 +326,6 @@ const NewPurchaseList = () => {
             }
           });
           
-          console.log('Notificação de novo orçamento enviada com sucesso');
         } catch (notificationError) {
           console.error('Erro ao enviar notificação de novo orçamento:', notificationError);
         }

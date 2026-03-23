@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
    type NotificationType = 'success' | 'error' | 'info' | 'warning';
 
@@ -25,25 +25,48 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
      return context;
    };
 
+   let _notifCounter = 0;
+
    export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
      const [notifications, setNotifications] = useState<Notification[]>([]);
-
-     const addNotification = useCallback((type: NotificationType, message: string, duration = 5000) => {
-       const id = Date.now().toString();
-       
-       setNotifications(prev => [...prev, { id, type, message, duration }]);
-       
-       if (duration > 0) {
-         setTimeout(() => {
-           removeNotification(id);
-         }, duration);
-       }
-       
-       return id;
-     }, []);
+     const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
      const removeNotification = useCallback((id: string) => {
-       setNotifications(prev => prev.filter(notification => notification.id !== id));
+       const timer = timersRef.current.get(id);
+       if (timer) { clearTimeout(timer); timersRef.current.delete(id); }
+       setNotifications(prev => prev.filter(n => n.id !== id));
+     }, []);
+
+     const addNotification = useCallback((typeOrMsg: NotificationType | string, msgOrType?: string, duration = 5000) => {
+       // Aceita ambas as ordens: (type, message) e (message, type) para backward compat
+       let type: NotificationType;
+       let message: string;
+
+       const validTypes: NotificationType[] = ['success', 'error', 'info', 'warning'];
+       if (validTypes.includes(typeOrMsg as NotificationType) && msgOrType) {
+         type = typeOrMsg as NotificationType;
+         message = msgOrType;
+       } else if (msgOrType && validTypes.includes(msgOrType as NotificationType)) {
+         type = msgOrType as NotificationType;
+         message = typeOrMsg;
+       } else {
+         type = 'info';
+         message = typeOrMsg;
+       }
+
+       const id = `notif_${++_notifCounter}_${Date.now()}`;
+
+       setNotifications(prev => [...prev, { id, type, message, duration }]);
+
+       if (duration > 0) {
+         const timer = setTimeout(() => {
+           timersRef.current.delete(id);
+           setNotifications(prev => prev.filter(n => n.id !== id));
+         }, duration);
+         timersRef.current.set(id, timer);
+       }
+
+       return id;
      }, []);
 
      return (

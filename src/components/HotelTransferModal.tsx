@@ -71,7 +71,6 @@ const HotelTransferModal: React.FC<HotelTransferModalProps> = ({
       const totalValue = unitValue * quantity;
       
       if (totalValue <= 0) {
-        console.log('Valor zero ou negativo, não será registrado no financeiro');
         return;
       }
 
@@ -99,7 +98,6 @@ const HotelTransferModal: React.FC<HotelTransferModalProps> = ({
 
       if (destError) throw destError;
 
-      console.log(`Saldo financeiro atualizado: Hotel origem -R$ ${totalValue.toFixed(2)}, Hotel destino +R$ ${totalValue.toFixed(2)}`);
       return true;
     } catch (err) {
       console.error('Erro ao atualizar saldo financeiro:', err);

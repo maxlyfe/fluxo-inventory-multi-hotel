@@ -340,8 +340,7 @@ const AdminPanel = () => {
 
       const totalValue = unitValue * quantityUsed;
       if (totalValue <= 0) {
-        console.log('Valor zero ou negativo, não será registrado no financeiro');
-        return true; 
+        return true;
       }
 
       const { error: rpcError } = await supabase.rpc('update_hotel_balance', {
@@ -354,7 +353,6 @@ const AdminPanel = () => {
       });
       if (rpcError) throw rpcError;
 
-      console.log(`Saldo financeiro atualizado: -R$ ${totalValue.toFixed(2)}`);
       return true;
     } catch (err: any) {
       console.error('Erro ao atualizar saldo financeiro:', err);

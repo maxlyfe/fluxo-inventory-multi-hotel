@@ -87,7 +87,6 @@ const NewPurchase = () => {
 
   useEffect(() => {
     if (location.state?.budgetData) {
-      console.log("[NewPurchase] New budget data detected in location state. Resetting budgetProcessed.");
       setBudgetProcessed(false);
       setItems([]); 
       setPurchaseData(prev => ({...prev, supplier: ''})); 
@@ -103,7 +102,6 @@ const NewPurchase = () => {
           setLoading(false);
           return;
         }
-        console.log("[NewPurchase] Fetching products for hotel:", selectedHotel.id);
         setLoading(true);
         const { data, error: fetchError } = await supabase
           .from('products')
@@ -128,8 +126,6 @@ const NewPurchase = () => {
 
   useEffect(() => {
     if (budgetDataFromState && products.length > 0 && !budgetProcessed) {
-      console.log("[NewPurchase] Budget data received, products loaded, and budget not yet processed. Prefilling form...");
-      
       const mainSupplier = budgetDataFromState.budget_items?.find((item: any) => item.supplier)?.supplier || 
                            budgetDataFromState.budget_items?.[0]?.supplier || 
                            '';
@@ -396,7 +392,6 @@ const NewPurchase = () => {
         }
       }
 
-      console.log("[NewPurchase] Tentando atualizar status do orçamento. Budget ID:", budgetIdToUpdate, "Selected Hotel ID:", selectedHotel?.id);
       if (budgetIdToUpdate && selectedHotel?.id) {
         const { error: budgetUpdateError } = await supabase
           .from('budgets')
@@ -408,7 +403,6 @@ const NewPurchase = () => {
           console.error('Erro ao atualizar status do orçamento:', budgetUpdateError);
           addNotification('Compra registrada, mas erro ao atualizar status do orçamento. Verifique o console para detalhes.', 'warning');
         } else {
-          console.log("[NewPurchase] Status do orçamento atualizado com sucesso para Concluído.");
           addNotification('Status do orçamento atualizado para Concluído.', 'info');
         }
       } else {

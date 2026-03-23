@@ -21,8 +21,15 @@ export const useHotel = () => {
 
 export function HotelProvider({ children }: { children: React.ReactNode }) {
   const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(() => {
-    const stored = localStorage.getItem('selectedHotel');
-    return stored ? JSON.parse(stored) : null;
+    try {
+      const stored = localStorage.getItem('selectedHotel');
+      if (!stored) return null;
+      const parsed = JSON.parse(stored);
+      return parsed && parsed.id && parsed.name ? parsed : null;
+    } catch {
+      localStorage.removeItem('selectedHotel');
+      return null;
+    }
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

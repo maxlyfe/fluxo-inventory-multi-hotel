@@ -640,8 +640,6 @@ const SectorStock = () => {
             p_sector_id: sectorId,
             p_user_id: user.id
         };
-        console.log("Chamando RPC 'process_multi_portioning' com parâmetros:", params);
-
         const { data, error } = await supabase.rpc('process_multi_portioning', params);
 
         if (error) throw error;

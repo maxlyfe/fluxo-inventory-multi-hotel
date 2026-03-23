@@ -85,7 +85,6 @@ const ShoppingList = () => {
             filter: `hotel_id=eq.${selectedHotel.id}`
           },
           () => {
-            console.log('Products changed, refreshing...');
             fetchLowStockProducts();
           }
         )
@@ -103,7 +102,6 @@ const ShoppingList = () => {
             filter: `hotel_id=eq.${selectedHotel.id}`
           },
           () => {
-            console.log('Inventory movement detected, refreshing...');
             fetchLowStockProducts();
           }
         )

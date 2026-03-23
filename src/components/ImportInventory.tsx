@@ -60,6 +60,20 @@ const ImportInventory: React.FC<ImportInventoryProps> = ({ onImportComplete }) =
     if (!file) return;
 
     try {
+      // Validação de tipo e tamanho
+      const allowedTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv',
+      ];
+      if (!allowedTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls|csv)$/i)) {
+        throw new Error('Formato inválido. Use arquivos .xlsx, .xls ou .csv');
+      }
+      const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+      if (file.size > MAX_SIZE) {
+        throw new Error('Arquivo muito grande. Tamanho máximo: 5MB');
+      }
+
       if (!selectedHotel?.id) {
         throw new Error('Hotel não selecionado');
       }

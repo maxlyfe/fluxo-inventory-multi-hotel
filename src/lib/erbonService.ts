@@ -353,16 +353,9 @@ export const erbonService = {
 
       // Parse token (pode vir como string pura, JSON string, ou objeto)
       const raw = await authRes.text();
-      console.log('[Erbon] Auth response status:', authRes.status);
-      console.log('[Erbon] Auth response type:', authRes.headers.get('content-type'));
-      console.log('[Erbon] Auth raw response (first 200 chars):', raw.substring(0, 200));
-      console.log('[Erbon] Auth raw length:', raw.length);
-
       let token: string;
       try {
         const parsed = JSON.parse(raw);
-        console.log('[Erbon] Parsed type:', typeof parsed);
-        console.log('[Erbon] Parsed keys:', typeof parsed === 'object' && parsed !== null ? Object.keys(parsed) : 'N/A');
         if (typeof parsed === 'object' && parsed !== null) {
           token = parsed.bearerToken || parsed.token || parsed.access_token || '';
         } else {
@@ -372,8 +365,6 @@ export const erbonService = {
         token = raw;
       }
       token = token.replace(/^["']|["']$/g, '').trim();
-      console.log('[Erbon] Final token (first 50 chars):', token.substring(0, 50));
-      console.log('[Erbon] Token empty?', !token);
 
       if (!token) {
         return { success: false, error: `Token vazio. Raw response: ${raw.substring(0, 100)}` };

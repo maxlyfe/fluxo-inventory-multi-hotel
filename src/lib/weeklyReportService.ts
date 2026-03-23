@@ -66,8 +66,6 @@ export const getOrCreateWeeklyReport = async (
     const startDateStr = format(weekStartDate, 'yyyy-MM-dd');
     const endDateStr = format(weekEndDate, 'yyyy-MM-dd');
 
-    console.log('Buscando relatório para:', { hotelId, startDateStr, endDateStr });
-
     // Verificar se já existe um relatório para esta semana
     const { data: existingReport, error: reportError } = await supabase
       .from('weekly_inventory_reports')
@@ -82,12 +80,10 @@ export const getOrCreateWeeklyReport = async (
     }
 
     if (existingReport) {
-      console.log('Relatório existente encontrado:', existingReport.id);
       return { success: true, data: existingReport };
     }
 
     // Criar novo relatório
-    console.log('Criando novo relatório...');
     const { data: newReport, error: createError } = await supabase
       .from('weekly_inventory_reports')
       .insert({
@@ -100,7 +96,6 @@ export const getOrCreateWeeklyReport = async (
 
     if (createError) throw createError;
 
-    console.log('Novo relatório criado:', newReport.id);
     return { success: true, data: newReport };
 
   } catch (err) {
@@ -333,8 +328,6 @@ export const createOrUpdateReportItems = async (
   weekStartDate: Date
 ) => {
   try {
-    console.log('Buscando produtos do hotel...');
-    
     // Buscar todos os produtos do hotel
     const { data: products, error: productsError } = await supabase
       .from('products')
@@ -345,14 +338,10 @@ export const createOrUpdateReportItems = async (
     if (productsError) throw productsError;
 
     if (!products || products.length === 0) {
-      console.log('Nenhum produto encontrado para o hotel');
       return { success: true, data: [] };
     }
 
-    console.log('Produtos encontrados:', products.length);
-
     // Verificar se já existem itens para este relatório
-    console.log('Verificando itens existentes...');
     const { data: existingItems, error: existingError } = await supabase
       .from('weekly_inventory_report_items')
       .select('id, product_id')
@@ -361,11 +350,8 @@ export const createOrUpdateReportItems = async (
     if (existingError) throw existingError;
 
     if (existingItems && existingItems.length > 0) {
-      console.log('Itens existentes encontrados, retornando dados...');
       return { success: true, data: existingItems };
     }
-
-    console.log('Criando novos itens do relatório...');
 
     // Dividir produtos em lotes para processamento
     const productBatches = chunkArray(products, BATCH_SIZE);
@@ -373,8 +359,6 @@ export const createOrUpdateReportItems = async (
 
     for (let batchIndex = 0; batchIndex < productBatches.length; batchIndex++) {
       const batch = productBatches[batchIndex];
-      console.log(`Processando lote ${batchIndex + 1}/${productBatches.length} (${batch.length} produtos)`);
-
       const batchItems = await Promise.all(
         batch.map(async (product) => {
           try {
@@ -417,8 +401,6 @@ export const createOrUpdateReportItems = async (
       }
     }
 
-    console.log('Inserindo itens no banco de dados...');
-
     // Inserir todos os itens de uma vez
     const { data: insertedItems, error: insertError } = await supabase
       .from('weekly_inventory_report_items')
@@ -426,8 +408,6 @@ export const createOrUpdateReportItems = async (
       .select();
 
     if (insertError) throw insertError;
-
-    console.log('Itens criados com sucesso:', insertedItems?.length || 0);
 
     // Agora processar movimentos de setor e transferências em lotes
     if (insertedItems && insertedItems.length > 0) {
@@ -452,15 +432,11 @@ const createSectorMovementsAndTransfers = async (
   weekStartDate: Date
 ) => {
   try {
-    console.log('Criando movimentos de setor e transferências...');
-
     // Dividir itens em lotes
     const itemBatches = chunkArray(reportItems, BATCH_SIZE);
 
     for (let batchIndex = 0; batchIndex < itemBatches.length; batchIndex++) {
       const batch = itemBatches[batchIndex];
-      console.log(`Processando movimentos - lote ${batchIndex + 1}/${itemBatches.length}`);
-
       const sectorMovements: any[] = [];
       const hotelTransfers: any[] = [];
 
@@ -518,8 +494,6 @@ const createSectorMovementsAndTransfers = async (
       }
     }
 
-    console.log('Movimentos e transferências criados com sucesso');
-
   } catch (err) {
     console.error('Erro ao criar movimentos e transferências:', err);
   }
@@ -533,8 +507,6 @@ export const generateWeeklyReport = async (
   weekStartDate: Date
 ) => {
   try {
-    console.log('Iniciando geração de relatório semanal:', { hotelId, weekStartDate });
-
     // 1. Buscar ou criar relatório
     const reportResult = await getOrCreateWeeklyReport(hotelId, weekStartDate);
     if (!reportResult.success || !reportResult.data) {
@@ -555,7 +527,6 @@ export const generateWeeklyReport = async (
       throw new Error(dataResult.error || 'Erro ao buscar dados do relatório');
     }
 
-    console.log('Relatório gerado com sucesso');
     return dataResult;
 
   } catch (err) {
@@ -570,8 +541,6 @@ export const generateWeeklyReport = async (
  */
 export const getWeeklyReportData = async (reportId: string): Promise<{ success: boolean; data?: WeeklyReportData; error?: string }> => {
   try {
-    console.log('Obtendo dados do relatório:', reportId);
-
     // Buscar dados do relatório
     const { data: report, error: reportError } = await supabase
       .from('weekly_inventory_reports')
@@ -609,8 +578,6 @@ export const getWeeklyReportData = async (reportId: string): Promise<{ success: 
       };
     }
 
-    console.log('Buscando movimentos e transferências em lotes...');
-
     // Dividir itens em lotes para buscar movimentos
     const itemBatches = chunkArray(items, BATCH_SIZE);
     const allSectorMovements: any[] = [];
@@ -619,8 +586,6 @@ export const getWeeklyReportData = async (reportId: string): Promise<{ success: 
     for (let batchIndex = 0; batchIndex < itemBatches.length; batchIndex++) {
       const batch = itemBatches[batchIndex];
       const itemIds = batch.map(item => item.id);
-
-      console.log(`Buscando movimentos - lote ${batchIndex + 1}/${itemBatches.length} (${itemIds.length} itens)`);
 
       // Buscar movimentos de setor para este lote
       const { data: sectorMovements, error: sectorError } = await supabase
@@ -691,8 +656,6 @@ export const getWeeklyReportData = async (reportId: string): Promise<{ success: 
       sector_movements: sectorMovementsByItem.get(item.id) || [],
       hotel_transfers: hotelTransfersByItem.get(item.id) || []
     }));
-
-    console.log('Dados do relatório obtidos com sucesso');
 
     return {
       success: true,

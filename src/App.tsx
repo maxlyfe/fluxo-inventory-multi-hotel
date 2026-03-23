@@ -62,6 +62,7 @@ import Planning          from './pages/erbon/Planning';
 import PrivateRoute from './components/PrivateRoute';
 import MainLayout   from './components/MainLayout';
 import Toast        from './components/ui/Toast';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import Chatbot      from './components/Chatbot';
 
 // ── Contexts ──────────────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ function PushNotificationSetup() {
 // ---------------------------------------------------------------------------
 function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <ThemeProvider>
         <NotificationProvider>
@@ -369,6 +371,7 @@ function App() {
         </NotificationProvider>
       </ThemeProvider>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

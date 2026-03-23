@@ -200,9 +200,6 @@ export const saveBudget = async (
       console.error("Error inserting budget items:", itemsError);
       try {
         await supabase.from("budgets").delete().eq("id", budgetId);
-        console.log(
-          `Rolled back budget ${budgetId} due to item insertion error.`
-        );
       } catch (rollbackError) {
         console.error(
           `Failed to rollback budget ${budgetId}:`,
@@ -311,7 +308,6 @@ export const getSectorConsumptionData = async (
 
     if (sectorsError) throw sectorsError;
     if (!hotelSectors || hotelSectors.length === 0) {
-      console.log(`No sectors found for hotel ${hotelId}`);
       return { success: true, data: [] };
     }
 
@@ -330,9 +326,6 @@ export const getSectorConsumptionData = async (
 
     if (consumptionError) throw consumptionError;
     if (!consumptionItems || consumptionItems.length === 0) {
-      console.log(
-        `No consumption items found for hotel ${hotelId} sectors between ${startDate} and ${endDate}`
-      );
       return { success: true, data: [] };
     }
 
@@ -340,7 +333,6 @@ export const getSectorConsumptionData = async (
       ...new Set(consumptionItems.map((item) => item.item_name)),
     ];
     if (uniqueItemNames.length === 0) {
-      console.log("No unique item names found in consumption data.");
       return { success: true, data: [] };
     }
 

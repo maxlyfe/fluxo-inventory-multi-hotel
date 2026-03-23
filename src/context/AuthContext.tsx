@@ -145,8 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) return { success: false, message: error.message };
       if (data.user) return { success: true, user: mapSupabaseUserToAppUser(data.user) };
       return { success: false, message: 'Usuário não retornado.' };
-    } catch (e: any) {
-      return { success: false, message: e.message };
+    } catch (e: unknown) {
+      return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
     } finally {
       setLoading(false);
     }
@@ -163,8 +163,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (error) return { success: false, message: error.message };
       return { success: true };
-    } catch (e: any) {
-      return { success: false, message: e.message || 'Erro ao entrar com Google.' };
+    } catch (e: unknown) {
+      return { success: false, message: e instanceof Error ? e.message : 'Erro ao entrar com Google.' };
     }
   };
 
@@ -181,8 +181,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(prev => prev ? { ...prev, full_name: trimmed } : prev);
       setNeedsName(false);
       return { success: true };
-    } catch (e: any) {
-      return { success: false, message: e.message };
+    } catch (e: unknown) {
+      return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
     }
   };
 
@@ -192,8 +192,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signOut();
       if (error) return { success: false, message: error.message };
       return { success: true };
-    } catch (e: any) {
-      return { success: false, message: e.message };
+    } catch (e: unknown) {
+      return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
     } finally {
       setLoading(false);
     }
@@ -208,8 +208,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (error) return { success: false, message: error.message || 'Erro ao forçar logout.' };
       return { success: true };
-    } catch (e: any) {
-      return { success: false, message: e.message };
+    } catch (e: unknown) {
+      return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
     }
   };
 
