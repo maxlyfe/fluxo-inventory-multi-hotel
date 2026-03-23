@@ -277,18 +277,18 @@ export const whatsappService = {
 
   // ── Contacts CRUD ─────────────────────────────────────────────────────
 
-  async getContacts(hotelId: string): Promise<SupplierContact[]> {
+  /** Busca todos os contatos ativos (compartilhados entre hotéis) */
+  async getContacts(): Promise<SupplierContact[]> {
     const { data, error } = await supabase
       .from('supplier_contacts')
       .select('*')
-      .eq('hotel_id', hotelId)
       .eq('is_active', true)
       .order('company_name');
     if (error) throw error;
     return data || [];
   },
 
-  async saveContact(contact: Partial<SupplierContact> & { hotel_id: string; company_name: string; whatsapp_number: string }): Promise<SupplierContact> {
+  async saveContact(contact: Partial<SupplierContact> & { company_name: string; whatsapp_number: string }): Promise<SupplierContact> {
     if (contact.id) {
       const { data, error } = await supabase
         .from('supplier_contacts')
@@ -310,7 +310,7 @@ export const whatsappService = {
       const { data, error } = await supabase
         .from('supplier_contacts')
         .insert({
-          hotel_id: contact.hotel_id,
+          hotel_id: contact.hotel_id || null,
           company_name: contact.company_name,
           contact_name: contact.contact_name || null,
           whatsapp_number: contact.whatsapp_number,

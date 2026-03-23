@@ -26,7 +26,7 @@ interface ContactModalProps {
   onClose: () => void;
   onSave: () => void;
   contact: SupplierContact | null;
-  hotelId: string;
+  hotelId: string | null;
 }
 
 const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, onSave, contact, hotelId }) => {
@@ -67,7 +67,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, onSave, co
     try {
       await whatsappService.saveContact({
         id: contact?.id,
-        hotel_id: hotelId,
+        hotel_id: hotelId || undefined,
         company_name: form.company_name.trim(),
         contact_name: form.contact_name.trim() || null,
         whatsapp_number: formatWhatsAppNumber(form.whatsapp_number),
@@ -172,10 +172,9 @@ const SupplierContacts: React.FC = () => {
   const [editingContact, setEditingContact] = useState<SupplierContact | null>(null);
 
   const loadContacts = async () => {
-    if (!selectedHotel) return;
     setLoading(true);
     try {
-      const data = await whatsappService.getContacts(selectedHotel.id);
+      const data = await whatsappService.getContacts();
       setContacts(data);
     } catch {
       addNotification('Erro ao carregar contatos', 'error');
@@ -184,7 +183,7 @@ const SupplierContacts: React.FC = () => {
     }
   };
 
-  useEffect(() => { loadContacts(); }, [selectedHotel]);
+  useEffect(() => { loadContacts(); }, []);
 
   const handleDelete = async (contact: SupplierContact) => {
     if (!confirm(`Desativar contato "${contact.company_name}"?`)) return;
@@ -204,10 +203,6 @@ const SupplierContacts: React.FC = () => {
       || c.whatsapp_number.includes(q);
   });
 
-  if (!selectedHotel) {
-    return <div className="p-8 text-center text-gray-500">Selecione um hotel para gerenciar contatos.</div>;
-  }
-
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       {/* Header */}
@@ -218,7 +213,7 @@ const SupplierContacts: React.FC = () => {
             Contatos de Fornecedores
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Gerencie os contatos WhatsApp dos fornecedores para envio automático.
+            Agenda compartilhada entre todos os hotéis — gerencie os contatos WhatsApp dos fornecedores.
           </p>
         </div>
         <button onClick={() => { setEditingContact(null); setModalOpen(true); }} className={btnPrimary}>
@@ -296,7 +291,7 @@ const SupplierContacts: React.FC = () => {
         onClose={() => setModalOpen(false)}
         onSave={loadContacts}
         contact={editingContact}
-        hotelId={selectedHotel.id}
+        hotelId={selectedHotel?.id || null}
       />
     </div>
   );

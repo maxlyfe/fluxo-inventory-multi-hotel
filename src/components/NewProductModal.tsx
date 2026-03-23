@@ -73,9 +73,9 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     const load = async () => {
       setLoadingSectors(true);
 
-      // Contatos de fornecedores do hotel
+      // Contatos de fornecedores (compartilhados entre hotéis)
       try {
-        const contacts = await whatsappService.getContacts(selectedHotel.id);
+        const contacts = await whatsappService.getContacts();
         setSupplierContacts(contacts);
       } catch {
         setSupplierContacts([]);
