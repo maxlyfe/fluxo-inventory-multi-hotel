@@ -615,22 +615,59 @@ const Navbar = () => {
                 </Link>
                 {visibleSections.map(section => {
                   const isCurrentSection = activeSection?.key === section.key;
+                  const hasSubItems = section.items.length > 1;
                   const mainHref = section.items[0]?.href || '/';
                   return (
-                    <Link
-                      key={section.key}
-                      to={mainHref}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={classNames(
-                        isCurrentSection
-                          ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
-                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800",
-                        "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium"
+                    <div key={section.key}>
+                      {/* Section header — link direto se só tem 1 item */}
+                      {!hasSubItems ? (
+                        <Link
+                          to={mainHref}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={classNames(
+                            isCurrentSection
+                              ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
+                              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800",
+                            "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium"
+                          )}
+                        >
+                          <section.icon className="h-5 w-5 flex-shrink-0" />
+                          {section.label}
+                        </Link>
+                      ) : (
+                        <>
+                          {/* Section label (não-clicável) */}
+                          <p className={classNames(
+                            "flex items-center gap-3 px-3 py-2 text-sm font-semibold mt-1",
+                            isCurrentSection
+                              ? "text-blue-600 dark:text-blue-400"
+                              : "text-gray-500 dark:text-gray-400"
+                          )}>
+                            <section.icon className="h-5 w-5 flex-shrink-0" />
+                            {section.label}
+                          </p>
+                          {/* Sub-itens */}
+                          <div className="ml-5 space-y-0.5">
+                            {section.items.map(item => (
+                              <Link
+                                key={item.href}
+                                to={item.href}
+                                onClick={() => setMobileMenuOpen(false)}
+                                className={classNames(
+                                  isActive(item.href)
+                                    ? "bg-blue-600 text-white"
+                                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800",
+                                  "flex items-center gap-3 px-3 py-2 rounded-xl text-sm"
+                                )}
+                              >
+                                <item.icon className="h-4 w-4 flex-shrink-0" />
+                                {item.name}
+                              </Link>
+                            ))}
+                          </div>
+                        </>
                       )}
-                    >
-                      <section.icon className="h-5 w-5 flex-shrink-0" />
-                      {section.label}
-                    </Link>
+                    </div>
                   );
                 })}
               </div>
