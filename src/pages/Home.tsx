@@ -1,9 +1,12 @@
 // src/pages/Home.tsx
 // Dashboard principal — sidebar + área de conteúdo
+// ⚠️  Menu items vêm de navigationConfig.ts — altere lá para manter sidebar e navbar sincronizados.
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { NAV_GROUPS } from '../lib/navigationConfig';
+import type { NavItem } from '../lib/navigationConfig';
 import {
   Package, BarChart3, Building2, ShieldCheck, ChevronDown, ChevronUp,
   Lock, Boxes, ShoppingCart, DollarSign, FileText, CreditCard, Wrench,
@@ -68,105 +71,15 @@ function getSectorVisual(name: string, idx: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar items — módulos do sistema agrupados
+// Sidebar types — usam NavItem de navigationConfig.ts
 // ---------------------------------------------------------------------------
-interface SidebarItem {
-  module: string;
-  label: string;
-  href: string;
-  icon: React.ComponentType<any>;
-  color: string;
-}
-
 interface SidebarGroup {
   label: string;
-  items: SidebarItem[];
+  items: NavItem[];
   adminOnly?: boolean;
   dynamicKey?: 'stockSectors' | 'allSectors';
 }
 
-const SIDEBAR_GROUPS_DEF: {
-  label: string;
-  adminOnly?: boolean;
-  dynamicKey?: 'stockSectors' | 'allSectors';
-  items?: SidebarItem[];
-}[] = [
-  {
-    label: 'Compras',
-    items: [
-      { module: 'authorizations', label: 'Orçamentos',    href: '/budget-history',  icon: FileText,    color: '#6366f1' },
-      { module: 'authorizations', label: 'Autorizações',  href: '/authorizations',  icon: CreditCard,  color: '#14b8a6' },
-      { module: 'purchases',     label: 'Compras',        href: '/purchases',               icon: ShoppingCart, color: '#f59e0b' },
-      { module: '__contacts__',  label: 'Contatos',      href: '/admin/supplier-contacts', icon: Phone,        color: '#10b981' },
-      { module: 'stock',          label: 'Requisições',   href: '/admin',                   icon: Package,     color: '#3b82f6' },
-    ],
-  },
-  {
-    label: 'Stock',
-    dynamicKey: 'stockSectors',
-    items: [
-      { module: 'inventory', label: 'Inventário',     href: '/inventory',            icon: Boxes,           color: '#8b5cf6' },
-      { module: 'inventory', label: 'Transferências', href: '/inventory/transfers',  icon: ArrowLeftRight,  color: '#f97316' },
-    ],
-  },
-  {
-    label: 'Gerência',
-    items: [
-      { module: 'management', label: 'Gerência',    href: '/management', icon: BarChart3, color: '#22c55e' },
-      { module: 'reports',    label: 'Relatórios',  href: '/reports',    icon: FileText,  color: '#0ea5e9' },
-    ],
-  },
-  {
-    label: 'Financeiro',
-    items: [
-      { module: 'finances', label: 'Financeiro', href: '/finances', icon: DollarSign, color: '#10b981' },
-    ],
-  },
-  {
-    label: 'DP',
-    items: [
-      { module: 'personnel_department', label: 'Depart. Pessoal', href: '/personnel-department', icon: UsersRound, color: '#f43f5e' },
-    ],
-  },
-  {
-    label: 'Recepção',
-    items: [
-      { module: 'reception', label: 'Rack de UH\'s',  href: '/reception/rack',     icon: BedDouble, color: '#14b8a6' },
-      { module: 'reception', label: 'Check-in',       href: '/reception/checkin',   icon: LogIn,     color: '#22c55e' },
-      { module: 'reception', label: 'Check-out',      href: '/reception/checkout',  icon: LogOut,    color: '#ef4444' },
-      { module: 'reception', label: 'In House',       href: '/reception/inhouse',   icon: Users,     color: '#3b82f6' },
-    ],
-  },
-  {
-    label: 'Reservas',
-    items: [
-      { module: 'reservations', label: 'Reservas',          href: '/reservations/search',       icon: Search,        color: '#6366f1' },
-      { module: 'reservations', label: 'Disponibilidade',   href: '/reservations/availability', icon: CalendarCheck, color: '#8b5cf6' },
-      { module: 'reservations', label: 'Planning',          href: '/reservations/planning',     icon: CalendarRange, color: '#a855f7' },
-    ],
-  },
-  {
-    label: 'Manutenção',
-    items: [
-      { module: 'maintenance', label: 'Manutenções', href: '/maintenance', icon: HardHat, color: '#f97316' },
-    ],
-  },
-  {
-    label: 'Requisições',
-    dynamicKey: 'allSectors',
-  },
-  {
-    label: 'Configurações',
-    adminOnly: true,
-    items: [
-      { module: 'users_management',   label: 'Usuários',         href: '/users',         icon: UsersRound,  color: '#6366f1' },
-      { module: 'roles_management',   label: 'Gestão de Perfis', href: '/admin/roles',   icon: UserCog,     color: '#f59e0b' },
-      { module: 'sectors_management', label: 'Gestão de Setores',href: '/admin/sectors', icon: LayoutGrid,  color: '#14b8a6' },
-      { module: 'erbon_pms',          label: 'Erbon PMS',        href: '/admin/erbon',    icon: Link2,          color: '#0ea5e9' },
-      { module: 'users_management',   label: 'WhatsApp',         href: '/admin/whatsapp', icon: MessageSquare,  color: '#22c55e' },
-    ],
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Greeting
