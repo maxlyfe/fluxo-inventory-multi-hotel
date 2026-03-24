@@ -203,7 +203,7 @@ const NAV_SECTIONS: NavSection[] = [
 // ---------------------------------------------------------------------------
 const Navbar = () => {
   const { user, logout: authLogout } = useAuth();
-  const { can, isAdmin, canAccessContacts } = usePermissions();
+  const { can, isAdmin, isDev, canAccessContacts } = usePermissions();
   const { selectedHotel, setSelectedHotel } = useHotel();
   const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
@@ -519,7 +519,7 @@ const Navbar = () => {
                           {user.email}
                         </p>
                         <span className="inline-block mt-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                          {isAdmin ? 'Admin' : (user as any).custom_role?.name || user.role || 'Sem perfil'}
+                          {isDev ? 'Dev' : isAdmin ? 'Admin' : (user as any).custom_role?.name || user.role || 'Sem perfil'}
                         </span>
                       </div>
 

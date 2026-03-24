@@ -9,7 +9,7 @@ import {
   Shield, UserCog, Users, ChevronDown, ChevronRight, Info,
   Wrench, Package, ClipboardList, ShoppingCart, BarChart2,
   ShieldCheck, LayoutGrid, Building2, UserCheck, Boxes, Search,
-  AlertCircle,
+  AlertCircle, Code2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ interface UserProfile {
   id:             string;
   display_name:   string;   // resolvido: employee.name > full_name > email > id parcial
   email:          string | null;
-  role:           string | null;
+  role:           string | null;    // 'admin' | 'dev' | 'guest' | ...
   custom_role_id: string | null;
 }
 
@@ -80,7 +80,7 @@ function hexToRgba(hex: string, alpha: number) {
 // Main Component
 // ---------------------------------------------------------------------------
 export default function RolesManagement() {
-  const { isAdmin } = usePermissions();
+  const { isAdmin, isDev } = usePermissions();
 
   const [roles, setRoles]               = useState<CustomRole[]>([]);
   const [users, setUsers]               = useState<UserProfile[]>([]);
@@ -272,6 +272,20 @@ export default function RolesManagement() {
     }
   };
 
+  // Toggle dev role (só dev pode)
+  const toggleDevRole = async (userId: string, currentRole: string | null) => {
+    setAssigningUser(userId);
+    try {
+      const newRole = currentRole === 'dev' ? 'admin' : 'dev';
+      await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    } catch (e: any) {
+      setError(e.message || 'Erro ao alterar role dev.');
+    } finally {
+      setAssigningUser(null);
+    }
+  };
+
   // ---------------------------------------------------------------------------
   if (!isAdmin) return (
     <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
@@ -286,12 +300,15 @@ export default function RolesManagement() {
     </div>
   );
 
+  // Oculta usuários dev para não-devs
+  const availableUsers = isDev ? users : users.filter(u => u.role !== 'dev');
+
   const filteredUsers = searchUser.trim()
-    ? users.filter(u =>
+    ? availableUsers.filter(u =>
         u.display_name.toLowerCase().includes(searchUser.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchUser.toLowerCase())
       )
-    : users;
+    : availableUsers;
 
   // ---------------------------------------------------------------------------
   return (
@@ -318,11 +335,56 @@ export default function RolesManagement() {
         </div>
       )}
 
+      {/* Dev panel — só visível para devs */}
+      {isDev && (
+        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Code2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            <h2 className="text-sm font-bold text-purple-700 dark:text-purple-300">Acesso Dev</h2>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400">
+              Visível apenas para Dev
+            </span>
+          </div>
+          <p className="text-xs text-purple-500 dark:text-purple-400 mb-3">
+            Usuários Dev têm acesso total ao sistema, incluindo edição de perfis de sistema.
+          </p>
+          <div className="space-y-2">
+            {users.map(u => {
+              const isDevUser = u.role === 'dev';
+              const isAssigning = assigningUser === u.id;
+              return (
+                <div key={u.id} className="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-xl px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{u.display_name}</p>
+                    {u.email && <p className="text-[11px] text-gray-400 truncate">{u.email}</p>}
+                  </div>
+                  <button
+                    disabled={isAssigning}
+                    onClick={() => toggleDevRole(u.id, u.role)}
+                    className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      isDevUser
+                        ? 'bg-purple-500 text-white hover:bg-red-500'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:text-purple-600'
+                    }`}>
+                    {isAssigning
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : isDevUser
+                      ? <><Code2 className="h-3 w-3" />Dev</>
+                      : <>Promover</>
+                    }
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Roles grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {roles.map(role => {
           const isExpanded = expandedRole === role.id;
-          const roleUsers  = users.filter(u => u.custom_role_id === role.id);
+          const roleUsers  = availableUsers.filter(u => u.custom_role_id === role.id);
 
           return (
             <div key={role.id}
@@ -392,16 +454,18 @@ export default function RolesManagement() {
                     {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   </button>
 
-                  {!role.is_system && (
+                  {(!role.is_system || isDev) && (
                     <>
                       <button onClick={() => openEdit(role)}
                         className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all">
                         <Edit2 className="h-3.5 w-3.5" />
                       </button>
-                      <button onClick={() => setDeleteId(role.id)}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {!role.is_system && (
+                        <button onClick={() => setDeleteId(role.id)}
+                          className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

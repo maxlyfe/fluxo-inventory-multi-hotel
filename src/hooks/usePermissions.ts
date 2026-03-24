@@ -90,9 +90,14 @@ interface UserWithRole {
 export function usePermissions() {
   const { user } = useAuth() as { user: UserWithRole | null };
 
-  const isAdmin = useMemo(
-    () => user?.role === 'admin',
+  const isDev = useMemo(
+    () => user?.role === 'dev',
     [user?.role]
+  );
+
+  const isAdmin = useMemo(
+    () => user?.role === 'admin' || isDev,
+    [user?.role, isDev]
   );
 
   /**
@@ -136,8 +141,8 @@ export function usePermissions() {
     return perms.some(p => p.startsWith('contacts:'));
   }, [user, isAdmin]);
 
-  const roleName  = isAdmin ? 'Admin' : (user?.custom_role?.name ?? 'Sem perfil');
-  const roleColor = isAdmin ? '#ef4444' : (user?.custom_role?.color ?? '#94a3b8');
+  const roleName  = isDev ? 'Dev' : isAdmin ? 'Admin' : (user?.custom_role?.name ?? 'Sem perfil');
+  const roleColor = isDev ? '#8b5cf6' : isAdmin ? '#ef4444' : (user?.custom_role?.color ?? '#94a3b8');
 
-  return { can, canAny, canAll, isAdmin, roleName, roleColor, allowedContactCategories, canAccessContacts };
+  return { can, canAny, canAll, isAdmin, isDev, roleName, roleColor, allowedContactCategories, canAccessContacts };
 }
