@@ -335,53 +335,90 @@ export default function RolesManagement() {
         </div>
       )}
 
-      {/* Dev panel — só visível para devs */}
-      {isDev && (
-        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Code2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-            <h2 className="text-sm font-bold text-purple-700 dark:text-purple-300">Acesso Dev</h2>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400">
-              Visível apenas para Dev
-            </span>
-          </div>
-          <p className="text-xs text-purple-500 dark:text-purple-400 mb-3">
-            Usuários Dev têm acesso total ao sistema, incluindo edição de perfis de sistema.
-          </p>
-          <div className="space-y-2">
-            {users.map(u => {
-              const isDevUser = u.role === 'dev';
-              const isAssigning = assigningUser === u.id;
-              return (
-                <div key={u.id} className="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-xl px-3 py-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{u.display_name}</p>
-                    {u.email && <p className="text-[11px] text-gray-400 truncate">{u.email}</p>}
-                  </div>
-                  <button
-                    disabled={isAssigning}
-                    onClick={() => toggleDevRole(u.id, u.role)}
-                    className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      isDevUser
-                        ? 'bg-purple-500 text-white hover:bg-red-500'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:text-purple-600'
-                    }`}>
-                    {isAssigning
-                      ? <Loader2 className="h-3 w-3 animate-spin" />
-                      : isDevUser
-                      ? <><Code2 className="h-3 w-3" />Dev</>
-                      : <>Promover</>
-                    }
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Roles grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        {/* Dev card — mesmo estilo dos outros, só visível para devs */}
+        {isDev && (() => {
+          const devUsers = users.filter(u => u.role === 'dev');
+          const devExpanded = expandedRole === '__dev__';
+          return (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-purple-200 dark:border-purple-700 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+              <div className="h-1.5 bg-purple-500" />
+              <div className="p-5">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-100 dark:bg-purple-900/30">
+                    <Code2 className="h-5 w-5 text-purple-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white">Dev</h3>
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-md">OCULTO</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">Acesso total ao sistema</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
+                  <span className="flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5" />
+                    {devUsers.length} utilizador{devUsers.length !== 1 ? 'es' : ''}
+                  </span>
+                  <span className="text-purple-500 font-semibold">Todos os módulos</span>
+                </div>
+                <div className="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
+                  <button
+                    onClick={() => setExpandedRole(devExpanded ? null : '__dev__')}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/10 rounded-xl transition-all">
+                    <Users className="h-3.5 w-3.5" />
+                    Utilizadores
+                    {devExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </button>
+                </div>
+              </div>
+              {devExpanded && (
+                <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4 space-y-2">
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                    <input
+                      value={searchUser} onChange={e => setSearchUser(e.target.value)}
+                      placeholder="Buscar utilizador..."
+                      className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                  </div>
+                  {(searchUser.trim()
+                    ? users.filter(u => u.display_name.toLowerCase().includes(searchUser.toLowerCase()) || u.email?.toLowerCase().includes(searchUser.toLowerCase()))
+                    : devUsers
+                  ).map(u => {
+                    const isDevUser = u.role === 'dev';
+                    const isAssigning = assigningUser === u.id;
+                    return (
+                      <div key={u.id} className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{u.display_name}</p>
+                          {u.email && u.display_name !== u.email && <p className="text-[11px] text-gray-400 truncate">{u.email}</p>}
+                        </div>
+                        <button
+                          disabled={isAssigning}
+                          onClick={() => toggleDevRole(u.id, u.role)}
+                          className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            isDevUser
+                              ? 'bg-purple-500 text-white hover:bg-red-500'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:text-purple-600'
+                          }`}>
+                          {isAssigning
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : isDevUser
+                            ? <><Code2 className="h-3 w-3" />Dev</>
+                            : <>Promover</>
+                          }
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {roles.map(role => {
           const isExpanded = expandedRole === role.id;
           const roleUsers  = availableUsers.filter(u => u.custom_role_id === role.id);
