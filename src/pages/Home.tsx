@@ -80,7 +80,6 @@ interface SidebarGroup {
   dynamicKey?: 'stockSectors' | 'allSectors';
 }
 
-
 // ---------------------------------------------------------------------------
 // Greeting
 // ---------------------------------------------------------------------------
@@ -237,7 +236,7 @@ const Home = () => {
 
     const groups: SidebarGroup[] = [];
 
-    for (const def of SIDEBAR_GROUPS_DEF) {
+    for (const def of NAV_GROUPS) {
       // Admin-only groups
       if (def.adminOnly && !isAdmin) continue;
 
@@ -249,14 +248,12 @@ const Home = () => {
       };
 
       // Static items (filtered by permission)
-      if (def.items) {
-        for (const item of def.items) {
-          // Contatos: acesso via purchases OU canAccessContacts
-          if (item.module === '__contacts__') {
-            if (isAdmin || can('purchases') || canAccessContacts) group.items.push(item);
-          } else if (def.adminOnly || can(item.module)) {
-            group.items.push(item);
-          }
+      for (const item of def.items) {
+        // Contatos: acesso via purchases OU canAccessContacts
+        if (item.module === '__contacts__') {
+          if (isAdmin || can('purchases') || canAccessContacts) group.items.push(item);
+        } else if (def.adminOnly || can(item.module)) {
+          group.items.push(item);
         }
       }
 
