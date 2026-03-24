@@ -1,5 +1,6 @@
 // src/components/Navbar.tsx
 // Navbar contextual — mostra sub-itens do módulo ativo baseado na rota atual.
+// ⚠️  Menu items vêm de navigationConfig.ts — altere lá para manter sidebar e navbar sincronizados.
 
 import classNames from 'classnames';
 import React, { useState, useEffect, useMemo, Fragment } from "react";
@@ -9,9 +10,8 @@ import { supabase } from "../lib/supabase";
 import NotificationBell from "./NotificationBell";
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
-
-// Sub-itens que requerem permissão especial (além do módulo da seção)
-const CONTACT_ITEM_HREF = '/admin/supplier-contacts';
+import { NAV_GROUPS, CONTACT_ITEM_HREF } from "../lib/navigationConfig";
+import type { NavGroup } from "../lib/navigationConfig";
 import { useHotel } from "../context/HotelContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -27,34 +27,8 @@ import {
   UserCircle2 as ProfileIcon,
   ChevronDown as ChevronDownIcon,
   Check as CheckIcon,
-  // Módulos
-  LayoutDashboard,
-  ClipboardList,
-  ShoppingCart,
-  FileText,
-  ShieldCheck,
-  BarChart2,
-  DollarSign,
-  UsersRound,
-  UserCheck,
-  HardHat,
-  Wrench,
-  BedDouble,
-  LogIn,
-  LogOut,
-  Users,
-  Search,
-  CalendarCheck,
-  CalendarRange,
-  Boxes,
-  UserCog,
-  LayoutGrid,
-  Link2,
   Home,
   ChevronRight,
-  ArrowLeftRight,
-  Phone,
-  MessageSquare,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -66,137 +40,6 @@ const hotelNameMapping: Record<string, string> = {
   "Villa Pitanga":               "VP",
   "Maria Maria":                 "MM",
 };
-
-// ---------------------------------------------------------------------------
-// Contextual navigation — agrupado por "seção"
-// Cada seção tem: rotas que ativam o contexto + sub-itens a mostrar
-// ---------------------------------------------------------------------------
-interface NavSubItem {
-  name: string;
-  href: string;
-  icon: React.ComponentType<any>;
-}
-
-interface NavSection {
-  key: string;
-  label: string;
-  icon: React.ComponentType<any>;
-  module?: string;          // permissão requerida (undefined = qualquer logado)
-  adminOnly?: boolean;
-  /** Prefixos de rota que ativam esta seção */
-  activePrefixes: string[];
-  /** Sub-itens mostrados na navbar quando esta seção está ativa */
-  items: NavSubItem[];
-}
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    key: 'compras',
-    label: 'Compras',
-    icon: ShoppingCart,
-    module: 'purchases',
-    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin/supplier-contacts', '/admin'],
-    items: [
-      { name: 'Compras',      href: '/purchases',                icon: ShoppingCart },
-      { name: 'Orçamentos',   href: '/budget-history',           icon: FileText },
-      { name: 'Aprovações',   href: '/authorizations',           icon: ShieldCheck },
-      { name: 'Contatos',     href: '/admin/supplier-contacts',  icon: Phone },
-      { name: 'Requisições',  href: '/admin',                    icon: ClipboardList },
-    ],
-  },
-  {
-    key: 'stock',
-    label: 'Stock',
-    icon: Boxes,
-    module: 'stock',
-    activePrefixes: ['/governance', '/sector-stock/', '/inventory'],
-    items: [
-      { name: 'Inventário',     href: '/inventory',            icon: Boxes },
-      { name: 'Transferências', href: '/inventory/transfers',  icon: ArrowLeftRight },
-    ],
-  },
-  {
-    key: 'gerencia',
-    label: 'Gerência',
-    icon: BarChart2,
-    module: 'management',
-    activePrefixes: ['/management', '/reports'],
-    items: [
-      { name: 'Gerência',    href: '/management', icon: BarChart2 },
-      { name: 'Relatórios',  href: '/reports',    icon: FileText },
-    ],
-  },
-  {
-    key: 'financeiro',
-    label: 'Financeiro',
-    icon: DollarSign,
-    module: 'finances',
-    activePrefixes: ['/finances'],
-    items: [
-      { name: 'Financeiro',  href: '/finances', icon: DollarSign },
-    ],
-  },
-  {
-    key: 'dp',
-    label: 'Depart. Pessoal',
-    icon: UserCheck,
-    module: 'personnel_department',
-    activePrefixes: ['/personnel-department', '/dp/'],
-    items: [
-      { name: 'Depart. Pessoal', href: '/personnel-department', icon: UserCheck },
-    ],
-  },
-  {
-    key: 'manutencao',
-    label: 'Manutenção',
-    icon: HardHat,
-    module: 'maintenance',
-    activePrefixes: ['/maintenance'],
-    items: [
-      { name: 'Dashboard',     href: '/maintenance',            icon: HardHat },
-      { name: 'Equipamentos',  href: '/maintenance/equipment',  icon: Wrench },
-    ],
-  },
-  {
-    key: 'recepcao',
-    label: 'Recepção',
-    icon: BedDouble,
-    module: 'reception',
-    activePrefixes: ['/reception'],
-    items: [
-      { name: 'Rack de UH\'s', href: '/reception/rack',     icon: BedDouble },
-      { name: 'Check-in',      href: '/reception/checkin',   icon: LogIn },
-      { name: 'Check-out',     href: '/reception/checkout',  icon: LogOut },
-      { name: 'In House',      href: '/reception/inhouse',   icon: Users },
-    ],
-  },
-  {
-    key: 'reservas',
-    label: 'Reservas',
-    icon: Search,
-    module: 'reservations',
-    activePrefixes: ['/reservations'],
-    items: [
-      { name: 'Reservas',        href: '/reservations/search',       icon: Search },
-      { name: 'Disponibilidade', href: '/reservations/availability', icon: CalendarCheck },
-      { name: 'Planning',        href: '/reservations/planning',     icon: CalendarRange },
-    ],
-  },
-  {
-    key: 'admin',
-    label: 'Configurações',
-    icon: SettingsIcon,
-    adminOnly: true,
-    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/erbon', '/admin/whatsapp'],
-    items: [
-      { name: 'Usuários',         href: '/users',            icon: UsersRound },
-      { name: 'Gestão de Perfis', href: '/admin/roles',      icon: UserCog },
-      { name: 'Gestão de Setores',href: '/admin/sectors',    icon: LayoutGrid },
-      { name: 'Erbon PMS',        href: '/admin/erbon',      icon: Link2 },
-      { name: 'WhatsApp',         href: '/admin/whatsapp',   icon: MessageSquare },
-    ],
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Navbar
@@ -233,27 +76,29 @@ const Navbar = () => {
   const isActive = (href: string) =>
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
 
-  // Seções visíveis (filtrado por permissão)
+  // Seções visíveis (filtrado por permissão) — fonte: navigationConfig.ts
   const visibleSections = useMemo(() =>
-    NAV_SECTIONS.filter(s => {
-      if (s.adminOnly) return isAdmin;
-      if (s.module) {
-        if (can(s.module)) return true;
-        // Compras aparece também se o user tem acesso a contatos
-        if (s.key === 'compras' && canAccessContacts) return true;
-        return false;
-      }
-      return true;
-    }).map(s => {
-      // Filtrar sub-itens que o user não pode acessar
-      if (s.key === 'compras' && !isAdmin && !can('purchases')) {
-        // User só tem acesso a contatos, não a compras completo
-        return { ...s, items: s.items.filter(i => i.href === CONTACT_ITEM_HREF) };
-      }
-      return s;
-    }),
+    NAV_GROUPS
+      .filter(s => {
+        // Ignora grupo "requisicoes" (só faz sentido no sidebar)
+        if (s.dynamicKey === 'allSectors') return false;
+        if (s.adminOnly) return isAdmin;
+        if (s.module) {
+          if (can(s.module)) return true;
+          if (s.key === 'compras' && canAccessContacts) return true;
+          return false;
+        }
+        return true;
+      })
+      .map(s => {
+        if (s.key === 'compras' && !isAdmin && !can('purchases')) {
+          return { ...s, items: s.items.filter(i => i.href === CONTACT_ITEM_HREF) };
+        }
+        return s;
+      }),
     [isAdmin, can, canAccessContacts]
   );
+
 
   // Seção ativa baseada na rota atual — prioriza o prefix mais longo (mais específico)
   const activeSection = useMemo(() => {
