@@ -11,7 +11,6 @@ import NotificationBell from "./NotificationBell";
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import { NAV_GROUPS, CONTACT_ITEM_HREF } from "../lib/navigationConfig";
-import type { NavGroup } from "../lib/navigationConfig";
 import { useHotel } from "../context/HotelContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -98,7 +97,6 @@ const Navbar = () => {
       }),
     [isAdmin, can, canAccessContacts]
   );
-
 
   // Seção ativa baseada na rota atual — prioriza o prefix mais longo (mais específico)
   const activeSection = useMemo(() => {
@@ -268,7 +266,7 @@ const Navbar = () => {
                                     )}
                                   >
                                     <item.icon className="h-4 w-4 flex-shrink-0" />
-                                    {item.name}
+                                    {item.label}
                                     {isActive(item.href) && (
                                       <CheckIcon className="h-3.5 w-3.5 ml-auto text-blue-500" />
                                     )}
@@ -302,12 +300,11 @@ const Navbar = () => {
                     )}
                   >
                     <item.icon className="h-4 w-4 flex-shrink-0" />
-                    {item.name}
+                    {item.label}
                   </Link>
                 ))}
               </div>
             ) : (
-              /* No Dashboard — sem itens contextuais, mostra nada */
               null
             )}
           </div>
@@ -431,7 +428,7 @@ const Navbar = () => {
                       )}
                     >
                       <item.icon className="h-5 w-5 flex-shrink-0" />
-                      {item.name}
+                      {item.label}
                     </Link>
                   ))}
                 </div>
@@ -506,7 +503,7 @@ const Navbar = () => {
                                 )}
                               >
                                 <item.icon className="h-4 w-4 flex-shrink-0" />
-                                {item.name}
+                                {item.label}
                               </Link>
                             ))}
                           </div>
