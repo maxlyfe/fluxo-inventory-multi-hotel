@@ -13,7 +13,7 @@ import {
   Sun, Cloud, Moon, CloudRain, CloudSnow, CloudLightning, CloudDrizzle,
   CloudFog, Wind, Thermometer, Droplets, Eye, MapPin, Clock,
   BedDouble, LogIn, LogOut, Users, Search, CalendarCheck, CalendarRange,
-  ArrowLeftRight,
+  ArrowLeftRight, Phone, MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -96,8 +96,9 @@ const SIDEBAR_GROUPS_DEF: {
     items: [
       { module: 'authorizations', label: 'Orçamentos',    href: '/budget-history',  icon: FileText,    color: '#6366f1' },
       { module: 'authorizations', label: 'Autorizações',  href: '/authorizations',  icon: CreditCard,  color: '#14b8a6' },
-      { module: 'purchases',     label: 'Compras',        href: '/purchases',       icon: ShoppingCart, color: '#f59e0b' },
-      { module: 'stock',          label: 'Requisições',   href: '/admin',            icon: Package,     color: '#3b82f6' },
+      { module: 'purchases',     label: 'Compras',        href: '/purchases',               icon: ShoppingCart, color: '#f59e0b' },
+      { module: '__contacts__',  label: 'Contatos',      href: '/admin/supplier-contacts', icon: Phone,        color: '#10b981' },
+      { module: 'stock',          label: 'Requisições',   href: '/admin',                   icon: Package,     color: '#3b82f6' },
     ],
   },
   {
@@ -161,7 +162,8 @@ const SIDEBAR_GROUPS_DEF: {
       { module: 'users_management',   label: 'Usuários',         href: '/users',         icon: UsersRound,  color: '#6366f1' },
       { module: 'roles_management',   label: 'Gestão de Perfis', href: '/admin/roles',   icon: UserCog,     color: '#f59e0b' },
       { module: 'sectors_management', label: 'Gestão de Setores',href: '/admin/sectors', icon: LayoutGrid,  color: '#14b8a6' },
-      { module: 'erbon_pms',          label: 'Erbon PMS',        href: '/admin/erbon',   icon: Link2,       color: '#0ea5e9' },
+      { module: 'erbon_pms',          label: 'Erbon PMS',        href: '/admin/erbon',    icon: Link2,          color: '#0ea5e9' },
+      { module: 'users_management',   label: 'WhatsApp',         href: '/admin/whatsapp', icon: MessageSquare,  color: '#22c55e' },
     ],
   },
 ];
@@ -221,7 +223,7 @@ function windDirectionLabel(deg: number): string {
 // ---------------------------------------------------------------------------
 const Home = () => {
   const { user }          = useAuth();
-  const { can, isAdmin, roleName, roleColor } = usePermissions();
+  const { can, isAdmin, roleName, roleColor, canAccessContacts } = usePermissions();
   const { selectedHotel } = useHotel();
   const navigate          = useNavigate();
 
@@ -336,7 +338,10 @@ const Home = () => {
       // Static items (filtered by permission)
       if (def.items) {
         for (const item of def.items) {
-          if (def.adminOnly || can(item.module)) {
+          // Contatos: acesso via purchases OU canAccessContacts
+          if (item.module === '__contacts__') {
+            if (isAdmin || can('purchases') || canAccessContacts) group.items.push(item);
+          } else if (def.adminOnly || can(item.module)) {
             group.items.push(item);
           }
         }
@@ -379,7 +384,7 @@ const Home = () => {
     }
 
     return groups;
-  }, [user, isAdmin, can, stockSectors, allSectors]);
+  }, [user, isAdmin, can, canAccessContacts, stockSectors, allSectors]);
 
   const toggleGroup = (label: string) => {
     setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));
