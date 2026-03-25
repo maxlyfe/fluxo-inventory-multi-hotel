@@ -50,6 +50,7 @@ import SectorsManagement  from './pages/admin/SectorsManagement';
 import ErbonIntegration     from './pages/admin/ErbonIntegration';
 import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
 import SupplierContacts    from './pages/SupplierContacts';
+import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import RoomRack          from './pages/erbon/RoomRack';
@@ -152,6 +153,11 @@ function App() {
                   {/* ── Manutenção — rotas públicas (anônimo / QR) ─────────── */}
                   <Route path="/maintenance/ticket/new"      element={<MaintenanceNewTicket />} />
                   <Route path="/maintenance/equipment/:qrId" element={<MaintenanceEquipmentDetail />} />
+
+                  {/* ── Páginas legais (Meta / WhatsApp Business) ─────────── */}
+                  <Route path="/privacy"       element={<PrivacyPolicy />} />
+                  <Route path="/terms"         element={<TermsOfService />} />
+                  <Route path="/data-deletion" element={<DataDeletion />} />
 
                   {/* ── Rotas privadas com MainLayout (Navbar) ──────────────── */}
                   <Route element={<MainLayout />}>
