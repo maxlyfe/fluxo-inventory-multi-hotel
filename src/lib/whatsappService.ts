@@ -85,10 +85,16 @@ export function getGreeting(): string {
 /** Formata número para padrão WhatsApp: apenas dígitos com código do país */
 export function formatWhatsAppNumber(phone: string): string {
   const digits = phone.replace(/\D/g, '');
-  // Se não começa com 55 (Brasil), adicionar
-  if (!digits.startsWith('55') && digits.length <= 11) {
+  // Números brasileiros: 10-11 dígitos (DDD + número) — SEMPRE adicionar 55
+  // Isso cobre inclusive DDD 55 (Santa Maria, RS) que começaria com "55..."
+  if (digits.length >= 10 && digits.length <= 11) {
     return `55${digits}`;
   }
+  // 12-13 dígitos começando com 55: já tem código de país
+  if (digits.length >= 12 && digits.length <= 13 && digits.startsWith('55')) {
+    return digits;
+  }
+  // Fallback: retorna como está (números internacionais)
   return digits;
 }
 

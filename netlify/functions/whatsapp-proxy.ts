@@ -41,6 +41,24 @@ const handler: Handler = async (event: HandlerEvent) => {
     let method = event.httpMethod;
     let body = event.body;
 
+    // Validar body JSON no envio
+    if (action === 'send' && method === 'POST') {
+      if (!body) {
+        return {
+          statusCode: 400,
+          headers: { 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({ error: 'Request body is required for send action' }),
+        };
+      }
+      try { JSON.parse(body); } catch {
+        return {
+          statusCode: 400,
+          headers: { 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({ error: 'Invalid JSON in request body' }),
+        };
+      }
+    }
+
     if (action === 'verify') {
       // Verificar status do número — GET
       targetUrl = `${META_GRAPH_URL}/${phoneNumberId}`;

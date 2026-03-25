@@ -327,10 +327,24 @@ const BudgetDetail = () => {
           const supplierName = getMainSupplier();
           const contacts = await whatsappService.getBudgetContacts(budgetId);
           // Buscar contato que corresponde ao fornecedor principal
-          const match = contacts.find(c =>
-            c.company_name.toLowerCase().includes(supplierName.toLowerCase()) ||
-            supplierName.toLowerCase().includes(c.company_name.toLowerCase())
-          );
+          const normalize = (s: string) => s.toLowerCase().trim();
+          const supplierNorm = normalize(supplierName);
+          // 1. Match exato
+          let match = contacts.find(c => normalize(c.company_name) === supplierNorm);
+          // 2. Match parcial bidirecional
+          if (!match) {
+            match = contacts.find(c =>
+              normalize(c.company_name).includes(supplierNorm) ||
+              supplierNorm.includes(normalize(c.company_name))
+            );
+          }
+          // 3. Fallback: se só tem 1 contato, usar esse
+          if (!match && contacts.length === 1) {
+            match = contacts[0];
+          }
+          if (!match && contacts.length > 0) {
+            addNotification(`Nenhum contato WhatsApp corresponde a "${supplierName}". Verifique os vínculos de fornecedor.`, 'info');
+          }
           if (match) {
             setSendingWhatsApp(true);
             const sendResult = await whatsappService.sendTemplate({
