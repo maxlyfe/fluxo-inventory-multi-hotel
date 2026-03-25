@@ -5,6 +5,7 @@ import { X, Loader2, Check, Barcode, Plus, Camera, Phone, Search, ChevronDown, C
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { whatsappService, SupplierContact } from '../lib/whatsappService';
 
 interface Product {
@@ -205,6 +206,12 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
   const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') { e.preventDefault(); addBarcode(barcodeInput); }
   };
+
+  // Leitor USB de código de barras
+  useBarcodeScanner({
+    onScan: addBarcode,
+    enabled: isOpen && !showScanner,
+  });
 
   const handleBarcodeScan = (code: string) => {
     addBarcode(code);

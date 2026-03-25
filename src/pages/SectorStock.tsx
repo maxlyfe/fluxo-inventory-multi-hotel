@@ -7,7 +7,7 @@ import {
   ImageIcon, Trash2,
   CalendarCheck, X, ListChecks, Filter,
   ChevronLeftSquare, ChevronRightSquare, GitCommit, Loader2, Edit2, ArrowRightLeft,
-  ArrowUpRight, ArrowDownLeft
+  ArrowUpRight, ArrowDownLeft, Barcode
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +19,8 @@ import Modal from '../components/Modal';
 import NewProductModal from '../components/NewProductModal';
 import StockConferenceModal from '../components/StockConferenceModal';
 import StockCountHistoryModal from '../components/StockCountHistoryModal';
+import BarcodeScanner from '../components/BarcodeScanner';
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 
 // Interfaces permanecem as mesmas
 interface Product {
@@ -128,6 +130,32 @@ const SectorStock = () => {
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [showConferenceModal, setShowConferenceModal] = useState(false);
   const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
+  const [barcodeFilterProductId, setBarcodeFilterProductId] = useState<string | null>(null);
+  const [barcodeFilterCode, setBarcodeFilterCode] = useState('');
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+
+  // Busca produto por código de barras
+  const searchByBarcode = useCallback(async (barcode: string) => {
+    const { data } = await supabase
+      .from('product_barcodes')
+      .select('product_id')
+      .eq('barcode', barcode.trim())
+      .maybeSingle();
+    if (data) {
+      setBarcodeFilterProductId(data.product_id);
+      setBarcodeFilterCode(barcode.trim());
+      setSearchTerm('');
+      addNotification(`Produto encontrado para código ${barcode}`, 'success');
+    } else {
+      addNotification(`Nenhum produto encontrado para código ${barcode}`, 'error');
+    }
+  }, [addNotification]);
+
+  // Leitor USB de código de barras (detecta input rápido do leitor laser)
+  useBarcodeScanner({
+    onScan: searchByBarcode,
+    enabled: !showConferenceModal && !showEditModal && !showBarcodeScanner,
+  });
 
   // ── Transferência entre setores ──────────────────────────────────────────
   const [showTransferModal, setShowTransferModal]   = useState(false);
@@ -915,7 +943,10 @@ const SectorStock = () => {
 
   // --- FIM: Transferência ---
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredProducts = products.filter(p => {
+    if (barcodeFilterProductId) return p.id === barcodeFilterProductId;
+    return p.name.toLowerCase().includes(searchTerm.toLowerCase());
+  });
   const filteredBalanceData = balanceData.filter(item => item.productName.toLowerCase().includes(searchTerm.toLowerCase()));
   
   if (loading && products.length === 0) return <div className="p-6 text-center">Carregando...</div>;
@@ -1003,15 +1034,21 @@ const SectorStock = () => {
       )}
 
       <div className="mb-6">
-        <div className="relative">
-          <input 
-            type="text" 
-            placeholder="Buscar produto..." 
-            className="w-full p-3 pl-10 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500"/>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="Buscar por nome ou código de barras..."
+              className="w-full p-3 pl-10 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setBarcodeFilterProductId(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && searchTerm.trim().length >= 4) { e.preventDefault(); searchByBarcode(searchTerm); } }}
+            />
+            <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500"/>
+          </div>
+          <button onClick={() => setShowBarcodeScanner(true)} title="Escanear código de barras" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors">
+            <Barcode className="h-5 w-5" /><span className="hidden sm:inline">Escanear</span>
+          </button>
         </div>
       </div>
       
@@ -1131,6 +1168,17 @@ const SectorStock = () => {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Chip de filtro por barcode */}
+      {barcodeFilterProductId && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+            <Barcode className="h-3.5 w-3.5" />
+            Filtrado por código: {barcodeFilterCode}
+            <button onClick={() => { setBarcodeFilterProductId(null); setBarcodeFilterCode(''); }} className="ml-1 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full p-0.5"><X className="h-3.5 w-3.5" /></button>
+          </span>
         </div>
       )}
 
@@ -1612,6 +1660,16 @@ const SectorStock = () => {
                 </div>
             </form>
         </Modal>
+      )}
+
+      {/* Scanner de câmera para código de barras */}
+      {showBarcodeScanner && (
+        <BarcodeScanner
+          onDetected={(barcode) => { setShowBarcodeScanner(false); searchByBarcode(barcode); }}
+          onClose={() => setShowBarcodeScanner(false)}
+          title="Escanear Código de Barras"
+          hint="Aponte para o código de barras do produto"
+        />
       )}
     </div>
   );
