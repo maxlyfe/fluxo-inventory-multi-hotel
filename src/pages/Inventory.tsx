@@ -6,7 +6,7 @@ import {
   ShoppingCart, ChevronDown, ChevronUp, Package, ArrowUp,
   ArrowUpRight, Search, Image as ImageIcon, DollarSign,
   RefreshCw, ArrowLeftRight, Eye, EyeOff, FilePlus, Camera, BarChart2,
-  Star, ListChecks, History // Ícone de Estrela importado
+  Star, ListChecks, History, Barcode
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ImportInventory from '../components/ImportInventory';
@@ -23,6 +23,8 @@ import Modal from '../components/Modal';
 import StarredItemsModal from '../components/StarredItemsModal';
 import StockConferenceModal from '../components/StockConferenceModal';
 import StockCountHistoryModal from '../components/StockCountHistoryModal';
+import BarcodeScanner from '../components/BarcodeScanner';
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 
 // --- ALTERAÇÃO: Adiciona a propriedade opcional 'is_starred' à interface do Produto ---
 // Isso permite que o TypeScript entenda o novo campo que vem do banco de dados.
@@ -79,6 +81,33 @@ const Inventory = () => {
   const [showStarredModal, setShowStarredModal] = useState(false);
   const [showConferenceModal, setShowConferenceModal] = useState(false);
   const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
+  const [barcodeFilterProductId, setBarcodeFilterProductId] = useState<string | null>(null);
+  const [barcodeFilterCode, setBarcodeFilterCode] = useState('');
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+
+  // Busca produto por código de barras (usado por USB scanner + câmera + busca manual)
+  const searchByBarcode = useCallback(async (barcode: string) => {
+    const { data } = await supabase
+      .from('product_barcodes')
+      .select('product_id')
+      .eq('barcode', barcode.trim())
+      .maybeSingle();
+    if (data) {
+      setBarcodeFilterProductId(data.product_id);
+      setBarcodeFilterCode(barcode.trim());
+      setSearchTerm('');
+      setShowFilters(true);
+      addNotification(`Produto encontrado para código ${barcode}`, 'success');
+    } else {
+      addNotification(`Nenhum produto encontrado para código ${barcode}`, 'error');
+    }
+  }, [addNotification]);
+
+  // Leitor USB de código de barras (detecta input rápido do leitor laser)
+  useBarcodeScanner({
+    onScan: searchByBarcode,
+    enabled: !showConferenceModal && !showForm && !showBarcodeScanner,
+  });
 
   // Lógica para obter itens com estoque baixo (permanece igual)
   const lowStockItems = products.filter(product => product.is_active && product.quantity <= product.min_quantity);
@@ -360,9 +389,10 @@ const Inventory = () => {
     }
   };
 
-  // Lógica de filtragem (permanece igual)
+  // Lógica de filtragem
   const filteredProducts = products.filter(product => {
-    const matchesSearch = searchMatch(searchTerm, product.name) || 
+    if (barcodeFilterProductId) return product.id === barcodeFilterProductId;
+    const matchesSearch = searchMatch(searchTerm, product.name) ||
                          searchMatch(searchTerm, product.description || '') ||
                          searchMatch(searchTerm, product.category || '') ||
                          searchMatch(searchTerm, product.supplier || '');
@@ -370,6 +400,18 @@ const Inventory = () => {
     const matchesActiveStatus = showInactive || product.is_active;
     return matchesSearch && matchesCategory && matchesActiveStatus;
   });
+
+  // Auto-busca por barcode quando texto não encontra nenhum produto (debounce 600ms)
+  useEffect(() => {
+    if (!searchTerm || searchTerm.trim().length < 4 || barcodeFilterProductId) return;
+    const nameMatches = products.some(p =>
+      searchMatch(searchTerm, p.name) || searchMatch(searchTerm, p.description || '') ||
+      searchMatch(searchTerm, p.category || '') || searchMatch(searchTerm, p.supplier || '')
+    );
+    if (nameMatches) return;
+    const timer = setTimeout(() => searchByBarcode(searchTerm), 600);
+    return () => clearTimeout(timer);
+  }, [searchTerm, products, barcodeFilterProductId, searchByBarcode]);
 
   /**
    * --- NOVO: Memoiza a lista de produtos favoritados para otimizar a performance. ---
@@ -464,7 +506,15 @@ const Inventory = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <div>
               <label htmlFor="search-term" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Buscar</label>
-              <div className="relative"><input id="search-term" type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Nome, descrição, categoria..." className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 pl-10 pr-4 py-2 text-sm" /><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" /></div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input id="search-term" type="text" value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setBarcodeFilterProductId(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && searchTerm.trim().length >= 4) { e.preventDefault(); searchByBarcode(searchTerm); } }} placeholder="Nome, categoria ou código de barras..." className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 pl-10 pr-4 py-2 text-sm" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                </div>
+                <button onClick={() => setShowBarcodeScanner(true)} title="Escanear código de barras" className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors">
+                  <Barcode className="h-4 w-4" /><span className="hidden sm:inline">Escanear</span>
+                </button>
+              </div>
             </div>
             <div>
               <label htmlFor="category-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Categoria</label>
@@ -475,6 +525,17 @@ const Inventory = () => {
               <button onClick={() => setShowInactive(!showInactive)} className={`w-full flex items-center justify-center px-4 py-2 rounded-md transition-colors text-sm ${showInactive ? 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200' : 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'}`}>{showInactive ? <><EyeOff className="h-4 w-4 mr-1.5" />Mostrar Inativos</> : <><Eye className="h-4 w-4 mr-1.5" />Apenas Ativos</>}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Chip de filtro por barcode */}
+      {barcodeFilterProductId && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+            <Barcode className="h-3.5 w-3.5" />
+            Filtrado por código: {barcodeFilterCode}
+            <button onClick={() => { setBarcodeFilterProductId(null); setBarcodeFilterCode(''); }} className="ml-1 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full p-0.5"><X className="h-3.5 w-3.5" /></button>
+          </span>
         </div>
       )}
 
@@ -629,6 +690,16 @@ const Inventory = () => {
             <div className="mt-6 flex justify-end"><button onClick={() => setShowWeeklyReport(false)} className="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 transition-colors text-sm">Fechar</button></div>
           </div>
         </div>
+      )}
+
+      {/* Scanner de câmera para código de barras */}
+      {showBarcodeScanner && (
+        <BarcodeScanner
+          onDetected={(barcode) => { setShowBarcodeScanner(false); searchByBarcode(barcode); }}
+          onClose={() => setShowBarcodeScanner(false)}
+          title="Escanear Código de Barras"
+          hint="Aponte para o código de barras do produto"
+        />
       )}
     </div>
   );

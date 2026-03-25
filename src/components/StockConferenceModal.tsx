@@ -3,6 +3,7 @@ import { X, Search, ChevronRight, ChevronLeft, CheckCircle2, Save, ListChecks, A
 import { supabase } from '../lib/supabase';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
+import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 
 interface Product {
   id: string;
@@ -363,6 +364,18 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       setIsSaving(false);
     }
   };
+
+  // Leitor USB de código de barras
+  useBarcodeScanner({
+    onScan: (barcode: string) => {
+      if (registerBarcodeProduct) {
+        handleRegisterBarcode(barcode);
+      } else {
+        handleBarcodeScan(barcode);
+      }
+    },
+    enabled: isOpen && !showScanner,
+  });
 
   if (!isOpen) return null;
 
