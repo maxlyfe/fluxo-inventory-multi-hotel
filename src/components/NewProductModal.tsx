@@ -48,7 +48,13 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     name: '', quantity: 0, min_quantity: 0, max_quantity: 100,
     category: 'Outros', supplier: '', image_url: '', description: '',
     is_portionable: false, is_portion: false,
+    auto_portion_product_id: null as string | null,
+    auto_portion_multiplier: null as number | null,
   });
+
+  // Produtos porção disponíveis para auto-porcionamento
+  const [portionProducts, setPortionProducts] = useState<Product[]>([]);
+  const [portionSearch, setPortionSearch] = useState('');
 
   const [sectors,         setSectors]         = useState<Sector[]>([]);
   const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set());
@@ -95,6 +101,16 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
       } else {
         setSectors(sectorsData || []);
       }
+
+      // Produtos porção para auto-porcionamento
+      const { data: portionData } = await supabase
+        .from('products')
+        .select('id, name, category')
+        .eq('hotel_id', selectedHotel.id)
+        .eq('is_portion', true)
+        .eq('is_active', true)
+        .order('name');
+      setPortionProducts((portionData as Product[]) || []);
 
       if (editingProduct) {
         // Visibilidade por setor
@@ -146,6 +162,8 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           description:    editingProduct.description || '',
           is_portionable: editingProduct.is_portionable || false,
           is_portion:     editingProduct.is_portion     || false,
+          auto_portion_product_id: (editingProduct as any).auto_portion_product_id || null,
+          auto_portion_multiplier: (editingProduct as any).auto_portion_multiplier || null,
         });
       } else {
         if (sectorsData) setSelectedSectors(new Set(sectorsData.map(s => s.id)));
@@ -156,6 +174,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           name: '', quantity: 0, min_quantity: 0, max_quantity: 100,
           category: 'Outros', supplier: '', image_url: '', description: '',
           is_portionable: false, is_portion: false,
+          auto_portion_product_id: null, auto_portion_multiplier: null,
         });
       }
 
@@ -173,7 +192,8 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
       setFormData(prev => {
         const next = { ...prev, [name]: checked };
         if (checked && name === 'is_portionable') next.is_portion = false;
-        if (checked && name === 'is_portion')     next.is_portionable = false;
+        if (checked && name === 'is_portion')     { next.is_portionable = false; next.auto_portion_product_id = null; next.auto_portion_multiplier = null; }
+        if (!checked && name === 'is_portionable') { next.auto_portion_product_id = null; next.auto_portion_multiplier = null; }
         return next;
       });
       return;
@@ -443,6 +463,98 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                     <p className="text-xs text-gray-500 dark:text-gray-400">Marque se este item precisa ser processado pelo setor (ex: peça de carne, caixa de cereal).</p>
                   </div>
                 </label>
+                {/* Auto-porcionamento (só aparece quando is_portionable) */}
+                {formData.is_portionable && (
+                  <div className="ml-7 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 space-y-3">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input type="checkbox"
+                        checked={!!formData.auto_portion_product_id}
+                        onChange={(e) => {
+                          if (!e.target.checked) {
+                            setFormData(prev => ({ ...prev, auto_portion_product_id: null, auto_portion_multiplier: null }));
+                          }
+                        }}
+                        className="h-4 w-4 rounded text-blue-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-blue-500"
+                        readOnly={!!formData.auto_portion_product_id}
+                      />
+                      <div>
+                        <span className="font-medium text-sm text-blue-800 dark:text-blue-200">Auto-porcionamento</span>
+                        <p className="text-xs text-blue-600 dark:text-blue-400">Converter automaticamente ao enviar para setor (ex: 1 kg → 1000 g)</p>
+                      </div>
+                    </label>
+
+                    {/* Seleção de produto porção */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">Produto porção resultante</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Buscar produto porção..."
+                          value={portionSearch}
+                          onChange={e => setPortionSearch(e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                        {portionSearch && (
+                          <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                            {portionProducts
+                              .filter(p => p.name.toLowerCase().includes(portionSearch.toLowerCase()) && p.id !== editingProduct?.id)
+                              .map(p => (
+                                <button key={p.id} type="button"
+                                  onClick={() => {
+                                    setFormData(prev => ({ ...prev, auto_portion_product_id: p.id, auto_portion_multiplier: prev.auto_portion_multiplier || 1 }));
+                                    setPortionSearch('');
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-800 dark:text-gray-200">
+                                  {p.name} <span className="text-xs text-gray-400">({p.category})</span>
+                                </button>
+                              ))}
+                            {portionProducts.filter(p => p.name.toLowerCase().includes(portionSearch.toLowerCase()) && p.id !== editingProduct?.id).length === 0 && (
+                              <p className="px-3 py-2 text-xs text-gray-400">Nenhum produto porção encontrado</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Produto selecionado */}
+                      {formData.auto_portion_product_id && (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-sm">
+                          <Check className="w-4 h-4 text-blue-600" />
+                          <span className="font-medium text-blue-800 dark:text-blue-200">
+                            {portionProducts.find(p => p.id === formData.auto_portion_product_id)?.name || 'Produto selecionado'}
+                          </span>
+                          <button type="button" onClick={() => setFormData(prev => ({ ...prev, auto_portion_product_id: null, auto_portion_multiplier: null }))}
+                            className="ml-auto text-blue-500 hover:text-red-500">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Multiplicador */}
+                      {formData.auto_portion_product_id && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            Fator de conversão (multiplicador)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-500">1 un →</span>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0.01"
+                              value={formData.auto_portion_multiplier || ''}
+                              onChange={e => setFormData(prev => ({ ...prev, auto_portion_multiplier: parseFloat(e.target.value) || null }))}
+                              className="w-28 px-3 py-2 text-sm text-center font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              placeholder="1000"
+                            />
+                            <span className="text-sm text-gray-500">un porção</span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">Ex: 1 kg = 1000 g → multiplicador = 1000</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <label className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 ${formData.is_portionable ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <input id="is_portion" name="is_portion" type="checkbox"
                     checked={formData.is_portion} onChange={handleInputChange} disabled={formData.is_portionable}

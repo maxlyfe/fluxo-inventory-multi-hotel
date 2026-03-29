@@ -492,7 +492,7 @@ const ProductCard: React.FC<{
               <input
                 type="number"
                 value={product.quantity}
-                onChange={e => up({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                onChange={e => up({ quantity: Math.max(0.01, parseFloat(e.target.value) || 0.01) })}
                 min="1"
                 className="w-20 text-center px-2 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-lg font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -819,7 +819,7 @@ const AddProductModal: React.FC<{
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Quantidade</label>
-                  <input type="number" value={draft.quantity} onChange={e => upDraft({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                  <input type="number" value={draft.quantity} onChange={e => upDraft({ quantity: Math.max(0.01, parseFloat(e.target.value) || 0.01) })}
                     min="1"
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-sm text-center font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />

@@ -289,10 +289,11 @@ const HotelTransferModal: React.FC<HotelTransferModalProps> = ({
             </label>
             <input
               type="number"
-              min="1"
+              min="0.01"
+              step="any"
               max={getAvailableQuantity(transferData.productId)}
               value={transferData.quantity}
-              onChange={(e) => setTransferData({ ...transferData, quantity: parseInt(e.target.value) })}
+              onChange={(e) => setTransferData({ ...transferData, quantity: parseFloat(e.target.value) || 0 })}
               className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
               required
             />

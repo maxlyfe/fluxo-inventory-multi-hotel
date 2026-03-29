@@ -135,8 +135,8 @@ const AdminPanel = () => {
         .select(`
           *,
           sector:sectors(id, name),
-          products!requisitions_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, average_price, last_purchase_price, last_purchase_quantity)
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, is_portionable, auto_portion_product_id, auto_portion_multiplier, average_price, last_purchase_price, last_purchase_quantity),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, is_portionable, auto_portion_product_id, auto_portion_multiplier, average_price, last_purchase_price, last_purchase_quantity)
         `)
         .eq('hotel_id', selectedHotel.id)
         .eq('status', 'pending')
@@ -169,8 +169,8 @@ const AdminPanel = () => {
         .select(`
           *,
           sector:sectors(id, name),
-          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable)
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable, auto_portion_product_id, auto_portion_multiplier),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable, auto_portion_product_id, auto_portion_multiplier)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -200,8 +200,8 @@ const AdminPanel = () => {
         .select(`
           *,
           sector:sectors(id, name),
-          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable),
-          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable)
+          products!requisitions_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable, auto_portion_product_id, auto_portion_multiplier),
+          substituted_product:products!requisitions_substituted_product_id_fkey(id, name, image_url, quantity, average_price, last_purchase_price, last_purchase_quantity, is_portionable, auto_portion_product_id, auto_portion_multiplier)
         `)
         .eq('hotel_id', selectedHotel.id)
         .in('status', ['delivered', 'rejected'])
@@ -228,7 +228,7 @@ const AdminPanel = () => {
       }
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, quantity, average_price, last_purchase_price, last_purchase_quantity, image_url, is_portionable')
+        .select('id, name, quantity, average_price, last_purchase_price, last_purchase_quantity, image_url, is_portionable, auto_portion_product_id, auto_portion_multiplier')
         .eq('hotel_id', selectedHotel.id)
         .eq('is_active', true)
         .order('name');
@@ -442,16 +442,34 @@ const AdminPanel = () => {
 
       if (isPortionable && !requestToProcess.is_custom && productId) {
         const purchaseCost = (productBeingDelivered?.last_purchase_price || productBeingDelivered?.average_price || 0) * deliveredQuantity;
-        const { error: pendingError } = await supabase.from('pending_portioning_entries').insert({
-            hotel_id: selectedHotel!.id,
-            sector_id: requestToProcess.sector.id,
-            product_id: productId,
-            quantity_delivered: deliveredQuantity,
-            purchase_cost: purchaseCost,
-            requisition_id: requestToProcess.id,
-        });
-        if (pendingError) throw new Error(`Falha ao criar entrada pendente: ${pendingError.message}`);
-        addNotification("Item porcionável enviado ao setor. Aguardando processamento.", "info");
+        const hasAutoPortioning = (productBeingDelivered as any)?.auto_portion_product_id && (productBeingDelivered as any)?.auto_portion_multiplier;
+
+        if (hasAutoPortioning) {
+          // Auto-porcionamento: converter automaticamente
+          const { data: autoResult, error: autoError } = await supabase.rpc('process_auto_portioning', {
+            p_hotel_id: selectedHotel!.id,
+            p_sector_id: requestToProcess.sector.id,
+            p_parent_product_id: productId,
+            p_quantity_delivered: deliveredQuantity,
+            p_purchase_cost: purchaseCost,
+          });
+          if (autoError) throw new Error(`Falha no auto-porcionamento: ${autoError.message}`);
+          const result = autoResult as { success: boolean; message: string };
+          if (!result.success) throw new Error(result.message);
+          addNotification(`Auto-porcionamento: ${result.message}`, "success");
+        } else {
+          // Porcionamento manual: criar entrada pendente
+          const { error: pendingError } = await supabase.from('pending_portioning_entries').insert({
+              hotel_id: selectedHotel!.id,
+              sector_id: requestToProcess.sector.id,
+              product_id: productId,
+              quantity_delivered: deliveredQuantity,
+              purchase_cost: purchaseCost,
+              requisition_id: requestToProcess.id,
+          });
+          if (pendingError) throw new Error(`Falha ao criar entrada pendente: ${pendingError.message}`);
+          addNotification("Item porcionável enviado ao setor. Aguardando processamento.", "info");
+        }
       }
       // Nota: sector_stock é atualizado automaticamente pelo trigger handle_sector_requisition_delivery
       
@@ -704,21 +722,38 @@ const AdminPanel = () => {
       // --- INÍCIO DA LÓGICA CORRIGIDA ---
       // 4. Verifica se o produto é porcionável
       if (product.is_portionable) {
-        // Se for porcionável, cria uma entrada pendente para o setor processar
         const purchaseCost = (product.last_purchase_price || product.average_price || 0) * quantity;
-        const { error: pendingError } = await supabase.from('pending_portioning_entries').insert({
-            hotel_id: selectedHotel.id,
-            sector_id: sectorId,
-            product_id: productId,
-            quantity_delivered: quantity,
-            purchase_cost: purchaseCost,
-            requisition_id: newRequisition.id,
-        });
-        if (pendingError) throw new Error(`Falha ao criar entrada de porcionamento pendente: ${pendingError.message}`);
-        addNotification("Item porcionável enviado ao setor para processamento.", "info");
+        const hasAutoPortioning = product.auto_portion_product_id && product.auto_portion_multiplier;
+
+        if (hasAutoPortioning) {
+          // Auto-porcionamento: converter automaticamente
+          const { data: autoResult, error: autoError } = await supabase.rpc('process_auto_portioning', {
+            p_hotel_id: selectedHotel.id,
+            p_sector_id: sectorId,
+            p_parent_product_id: productId,
+            p_quantity_delivered: quantity,
+            p_purchase_cost: purchaseCost,
+          });
+          if (autoError) throw new Error(`Falha no auto-porcionamento: ${autoError.message}`);
+          const result = autoResult as { success: boolean; message: string };
+          if (!result.success) throw new Error(result.message);
+          addNotification(`Auto-porcionamento: ${result.message}`, "success");
+        } else {
+          // Porcionamento manual: criar entrada pendente
+          const { error: pendingError } = await supabase.from('pending_portioning_entries').insert({
+              hotel_id: selectedHotel.id,
+              sector_id: sectorId,
+              product_id: productId,
+              quantity_delivered: quantity,
+              purchase_cost: purchaseCost,
+              requisition_id: newRequisition.id,
+          });
+          if (pendingError) throw new Error(`Falha ao criar entrada de porcionamento pendente: ${pendingError.message}`);
+          addNotification("Item porcionável enviado ao setor para processamento.", "info");
+        }
       } else {
         // Se NÃO for porcionável, adiciona diretamente ao estoque do setor
-        const { error: sectorStockError } = await supabase.rpc('update_sector_stock_on_delivery', {
+        const { error: sectorStockError } = await supabase.rpc('record_sector_stock_entry', {
             p_hotel_id: selectedHotel.id,
             p_sector_id: sectorId,
             p_product_id: productId,

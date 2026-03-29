@@ -955,10 +955,11 @@ const SectorRequests = () => {
                 </label>
                 <input
                   type="number"
-                  min="1"
-                  inputMode="numeric"
+                  min="0.01"
+                  step="any"
+                  inputMode="decimal"
                   value={customItem.quantity}
-                  onChange={e => setCustomItem({ ...customItem, quantity: parseInt(e.target.value) || 1 })}
+                  onChange={e => setCustomItem({ ...customItem, quantity: parseFloat(e.target.value) || 0.01 })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                 />

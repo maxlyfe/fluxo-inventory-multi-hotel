@@ -1305,8 +1305,9 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                   <input
                     type="number"
                     value={customItem.quantity}
-                    onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
-                    min="1"
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: parseFloat(e.target.value) || 0 }))}
+                    min="0.01"
+                    step="any"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
