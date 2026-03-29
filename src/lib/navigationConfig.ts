@@ -62,13 +62,14 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Compras',
     icon: ShoppingCart,
     module: 'purchases',
-    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin/supplier-contacts', '/admin'],
+    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin/supplier-contacts', '/admin', '/purchases/tech-sheets'],
     items: [
       { module: 'authorizations', label: 'Orçamentos',   href: '/budget-history',            icon: FileText,     color: '#6366f1' },
       { module: 'authorizations', label: 'Autorizações',  href: '/authorizations',            icon: CreditCard,   color: '#14b8a6' },
       { module: 'purchases',      label: 'Compras',       href: '/purchases',                 icon: ShoppingCart,  color: '#f59e0b' },
       { module: '__contacts__',   label: 'Contatos',      href: '/admin/supplier-contacts',   icon: Phone,         color: '#10b981' },
       { module: 'stock',          label: 'Requisições',   href: '/admin',                     icon: ClipboardList, color: '#3b82f6' },
+      { module: 'purchases',      label: 'Fichas Técnicas', href: '/purchases/tech-sheets',   icon: FileText,      color: '#ec4899' },
     ],
   },
   {
