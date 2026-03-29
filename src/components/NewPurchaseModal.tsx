@@ -350,8 +350,9 @@ const NewPurchaseModal: React.FC<NewPurchaseModalProps> = ({
                       <input
                         type="number"
                         value={item.quantity}
-                        onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value))}
-                        min="1"
+                        onChange={(e) => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                        min="0.01"
+                        step="any"
                         className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
                         required
                       />

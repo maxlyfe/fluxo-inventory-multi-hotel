@@ -559,6 +559,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                     <input
                       type="number"
                       placeholder="Qtd"
+                      step="any"
                       className="w-24 px-3 py-2 text-center font-bold bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500"
                       value={counts[product.id] ?? ''}
                       onChange={(e) => handleCountChange(product.id, e.target.value)}

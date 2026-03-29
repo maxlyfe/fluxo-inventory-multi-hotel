@@ -746,10 +746,11 @@ const Governance = () => {
                  <input
                   type="number"
                   value={newProduct.quantity}
-                  onChange={(e) => setNewProduct({ ...newProduct, quantity: parseInt(e.target.value) })}
+                  onChange={(e) => setNewProduct({ ...newProduct, quantity: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   required
                   min="0"
+                  step="any"
                 />
               </div>
               <div>
@@ -759,10 +760,11 @@ const Governance = () => {
                 <input
                   type="number"
                   value={newProduct.min_quantity}
-                  onChange={(e) => setNewProduct({ ...newProduct, min_quantity: parseInt(e.target.value) })}
+                  onChange={(e) => setNewProduct({ ...newProduct, min_quantity: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   required
                   min="0"
+                  step="any"
                 />
               </div>
               <div>
@@ -772,10 +774,11 @@ const Governance = () => {
                 <input
                   type="number"
                   value={newProduct.max_quantity}
-                  onChange={(e) => setNewProduct({ ...newProduct, max_quantity: parseInt(e.target.value) })}
+                  onChange={(e) => setNewProduct({ ...newProduct, max_quantity: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   required
-                  min="1"
+                  min="0.01"
+                  step="any"
                 />
               </div>
               <div className="flex justify-end space-x-2">
@@ -831,10 +834,11 @@ const Governance = () => {
                 <input
                   type="number"
                   value={initialBalance.quantity}
-                  onChange={(e) => setInitialBalance({ ...initialBalance, quantity: parseInt(e.target.value) })}
+                  onChange={(e) => setInitialBalance({ ...initialBalance, quantity: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   required
                   min="0"
+                  step="any"
                 />
               </div>
               <div className="flex justify-end space-x-2">
@@ -907,11 +911,11 @@ const Governance = () => {
                 <input
                   type="number"
                   value={newMovement.quantity_sent}
-                  onChange={(e) => setNewMovement({ ...newMovement, quantity_sent: parseInt(e.target.value) })}
-                  
+                  onChange={(e) => setNewMovement({ ...newMovement, quantity_sent: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   required
-                  min="1"
+                  min="0.01"
+                  step="any"
                 />
               </div>
               <div className="flex justify-end space-x-2">
@@ -966,11 +970,11 @@ const Governance = () => {
                 <input
                   type="number"
                   value={newLoss.quantity}
-                  onChange={(e) => setNewLoss({ ...newLoss, quantity: parseInt(e.target.value) })}
-        
+                  onChange={(e) => setNewLoss({ ...newLoss, quantity: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   required
-                  min="1"
+                  min="0.01"
+                  step="any"
                 />
               </div>
               <div>

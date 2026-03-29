@@ -209,9 +209,10 @@ const AddInventoryItemModal: React.FC<AddInventoryItemModalProps> = ({
               </label>
               <input
                 type="number"
-                min="1"
+                min="0.01"
+                step="any"
                 value={quantity}
-                onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
                 className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
             </div>

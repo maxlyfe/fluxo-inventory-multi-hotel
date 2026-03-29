@@ -843,9 +843,10 @@ const AuthorizationsPage: React.FC = () => {
                                           <input
                                             type="number"
                                             value={edit.quantity}
-                                            onChange={e => { e.stopPropagation(); updateItemEdit(item.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1)); }}
+                                            onChange={e => { e.stopPropagation(); updateItemEdit(item.id, 'quantity', Math.max(0.01, parseFloat(e.target.value) || 0.01)); }}
                                             onClick={e => e.stopPropagation()}
-                                            min="1"
+                                            min="0.01"
+                                            step="any"
                                             className="w-14 text-center px-1 py-1.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
                                           />
                                           <button onClick={e => { e.stopPropagation(); updateItemEdit(item.id, 'quantity', edit.quantity + 1); }}

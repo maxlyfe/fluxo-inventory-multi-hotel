@@ -178,7 +178,8 @@ const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
             type="number"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            min="1"
+            min="0.01"
+            step="any"
             max={selectedProduct?.quantity || undefined}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             disabled={!selectedProduct}
