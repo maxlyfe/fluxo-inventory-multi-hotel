@@ -947,6 +947,15 @@ const SectorStock = () => {
     if (barcodeFilterProductId) return p.id === barcodeFilterProductId;
     return p.name.toLowerCase().includes(searchTerm.toLowerCase());
   });
+
+  // Auto-busca por barcode quando texto não encontra nenhum produto (debounce 600ms)
+  useEffect(() => {
+    if (!searchTerm || searchTerm.trim().length < 4 || barcodeFilterProductId) return;
+    const nameMatches = products.some(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (nameMatches) return;
+    const timer = setTimeout(() => searchByBarcode(searchTerm), 600);
+    return () => clearTimeout(timer);
+  }, [searchTerm, products, barcodeFilterProductId, searchByBarcode]);
   const filteredBalanceData = balanceData.filter(item => item.productName.toLowerCase().includes(searchTerm.toLowerCase()));
   
   if (loading && products.length === 0) return <div className="p-6 text-center">Carregando...</div>;

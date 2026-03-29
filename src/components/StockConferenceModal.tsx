@@ -72,13 +72,39 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
   const filteredProducts = useMemo(() => {
     if (searchTerm) {
-      return products.filter(p => 
+      return products.filter(p =>
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (p.category || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
     return products.filter(p => (p.category || 'Sem Categoria') === currentCategory);
   }, [products, currentCategory, searchTerm]);
+
+  // Auto-busca por barcode quando texto não encontra nenhum produto (debounce 600ms)
+  useEffect(() => {
+    if (!searchTerm || searchTerm.trim().length < 4) return;
+    const nameMatches = products.some(p =>
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.category || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    if (nameMatches) return;
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from('product_barcodes')
+        .select('product_id')
+        .eq('barcode', searchTerm.trim())
+        .maybeSingle();
+      if (data) {
+        const found = products.find(p => p.id === data.product_id);
+        if (found) {
+          setSearchTerm('');
+          setScanProduct(found);
+          setScanQty('1');
+        }
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [searchTerm, products]);
 
   // Busca rascunho e barcodes existentes ao abrir
   useEffect(() => {
