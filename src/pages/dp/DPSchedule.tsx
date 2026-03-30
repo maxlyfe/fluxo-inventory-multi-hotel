@@ -990,30 +990,37 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                             const dayStr = format(day, 'yyyy-MM-dd');
                             const entry  = getEntry(emp.id, dayStr);
                             const text   = formatEntry(entry, hotels, occurrenceTypes);
-                            const t      = entry?.entry_type || 'empty';
+                            // Resolve real type: if entry_type is 'custom' but has occurrence_type_id, use entry_type_key
+                            let t = entry?.entry_type || 'empty';
+                            if (t === 'custom' && entry?.occurrence_type_id) {
+                              const ot = occurrenceTypes.find(o => o.id === entry.occurrence_type_id);
+                              if (ot?.entry_type_key) t = ot.entry_type_key;
+                            }
 
-                            // Cell background colors for image
+                            // Cell background colors for image — cores vibrantes e distintas
                             const bgMap: Record<string, string> = {
-                              folga:      '#dcfce7',
-                              compensa:   '#dbeafe',
-                              meia_dobra: '#fef3c7',
-                              transfer:   '#ede9fe',
-                              curso:      '#f3e8ff',
-                              inss:       '#f3f4f6',
-                              ferias:     '#cffafe',
-                              falta:      '#fee2e2',
-                              custom:     '#e0e7ff',
+                              folga:      '#86efac',
+                              compensa:   '#93c5fd',
+                              meia_dobra: '#fcd34d',
+                              transfer:   '#c4b5fd',
+                              curso:      '#d8b4fe',
+                              inss:       '#d1d5db',
+                              ferias:     '#67e8f9',
+                              falta:      '#fca5a5',
+                              atestado:   '#fdba74',
+                              custom:     '#a5b4fc',
                             };
                             const textMap: Record<string, string> = {
-                              folga:      '#15803d',
-                              compensa:   '#1d4ed8',
-                              meia_dobra: '#92400e',
-                              transfer:   '#6d28d9',
-                              curso:      '#7e22ce',
-                              inss:       '#6b7280',
-                              ferias:     '#0e7490',
-                              falta:      '#dc2626',
-                              custom:     '#4338ca',
+                              folga:      '#14532d',
+                              compensa:   '#1e3a8a',
+                              meia_dobra: '#78350f',
+                              transfer:   '#4c1d95',
+                              curso:      '#581c87',
+                              inss:       '#374151',
+                              ferias:     '#164e63',
+                              falta:      '#991b1b',
+                              atestado:   '#7c2d12',
+                              custom:     '#312e81',
                               empty:      '#d1d5db',
                             };
 

@@ -15,6 +15,7 @@ import {
   Search, CalendarCheck, CalendarRange,
   LayoutGrid, Link2, MessageSquare,
   Settings as SettingsIcon, Package,
+  Home, Calendar, Shirt, Sparkles, Clock,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -57,6 +58,20 @@ export interface NavGroup {
 // Configuração central
 // ---------------------------------------------------------------------------
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    key: 'portal',
+    label: 'Portal',
+    icon: Home,
+    module: 'employee_portal',
+    activePrefixes: ['/portal'],
+    items: [
+      { module: 'employee_portal', label: 'Meu Portal',    href: '/portal',              icon: Home,     color: '#6366f1' },
+      { module: 'employee_portal', label: 'Minha Escala',   href: '/portal/my-schedule',  icon: Clock,    color: '#8b5cf6' },
+      { module: 'employee_portal', label: 'Calendário',     href: '/portal/events',       icon: Calendar, color: '#3b82f6' },
+      { module: 'employee_portal', label: 'Meus Docs',      href: '/portal/my-documents', icon: Shirt,    color: '#10b981' },
+      { module: 'employee_portal', label: 'Mensagens',      href: '/portal/messages',     icon: Sparkles, color: '#f59e0b' },
+    ],
+  },
   {
     key: 'compras',
     label: 'Compras',

@@ -33,6 +33,13 @@ import PublicQuotePage       from './pages/PublicQuotePage';
 import BudgetAnalysis        from './pages/BudgetAnalysis';
 import MultiHotelPurchase    from './pages/MultiHotelPurchase';
 
+// ── Pages — Portal do Colaborador ─────────────────────────────────────────────
+import EmployeePortal        from './pages/portal/EmployeePortal';
+import MySchedule            from './pages/portal/MySchedule';
+import MyDocuments           from './pages/portal/MyDocuments';
+import EventsCalendar        from './pages/portal/EventsCalendar';
+import MotivationalMessages  from './pages/portal/MotivationalMessages';
+
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
 import DPEmployeeDetail        from './pages/dp/DPEmployeeDetail';
@@ -166,6 +173,33 @@ function App() {
                     {/* Dashboard */}
                     <Route path="/" element={<Home />} />
                     <Route path="/sector/:id" element={<SectorRequests />} />
+
+                    {/* ── Portal do Colaborador ──────────────────────────────── */}
+                    <Route path="/portal" element={
+                      <PrivateRoute module="employee_portal">
+                        <EmployeePortal />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/portal/my-schedule" element={
+                      <PrivateRoute module="employee_portal">
+                        <MySchedule />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/portal/my-documents" element={
+                      <PrivateRoute module="employee_portal">
+                        <MyDocuments />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/portal/events" element={
+                      <PrivateRoute module="employee_portal">
+                        <EventsCalendar />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/portal/messages" element={
+                      <PrivateRoute module="employee_portal">
+                        <MotivationalMessages />
+                      </PrivateRoute>
+                    } />
 
                     {/* Admin / gestão interna */}
                     <Route path="/admin" element={
