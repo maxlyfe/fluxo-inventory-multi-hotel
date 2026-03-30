@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useHotel } from '../../context/HotelContext';
 import { usePermissions } from '../../hooks/usePermissions';
-import { format, startOfWeek, endOfWeek, addDays, isToday, isSameMonth, parseISO } from 'date-fns';
+import { format, startOfWeek, endOfWeek, addDays, isToday, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   Calendar, Clock, FileText, Gift, Heart, MessageCircle,
@@ -140,10 +140,10 @@ function MyScheduleWidget({ entries, loading }: { entries: ScheduleEntry[]; load
               }`}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <span className={`text-xs font-medium w-8 ${isCurrentDay ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                  {format(day, 'EEE', { locale: ptBR }).toUpperCase()}
+                <span className={`text-xs font-medium w-10 flex-shrink-0 ${isCurrentDay ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                  {format(day, 'EEEEEE', { locale: ptBR }).toUpperCase()}
                 </span>
-                <span className="text-gray-600 dark:text-gray-300 text-xs">
+                <span className="text-gray-600 dark:text-gray-300 text-xs flex-shrink-0">
                   {format(day, 'dd/MM')}
                 </span>
               </div>
@@ -175,8 +175,9 @@ function BirthdaysWidget({ employees, loading }: { employees: Employee[]; loadin
   if (loading) return <WidgetCard title="Aniversariantes" icon={Gift} color="#ec4899"><LoadingPlaceholder /></WidgetCard>;
 
   const now = new Date();
+  const currentMonth = now.getMonth(); // 0-11
   const monthBirthdays = employees
-    .filter(e => e.birth_date && isSameMonth(parseISO(e.birth_date), now))
+    .filter(e => e.birth_date && parseISO(e.birth_date).getMonth() === currentMonth)
     .sort((a, b) => {
       const dayA = parseISO(a.birth_date!).getDate();
       const dayB = parseISO(b.birth_date!).getDate();
