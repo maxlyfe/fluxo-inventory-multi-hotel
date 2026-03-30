@@ -40,6 +40,13 @@ import MyDocuments           from './pages/portal/MyDocuments';
 import EventsCalendar        from './pages/portal/EventsCalendar';
 import MotivationalMessages  from './pages/portal/MotivationalMessages';
 
+// ── Pages — RH (Recrutamento & Seleção) ─────────────────────────────────────
+import JobOpenings           from './pages/rh/JobOpenings';
+import CandidatesList        from './pages/rh/CandidatesList';
+import CandidateDetail       from './pages/rh/CandidateDetail';
+import CpfRegistry           from './pages/rh/CpfRegistry';
+import PublicJobApplication  from './pages/rh/PublicJobApplication';
+
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
 import DPEmployeeDetail        from './pages/dp/DPEmployeeDetail';
@@ -158,6 +165,9 @@ function App() {
                   {/* ── Escala pública (link para líder de setor) ────────── */}
                   <Route path="/schedule/edit/:token" element={<PublicScheduleEdit />} />
 
+                  {/* ── RH — página pública de candidatura ──────────────── */}
+                  <Route path="/jobs/:token" element={<PublicJobApplication />} />
+
                   {/* ── Manutenção — rotas públicas (anônimo / QR) ─────────── */}
                   <Route path="/maintenance/ticket/new"      element={<MaintenanceNewTicket />} />
                   <Route path="/maintenance/equipment/:qrId" element={<MaintenanceEquipmentDetail />} />
@@ -198,6 +208,28 @@ function App() {
                     <Route path="/portal/messages" element={
                       <PrivateRoute module="employee_portal">
                         <MotivationalMessages />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── RH — Recrutamento & Seleção ─────────────────── */}
+                    <Route path="/rh/jobs" element={
+                      <PrivateRoute module="recruitment">
+                        <JobOpenings />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/rh/candidates" element={
+                      <PrivateRoute module="recruitment">
+                        <CandidatesList />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/rh/candidate/:id" element={
+                      <PrivateRoute module="recruitment">
+                        <CandidateDetail />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/rh/cpf-registry" element={
+                      <PrivateRoute module="cpf_registry">
+                        <CpfRegistry />
                       </PrivateRoute>
                     } />
 

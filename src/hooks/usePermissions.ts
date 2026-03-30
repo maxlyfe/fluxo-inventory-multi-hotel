@@ -33,6 +33,8 @@ export const MODULES: Module[] = [
   { key: 'reservations',         label: 'Reservas',             description: 'Busca de reservas e disponibilidade',      group: 'Área Administrativa', icon: 'CalendarCheck' },
   { key: 'reception',            label: 'Recepção',             description: 'Rack de UHs, check-in/out, in-house',     group: 'Área Administrativa', icon: 'Hotel'         },
   { key: 'employee_portal',      label: 'Portal Colaborador',    description: 'Portal, escala pessoal, eventos, docs',   group: 'Área Administrativa', icon: 'Home'          },
+  { key: 'recruitment',          label: 'Recrutamento',          description: 'Vagas, candidatos, pipeline de seleção',  group: 'Área Administrativa', icon: 'UserPlus'      },
+  { key: 'cpf_registry',         label: 'Registro de CPF',       description: 'Consulta e gestão de CPFs bloqueados',    group: 'Área Administrativa', icon: 'Shield'        },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },
