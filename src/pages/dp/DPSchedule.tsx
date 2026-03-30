@@ -820,12 +820,13 @@ interface ExportModalProps {
   weekDays: Date[];
   entries: ScheduleEntry[];
   hotels: Hotel[];
+  occurrenceTypes: OccurrenceType[];
   hotelName: string;
   weekLabel: string;
   onClose: () => void;
 }
 
-function ExportModal({ sectors, employees, weekDays, entries, hotels, hotelName, weekLabel, onClose }: ExportModalProps) {
+function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrenceTypes, hotelName, weekLabel, onClose }: ExportModalProps) {
   const [selectedSectors, setSelectedSectors] = useState<string[]>(sectors);
   const [generating, setGenerating]           = useState(false);
   const [copying, setCopying]                 = useState(false);
@@ -1325,7 +1326,7 @@ export default function DPSchedule() {
         <ExportModal
           sectors={activeSectors} employees={employees}
           weekDays={weekDays} entries={entries}
-          hotels={hotels} hotelName={hotelName} weekLabel={weekLabel}
+          hotels={hotels} occurrenceTypes={occurrenceTypes} hotelName={hotelName} weekLabel={weekLabel}
           onClose={() => setShowExport(false)}
         />
       )}
