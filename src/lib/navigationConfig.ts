@@ -83,6 +83,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'recruitment',  label: 'Vagas',       href: '/rh/jobs',       icon: UserPlus,   color: '#8b5cf6' },
       { module: 'recruitment',  label: 'Candidatos',  href: '/rh/candidates', icon: UsersRound, color: '#6366f1' },
       { module: 'cpf_registry', label: 'Registro CPF', href: '/rh/cpf-registry', icon: Shield, color: '#ef4444' },
+      { module: 'hr_analytics', label: 'Analytics',   href: '/rh/analytics',    icon: BarChart3, color: '#3b82f6' },
     ],
   },
   {

@@ -46,6 +46,7 @@ import CandidatesList        from './pages/rh/CandidatesList';
 import CandidateDetail       from './pages/rh/CandidateDetail';
 import CpfRegistry           from './pages/rh/CpfRegistry';
 import PublicJobApplication  from './pages/rh/PublicJobApplication';
+import HRAnalytics           from './pages/rh/HRAnalytics';
 
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
@@ -233,6 +234,11 @@ function App() {
                     <Route path="/rh/cpf-registry" element={
                       <PrivateRoute module="cpf_registry">
                         <CpfRegistry />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/rh/analytics" element={
+                      <PrivateRoute module="hr_analytics">
+                        <HRAnalytics />
                       </PrivateRoute>
                     } />
 
