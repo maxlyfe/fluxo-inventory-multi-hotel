@@ -47,6 +47,7 @@ import CandidateDetail       from './pages/rh/CandidateDetail';
 import CpfRegistry           from './pages/rh/CpfRegistry';
 import PublicJobApplication  from './pages/rh/PublicJobApplication';
 import HRAnalytics           from './pages/rh/HRAnalytics';
+import DocumentsLicenses     from './pages/management/DocumentsLicenses';
 
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
@@ -252,6 +253,11 @@ function App() {
                     <Route path="/management" element={
                       <PrivateRoute module="management">
                         <ManagementPanel />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/management/documents" element={
+                      <PrivateRoute module="hotel_documents">
+                        <DocumentsLicenses />
                       </PrivateRoute>
                     } />
 
