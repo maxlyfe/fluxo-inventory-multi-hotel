@@ -9,7 +9,7 @@ import {
   ArrowLeft, Loader2, AlertTriangle, User, Phone, Mail, MapPin,
   Calendar, Briefcase, Building2, FileText, Plus, Clock, CheckCircle,
   AlertCircle, Shirt, Package, Edit2, X, Printer, Hash,
-  Link2, UserCheck, UserX, Search, ShieldOff,
+  Link2, UserCheck, UserX, Search, ShieldOff, GraduationCap, Stethoscope,
 } from 'lucide-react';
 import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -228,7 +228,9 @@ export default function DPEmployeeDetail() {
   const [employee,   setEmployee]   = useState<Employee | null>(null);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading,    setLoading]    = useState(true);
-  const [activeTab,  setActiveTab]  = useState<'info' | 'uniforms' | 'history'>('info');
+  const [activeTab,  setActiveTab]  = useState<'info' | 'uniforms' | 'history' | 'trainings' | 'exams'>('info');
+  const [trainings, setTrainings] = useState<any[]>([]);
+  const [medExams, setMedExams]   = useState<any[]>([]);
 
   // Vinculação de usuário do sistema
   const [linkedUser,        setLinkedUser]        = useState<{ id: string; email: string; full_name: string | null } | null>(null);
@@ -283,6 +285,14 @@ export default function DPEmployeeDetail() {
         }
       }
       setDeliveries((delRes.data || []) as Delivery[]);
+
+      // Load trainings and exams
+      const [trRes, exRes] = await Promise.all([
+        supabase.from('nr1_training_records').select('*').eq('employee_id', id).order('training_date', { ascending: false }),
+        supabase.from('medical_exams').select('*').eq('employee_id', id).order('exam_date', { ascending: false }),
+      ]);
+      setTrainings(trRes.data || []);
+      setMedExams(exRes.data || []);
     } catch (err) {
       console.error('Erro ao carregar colaborador:', err);
     } finally {
@@ -1002,10 +1012,12 @@ export default function DPEmployeeDetail() {
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-2xl mb-5">
         {([
-          { id: 'info',     label: 'Informações',          icon: User    },
-          { id: 'uniforms', label: 'Uniformes',            icon: Shirt   },
-          { id: 'history',  label: `Histórico (${deliveries.length})`, icon: Package },
-        ] as { id: 'info' | 'uniforms' | 'history'; label: string; icon: any }[]).map(tab => {
+          { id: 'info',      label: 'Informações',          icon: User    },
+          { id: 'uniforms',  label: 'Uniformes',            icon: Shirt   },
+          { id: 'history',   label: `Entregas (${deliveries.length})`, icon: Package },
+          { id: 'trainings', label: `Treinamentos (${trainings.length})`, icon: GraduationCap },
+          { id: 'exams',     label: `Exames (${medExams.length})`, icon: Stethoscope },
+        ] as { id: 'info' | 'uniforms' | 'history' | 'trainings' | 'exams'; label: string; icon: any }[]).map(tab => {
           const Icon = tab.icon;
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -1025,6 +1037,96 @@ export default function DPEmployeeDetail() {
       {activeTab === 'info'     && <TabInfo />}
       {activeTab === 'uniforms' && <TabUniforms />}
       {activeTab === 'history'  && <TabHistory />}
+      {activeTab === 'trainings' && (
+        <div className="space-y-3">
+          {trainings.length === 0 ? (
+            <p className="text-center text-gray-400 dark:text-gray-500 py-8">Nenhum treinamento registrado</p>
+          ) : trainings.map((t: any) => {
+            const days = t.valid_until ? differenceInDays(parseLocalDate(t.valid_until), new Date()) : null;
+            const isExpired = days !== null && days < 0;
+            const isExpiring = days !== null && days >= 0 && days <= 30;
+            const TRAINING_TYPES: Record<string, string> = {
+              integracao: 'Integração', reciclagem: 'Reciclagem', especifico: 'Específico',
+              nr: 'NR Obrigatório', brigada: 'Brigada', cipa: 'CIPA',
+            };
+            return (
+              <div key={t.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-800 dark:text-white">{t.topic}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {TRAINING_TYPES[t.training_type] || t.training_type} · {format(parseLocalDate(t.training_date), 'dd/MM/yyyy')}
+                      {t.hours && ` · ${t.hours}h`}
+                      {t.trainer && ` · ${t.trainer}`}
+                    </p>
+                  </div>
+                  <div>
+                    {t.valid_until ? (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300' :
+                        isExpiring ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300' :
+                        'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-300'
+                      }`}>
+                        {isExpired ? 'Vencido' : isExpiring ? `${days}d` : `Até ${format(parseLocalDate(t.valid_until), 'dd/MM/yy')}`}
+                      </span>
+                    ) : <span className="text-xs text-gray-400">Sem validade</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {activeTab === 'exams' && (
+        <div className="space-y-3">
+          {medExams.length === 0 ? (
+            <p className="text-center text-gray-400 dark:text-gray-500 py-8">Nenhum exame registrado</p>
+          ) : medExams.map((e: any) => {
+            const days = e.valid_until ? differenceInDays(parseLocalDate(e.valid_until), new Date()) : null;
+            const isExpired = days !== null && days < 0;
+            const isExpiring = days !== null && days >= 0 && days <= 30;
+            const EXAM_TYPES: Record<string, string> = {
+              admissional: 'Admissional', periodico: 'Periódico', retorno: 'Retorno',
+              mudanca_funcao: 'Mudança Função', demissional: 'Demissional',
+            };
+            const RESULT_LABELS: Record<string, { label: string; color: string }> = {
+              apto: { label: 'Apto', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+              inapto: { label: 'Inapto', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+              apto_restricao: { label: 'Apto c/ Restrição', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+            };
+            const rl = e.result ? RESULT_LABELS[e.result] : null;
+            return (
+              <div key={e.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-800 dark:text-white">
+                      {EXAM_TYPES[e.exam_type] || e.exam_type}
+                      {rl && <span className={`ml-2 text-xs px-2 py-0.5 rounded font-medium ${rl.color}`}>{rl.label}</span>}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {format(parseLocalDate(e.exam_date), 'dd/MM/yyyy')}
+                      {e.clinic && ` · ${e.clinic}`}
+                      {e.doctor_name && ` · Dr. ${e.doctor_name}`}
+                    </p>
+                    {e.restrictions && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Restrições: {e.restrictions}</p>}
+                  </div>
+                  <div>
+                    {e.valid_until ? (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300' :
+                        isExpiring ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300' :
+                        'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-300'
+                      }`}>
+                        {isExpired ? 'Vencido' : isExpiring ? `${days}d` : `Até ${format(parseLocalDate(e.valid_until), 'dd/MM/yy')}`}
+                      </span>
+                    ) : <span className="text-xs text-gray-400">Sem validade</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* FAB */}
       <div className="fixed bottom-6 right-6 z-40">

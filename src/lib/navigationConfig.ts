@@ -9,12 +9,13 @@ import {
   Boxes, ArrowLeftRight,
   BarChart2, BarChart3,
   DollarSign, CreditCard,
-  UsersRound, UserCheck, UserCog,
+  UsersRound, UserCheck, UserCog, UserPlus,
   HardHat, Wrench,
   BedDouble, LogIn, LogOut, Users,
   Search, CalendarCheck, CalendarRange,
   LayoutGrid, Link2, MessageSquare,
-  Settings as SettingsIcon, Package,
+  Settings as SettingsIcon, Package, Shield, ShieldAlert,
+  GraduationCap, Stethoscope,
   Home, Calendar, Shirt, Sparkles, Clock,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -73,6 +74,18 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'rh',
+    label: 'RH',
+    icon: UserPlus,
+    module: 'recruitment',
+    activePrefixes: ['/rh'],
+    items: [
+      { module: 'recruitment',  label: 'Vagas',       href: '/rh/jobs',       icon: UserPlus,   color: '#8b5cf6' },
+      { module: 'recruitment',  label: 'Candidatos',  href: '/rh/candidates', icon: UsersRound, color: '#6366f1' },
+      { module: 'cpf_registry', label: 'Registro CPF', href: '/rh/cpf-registry', icon: Shield, color: '#ef4444' },
+    ],
+  },
+  {
     key: 'compras',
     label: 'Compras',
     icon: ShoppingCart,
@@ -128,6 +141,9 @@ export const NAV_GROUPS: NavGroup[] = [
     activePrefixes: ['/personnel-department', '/dp/'],
     items: [
       { module: 'personnel_department', label: 'Depart. Pessoal', href: '/personnel-department', icon: UsersRound, color: '#f43f5e' },
+      { module: 'nr1_compliance',       label: 'NR-1',            href: '/dp/nr1',              icon: ShieldAlert,   color: '#f97316' },
+      { module: 'nr1_compliance',       label: 'Treinamentos',    href: '/dp/trainings',        icon: GraduationCap, color: '#3b82f6' },
+      { module: 'nr1_compliance',       label: 'Exames Médicos',  href: '/dp/medical-exams',    icon: Stethoscope,   color: '#10b981' },
     ],
   },
   {
