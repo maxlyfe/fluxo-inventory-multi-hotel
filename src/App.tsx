@@ -51,6 +51,9 @@ import PublicJobApplication  from './pages/rh/PublicJobApplication';
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
 import DPEmployeeDetail        from './pages/dp/DPEmployeeDetail';
 import PublicScheduleEdit      from './pages/dp/PublicScheduleEdit';
+import NR1Dashboard            from './pages/dp/NR1Dashboard';
+import TrainingRecords         from './pages/dp/TrainingRecords';
+import MedicalExams            from './pages/dp/MedicalExams';
 
 // ── Pages — Manutenção ───────────────────────────────────────────────────────
 import MaintenanceDashboard      from './pages/MaintenanceDashboard';
@@ -410,6 +413,21 @@ function App() {
                     <Route path="/dp/employee/:id" element={
                       <PrivateRoute module="personnel_department">
                         <DPEmployeeDetail />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/dp/nr1" element={
+                      <PrivateRoute module="nr1_compliance">
+                        <NR1Dashboard />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/dp/trainings" element={
+                      <PrivateRoute module="nr1_compliance">
+                        <TrainingRecords />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/dp/medical-exams" element={
+                      <PrivateRoute module="nr1_compliance">
+                        <MedicalExams />
                       </PrivateRoute>
                     } />
 

@@ -35,6 +35,7 @@ export const MODULES: Module[] = [
   { key: 'employee_portal',      label: 'Portal Colaborador',    description: 'Portal, escala pessoal, eventos, docs',   group: 'Área Administrativa', icon: 'Home'          },
   { key: 'recruitment',          label: 'Recrutamento',          description: 'Vagas, candidatos, pipeline de seleção',  group: 'Área Administrativa', icon: 'UserPlus'      },
   { key: 'cpf_registry',         label: 'Registro de CPF',       description: 'Consulta e gestão de CPFs bloqueados',    group: 'Área Administrativa', icon: 'Shield'        },
+  { key: 'nr1_compliance',       label: 'NR-1 Compliance',       description: 'Riscos, treinamentos e exames médicos',   group: 'Área Administrativa', icon: 'ShieldAlert'   },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },

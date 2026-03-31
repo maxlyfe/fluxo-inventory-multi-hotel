@@ -14,7 +14,8 @@ import {
   BedDouble, LogIn, LogOut, Users,
   Search, CalendarCheck, CalendarRange,
   LayoutGrid, Link2, MessageSquare,
-  Settings as SettingsIcon, Package, Shield,
+  Settings as SettingsIcon, Package, Shield, ShieldAlert,
+  GraduationCap, Stethoscope,
   Home, Calendar, Shirt, Sparkles, Clock,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -140,6 +141,9 @@ export const NAV_GROUPS: NavGroup[] = [
     activePrefixes: ['/personnel-department', '/dp/'],
     items: [
       { module: 'personnel_department', label: 'Depart. Pessoal', href: '/personnel-department', icon: UsersRound, color: '#f43f5e' },
+      { module: 'nr1_compliance',       label: 'NR-1',            href: '/dp/nr1',              icon: ShieldAlert,   color: '#f97316' },
+      { module: 'nr1_compliance',       label: 'Treinamentos',    href: '/dp/trainings',        icon: GraduationCap, color: '#3b82f6' },
+      { module: 'nr1_compliance',       label: 'Exames Médicos',  href: '/dp/medical-exams',    icon: Stethoscope,   color: '#10b981' },
     ],
   },
   {
