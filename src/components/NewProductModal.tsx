@@ -366,19 +366,19 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qtd. Atual</label>
-                    <input name="quantity" type="number" value={formData.quantity} onChange={handleInputChange}
+                    <input name="quantity" type="number" step="any" value={formData.quantity} onChange={handleInputChange}
                       className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       required min="0" disabled={createAsHidden} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qtd. Mínima</label>
-                    <input name="min_quantity" type="number" value={formData.min_quantity} onChange={handleInputChange}
+                    <input name="min_quantity" type="number" step="any" value={formData.min_quantity} onChange={handleInputChange}
                       className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       required min="0" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qtd. Máxima</label>
-                    <input name="max_quantity" type="number" value={formData.max_quantity} onChange={handleInputChange}
+                    <input name="max_quantity" type="number" step="any" value={formData.max_quantity} onChange={handleInputChange}
                       className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       required min="1" />
                   </div>

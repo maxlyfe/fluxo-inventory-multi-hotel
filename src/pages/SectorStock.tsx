@@ -1149,6 +1149,7 @@ const SectorStock = () => {
                         <td className="px-4 py-3">
                           <input
                             type="number"
+                            step="any"
                             value={item.currentCount ?? ''}
                             onChange={(e) => handleBalanceInputChange(item.productId, e.target.value)}
                             className="w-24 p-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-gray-200"
@@ -1544,6 +1545,7 @@ const SectorStock = () => {
               <input
                 id="editQuantity"
                 type="number"
+                step="any"
                 value={newQuantity}
                 onChange={(e) => setNewQuantity(e.target.value)}
                 className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
