@@ -607,19 +607,19 @@ const NewPurchase = () => {
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <input 
-                            type="number" 
+                            type="text"
+                            inputMode="decimal"
                             value={item.quantity}
                             onChange={(e) => updateItem(index, 'quantity', e.target.value)}
-                            min="0.01" step="any"
                             className="w-24 p-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500"
                           />
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <input 
-                            type="number" 
+                            type="text"
+                            inputMode="decimal"
                             value={item.unit_price}
                             onChange={(e) => updateItem(index, 'unit_price', e.target.value)}
-                            min="0.00" step="any"
                             className="w-28 p-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500"
                           />
                         </td>
