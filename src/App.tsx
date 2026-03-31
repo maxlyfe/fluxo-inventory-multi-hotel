@@ -49,6 +49,11 @@ import PublicJobApplication  from './pages/rh/PublicJobApplication';
 import HRAnalytics           from './pages/rh/HRAnalytics';
 import DocumentsLicenses     from './pages/management/DocumentsLicenses';
 
+// ── Pages — Comercial ────────────────────────────────────────────────────────
+import CorporateClients      from './pages/commercial/CorporateClients';
+import GroupBookings         from './pages/commercial/GroupBookings';
+import RevenueTargets        from './pages/commercial/RevenueTargets';
+
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
 import DPEmployeeDetail        from './pages/dp/DPEmployeeDetail';
@@ -318,6 +323,23 @@ function App() {
                     <Route path="/reports" element={
                       <PrivateRoute module="reports">
                         <ReportsPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Comercial ─────────────────────────────────────── */}
+                    <Route path="/commercial/clients" element={
+                      <PrivateRoute module="commercial">
+                        <CorporateClients />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/commercial/groups" element={
+                      <PrivateRoute module="commercial">
+                        <GroupBookings />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/commercial/targets" element={
+                      <PrivateRoute module="commercial">
+                        <RevenueTargets />
                       </PrivateRoute>
                     } />
 

@@ -15,7 +15,7 @@ import {
   Search, CalendarCheck, CalendarRange,
   LayoutGrid, Link2, MessageSquare,
   Settings as SettingsIcon, Package, Shield, ShieldAlert,
-  GraduationCap, Stethoscope,
+  GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -123,6 +123,18 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'management',      label: 'Gerência',    href: '/management',           icon: BarChart3, color: '#22c55e' },
       { module: 'reports',         label: 'Relatórios',  href: '/reports',              icon: FileText,  color: '#0ea5e9' },
       { module: 'hotel_documents', label: 'Documentos',  href: '/management/documents', icon: Shield,    color: '#6366f1' },
+    ],
+  },
+  {
+    key: 'comercial',
+    label: 'Comercial',
+    icon: Briefcase,
+    module: 'commercial',
+    activePrefixes: ['/commercial'],
+    items: [
+      { module: 'commercial', label: 'Clientes Corp.',  href: '/commercial/clients', icon: Briefcase, color: '#8b5cf6' },
+      { module: 'commercial', label: 'Grupos',          href: '/commercial/groups',  icon: Users,     color: '#3b82f6' },
+      { module: 'commercial', label: 'Metas',           href: '/commercial/targets', icon: Target,    color: '#10b981' },
     ],
   },
   {

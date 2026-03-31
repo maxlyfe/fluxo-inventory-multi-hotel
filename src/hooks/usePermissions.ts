@@ -38,6 +38,7 @@ export const MODULES: Module[] = [
   { key: 'nr1_compliance',       label: 'NR-1 Compliance',       description: 'Riscos, treinamentos e exames médicos',   group: 'Área Administrativa', icon: 'ShieldAlert'   },
   { key: 'hr_analytics',         label: 'HR Analytics',          description: 'Dashboards de RH: turnover, headcount',   group: 'Área Administrativa', icon: 'BarChart3'     },
   { key: 'hotel_documents',      label: 'Documentos e Licenças', description: 'Gestão de alvarás, licenças e documentos', group: 'Área Administrativa', icon: 'FileText'      },
+  { key: 'commercial',           label: 'Comercial',            description: 'Clientes corporativos, grupos e metas',   group: 'Área Administrativa', icon: 'Briefcase'     },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },
