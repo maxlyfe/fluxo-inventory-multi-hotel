@@ -72,6 +72,7 @@ interface BalanceItem {
   entriesFromTransfers: number;
   entryDetails: SectorMovementDetail[];
   currentCount?: number;
+  currentCountDisplay?: string;
   displayConsumption?: number;
   discrepancy?: number;
 }
@@ -493,7 +494,7 @@ const SectorStock = () => {
             displayConsumption = Math.max(0, rawConsumption);
             discrepancy = rawConsumption < 0 ? Math.abs(rawConsumption) : 0;
           }
-          return { ...item, currentCount, displayConsumption, discrepancy };
+          return { ...item, currentCount, currentCountDisplay: value, displayConsumption, discrepancy };
         }
         return item;
       })
@@ -1148,8 +1149,9 @@ const SectorStock = () => {
                         </td>
                         <td className="px-4 py-3">
                           <input
-                            type="number"
-                            value={item.currentCount ?? ''}
+                            type="text"
+                            inputMode="decimal"
+                            value={item.currentCountDisplay ?? (item.currentCount !== undefined ? String(item.currentCount) : '')}
                             onChange={(e) => handleBalanceInputChange(item.productId, e.target.value)}
                             className="w-24 p-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-gray-200"
                             placeholder="Qtd"
@@ -1387,10 +1389,8 @@ const SectorStock = () => {
                       </div>
                       <div className="flex flex-col items-end gap-0.5">
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          max={item.availableQty}
+                          type="text"
+                          inputMode="decimal"
                           value={item.transferQty}
                           onChange={e => handleTransferQtyChange(item.productId, e.target.value)}
                           placeholder="0"
@@ -1543,7 +1543,8 @@ const SectorStock = () => {
               </label>
               <input
                 id="editQuantity"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={newQuantity}
                 onChange={(e) => setNewQuantity(e.target.value)}
                 className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
@@ -1629,9 +1630,9 @@ const SectorStock = () => {
                             </div>
                             <div className="col-span-4">
                                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Rendimento</label>
-                                <input 
-                                    type="number" 
-                                    step="0.01" 
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
                                     value={item.yieldQuantity}
                                     onChange={(e) => handlePortioningItemChange(item.id, 'yieldQuantity', e.target.value)}
                                     placeholder="Qtd."
@@ -1655,7 +1656,7 @@ const SectorStock = () => {
                     
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Perda Total (Opcional)</label>
-                        <input name="loss_amount" value={lossAmount} onChange={(e) => setLossAmount(e.target.value)} type="number" step="0.01" className="w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500" placeholder="Ex: 0.4"/>
+                        <input name="loss_amount" value={lossAmount} onChange={(e) => setLossAmount(e.target.value)} type="text" inputMode="decimal" className="w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500" placeholder="Ex: 0,4"/>
                         <p className="text-xs text-gray-500 mt-1">Informe a perda na unidade do item original (ex: 0.4 kg de peixe).</p>
                     </div>
 

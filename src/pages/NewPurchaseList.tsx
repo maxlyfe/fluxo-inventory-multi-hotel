@@ -27,17 +27,22 @@ interface Product {
 interface EditableProduct extends Product {
   editedName?: string;
   editedPrice?: number;
-  editedQuantity?: number; 
+  editedQuantity?: number;
   editedLastQuantity?: number;
   editedLastPrice?: number;
   editedSupplier?: string;
   editedWeight?: number;
   editedUnit?: string;
   editedLastPurchaseDate?: string;
-  editedStock?: string | number; 
+  editedStock?: string | number;
   isCustom?:            boolean;
   isSubstitute?:        boolean;   // veio como substituto do BudgetAnalysis
   originalProductName?: string;    // nome do produto original no inventário
+  // display strings for decimal input
+  editedPrice_display?: string;
+  editedQuantity_display?: string;
+  editedLastQuantity_display?: string;
+  editedLastPrice_display?: string;
 }
 
 interface StockSector {
@@ -79,15 +84,15 @@ const NewPurchaseList = () => {
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
   const [customItem, setCustomItem] = useState<{
     name: string;
-    quantity: number;
+    quantity: string;
     unit: string;
-    price: number;
+    price: string;
     supplier: string;
   }>({
     name: '',
-    quantity: 1,
+    quantity: '1',
     unit: 'und',
-    price: 0,
+    price: '0',
     supplier: '',
   });
   const [searchTerm, setSearchTerm] = useState("");
@@ -201,13 +206,14 @@ const NewPurchaseList = () => {
   }, [selectedHotel, addNotification, location.state?.selectedProductDetails]);
 
   const handleValueChange = (productId: string, field: keyof EditableProduct, value: string) => {
-    const numericValue = parseFloat(value);
+    const numericValue = parseFloat(value.replace(',', '.'));
     const finalValue = value === '' ? undefined : (isNaN(numericValue) ? undefined : numericValue);
+    const displayField = `${field}_display` as keyof EditableProduct;
 
-    setProducts(prevProducts => 
-      prevProducts.map(product => 
-        product.id === productId 
-          ? { ...product, [field]: finalValue }
+    setProducts(prevProducts =>
+      prevProducts.map(product =>
+        product.id === productId
+          ? { ...product, [field]: finalValue, [displayField]: value }
           : product
       )
     );
@@ -616,8 +622,8 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
       max_quantity: 0,
       category: 'Personalizado',
       editedName: customItem.name,
-      editedPrice: customItem.price,
-      editedQuantity: customItem.quantity,
+      editedPrice: parseFloat(customItem.price.replace(',', '.')) || 0,
+      editedQuantity: parseFloat(customItem.quantity.replace(',', '.')) || 0,
       editedUnit: customItem.unit,
       editedSupplier: customItem.supplier,
       isCustom: true,
@@ -626,9 +632,9 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
     setProducts(prev => [...prev, newCustomProduct]);
     setCustomItem({
       name: '',
-      quantity: 1,
+      quantity: '1',
       unit: 'und',
-      price: 0,
+      price: '0',
       supplier: '',
     });
     setShowCustomItemModal(false);
@@ -804,10 +810,10 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                         <div className="px-3 py-2.5 border-r border-gray-200 dark:border-gray-700">
                           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Qtd.</p>
                           <input
-                            type="number"
-                            value={product.editedQuantity ?? ''}
+                            type="text"
+                            inputMode="decimal"
+                            value={product.editedQuantity_display ?? (product.editedQuantity !== undefined ? String(product.editedQuantity) : '')}
                             onChange={(e) => handleValueChange(product.id, 'editedQuantity', e.target.value)}
-                            min="0"
                             className="w-full bg-transparent text-sm font-bold text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
                           />
                         </div>
@@ -840,11 +846,10 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           <div className="flex items-center gap-1">
                             <span className="text-[11px] text-gray-400">R$</span>
                             <input
-                              type="number"
-                              value={product.editedPrice ?? ''}
+                              type="text"
+                              inputMode="decimal"
+                              value={product.editedPrice_display ?? (product.editedPrice !== undefined ? String(product.editedPrice) : '')}
                               onChange={(e) => handleValueChange(product.id, 'editedPrice', e.target.value)}
-                              step="0.01"
-                              min="0"
                               className="w-full bg-transparent text-sm font-semibold text-gray-900 dark:text-white border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none focus:border-blue-500"
                             />
                           </div>
@@ -869,8 +874,9 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           <div className="px-3 py-2.5 border-r border-b border-gray-200 dark:border-gray-700">
                             <p className="text-[11px] font-bold text-gray-400 uppercase mb-1">Últ. Qtd.</p>
                             <input
-                              type="number"
-                              value={product.editedLastQuantity ?? ''}
+                              type="text"
+                              inputMode="decimal"
+                              value={product.editedLastQuantity_display ?? (product.editedLastQuantity !== undefined ? String(product.editedLastQuantity) : '')}
                               onChange={(e) => handleValueChange(product.id, 'editedLastQuantity', e.target.value)}
                               className="w-full bg-transparent text-sm text-gray-700 dark:text-gray-300 border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none"
                               disabled={product.isCustom}
@@ -881,10 +887,10 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                             <div className="flex items-center gap-1">
                               <span className="text-[11px] text-gray-400">R$</span>
                               <input
-                                type="number"
-                                value={product.editedLastPrice ?? ''}
+                                type="text"
+                                inputMode="decimal"
+                                value={product.editedLastPrice_display ?? (product.editedLastPrice !== undefined ? String(product.editedLastPrice) : '')}
                                 onChange={(e) => handleValueChange(product.id, 'editedLastPrice', e.target.value)}
-                                step="0.01"
                                 className="w-full bg-transparent text-sm text-gray-700 dark:text-gray-300 border-b border-dashed border-gray-300 dark:border-gray-500 focus:outline-none"
                                 disabled={product.isCustom}
                               />
@@ -1035,11 +1041,11 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           }
                         </td>
                         <td className="px-4 py-3">
-                          <input 
-                            type="number" 
-                            value={product.editedQuantity ?? ''}
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={product.editedQuantity_display ?? (product.editedQuantity !== undefined ? String(product.editedQuantity) : '')}
                             onChange={(e) => handleValueChange(product.id, 'editedQuantity', e.target.value)}
-                            min="0"
                             className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                           />
                         </td>
@@ -1072,9 +1078,10 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <input 
-                            type="number" 
-                            value={product.editedLastQuantity ?? ''}
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={product.editedLastQuantity_display ?? (product.editedLastQuantity !== undefined ? String(product.editedLastQuantity) : '')}
                             onChange={(e) => handleValueChange(product.id, 'editedLastQuantity', e.target.value)}
                             className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                             disabled={product.isCustom}
@@ -1090,23 +1097,21 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <input 
-                            type="number" 
-                            value={product.editedLastPrice ?? ''}
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={product.editedLastPrice_display ?? (product.editedLastPrice !== undefined ? String(product.editedLastPrice) : '')}
                             onChange={(e) => handleValueChange(product.id, 'editedLastPrice', e.target.value)}
-                            step="0.01"
-                            min="0"
                             className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                             disabled={product.isCustom}
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <input 
-                            type="number" 
-                            value={product.editedPrice ?? ''}
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={product.editedPrice_display ?? (product.editedPrice !== undefined ? String(product.editedPrice) : '')}
                             onChange={(e) => handleValueChange(product.id, 'editedPrice', e.target.value)}
-                            step="0.01"
-                            min="0"
                             className="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 focus:ring-0 focus:border-blue-500 text-sm text-gray-900 dark:text-gray-200 p-1"
                           />
                         </td>
@@ -1303,11 +1308,10 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                     Quantidade
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={customItem.quantity}
-                    onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: parseFloat(e.target.value) || 0 }))}
-                    min="0.01"
-                    step="any"
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, quantity: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
@@ -1332,11 +1336,10 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
                     Preço Unitário (R$)
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={customItem.price}
-                    onChange={(e) => setCustomItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
-                    step="0.01"
-                    min="0"
+                    onChange={(e) => setCustomItem(prev => ({ ...prev, price: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   />
                 </div>

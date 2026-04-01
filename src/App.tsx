@@ -46,6 +46,13 @@ import CandidatesList        from './pages/rh/CandidatesList';
 import CandidateDetail       from './pages/rh/CandidateDetail';
 import CpfRegistry           from './pages/rh/CpfRegistry';
 import PublicJobApplication  from './pages/rh/PublicJobApplication';
+import HRAnalytics           from './pages/rh/HRAnalytics';
+import DocumentsLicenses     from './pages/management/DocumentsLicenses';
+
+// ── Pages — Comercial ────────────────────────────────────────────────────────
+import CorporateClients      from './pages/commercial/CorporateClients';
+import GroupBookings         from './pages/commercial/GroupBookings';
+import RevenueTargets        from './pages/commercial/RevenueTargets';
 
 // ── Pages — Departamento Pessoal ──────────────────────────────────────────────
 import PersonnelDepartmentPage from './pages/PersonnelDepartmentPage';
@@ -235,6 +242,11 @@ function App() {
                         <CpfRegistry />
                       </PrivateRoute>
                     } />
+                    <Route path="/rh/analytics" element={
+                      <PrivateRoute module="hr_analytics">
+                        <HRAnalytics />
+                      </PrivateRoute>
+                    } />
 
                     {/* Admin / gestão interna */}
                     <Route path="/admin" element={
@@ -246,6 +258,11 @@ function App() {
                     <Route path="/management" element={
                       <PrivateRoute module="management">
                         <ManagementPanel />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/management/documents" element={
+                      <PrivateRoute module="hotel_documents">
+                        <DocumentsLicenses />
                       </PrivateRoute>
                     } />
 
@@ -306,6 +323,23 @@ function App() {
                     <Route path="/reports" element={
                       <PrivateRoute module="reports">
                         <ReportsPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Comercial ─────────────────────────────────────── */}
+                    <Route path="/commercial/clients" element={
+                      <PrivateRoute module="commercial">
+                        <CorporateClients />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/commercial/groups" element={
+                      <PrivateRoute module="commercial">
+                        <GroupBookings />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/commercial/targets" element={
+                      <PrivateRoute module="commercial">
+                        <RevenueTargets />
                       </PrivateRoute>
                     } />
 

@@ -13,6 +13,8 @@ interface PurchaseItem {
   product_id: string;
   quantity: number;
   unit_price: number;
+  quantity_display?: string;
+  unit_price_display?: string;
   isNew?: boolean;
   newProduct?: {
     name: string;
@@ -348,11 +350,15 @@ const NewPurchaseModal: React.FC<NewPurchaseModalProps> = ({
                         Quantidade
                       </label>
                       <input
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                        min="0.01"
-                        step="any"
+                        type="text"
+                        inputMode="decimal"
+                        value={item.quantity_display ?? String(item.quantity)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          const newItems = [...items];
+                          newItems[index] = { ...newItems[index], quantity: parseFloat(v.replace(',', '.')) || 0, quantity_display: v };
+                          setItems(newItems);
+                        }}
                         className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
                         required
                       />
@@ -366,11 +372,15 @@ const NewPurchaseModal: React.FC<NewPurchaseModalProps> = ({
                           R$
                         </span>
                         <input
-                          type="number"
-                          value={item.unit_price}
-                          onChange={(e) => updateItem(index, 'unit_price', parseFloat(e.target.value))}
-                          step="0.01"
-                          min="0"
+                          type="text"
+                          inputMode="decimal"
+                          value={item.unit_price_display ?? String(item.unit_price)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const newItems = [...items];
+                            newItems[index] = { ...newItems[index], unit_price: parseFloat(v.replace(',', '.')) || 0, unit_price_display: v };
+                            setItems(newItems);
+                          }}
                           className="w-full pl-8 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
                           required
                         />
