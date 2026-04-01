@@ -45,7 +45,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
   const [error,       setError]       = useState('');
   const [isSaving,    setIsSaving]    = useState(false);
   const [formData,    setFormData]    = useState({
-    name: '', quantity: 0, min_quantity: 0, max_quantity: 100,
+    name: '', quantity: '0' as string | number, min_quantity: '0' as string | number, max_quantity: '100' as string | number,
     category: 'Outros', supplier: '', image_url: '', description: '',
     is_portionable: false, is_portion: false,
     auto_portion_product_id: null as string | null,
@@ -153,9 +153,9 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
         // Dados do produto
         setFormData({
           name:           editingProduct.name,
-          quantity:       editingProduct.quantity,
-          min_quantity:   editingProduct.min_quantity,
-          max_quantity:   editingProduct.max_quantity,
+          quantity:       String(editingProduct.quantity),
+          min_quantity:   String(editingProduct.min_quantity),
+          max_quantity:   String(editingProduct.max_quantity),
           category:       editingProduct.category,
           supplier:       editingProduct.supplier    || '',
           image_url:      editingProduct.image_url   || '',
@@ -171,7 +171,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
         setSelectedContactIds(new Set());
         setManualSuppliers([]);
         setFormData({
-          name: '', quantity: 0, min_quantity: 0, max_quantity: 100,
+          name: '', quantity: '0', min_quantity: '0', max_quantity: '100',
           category: 'Outros', supplier: '', image_url: '', description: '',
           is_portionable: false, is_portion: false,
           auto_portion_product_id: null, auto_portion_multiplier: null,
@@ -200,9 +200,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     }
     setFormData(prev => ({
       ...prev,
-      [name]: ['quantity', 'min_quantity', 'max_quantity'].includes(name)
-        ? (parseFloat(value.replace(',', '.')) || 0)
-        : value,
+      [name]: value,
     }));
   };
 
@@ -247,7 +245,12 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     setIsSaving(true);
     try {
       if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
-      if (formData.min_quantity > formData.max_quantity)
+
+      const qty = parseFloat(String(formData.quantity).replace(',', '.')) || 0;
+      const minQty = parseFloat(String(formData.min_quantity).replace(',', '.')) || 0;
+      const maxQty = parseFloat(String(formData.max_quantity).replace(',', '.')) || 100;
+
+      if (minQty > maxQty)
         throw new Error('Quantidade mínima não pode ser maior que a máxima.');
 
       // Consolidar fornecedores manuais + nomes dos contatos selecionados no campo supplier
@@ -256,7 +259,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
         .map(c => c.company_name);
       const allSupplierNames = [...new Set([...manualSuppliers, ...contactNames])];
       const supplierField = allSupplierNames.join(', ');
-      const dataToSave = { ...formData, supplier: supplierField };
+      const dataToSave = { ...formData, supplier: supplierField, quantity: qty, min_quantity: minQty, max_quantity: maxQty };
 
       let savedProduct: Product | null = null;
 
@@ -540,11 +543,10 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                           <div className="flex items-center gap-2">
                             <span className="text-sm text-gray-500">1 un →</span>
                             <input
-                              type="number"
-                              step="any"
-                              min="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={formData.auto_portion_multiplier || ''}
-                              onChange={e => setFormData(prev => ({ ...prev, auto_portion_multiplier: parseFloat(e.target.value) || null }))}
+                              onChange={e => setFormData(prev => ({ ...prev, auto_portion_multiplier: parseFloat(e.target.value.replace(',', '.')) || null }))}
                               className="w-28 px-3 py-2 text-sm text-center font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                               placeholder="1000"
                             />

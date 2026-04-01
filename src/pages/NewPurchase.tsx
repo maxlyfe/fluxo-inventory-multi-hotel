@@ -30,6 +30,8 @@ interface PurchaseItem {
   quantity: number;
   unit_price: number;
   total_price: number;
+  quantity_display?: string;
+  unit_price_display?: string;
 }
 
 interface Budget {
@@ -260,8 +262,10 @@ const NewPurchase = () => {
         let updatedItem = { ...item };
         if (field === 'quantity') {
           updatedItem.quantity = numericValue;
+          updatedItem.quantity_display = value;
         } else if (field === 'unit_price') {
           updatedItem.unit_price = numericValue;
+          updatedItem.unit_price_display = value;
         }
         updatedItem.total_price = updatedItem.quantity * updatedItem.unit_price;
         return updatedItem;
@@ -609,7 +613,7 @@ const NewPurchase = () => {
                           <input 
                             type="text"
                             inputMode="decimal"
-                            value={item.quantity}
+                            value={item.quantity_display ?? String(item.quantity)}
                             onChange={(e) => updateItem(index, 'quantity', e.target.value)}
                             className="w-24 p-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500"
                           />
@@ -618,7 +622,7 @@ const NewPurchase = () => {
                           <input 
                             type="text"
                             inputMode="decimal"
-                            value={item.unit_price}
+                            value={item.unit_price_display ?? String(item.unit_price)}
                             onChange={(e) => updateItem(index, 'unit_price', e.target.value)}
                             className="w-28 p-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500"
                           />
