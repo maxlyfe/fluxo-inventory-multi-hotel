@@ -56,6 +56,12 @@ interface ScrapeResult {
   site: string;
   url: string;
   error?: string;
+  // Client-side fallback: quando o servidor ML bloqueia o IP do datacenter,
+  // a edge function devolve o token + IDs para o browser fazer a chamada diretamente.
+  clientFallback?: boolean;
+  itemId?: string | null;
+  catalogId?: string | null;
+  mlToken?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -364,7 +370,7 @@ const ProductCard: React.FC<{
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <p className="text-[11px] text-gray-400 mb-1 font-medium">Parcelas</p>
+                  <p className="text-[10px] text-gray-400 mb-1 font-medium">Parcelas</p>
                   <input
                     type="number"
                     value={product.installments}
@@ -375,7 +381,7 @@ const ProductCard: React.FC<{
                   />
                 </div>
                 <div>
-                  <p className="text-[11px] text-gray-400 mb-1 font-medium">Vlr. parcela</p>
+                  <p className="text-[10px] text-gray-400 mb-1 font-medium">Vlr. parcela</p>
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-gray-400">R$</span>
                     <input
@@ -492,7 +498,7 @@ const ProductCard: React.FC<{
               <input
                 type="number"
                 value={product.quantity}
-                onChange={e => up({ quantity: Math.max(0.01, parseFloat(e.target.value) || 0.01) })}
+                onChange={e => up({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                 min="1"
                 className="w-20 text-center px-2 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-lg font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -579,13 +585,80 @@ const AddProductModal: React.FC<{
       // Erro de transporte (rede, CORS, timeout)
       if (error) throw error;
 
-      const r = data as ScrapeResult;
+      let r = data as ScrapeResult;
+
+      // ── Client-side fallback ──────────────────────────────────────────────
+      // Quando o servidor ML bloqueia IPs de datacenter (403), a edge function
+      // devolve clientFallback=true + token + IDs para o browser chamar a API
+      // diretamente (IP residencial brasileiro não é bloqueado pelo ML).
+      if (r?.clientFallback && r.mlToken && (r.itemId || r.catalogId)) {
+        const token = r.mlToken;
+        const mlHeaders = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Accept-Language': 'pt-BR' };
+        let clientData: any = null;
+
+        // Tenta item direto
+        if (r.itemId) {
+          try {
+            const res = await fetch(`https://api.mercadolibre.com/items/${r.itemId}`, { headers: mlHeaders });
+            if (res.ok) { const d = await res.json(); if (d?.title) clientData = d; }
+          } catch { /* ignora */ }
+        }
+
+        // Tenta catálogo se item falhou
+        if (!clientData && r.catalogId) {
+          try {
+            const res = await fetch(`https://api.mercadolibre.com/products/${r.catalogId}`, { headers: mlHeaders });
+            if (res.ok) {
+              const d = await res.json();
+              if (d?.name || d?.title) {
+                // Tenta pegar o winner do buy box para preço e imagens
+                const winnerId = d?.buy_box_winner?.item_id;
+                if (winnerId) {
+                  const wi = await fetch(`https://api.mercadolibre.com/items/${winnerId}`, { headers: mlHeaders });
+                  if (wi.ok) { clientData = await wi.json(); clientData._catalogTitle = d.name || d.title; }
+                }
+                if (!clientData) clientData = { title: d.name || d.title, pictures: d.pictures || [], price: d.buy_box_winner?.price };
+              }
+            }
+          } catch { /* ignora */ }
+        }
+
+        // Search fallback
+        if (!clientData && (r.itemId || r.catalogId)) {
+          try {
+            const q = r.catalogId ? `catalog_product_id=${r.catalogId}` : `q=${r.itemId}`;
+            const res = await fetch(`https://api.mercadolibre.com/sites/MLB/search?${q}&limit=1`, { headers: mlHeaders });
+            if (res.ok) { const d = await res.json(); if (d?.results?.[0]?.title) clientData = d.results[0]; }
+          } catch { /* ignora */ }
+        }
+
+        if (clientData?.title) {
+          const images = (clientData.pictures || (clientData.thumbnail ? [{ url: clientData.thumbnail }] : []))
+            .map((p: any) => (p.secure_url || p.url || '').replace(/-[IVW]\.(jpg|webp)$/i, '-O.$1'))
+            .filter((u: string) => u.startsWith('http')).slice(0, 8);
+          r = {
+            ...r,
+            title: clientData._catalogTitle || clientData.title || '',
+            images,
+            price: (clientData.price != null && clientData.price > 0) ? clientData.price : null,
+            originalPrice: (clientData.original_price != null && clientData.original_price > 0) ? clientData.original_price : null,
+            shippingFree: clientData.shipping?.free_shipping === true,
+            shippingCost: null,
+            installments: clientData.installments?.quantity ?? null,
+            installmentValue: clientData.installments?.amount ?? null,
+            clientFallback: false,
+          };
+        } else {
+          throw new Error('Não foi possível carregar os dados do produto. Tente com um link direto do produto ou preencha manualmente.');
+        }
+      }
+      // ── Fim client-side fallback ──────────────────────────────────────────
 
       // Erro retornado explicitamente pela Edge Function
       if (r?.error) throw new Error(r.error);
 
-      // Dados vazios — Edge Function não conseguiu extrair nada útil
-      const hasData = !!(r?.title || r?.price !== null || r?.images?.length);
+      // Valida que há dados úteis (título não vazio + preço ou imagens)
+      const hasData = !!(r?.title && (r.price != null && r.price > 0 || r?.images?.length));
       if (!hasData) {
         throw new Error(
           'Não foi possível extrair dados deste produto automaticamente. ' +
@@ -754,14 +827,14 @@ const AddProductModal: React.FC<{
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <p className="text-[11px] text-gray-400 mb-1">Parcelas</p>
+                      <p className="text-[10px] text-gray-400 mb-1">Parcelas</p>
                       <input type="number" value={draft.installments} onChange={e => upDraft({ installments: parseInt(e.target.value) || 2 })}
                         min="2" max="48"
                         className="w-full px-2 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-sm text-center font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div>
-                      <p className="text-[11px] text-gray-400 mb-1">Vlr. parcela</p>
+                      <p className="text-[10px] text-gray-400 mb-1">Vlr. parcela</p>
                       <input type="number" value={draft.installmentValue || ''} onChange={e => upDraft({ installmentValue: parseFloat(e.target.value) || 0 })}
                         placeholder="0,00" step="0.01" min="0"
                         className="w-full px-2 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-sm font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -819,7 +892,7 @@ const AddProductModal: React.FC<{
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Quantidade</label>
-                  <input type="number" value={draft.quantity} onChange={e => upDraft({ quantity: Math.max(0.01, parseFloat(e.target.value) || 0.01) })}
+                  <input type="number" value={draft.quantity} onChange={e => upDraft({ quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                     min="1"
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-sm text-center font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -1064,7 +1137,7 @@ const OnlinePurchaseList: React.FC = () => {
           {/* Total */}
           {products.length > 0 && (
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Total geral</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Total geral</p>
               <p className="text-lg font-black text-gray-900 dark:text-white leading-none">
                 {fmtBRL(grandTotal)}
               </p>
