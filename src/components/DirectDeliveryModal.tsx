@@ -56,7 +56,7 @@ const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
 
 
   const handleConfirm = () => {
-    const numQuantity = Number(quantity);
+    const numQuantity = parseFloat(String(quantity).replace(',', '.')) || 0;
     if (!selectedProductId || !selectedSectorId || !numQuantity || numQuantity <= 0) {
       alert('Por favor, preencha todos os campos corretamente.');
       return;
@@ -95,7 +95,8 @@ const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
       setShowResults(true);
   }
 
-  const isButtonDisabled = !selectedProductId || !selectedSectorId || Number(quantity) <= 0 || (selectedProduct && Number(quantity) > selectedProduct.quantity);
+  const parsedQty = parseFloat(String(quantity).replace(',', '.')) || 0;
+  const isButtonDisabled = !selectedProductId || !selectedSectorId || parsedQty <= 0 || (selectedProduct && parsedQty > selectedProduct.quantity);
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Entrega Direta de Item">
@@ -175,12 +176,10 @@ const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
             Quantidade a Entregar
           </label>
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            min="0.01"
-            step="any"
-            max={selectedProduct?.quantity || undefined}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             disabled={!selectedProduct}
           />
