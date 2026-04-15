@@ -440,14 +440,14 @@ const ReservationModal: React.FC<{
           {activeTab === 'reserva' && (
             <div className="space-y-5">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                <DetailCard icon={FileText} label="Reserva" value={`#${booking?.erbonNumber || guest?.bookingNumber || room.currentBookingID}`} />
+                <DetailCard icon={FileText} label="Reserva" value={`#${booking?.erbonNumber || allGuests[0]?.bookingNumber || room.currentBookingID}`} />
                 <DetailCard icon={BedDouble} label="UH / Tipo" value={`${room.roomName} · ${room.roomTypeDescription}`} />
-                <DetailCard icon={LogIn} label="Check-in" value={fmtDate(booking?.checkInDateTime || guest?.checkInDate)} />
-                <DetailCard icon={LogOut} label="Check-out" value={fmtDate(booking?.checkOutDateTime || guest?.checkOutDate)} />
+                <DetailCard icon={LogIn} label="Check-in" value={fmtDate(booking?.checkInDateTime || allGuests[0]?.checkInDate)} />
+                <DetailCard icon={LogOut} label="Check-out" value={fmtDate(booking?.checkOutDateTime || allGuests[0]?.checkOutDate)} />
                 <DetailCard icon={Clock} label="Noites" value={`${nights}`} />
                 <DetailCard icon={Users} label="Hóspedes"
                   value={`${booking?.adultQuantity || room.adultCount || 0} ADL${room.childrenCount ? ` + ${room.childrenCount} CHD` : ''}${room.babyCount ? ` + ${room.babyCount} INF` : ''}`} />
-                {(() => { const MI = getMealIcon(guest?.mealPlan); return <DetailCard icon={MI} label="Regime" value={getMealLabel(guest?.mealPlan)} />; })()}
+                {(() => { const MI = getMealIcon(allGuests[0]?.mealPlan); return <DetailCard icon={MI} label="Regime" value={getMealLabel(allGuests[0]?.mealPlan)} />; })()}
                 <DetailCard icon={Star} label="Status" value={booking?.confirmedStatus || booking?.status || '—'} />
               </div>
               {booking && (
