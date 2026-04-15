@@ -497,12 +497,15 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
                           : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                   }`}>
                     <p className="text-[11px] font-bold text-gray-400">{DAY_LABELS[i]}</p>
-                    <p className="text-[11px] font-bold mt-0.5 leading-tight">
-                      {works
-                        ? <span key="work" className="text-gray-700 dark:text-gray-200 block">{shiftStart}<br/>AS<br/>{shiftEnd}</span>
-                        : <span key="off" className="text-green-600 dark:text-green-400">FOLGA</span>
-                      }
-                    </p>
+                    {works ? (
+                      <div className="text-[11px] font-bold mt-0.5 leading-tight text-gray-700 dark:text-gray-200">
+                        <span>{shiftStart}</span>
+                        <span className="block text-gray-400">AS</span>
+                        <span>{shiftEnd}</span>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] font-bold mt-0.5 leading-tight text-green-600 dark:text-green-400">FOLGA</p>
+                    )}
                   </div>
                 );
               })}
