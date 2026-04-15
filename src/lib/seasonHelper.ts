@@ -47,9 +47,19 @@ export async function detectSeason(hotelId: string): Promise<SeasonInfo> {
     let avgOccupancy: number;
 
     // Tenta calcular via quartos vendidos / disponíveis (mais confiável)
+    // Total vendido = soma de todos os campos roomSalled* (Confirmed, RateDefault, Pending, etc.)
     const hasRoomData = occupancyData.some(d => d.roomAvailable > 0);
     if (hasRoomData) {
-      const totalSold = occupancyData.reduce((sum, d) => sum + (d.roomSalledConfirmed || 0), 0);
+      const getRoomsSold = (d: any) =>
+        (d.roomSalledConfirmed || 0) +
+        (d.roomSalledRateDefault || 0) +
+        (d.roomSalledPending || 0) +
+        (d.roomSalledInvited || 0) +
+        (d.roomSalledHouseUse || 0) +
+        (d.roomSalledPermut || 0) +
+        (d.roomSalledCrewMember || 0) +
+        (d.roomSalledDayUse || 0);
+      const totalSold = occupancyData.reduce((sum, d) => sum + getRoomsSold(d), 0);
       const totalAvailable = occupancyData.reduce((sum, d) => sum + (d.roomAvailable || 0), 0);
       avgOccupancy = totalAvailable > 0 ? (totalSold / totalAvailable) * 100 : 0;
       console.log(`[SeasonHelper] Via quartos: ${totalSold}/${totalAvailable} = ${avgOccupancy.toFixed(1)}%`);
