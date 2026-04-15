@@ -134,6 +134,12 @@ const SectorStock = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [newQuantity, setNewQuantity] = useState('');
+  const [newMinQuantity, setNewMinQuantity] = useState('');
+  const [newMaxQuantity, setNewMaxQuantity] = useState('');
+  const [newMinLow, setNewMinLow] = useState('');
+  const [newMaxLow, setNewMaxLow] = useState('');
+  const [newMinHigh, setNewMinHigh] = useState('');
+  const [newMaxHigh, setNewMaxHigh] = useState('');
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [showConferenceModal, setShowConferenceModal] = useState(false);
   const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
@@ -712,7 +718,13 @@ const SectorStock = () => {
    */
   const openEditModal = (product: Product) => {
     setProductToEdit(product);
-    setNewQuantity(String(product.quantity)); // Preenche o campo com a quantidade atual
+    setNewQuantity(String(product.quantity));
+    setNewMinQuantity(product.min_quantity != null ? String(product.min_quantity) : '');
+    setNewMaxQuantity(product.max_quantity != null ? String(product.max_quantity) : '');
+    setNewMinLow(product.min_quantity_low != null ? String(product.min_quantity_low) : '');
+    setNewMaxLow(product.max_quantity_low != null ? String(product.max_quantity_low) : '');
+    setNewMinHigh(product.min_quantity_high != null ? String(product.min_quantity_high) : '');
+    setNewMaxHigh(product.max_quantity_high != null ? String(product.max_quantity_high) : '');
     setShowEditModal(true);
   };
 
@@ -723,8 +735,14 @@ const SectorStock = () => {
   const handleUpdateStock = async () => {
     if (!productToEdit || !selectedHotel || !sectorId) return;
 
-    const quantity = parseFloat(newQuantity.replace(',', '.'));
-    if (isNaN(quantity) || quantity < 0) {
+    const parseNum = (v: string) => {
+      if (!v.trim()) return null;
+      const n = parseFloat(v.replace(',', '.'));
+      return isNaN(n) ? null : n;
+    };
+
+    const quantity = parseNum(newQuantity);
+    if (quantity == null || quantity < 0) {
       addNotification('Por favor, insira uma quantidade válida.', 'error');
       return;
     }
@@ -733,7 +751,15 @@ const SectorStock = () => {
     try {
       const { error: updateError } = await supabase
         .from('sector_stock')
-        .update({ quantity: quantity })
+        .update({
+          quantity,
+          min_quantity: parseNum(newMinQuantity) ?? 0,
+          max_quantity: parseNum(newMaxQuantity) ?? 0,
+          min_quantity_low: parseNum(newMinLow),
+          max_quantity_low: parseNum(newMaxLow),
+          min_quantity_high: parseNum(newMinHigh),
+          max_quantity_high: parseNum(newMaxHigh),
+        })
         .eq('hotel_id', selectedHotel.id)
         .eq('sector_id', sectorId)
         .eq('product_id', productToEdit.id);
@@ -743,7 +769,7 @@ const SectorStock = () => {
       addNotification(`Estoque de "${productToEdit.name}" atualizado com sucesso!`, 'success');
       setShowEditModal(false);
       setProductToEdit(null);
-      fetchSectorAndStockData(); // Recarrega os dados para refletir a mudança
+      fetchSectorAndStockData();
     } catch (err: any) {
       addNotification(`Erro ao atualizar estoque: ${err.message}`, 'error');
     } finally {
@@ -1682,39 +1708,98 @@ const SectorStock = () => {
         </Modal>
       )}
 
-      {/* --- INÍCIO: Novo modal para editar quantidade --- */}
+      {/* --- INÍCIO: Modal para editar estoque + min/max sazonal --- */}
       {showEditModal && productToEdit && (
-        <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title={`Editar Estoque de ${productToEdit.name}`}>
-          <div className="space-y-4">
+        <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title={`Editar — ${productToEdit.name}`}>
+          <div className="space-y-5">
+            {/* Quantidade atual */}
             <div>
-              <label htmlFor="editQuantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Nova Quantidade em Estoque
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Quantidade em Estoque
               </label>
               <input
-                id="editQuantity"
-                type="text"
-                inputMode="decimal"
+                type="text" inputMode="decimal" autoFocus
                 value={newQuantity}
                 onChange={(e) => setNewQuantity(e.target.value)}
                 className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                placeholder="Digite a nova quantidade"
-                autoFocus
+                placeholder="Quantidade atual"
               />
             </div>
-            <div className="flex justify-end space-x-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowEditModal(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 text-sm"
-              >
+
+            {/* Min/Max padrão */}
+            <div>
+              <p className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Mín / Máx (Padrão)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Mínimo</label>
+                  <input type="text" inputMode="decimal" value={newMinQuantity}
+                    onChange={(e) => setNewMinQuantity(e.target.value)}
+                    className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                    placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Máximo</label>
+                  <input type="text" inputMode="decimal" value={newMaxQuantity}
+                    onChange={(e) => setNewMaxQuantity(e.target.value)}
+                    className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                    placeholder="0" />
+                </div>
+              </div>
+            </div>
+
+            {/* Baixa temporada */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500" /> Baixa Temporada
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Mínimo</label>
+                  <input type="text" inputMode="decimal" value={newMinLow}
+                    onChange={(e) => setNewMinLow(e.target.value)}
+                    className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                    placeholder="Deixe vazio para usar padrão" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Máximo</label>
+                  <input type="text" inputMode="decimal" value={newMaxLow}
+                    onChange={(e) => setNewMaxLow(e.target.value)}
+                    className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                    placeholder="Deixe vazio para usar padrão" />
+                </div>
+              </div>
+            </div>
+
+            {/* Alta temporada */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <p className="text-sm font-semibold text-orange-600 dark:text-orange-400 mb-2 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-orange-500" /> Alta Temporada
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Mínimo</label>
+                  <input type="text" inputMode="decimal" value={newMinHigh}
+                    onChange={(e) => setNewMinHigh(e.target.value)}
+                    className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                    placeholder="Deixe vazio para usar padrão" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Máximo</label>
+                  <input type="text" inputMode="decimal" value={newMaxHigh}
+                    onChange={(e) => setNewMaxHigh(e.target.value)}
+                    className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                    placeholder="Deixe vazio para usar padrão" />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+              <button type="button" onClick={() => setShowEditModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 text-sm">
                 Cancelar
               </button>
-              <button
-                type="button"
-                onClick={handleUpdateStock}
-                disabled={isUpdatingStock}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center"
-              >
+              <button type="button" onClick={handleUpdateStock} disabled={isUpdatingStock}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center">
                 {isUpdatingStock && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
                 Salvar
               </button>
@@ -1722,7 +1807,7 @@ const SectorStock = () => {
           </div>
         </Modal>
       )}
-      {/* --- FIM: Novo modal --- */}
+      {/* --- FIM: Modal editar estoque --- */}
 
       {showPortioningModal && selectedEntry && (
         <Modal isOpen={showPortioningModal} onClose={() => setShowPortioningModal(false)} title="Processar Item Porcionável">
