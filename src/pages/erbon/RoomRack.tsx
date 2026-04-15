@@ -319,7 +319,7 @@ const ReservationModal: React.FC<{
   isOpen: boolean; onClose: () => void; room: ErbonRoom; hotelId: string;
 }> = ({ isOpen, onClose, room, hotelId }) => {
   const [booking, setBooking] = useState<ErbonBooking | null>(null);
-  const [guest, setGuest] = useState<ErbonGuest | null>(null);
+  const [allGuests, setAllGuests] = useState<ErbonGuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'reserva' | 'hospede' | 'conta'>('reserva');
@@ -330,13 +330,18 @@ const ReservationModal: React.FC<{
     const load = async () => {
       setLoading(true); setError(null);
       try {
-        const [bookings, guests] = await Promise.all([
+        const [bookings, inHouseGuests] = await Promise.all([
           erbonService.searchBookings(hotelId, { bookingNumber: String(room.currentBookingID) }),
           erbonService.fetchInHouseGuests(hotelId),
         ]);
         if (bookings.length > 0) setBooking(bookings[0]);
-        const rg = guests.find(g => g.roomDescription === room.roomName || g.idBooking === room.currentBookingID);
-        if (rg) setGuest(rg);
+        // Filtrar TODOS os hóspedes desta reserva (por bookingID ou por quarto)
+        const roomGuests = inHouseGuests.filter(g =>
+          g.idBooking === room.currentBookingID ||
+          g.roomDescription === room.roomName
+        );
+        setAllGuests(roomGuests);
+        console.log(`[RoomRack] Booking ${room.currentBookingID}: ${bookings.length} bookings, ${roomGuests.length} in-house guests, guestList: ${bookings[0]?.guestList?.length || 0}`);
       } catch (err: any) { setError(err.message); }
       finally { setLoading(false); }
     };
@@ -347,7 +352,7 @@ const ReservationModal: React.FC<{
 
   const isOccupied = room.currentlyOccupiedOrAvailable === 'Ocupado';
   const nights = booking ? getNights(booking.checkInDateTime, booking.checkOutDateTime) : 0;
-  const guestName = booking?.guestList?.[0]?.name || guest?.guestName || room.bookingHolderName || 'Hóspede';
+  const guestName = booking?.guestList?.[0]?.name || allGuests[0]?.guestName || room.bookingHolderName || 'Hóspede';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="" size="4xl">
@@ -401,7 +406,7 @@ const ReservationModal: React.FC<{
         </div>
       ) : error ? (
         <div className="text-center py-12"><p className="text-red-500">{error}</p></div>
-      ) : !booking && !guest && !isOccupied ? (
+      ) : !booking && allGuests.length === 0 && !isOccupied ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <DetailCard icon={BedDouble} label="Tipo" value={room.roomTypeDescription} />
           <DetailCard icon={MapPin} label="Andar" value={`${room.numberFloor}°`} />
@@ -475,44 +480,7 @@ const ReservationModal: React.FC<{
           )}
 
           {activeTab === 'hospede' && (
-            <div className="space-y-4">
-              {booking?.guestList?.map((g, idx) => (
-                <div key={g.id} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-5 border border-gray-200 dark:border-gray-700/50">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-sky-500 to-cyan-400 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-sky-500/20">
-                      {g.name?.charAt(0) || '?'}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-800 dark:text-white">{g.name}</h4>
-                      <p className="text-xs text-gray-500">{idx === 0 ? 'Titular da reserva' : `Acompanhante ${idx}`}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {g.email && <InfoRow icon={Mail} value={g.email} />}
-                    {g.phone && <InfoRow icon={Phone} value={g.phone} />}
-                    {g.documents?.map((doc, i) => <InfoRow key={i} icon={CreditCard} value={`${doc.documentType}: ${doc.number}`} />)}
-                  </div>
-                </div>
-              ))}
-              {guest && (
-                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-5 border border-gray-200 dark:border-gray-700/50">
-                  <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3 text-sm">Informações Complementares</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {guest.localityGuest && <InfoRow icon={MapPin} value={`${guest.localityGuest}${guest.stateGuest ? `, ${guest.stateGuest}` : ''}`} />}
-                    {guest.countryGuestISO && <InfoRow icon={Globe} value={guest.countryGuestISO} />}
-                    {guest.birthDate && <InfoRow icon={Calendar} value={`Nascimento: ${fmtDate(guest.birthDate)}`} />}
-                    {guest.contactEmail && <InfoRow icon={Mail} value={guest.contactEmail} />}
-                    {guest.mealPlan && <InfoRow icon={Utensils} value={getMealLabel(guest.mealPlan)} />}
-                  </div>
-                </div>
-              )}
-              {!booking?.guestList?.length && !guest && (
-                <div className="text-center py-10">
-                  <User className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">Nenhuma informação de hóspede disponível.</p>
-                </div>
-              )}
-            </div>
+            <GuestTab booking={booking} allGuests={allGuests} />
           )}
 
           {activeTab === 'conta' && <AccountTab hotelId={hotelId} booking={booking} room={room} />}
@@ -522,60 +490,286 @@ const ReservationModal: React.FC<{
   );
 };
 
+// ─── Guest Tab ──────────────────────────────────────────────────────────────
+const GuestTab: React.FC<{ booking: ErbonBooking | null; allGuests: ErbonGuest[] }> = ({ booking, allGuests }) => {
+  // Merge: booking.guestList (dados da reserva) + allGuests (in-house com mais detalhes)
+  const bookingGuests = booking?.guestList || [];
+  // Map in-house guests by name for enrichment
+  const inHouseByName = new Map<string, ErbonGuest>();
+  allGuests.forEach(g => {
+    const key = g.guestName?.toLowerCase().trim();
+    if (key) inHouseByName.set(key, g);
+  });
+
+  // Build unified list: booking guests enriched with in-house data
+  const unifiedGuests: Array<{
+    name: string; email: string; phone: string; role: string;
+    documents: Array<{ documentType: string; number: string }>;
+    inHouseData?: ErbonGuest;
+  }> = [];
+
+  const addedNames = new Set<string>();
+
+  bookingGuests.forEach((g, idx) => {
+    const key = g.name?.toLowerCase().trim();
+    const inHouse = key ? inHouseByName.get(key) : undefined;
+    unifiedGuests.push({
+      name: g.name, email: g.email || inHouse?.contactEmail || '', phone: g.phone || '',
+      role: idx === 0 ? 'Titular da reserva' : `Acompanhante ${idx}`,
+      documents: g.documents || [],
+      inHouseData: inHouse,
+    });
+    if (key) addedNames.add(key);
+  });
+
+  // Add in-house guests not in booking.guestList
+  allGuests.forEach(g => {
+    const key = g.guestName?.toLowerCase().trim();
+    if (key && !addedNames.has(key)) {
+      unifiedGuests.push({
+        name: g.guestName, email: g.contactEmail || '', phone: '',
+        role: unifiedGuests.length === 0 ? 'Titular da reserva' : `Acompanhante ${unifiedGuests.length}`,
+        documents: [],
+        inHouseData: g,
+      });
+      addedNames.add(key);
+    }
+  });
+
+  if (unifiedGuests.length === 0) {
+    return (
+      <div className="text-center py-10">
+        <User className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+        <p className="text-sm text-gray-500">Nenhuma informação de hóspede disponível.</p>
+      </div>
+    );
+  }
+
+  const gradients = [
+    'from-sky-500 to-cyan-400 shadow-sky-500/20',
+    'from-violet-500 to-purple-400 shadow-violet-500/20',
+    'from-emerald-500 to-teal-400 shadow-emerald-500/20',
+    'from-amber-500 to-orange-400 shadow-amber-500/20',
+    'from-rose-500 to-pink-400 shadow-rose-500/20',
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          <Users className="w-4 h-4 inline mr-1" />
+          {unifiedGuests.length} hóspede{unifiedGuests.length > 1 ? 's' : ''} nesta reserva
+        </p>
+      </div>
+
+      {unifiedGuests.map((g, idx) => {
+        const ih = g.inHouseData;
+        return (
+          <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-5 border border-gray-200 dark:border-gray-700/50">
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${gradients[idx % gradients.length]} flex items-center justify-center text-white font-bold text-sm shadow-lg`}>
+                {g.name?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-gray-800 dark:text-white truncate">{g.name}</h4>
+                <p className="text-xs text-gray-500">{g.role}</p>
+              </div>
+              {ih?.mealPlan && (
+                <span className="text-xs bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 px-2 py-1 rounded-full font-medium">
+                  {getMealLabel(ih.mealPlan)}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {g.email && <InfoRow icon={Mail} value={g.email} />}
+              {g.phone && <InfoRow icon={Phone} value={g.phone} />}
+              {g.documents?.map((doc, i) => (
+                <InfoRow key={i} icon={CreditCard} value={`${doc.documentType}: ${doc.number}`} />
+              ))}
+              {ih?.localityGuest && (
+                <InfoRow icon={MapPin} value={`${ih.localityGuest}${ih.stateGuest ? `, ${ih.stateGuest}` : ''}`} />
+              )}
+              {ih?.countryGuestISO && <InfoRow icon={Globe} value={ih.countryGuestISO} />}
+              {ih?.birthDate && <InfoRow icon={Calendar} value={`Nascimento: ${fmtDate(ih.birthDate)}`} />}
+              {ih?.checkInDate && <InfoRow icon={LogIn} value={`Check-in: ${fmtDate(ih.checkInDate)}`} />}
+              {ih?.checkOutDate && <InfoRow icon={LogOut} value={`Check-out: ${fmtDate(ih.checkOutDate)}`} />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // ─── Account Tab ────────────────────────────────────────────────────────────
 const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking, room }) => {
-  const [charges, setCharges] = useState<any[] | null>(null);
+  const [charges, setCharges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [source, setSource] = useState<string>('');
 
   React.useEffect(() => {
+    if (!booking) { setLoading(false); return; }
     (async () => {
       setLoading(true);
-      try { setCharges(await erbonService.fetchAccountsReceivable(hotelId)); }
-      catch { setCharges([]); }
-      finally { setLoading(false); }
+      try {
+        // 1) Tenta endpoint específico por booking
+        const bookingAccount = await erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID);
+        if (bookingAccount.length > 0) {
+          setCharges(bookingAccount);
+          setSource('bookingAccount');
+          return;
+        }
+
+        // 2) Fallback: buscar contas a receber e filtrar
+        const allAccounts = await erbonService.fetchAccountsReceivable(hotelId);
+        if (allAccounts.length > 0) {
+          // Log keys do primeiro item para debug
+          console.log('[RoomRack] AccountReceivable keys:', Object.keys(allAccounts[0]));
+
+          // Tentar filtrar por múltiplas chaves possíveis
+          const filtered = allAccounts.filter((c: any) => {
+            const matchId = c.bookingInternalID === booking.bookingInternalID ||
+              c.idBooking === booking.bookingInternalID ||
+              c.bookingId === booking.bookingInternalID;
+            const matchNumber = c.bookingNumber === booking.erbonNumber ||
+              c.erbonNumber === booking.erbonNumber ||
+              c.reservationNumber === booking.erbonNumber ||
+              String(c.bookingNumber) === String(booking.erbonNumber);
+            const matchRoom = c.roomDescription === room.roomName ||
+              c.room === room.roomName ||
+              c.roomName === room.roomName ||
+              String(c.idRoom) === String(room.idRoom);
+            return matchId || matchNumber || matchRoom;
+          });
+
+          if (filtered.length > 0) {
+            setCharges(filtered);
+            setSource('accountsReceivable-filtered');
+          } else {
+            // Se não conseguiu filtrar, mostra tudo que tem (para debug)
+            console.log('[RoomRack] No match found. Booking:', { bookingInternalID: booking.bookingInternalID, erbonNumber: booking.erbonNumber, roomName: room.roomName });
+            console.log('[RoomRack] Sample account data (first 2):', JSON.stringify(allAccounts.slice(0, 2)));
+            setCharges([]);
+            setSource('no-match');
+          }
+        }
+      } catch (err) {
+        console.error('[RoomRack] AccountTab error:', err);
+        setCharges([]);
+      } finally {
+        setLoading(false);
+      }
     })();
-  }, [hotelId]);
+  }, [hotelId, booking, room]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-sky-500" /></div>;
   if (!booking) return <div className="text-center py-12"><DollarSign className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" /><p className="text-sm text-gray-500">Dados financeiros indisponíveis.</p></div>;
 
-  const roomCharges = charges?.filter((c: any) => c.bookingInternalID === booking.bookingInternalID || c.bookingNumber === booking.erbonNumber || c.roomDescription === room.roomName) || [];
+  // Auto-detect field names from first charge
+  const getField = (obj: any, ...keys: string[]): any => {
+    for (const k of keys) {
+      if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+    }
+    return null;
+  };
+
+  const totalCharges = charges.reduce((sum, c) => {
+    const val = getField(c, 'valueTotal', 'value', 'amount', 'totalValue', 'debit', 'valor') || 0;
+    return sum + Number(val);
+  }, 0);
+
+  const totalPayments = charges.reduce((sum, c) => {
+    const val = getField(c, 'credit', 'payment', 'creditValue', 'pagamento') || 0;
+    return sum + Number(val);
+  }, 0);
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-3">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-sky-50 dark:bg-sky-900/15 rounded-xl p-4 border border-sky-200 dark:border-sky-800/40">
           <p className="text-[10px] uppercase tracking-wide text-sky-500 mb-1">Diárias</p>
-          <p className="text-xl font-bold text-sky-700 dark:text-sky-300">{fmtCurrency(booking.totalBookingRate)}</p>
+          <p className="text-lg font-bold text-sky-700 dark:text-sky-300">{fmtCurrency(booking.totalBookingRate)}</p>
         </div>
         <div className="bg-emerald-50 dark:bg-emerald-900/15 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800/40">
           <p className="text-[10px] uppercase tracking-wide text-emerald-500 mb-1">Total c/ Taxas</p>
-          <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{fmtCurrency(booking.totalBookingRateWithTax)}</p>
+          <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{fmtCurrency(booking.totalBookingRateWithTax)}</p>
         </div>
         <div className="bg-violet-50 dark:bg-violet-900/15 rounded-xl p-4 border border-violet-200 dark:border-violet-800/40">
           <p className="text-[10px] uppercase tracking-wide text-violet-500 mb-1">Taxas</p>
-          <p className="text-xl font-bold text-violet-700 dark:text-violet-300">{fmtCurrency(booking.totalBookingRateWithTax - booking.totalBookingRate)}</p>
+          <p className="text-lg font-bold text-violet-700 dark:text-violet-300">{fmtCurrency(booking.totalBookingRateWithTax - booking.totalBookingRate)}</p>
         </div>
+        {charges.length > 0 && (
+          <div className="bg-amber-50 dark:bg-amber-900/15 rounded-xl p-4 border border-amber-200 dark:border-amber-800/40">
+            <p className="text-[10px] uppercase tracking-wide text-amber-500 mb-1">Extras</p>
+            <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{fmtCurrency(totalCharges)}</p>
+          </div>
+        )}
       </div>
-      {roomCharges.length > 0 ? (
+
+      {/* Charges table */}
+      {charges.length > 0 ? (
         <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead><tr className="bg-gray-50 dark:bg-gray-800 text-[10px] uppercase tracking-wide text-gray-400">
-              <th className="text-left px-4 py-3">Descrição</th><th className="text-right px-4 py-3">Valor</th><th className="text-right px-4 py-3">Data</th>
-            </tr></thead>
-            <tbody>{roomCharges.map((c: any, i: number) => (
-              <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
-                <td className="px-4 py-3 text-gray-800 dark:text-gray-200">{c.description || c.desc || '—'}</td>
-                <td className="px-4 py-3 text-right font-mono text-gray-700 dark:text-gray-300">{fmtCurrency(c.value || c.amount)}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{fmtDate(c.date || c.transactionDate)}</td>
-              </tr>
-            ))}</tbody>
-          </table>
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Extrato da Conta</h4>
+            <span className="text-[10px] text-gray-400">{charges.length} lançamento{charges.length > 1 ? 's' : ''}</span>
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-800 text-[10px] uppercase tracking-wide text-gray-400 sticky top-0">
+                  <th className="text-left px-4 py-2.5">Descrição</th>
+                  <th className="text-left px-4 py-2.5">Depto</th>
+                  <th className="text-right px-4 py-2.5">Débito</th>
+                  <th className="text-right px-4 py-2.5">Crédito</th>
+                  <th className="text-right px-4 py-2.5">Data</th>
+                </tr>
+              </thead>
+              <tbody>
+                {charges.map((c: any, i: number) => {
+                  const desc = getField(c, 'serviceDescription', 'description', 'desc', 'itemDescription', 'descricao') || '—';
+                  const dept = getField(c, 'department', 'departmentDescription', 'departamento') || '';
+                  const debit = Number(getField(c, 'valueTotal', 'value', 'amount', 'debit', 'valor', 'totalValue') || 0);
+                  const credit = Number(getField(c, 'credit', 'payment', 'creditValue', 'pagamento') || 0);
+                  const date = getField(c, 'transactionDate', 'date', 'createdAt', 'data', 'postingDate');
+                  const canceled = getField(c, 'isCanceled', 'canceled', 'cancelled');
+
+                  return (
+                    <tr key={i} className={`border-t border-gray-100 dark:border-gray-800 ${canceled ? 'opacity-40 line-through' : ''}`}>
+                      <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 max-w-[200px] truncate" title={desc}>
+                        {desc}
+                        {getField(c, 'quantity', 'qty') > 1 && <span className="text-gray-400 ml-1">×{getField(c, 'quantity', 'qty')}</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs">{dept}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-red-600 dark:text-red-400">
+                        {debit > 0 ? fmtCurrency(debit) : ''}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                        {credit > 0 ? fmtCurrency(credit) : ''}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-gray-500 text-xs whitespace-nowrap">{fmtDate(date)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {(totalCharges > 0 || totalPayments > 0) && (
+                <tfoot>
+                  <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 font-semibold">
+                    <td colSpan={2} className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs uppercase">Total</td>
+                    <td className="px-4 py-3 text-right font-mono text-red-700 dark:text-red-300">{totalCharges > 0 ? fmtCurrency(totalCharges) : ''}</td>
+                    <td className="px-4 py-3 text-right font-mono text-emerald-700 dark:text-emerald-300">{totalPayments > 0 ? fmtCurrency(totalPayments) : ''}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
         </div>
       ) : (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700/50">
           <FileText className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">Extrato detalhado indisponível via API.</p>
+          <p className="text-sm text-gray-500 mb-1">Nenhum lançamento encontrado na conta.</p>
+          <p className="text-xs text-gray-400">Verifique o console para diagnóstico da API.</p>
         </div>
       )}
     </div>

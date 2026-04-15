@@ -868,7 +868,44 @@ export const erbonService = {
       headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
     });
     if (!res.ok) throw new Error(`Erro ao buscar contas a receber (${res.status})`);
-    return await res.json();
+    const data = await res.json();
+    console.log('[Erbon] AccountsReceivable raw (first 3):', JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
+    return Array.isArray(data) ? data : [];
+  },
+
+  /**
+   * Busca extrato/conta corrente de uma reserva específica.
+   * Tenta múltiplos endpoints comuns do Erbon PMS.
+   */
+  async fetchBookingAccount(hotelId: string, bookingId: number): Promise<any[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+
+    // Tenta endpoint de guest account / folio
+    const endpoints = [
+      `/hotel/${config.erbon_hotel_id}/sales/guestaccount/${bookingId}`,
+      `/hotel/${config.erbon_hotel_id}/booking/${bookingId}/account`,
+      `/hotel/${config.erbon_hotel_id}/sales/guestledger/${bookingId}`,
+      `/hotel/${config.erbon_hotel_id}/sales/folio/${bookingId}`,
+    ];
+
+    for (const path of endpoints) {
+      try {
+        const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+          headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          console.log(`[Erbon] BookingAccount OK from ${path}:`, JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
+          return Array.isArray(data) ? data : data ? [data] : [];
+        }
+        console.log(`[Erbon] BookingAccount ${path} → ${res.status}`);
+      } catch (e) {
+        console.log(`[Erbon] BookingAccount ${path} → error:`, e);
+      }
+    }
+    return [];
   },
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────
