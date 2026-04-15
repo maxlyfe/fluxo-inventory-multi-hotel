@@ -35,15 +35,39 @@ export async function detectSeason(hotelId: string): Promise<SeasonInfo> {
     const weekAhead = format(addDays(new Date(), 7), 'yyyy-MM-dd');
     const occupancyData = await erbonService.fetchOccupancyWithPension(hotelId, today, weekAhead);
 
+    console.log('[SeasonHelper] Occupancy raw data:', JSON.stringify(occupancyData?.slice(0, 2)));
+
     if (!occupancyData || occupancyData.length === 0) {
+      console.warn('[SeasonHelper] Nenhum dado de ocupação retornado');
       return { season: 'baixa', source: 'auto', occupancyAvg: 0, threshold };
     }
 
-    const avgOccupancy = occupancyData.reduce((sum, d) => sum + (d.occupancy || 0), 0) / occupancyData.length;
-    const season: Season = avgOccupancy > threshold ? 'alta' : 'baixa';
+    // occupancy pode vir como percentual (30 = 30%) ou decimal (0.30 = 30%)
+    // Também pode vir via roomSalledConfirmed / roomAvailable
+    let avgOccupancy: number;
 
-    return { season, source: 'auto', occupancyAvg: Math.round(avgOccupancy * 100) / 100, threshold };
-  } catch {
+    // Tenta calcular via quartos vendidos / disponíveis (mais confiável)
+    const hasRoomData = occupancyData.some(d => d.roomAvailable > 0);
+    if (hasRoomData) {
+      const totalSold = occupancyData.reduce((sum, d) => sum + (d.roomSalledConfirmed || 0), 0);
+      const totalAvailable = occupancyData.reduce((sum, d) => sum + (d.roomAvailable || 0), 0);
+      avgOccupancy = totalAvailable > 0 ? (totalSold / totalAvailable) * 100 : 0;
+      console.log(`[SeasonHelper] Via quartos: ${totalSold}/${totalAvailable} = ${avgOccupancy.toFixed(1)}%`);
+    } else {
+      // Fallback: usa campo occupancy direto
+      const rawAvg = occupancyData.reduce((sum, d) => sum + (d.occupancy || 0), 0) / occupancyData.length;
+      // Se todos os valores são <= 1, provavelmente é decimal (0.30 = 30%)
+      avgOccupancy = rawAvg <= 1 ? rawAvg * 100 : rawAvg;
+      console.log(`[SeasonHelper] Via campo occupancy: raw=${rawAvg}, normalizado=${avgOccupancy.toFixed(1)}%`);
+    }
+
+    const season: Season = avgOccupancy >= threshold ? 'alta' : 'baixa';
+    const roundedAvg = Math.round(avgOccupancy * 100) / 100;
+
+    console.log(`[SeasonHelper] Resultado: ${season} (${roundedAvg}% vs threshold ${threshold}%)`);
+    return { season, source: 'auto', occupancyAvg: roundedAvg, threshold };
+  } catch (err) {
+    console.error('[SeasonHelper] Erro ao detectar temporada:', err);
     return { season: 'baixa', source: 'auto', occupancyAvg: 0, threshold };
   }
 }
