@@ -25,6 +25,7 @@ import StockConferenceModal from '../components/StockConferenceModal';
 import StockCountHistoryModal from '../components/StockCountHistoryModal';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { UNIT_MEASURE_LABELS } from '../types/product';
 
 // --- ALTERAÇÃO: Adiciona a propriedade opcional 'is_starred' à interface do Produto ---
 // Isso permite que o TypeScript entenda o novo campo que vem do banco de dados.
@@ -45,6 +46,8 @@ interface Product {
   average_price?: number;
   is_active: boolean;
   is_starred?: boolean; // Campo para favoritar
+  unit_measure?: string;
+  product_type?: string;
 }
 
 const Inventory = () => {
@@ -81,6 +84,7 @@ const Inventory = () => {
   const [showStarredModal, setShowStarredModal] = useState(false);
   const [showConferenceModal, setShowConferenceModal] = useState(false);
   const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
+  const [selectedProductType, setSelectedProductType] = useState<string>('');
   const [barcodeFilterProductId, setBarcodeFilterProductId] = useState<string | null>(null);
   const [barcodeFilterCode, setBarcodeFilterCode] = useState('');
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
@@ -397,8 +401,9 @@ const Inventory = () => {
                          searchMatch(searchTerm, product.category || '') ||
                          searchMatch(searchTerm, product.supplier || '');
     const matchesCategory = !selectedCategory || product.category === selectedCategory;
+    const matchesProductType = !selectedProductType || product.product_type === selectedProductType;
     const matchesActiveStatus = showInactive || product.is_active;
-    return matchesSearch && matchesCategory && matchesActiveStatus;
+    return matchesSearch && matchesCategory && matchesProductType && matchesActiveStatus;
   });
 
   // Auto-busca por barcode quando texto não encontra nenhum produto (debounce 600ms)
@@ -521,6 +526,14 @@ const Inventory = () => {
               <select id="category-filter" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 py-2 text-sm"><option value="">Todas as Categorias</option>{categories.map((category) => (<option key={category} value={category}>{category}</option>))}</select>
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo</label>
+              <select value={selectedProductType} onChange={e => setSelectedProductType(e.target.value)} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 py-2 text-sm">
+                <option value="">Todos os Tipos</option>
+                <option value="controle">Controle</option>
+                <option value="consumo">Consumo</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
               <button onClick={() => setShowInactive(!showInactive)} className={`w-full flex items-center justify-center px-4 py-2 rounded-md transition-colors text-sm ${showInactive ? 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200' : 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'}`}>{showInactive ? <><EyeOff className="h-4 w-4 mr-1.5" />Mostrar Inativos</> : <><Eye className="h-4 w-4 mr-1.5" />Apenas Ativos</>}</button>
             </div>
@@ -589,10 +602,10 @@ const Inventory = () => {
                         <div className="ml-3"><div className="text-sm font-medium text-gray-900 dark:text-gray-200 truncate" title={product.name}>{product.name}</div>{product.description && (<div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={product.description}>{product.description}</div>)}</div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-center"><span className={`font-medium ${product.quantity <= product.min_quantity && product.is_active ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-900 dark:text-gray-200'}`}>{product.quantity}</span></td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-center"><span className={`font-medium ${product.quantity <= product.min_quantity && product.is_active ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-900 dark:text-gray-200'}`}>{product.quantity}{product.unit_measure && product.unit_measure !== 'und' && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">{UNIT_MEASURE_LABELS[product.unit_measure] || product.unit_measure}</span>}</span></td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">{product.min_quantity}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">{product.max_quantity}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{product.category}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{product.category}{product.product_type === 'controle' && <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200">CONTROLE</span>}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-center">
                       <button onClick={() => toggleActiveStatus(product.id, product.name, product.is_active)} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${product.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/70' : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-900/70'}`} title={product.is_active ? 'Clique para inativar' : 'Clique para ativar'}>{product.is_active ? <><Eye className="h-3 w-3 mr-1" />Ativo</> : <><EyeOff className="h-3 w-3 mr-1" />Inativo</>}</button>
                     </td>

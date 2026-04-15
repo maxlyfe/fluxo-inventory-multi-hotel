@@ -70,7 +70,8 @@ export interface ErbonTransaction {
 export interface ErbonProductMapping {
   id: string;
   hotel_id: string;
-  product_id: string;
+  product_id: string | null;
+  dish_id?: string | null;
   erbon_service_id: number;
   erbon_service_description: string | null;
 }
@@ -600,13 +601,14 @@ export const erbonService = {
 
   async saveProductMapping(mapping: {
     hotel_id: string;
-    product_id: string;
+    product_id?: string | null;
+    dish_id?: string | null;
     erbon_service_id: number;
     erbon_service_description?: string;
   }): Promise<void> {
     const { error } = await supabase
       .from('erbon_product_mappings')
-      .upsert(mapping, { onConflict: 'hotel_id,product_id' });
+      .upsert(mapping, { onConflict: 'hotel_id,erbon_service_id' });
     if (error) throw error;
   },
 

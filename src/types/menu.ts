@@ -6,12 +6,16 @@ export interface Ingredient {
   unit: UnitType;
   price_per_unit: number;
   created_at: string;
+  // Fase 3: Vínculo a produto e multi-hotel
+  product_id?: string | null;
+  hotel_id?: string | null;
 }
 
 export interface Side {
   id: string;
   name: string;
   created_at: string;
+  hotel_id?: string | null;
 }
 
 export interface SideIngredient {
@@ -26,6 +30,8 @@ export interface Dish {
   id: string;
   name: string;
   created_at: string;
+  hotel_id?: string | null;
+  production_sector_id?: string | null;
 }
 
 export interface DishIngredient {

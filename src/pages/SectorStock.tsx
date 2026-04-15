@@ -21,6 +21,8 @@ import StockConferenceModal from '../components/StockConferenceModal';
 import StockCountHistoryModal from '../components/StockCountHistoryModal';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { processErbonSalesDeductions, type DeductionResult } from '../lib/erbonStockDeductionService';
+import { detectSeason, getApplicableMinMax, type Season, type SeasonInfo } from '../lib/seasonHelper';
 
 // Interfaces permanecem as mesmas
 interface Product {
@@ -37,6 +39,10 @@ interface Product {
   is_active: boolean;
   is_portionable?: boolean;
   is_portion?: boolean;
+  min_quantity_low?: number | null;
+  max_quantity_low?: number | null;
+  min_quantity_high?: number | null;
+  max_quantity_high?: number | null;
 }
 
 interface StockBalance {
@@ -135,6 +141,12 @@ const SectorStock = () => {
   const [barcodeFilterCode, setBarcodeFilterCode] = useState('');
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
 
+  const [showSalesDeductionModal, setShowSalesDeductionModal] = useState(false);
+  const [salesDeductionDate, setSalesDeductionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [salesDeductionLoading, setSalesDeductionLoading] = useState(false);
+  const [salesDeductionResult, setSalesDeductionResult] = useState<DeductionResult | null>(null);
+  const [seasonInfo, setSeasonInfo] = useState<SeasonInfo | null>(null);
+
   // Busca produto por código de barras
   const searchByBarcode = useCallback(async (barcode: string) => {
     const { data } = await supabase
@@ -215,7 +227,7 @@ const SectorStock = () => {
 
       const { data: stockData, error: stockError } = await supabase
         .from('sector_stock')
-        .select(`*, products!inner(id, name, category, image_url, description, is_active, is_portionable, is_portion, min_quantity, max_quantity)`) // Adicionado min/max quantity
+        .select(`*, products!inner(id, name, category, image_url, description, is_active, is_portionable, is_portion, min_quantity, max_quantity, min_quantity_low, max_quantity_low, min_quantity_high, max_quantity_high)`) // Adicionado min/max quantity + seasonal
         .eq('sector_id', sectorId)
         .eq('hotel_id', selectedHotel.id);
       
@@ -226,8 +238,13 @@ const SectorStock = () => {
         quantity: item.quantity,
         min_quantity: item.products.min_quantity, // Corrigido para pegar do produto
         max_quantity: item.products.max_quantity, // Corrigido para pegar do produto
+        min_quantity_low: item.products.min_quantity_low,
+        max_quantity_low: item.products.max_quantity_low,
+        min_quantity_high: item.products.min_quantity_high,
+        max_quantity_high: item.products.max_quantity_high,
       })) || [];
       setProducts(processedStock.sort((a, b) => a.name.localeCompare(b.name)));
+      detectSeason(selectedHotel.id).then(setSeasonInfo).catch(() => {});
     } catch (err: any) {
       setError('Erro ao carregar dados: ' + err.message);
       console.error(err);
@@ -970,7 +987,21 @@ const SectorStock = () => {
         <button onClick={() => navigate(-1)} className="flex items-center text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 self-start sm:self-center">
           <ArrowLeft size={20} className="mr-1" /> Voltar
         </button>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center flex-grow">Estoque: {sector.name}</h1>
+        <div className="text-center flex-grow">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">Estoque: {sector.name}</h1>
+          {seasonInfo && (
+            <span className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+              seasonInfo.season === 'alta'
+                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400'
+                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+            }`}>
+              {seasonInfo.season === 'alta' ? '\u2600\uFE0F' : '\u2744\uFE0F'} Temporada {seasonInfo.season}
+              {seasonInfo.source === 'auto' && seasonInfo.occupancyAvg != null && (
+                <span className="font-normal ml-1">({seasonInfo.occupancyAvg}% ocup.)</span>
+              )}
+            </span>
+          )}
+        </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
           <button 
             onClick={() => setShowAddInventoryItemModal(true)}
@@ -1001,6 +1032,12 @@ const SectorStock = () => {
             className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-gray-600 hover:bg-gray-700 text-white transition-colors"
           >
             <History size={18} className="mr-2"/> Histórico Conf.
+          </button>
+          <button
+            onClick={() => { setSalesDeductionResult(null); setShowSalesDeductionModal(true); }}
+            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white transition-colors"
+          >
+            <ArrowDownLeft size={18} className="mr-2"/> Atualizar Vendas
           </button>
           <button 
             onClick={() => setIsBalancing(prev => !prev ? (startBalanceProcess(), true) : false)}
@@ -1207,12 +1244,24 @@ const SectorStock = () => {
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1 truncate" title={product.name}>{product.name}</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full self-start mb-2">{product.category}</p>
               <div className="mt-auto">
-                <p className={`text-2xl font-bold mb-2 ${product.quantity < product.min_quantity ? 'text-red-500 dark:text-red-400' : (product.quantity > product.max_quantity ? 'text-yellow-500 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-200')}`}>
-                  {product.quantity}
-                </p>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  <span>Min: {product.min_quantity} / Max: {product.max_quantity}</span>
-                </div>
+                {(() => {
+                  const { min, max } = seasonInfo
+                    ? getApplicableMinMax(product, seasonInfo.season)
+                    : { min: product.min_quantity, max: product.max_quantity };
+                  const belowMin = product.quantity < min;
+                  const aboveMax = product.quantity > max;
+                  return (
+                    <>
+                      <p className={`text-2xl font-bold mb-2 ${belowMin ? 'text-red-500 dark:text-red-400' : (aboveMax ? 'text-yellow-500 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-200')}`}>
+                        {product.quantity}
+                        {belowMin && <AlertTriangle size={16} className="inline ml-1 mb-1 text-red-500 dark:text-red-400" />}
+                      </p>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        <span>Min: {min} / Max: {max}</span>
+                      </div>
+                    </>
+                  );
+                })()}
                 {/* --- ALTERAÇÃO: Botões de ação atualizados --- */}
                 <div className="flex items-center space-x-2">
                     <button 
@@ -1505,6 +1554,106 @@ const SectorStock = () => {
         sectorId={sectorId}
         onReopened={fetchSectorAndStockData}
       />
+
+      {/* Modal de baixa de vendas (Erbon) */}
+      <Modal isOpen={showSalesDeductionModal} onClose={() => setShowSalesDeductionModal(false)} title="Atualizar Vendas (Baixa Erbon)">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data das vendas</label>
+            <input
+              type="date"
+              value={salesDeductionDate}
+              onChange={(e) => setSalesDeductionDate(e.target.value)}
+              className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+          </div>
+          <button
+            onClick={async () => {
+              if (!selectedHotel?.id) return;
+              setSalesDeductionLoading(true);
+              try {
+                const res = await processErbonSalesDeductions(
+                  selectedHotel.id,
+                  salesDeductionDate,
+                  salesDeductionDate,
+                  user?.email || 'unknown'
+                );
+                setSalesDeductionResult(res);
+                if (res.processed > 0) {
+                  addNotification(`${res.processed} baixa(s) processada(s) com sucesso.`, 'success');
+                  fetchSectorAndStockData();
+                } else {
+                  addNotification('Nenhuma baixa a processar para esta data.', 'info');
+                }
+              } catch (err: any) {
+                addNotification('Erro ao processar baixas: ' + err.message, 'error');
+              } finally {
+                setSalesDeductionLoading(false);
+              }
+            }}
+            disabled={salesDeductionLoading}
+            className="w-full px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-md text-sm font-medium flex items-center justify-center disabled:opacity-50"
+          >
+            {salesDeductionLoading && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
+            Processar Baixas
+          </button>
+
+          {salesDeductionResult && (
+            <div className="space-y-3">
+              <div className="flex gap-4 text-sm">
+                <span className="px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded">
+                  Processados: {salesDeductionResult.processed}
+                </span>
+                <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
+                  Ignorados: {salesDeductionResult.skipped}
+                </span>
+                {salesDeductionResult.errors.length > 0 && (
+                  <span className="px-2 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 rounded">
+                    Erros: {salesDeductionResult.errors.length}
+                  </span>
+                )}
+              </div>
+              {salesDeductionResult.errors.length > 0 && (
+                <div className="text-xs text-red-600 dark:text-red-400 space-y-1">
+                  {salesDeductionResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                </div>
+              )}
+              {salesDeductionResult.details.length > 0 && (
+                <div className="max-h-60 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2">Produto</th>
+                        <th className="text-left p-2">Setor</th>
+                        <th className="text-right p-2">Qtd</th>
+                        <th className="text-left p-2">Tipo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                      {salesDeductionResult.details.map((d, i) => (
+                        <tr key={i}>
+                          <td className="p-2 text-gray-800 dark:text-gray-200">{d.product_name}</td>
+                          <td className="p-2 text-gray-600 dark:text-gray-400">{d.sector_name}</td>
+                          <td className="p-2 text-right text-gray-800 dark:text-gray-200">{d.quantity}</td>
+                          <td className="p-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              d.type === 'direct'
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+                                : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400'
+                            }`}>
+                              {d.type === 'direct' ? 'Direto' : 'Decomposto'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
       {showConfirmDelete && productToDelete && (
         <Modal isOpen={showConfirmDelete} onClose={() => setShowConfirmDelete(false)} title="Confirmar Remoção">
           <div className="text-center">
