@@ -227,21 +227,21 @@ const SectorStock = () => {
 
       const { data: stockData, error: stockError } = await supabase
         .from('sector_stock')
-        .select(`*, products!inner(id, name, category, image_url, description, is_active, is_portionable, is_portion, min_quantity, max_quantity, min_quantity_low, max_quantity_low, min_quantity_high, max_quantity_high)`) // Adicionado min/max quantity + seasonal
+        .select(`*, products!inner(id, name, category, image_url, description, is_active, is_portionable, is_portion)`)
         .eq('sector_id', sectorId)
         .eq('hotel_id', selectedHotel.id);
-      
+
       if (stockError) throw stockError;
 
       const processedStock = stockData?.map((item: any) => ({
         ...item.products,
         quantity: item.quantity,
-        min_quantity: item.products.min_quantity, // Corrigido para pegar do produto
-        max_quantity: item.products.max_quantity, // Corrigido para pegar do produto
-        min_quantity_low: item.products.min_quantity_low,
-        max_quantity_low: item.products.max_quantity_low,
-        min_quantity_high: item.products.min_quantity_high,
-        max_quantity_high: item.products.max_quantity_high,
+        min_quantity: item.min_quantity,         // do sector_stock (por setor)
+        max_quantity: item.max_quantity,         // do sector_stock (por setor)
+        min_quantity_low: item.min_quantity_low,
+        max_quantity_low: item.max_quantity_low,
+        min_quantity_high: item.min_quantity_high,
+        max_quantity_high: item.max_quantity_high,
       })) || [];
       setProducts(processedStock.sort((a, b) => a.name.localeCompare(b.name)));
       detectSeason(selectedHotel.id).then(setSeasonInfo).catch(() => {});
