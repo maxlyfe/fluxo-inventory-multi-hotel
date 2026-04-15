@@ -785,8 +785,8 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
                     <p className="text-[11px] font-bold text-gray-400">{DAY_LABELS[i]}</p>
                     <p className="text-[11px] font-bold mt-0.5 leading-tight">
                       {works
-                        ? <span className="text-gray-700 dark:text-gray-200 block">{shiftStart}<br/>AS<br/>{shiftEnd}</span>
-                        : <span className="text-green-600 dark:text-green-400">FOLGA</span>
+                        ? <span key="work" className="text-gray-700 dark:text-gray-200 block">{shiftStart}<br/>AS<br/>{shiftEnd}</span>
+                        : <span key="off" className="text-green-600 dark:text-green-400">FOLGA</span>
                       }
                     </p>
                   </div>
