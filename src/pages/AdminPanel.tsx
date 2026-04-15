@@ -5,6 +5,7 @@ import {
   Package, ArrowLeft, Plus, Search, Grid, List, AlertTriangle, 
   ShoppingCart, X, Check, Clock, ChevronDown, ChevronUp, ImageIcon,
   ArrowLeftRight,
+  Zap, Loader2,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { startOfWeek, endOfWeek, format, parseISO } from 'date-fns';
@@ -16,6 +17,7 @@ import Modal from '../components/Modal';
 import { notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
 import DirectDeliveryModal from '../components/DirectDeliveryModal';
 import { searchMatch } from '../utils/search';
+import { generateRequisitionPreview, commitRequisitions, type RequisitionPreviewItem } from '../lib/autoRequisitionService';
 
 export interface Product {
   id: string;
@@ -120,6 +122,12 @@ const AdminPanel = () => {
 
   const [showHistorySearch, setShowHistorySearch] = useState(false);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
+
+  const [showAutoReqModal, setShowAutoReqModal] = useState(false);
+  const [autoReqPreview, setAutoReqPreview] = useState<RequisitionPreviewItem[]>([]);
+  const [autoReqLoading, setAutoReqLoading] = useState(false);
+  const [autoReqSectorFilter, setAutoReqSectorFilter] = useState<string>('');
+  const [autoReqCommitting, setAutoReqCommitting] = useState(false);
 
 
   const fetchPendingRequestsInternal = useCallback(async (isInitialLoad = false) => {
@@ -893,13 +901,36 @@ const AdminPanel = () => {
         <h1 className="text-xl md:text-3xl font-bold text-gray-800 dark:text-white text-center flex-1">
           Painel de Requisições - {selectedHotel.name}
         </h1>
-        <button
-          onClick={() => setShowDirectDeliveryModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <Package className="w-5 h-5" />
-          <span className="hidden sm:inline">Entrega Direta</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              if (!selectedHotel?.id) return;
+              setAutoReqLoading(true);
+              setAutoReqPreview([]);
+              setAutoReqSectorFilter('');
+              setShowAutoReqModal(true);
+              try {
+                const preview = await generateRequisitionPreview(selectedHotel.id);
+                setAutoReqPreview(preview);
+              } catch (err: any) {
+                addNotification('Erro ao gerar preview: ' + err.message, 'error');
+              } finally {
+                setAutoReqLoading(false);
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg shadow-md hover:bg-amber-700 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
+          >
+            <Zap className="w-5 h-5" />
+            <span className="hidden sm:inline">Auto Requisicoes</span>
+          </button>
+          <button
+            onClick={() => setShowDirectDeliveryModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <Package className="w-5 h-5" />
+            <span className="hidden sm:inline">Entrega Direta</span>
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -1100,6 +1131,140 @@ const AdminPanel = () => {
       {showDeliveryModal && selectedRequest && ( <Modal isOpen={showDeliveryModal} onClose={() => { setShowDeliveryModal(false); setSelectedRequest(null); setDeliveryQuantityInput(''); }} title="Entregar Item" > <div className="space-y-4"> <p className="text-gray-700 dark:text-gray-300">Entregar: <strong>{selectedRequest.item_name}</strong></p> <div> <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Quantidade a entregar (original: {selectedRequest.quantity})</label> <input type="number" min="0.1" step="0.01" value={deliveryQuantityInput} onChange={(e) => setDeliveryQuantityInput(e.target.value)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" /> </div> <div className="flex space-x-3"> <button onClick={() => { setShowDeliveryModal(false); setSelectedRequest(null); setDeliveryQuantityInput(''); }} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" > Cancelar </button> <button onClick={handleConfirmDelivery} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"> Entregar </button> </div> </div> </Modal> )}
       {showRejectModal && selectedRequest && ( <Modal isOpen={showRejectModal} onClose={() => { setShowRejectModal(false); setSelectedRequest(null); setRejectReasonInput(''); }} title="Rejeitar Item" > <div className="space-y-4"> <p className="text-gray-700 dark:text-gray-300">Rejeitar: <strong>{selectedRequest.item_name}</strong></p> <div> <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Motivo da rejeição</label> <textarea value={rejectReasonInput} onChange={(e) => setRejectReasonInput(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="Digite o motivo da rejeição..." /> </div> <div className="flex space-x-3"> <button onClick={() => { setShowRejectModal(false); setSelectedRequest(null); setRejectReasonInput(''); }} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" > Cancelar </button> <button onClick={handleConfirmRejection} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"> Rejeitar </button> </div> </div> </Modal> )}
       {showDirectDeliveryModal && ( <DirectDeliveryModal isOpen={showDirectDeliveryModal} onClose={() => setShowDirectDeliveryModal(false)} products={availableProducts} sectors={allSectors} onConfirm={handleConfirmDirectDelivery} /> )}
+
+      {/* Modal de Auto Requisicoes */}
+      <Modal isOpen={showAutoReqModal} onClose={() => setShowAutoReqModal(false)} title="Auto Requisicoes">
+        <div className="space-y-4">
+          {autoReqLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="animate-spin w-8 h-8 text-amber-600" />
+              <span className="ml-3 text-gray-600 dark:text-gray-300">Analisando estoques...</span>
+            </div>
+          ) : autoReqPreview.length === 0 ? (
+            <div className="text-center py-8">
+              <Check className="mx-auto w-12 h-12 text-green-500" />
+              <p className="mt-3 text-gray-700 dark:text-gray-300 font-medium">Todos os itens estao acima do minimo!</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Nenhuma requisicao necessaria no momento.</p>
+            </div>
+          ) : (
+            <>
+              {/* Filtro por setor */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filtrar por setor</label>
+                <select
+                  value={autoReqSectorFilter}
+                  onChange={(e) => setAutoReqSectorFilter(e.target.value)}
+                  className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                >
+                  <option value="">Todos os setores</option>
+                  {[...new Set(autoReqPreview.map(i => i.sector_id))].map(sid => {
+                    const s = autoReqPreview.find(i => i.sector_id === sid);
+                    return <option key={sid} value={sid}>{s?.sector_name}</option>;
+                  })}
+                </select>
+              </div>
+
+              {/* Tabela */}
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left">
+                        <input
+                          type="checkbox"
+                          checked={autoReqPreview
+                            .filter(i => !autoReqSectorFilter || i.sector_id === autoReqSectorFilter)
+                            .every(i => i.included)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setAutoReqPreview(prev => prev.map(i =>
+                              (!autoReqSectorFilter || i.sector_id === autoReqSectorFilter)
+                                ? { ...i, included: checked }
+                                : i
+                            ));
+                          }}
+                          className="rounded"
+                        />
+                      </th>
+                      <th className="p-2 text-left text-gray-600 dark:text-gray-300">Setor</th>
+                      <th className="p-2 text-left text-gray-600 dark:text-gray-300">Produto</th>
+                      <th className="p-2 text-right text-gray-600 dark:text-gray-300">Atual</th>
+                      <th className="p-2 text-right text-gray-600 dark:text-gray-300">Min</th>
+                      <th className="p-2 text-right text-gray-600 dark:text-gray-300">Sugestao</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                    {autoReqPreview
+                      .filter(i => !autoReqSectorFilter || i.sector_id === autoReqSectorFilter)
+                      .map((item, idx) => (
+                        <tr key={`${item.sector_id}-${item.product_id}`} className={item.included ? '' : 'opacity-50'}>
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={item.included}
+                              onChange={(e) => {
+                                setAutoReqPreview(prev => prev.map(i =>
+                                  i.sector_id === item.sector_id && i.product_id === item.product_id
+                                    ? { ...i, included: e.target.checked }
+                                    : i
+                                ));
+                              }}
+                              className="rounded"
+                            />
+                          </td>
+                          <td className="p-2 text-gray-800 dark:text-gray-200">{item.sector_name}</td>
+                          <td className="p-2 text-gray-800 dark:text-gray-200">{item.product_name}</td>
+                          <td className="p-2 text-right text-gray-600 dark:text-gray-400">{item.current_quantity}</td>
+                          <td className="p-2 text-right text-gray-600 dark:text-gray-400">{item.applicable_min}</td>
+                          <td className="p-2 text-right">
+                            <input
+                              type="number"
+                              min={0}
+                              value={item.suggested_quantity}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setAutoReqPreview(prev => prev.map(i =>
+                                  i.sector_id === item.sector_id && i.product_id === item.product_id
+                                    ? { ...i, suggested_quantity: val }
+                                    : i
+                                ));
+                              }}
+                              className="w-20 p-1 border rounded-md text-right dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={async () => {
+                    if (!selectedHotel?.id) return;
+                    setAutoReqCommitting(true);
+                    try {
+                      const count = await commitRequisitions(selectedHotel.id, autoReqPreview);
+                      addNotification(`${count} requisicao(oes) gerada(s) com sucesso!`, 'success');
+                      setShowAutoReqModal(false);
+                      fetchPendingRequestsInternal();
+                    } catch (err: any) {
+                      addNotification('Erro ao gerar requisicoes: ' + err.message, 'error');
+                    } finally {
+                      setAutoReqCommitting(false);
+                    }
+                  }}
+                  disabled={autoReqCommitting || !autoReqPreview.some(i => i.included && i.suggested_quantity > 0)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-sm font-medium flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {autoReqCommitting && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
+                  Gerar Requisicoes
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

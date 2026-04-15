@@ -16,7 +16,7 @@ import {
   LayoutGrid, Link2, MessageSquare,
   Settings as SettingsIcon, Package, Shield, ShieldAlert,
   GraduationCap, Stethoscope, Briefcase, Target,
-  Home, Calendar, Shirt, Sparkles, Clock,
+  Home, Calendar, Shirt, Sparkles, Clock, History,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -91,11 +91,12 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Compras',
     icon: ShoppingCart,
     module: 'purchases',
-    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin/supplier-contacts', '/admin', '/purchases/tech-sheets'],
+    activePrefixes: ['/purchases', '/budget-history', '/budget/', '/authorizations', '/shopping-list', '/admin/supplier-contacts', '/admin', '/purchases/tech-sheets', '/purchases/history'],
     items: [
       { module: 'authorizations', label: 'Orçamentos',   href: '/budget-history',            icon: FileText,     color: '#6366f1' },
       { module: 'authorizations', label: 'Autorizações',  href: '/authorizations',            icon: CreditCard,   color: '#14b8a6' },
       { module: 'purchases',      label: 'Compras',       href: '/purchases',                 icon: ShoppingCart,  color: '#f59e0b' },
+      { module: 'purchases',      label: 'Histórico',     href: '/purchases/history',         icon: History,       color: '#a855f7' },
       { module: '__contacts__',   label: 'Contatos',      href: '/admin/supplier-contacts',   icon: Phone,         color: '#10b981' },
       { module: 'stock',          label: 'Requisições',   href: '/admin',                     icon: ClipboardList, color: '#3b82f6' },
       { module: 'purchases',      label: 'Fichas Técnicas', href: '/purchases/tech-sheets',   icon: FileText,      color: '#ec4899' },

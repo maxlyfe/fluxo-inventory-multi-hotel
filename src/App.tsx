@@ -21,6 +21,7 @@ import SectorStock           from './pages/SectorStock';
 import NewPurchase           from './pages/NewPurchase';
 import PurchaseOrders        from './pages/PurchaseOrders';
 import MenuTechSheet         from './pages/MenuTechSheet';
+import PurchaseHistory       from './pages/PurchaseHistory';
 import NewPurchaseList       from './pages/NewPurchaseList';
 import OnlinePurchaseList    from './pages/OnlinePurchaseList';
 import BudgetHistory         from './pages/BudgetHistory';
@@ -395,6 +396,12 @@ function App() {
                     <Route path="/purchases/tech-sheets" element={
                       <PrivateRoute module="purchases">
                         <MenuTechSheet />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/purchases/history" element={
+                      <PrivateRoute module="purchases">
+                        <PurchaseHistory />
                       </PrivateRoute>
                     } />
 

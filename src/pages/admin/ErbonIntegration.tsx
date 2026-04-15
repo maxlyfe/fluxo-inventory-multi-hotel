@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   ChevronDown,
+  ChefHat,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { supabase } from '../../lib/supabase';
@@ -48,7 +49,12 @@ const labelCls = 'block text-xs font-bold text-gray-500 dark:text-gray-400 upper
 const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed';
 const btnDanger = 'p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors';
 
-type TabId = 'config' | 'products' | 'sectors';
+type TabId = 'config' | 'products' | 'dishes' | 'sectors';
+
+interface FluxoDish {
+  id: string;
+  name: string;
+}
 
 // ── Searchable Select ───────────────────────────────────────────────────────
 
@@ -165,6 +171,12 @@ const ErbonIntegration: React.FC = () => {
   const [sectorMappings, setSectorMappings] = useState<ErbonSectorMapping[]>([]);
   const [loadingSectors, setLoadingSectors] = useState(false);
 
+  // ── Dishes mapping state ───────────────────────────────────────────────
+  const [fluxoDishes, setFluxoDishes] = useState<FluxoDish[]>([]);
+  const [dishSearch, setDishSearch] = useState('');
+  const [seasonMode, setSeasonMode] = useState('auto');
+  const [seasonThreshold, setSeasonThreshold] = useState('40');
+
   // ── Init ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -173,6 +185,7 @@ const ErbonIntegration: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'products' && config?.is_active) loadProductMappings();
+    if (activeTab === 'dishes' && config?.is_active) loadDishMappings();
     if (activeTab === 'sectors' && config?.is_active) loadSectorMappings();
   }, [activeTab, config]);
 
@@ -206,6 +219,16 @@ const ErbonIntegration: React.FC = () => {
           erbon_base_url: cfg.erbon_base_url,
           is_active: cfg.is_active,
         });
+
+        const { data: seasonData } = await supabase
+          .from('erbon_hotel_config')
+          .select('season_mode, high_season_occupancy_threshold')
+          .eq('hotel_id', selectedHotel!.id)
+          .single();
+        if (seasonData) {
+          setSeasonMode(seasonData.season_mode || 'auto');
+          setSeasonThreshold(String(seasonData.high_season_occupancy_threshold ?? 40));
+        }
       }
     } catch (err: any) {
       setError(err.message);
@@ -307,6 +330,40 @@ const ErbonIntegration: React.FC = () => {
     }
   };
 
+  // ── Dish Mappings ───────────────────────────────────────────────────────
+
+  const loadDishMappings = async () => {
+    try {
+      const [mappings, dishesRes] = await Promise.all([
+        erbonService.getProductMappings(selectedHotel!.id),
+        supabase.from('dishes').select('id, name').or(`hotel_id.eq.${selectedHotel!.id},hotel_id.is.null`).order('name'),
+      ]);
+      setProductMappings(mappings);
+      setFluxoDishes(dishesRes.data || []);
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleMapDish = async (dishId: string, erbonProduct: ErbonProduct) => {
+    try {
+      await erbonService.saveProductMapping({
+        hotel_id: selectedHotel!.id, dish_id: dishId,
+        erbon_service_id: erbonProduct.id, erbon_service_description: erbonProduct.description,
+      });
+      await loadDishMappings();
+      setSuccess(`Prato mapeado: ${erbonProduct.description}`);
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleSaveSeasonConfig = async () => {
+    try {
+      const threshold = parseFloat(seasonThreshold.replace(',', '.')) || 40;
+      await supabase.from('erbon_hotel_config').update({
+        season_mode: seasonMode, high_season_occupancy_threshold: threshold,
+      }).eq('hotel_id', selectedHotel!.id);
+      setSuccess('Configuracao sazonal salva!');
+    } catch (err: any) { setError(err.message); }
+  };
+
   // ── Sector Mappings ─────────────────────────────────────────────────────
 
   const loadSectorMappings = async () => {
@@ -366,6 +423,7 @@ const ErbonIntegration: React.FC = () => {
   const tabs: { id: TabId; label: string; icon: React.FC<any>; disabled?: boolean }[] = [
     { id: 'config', label: 'Configuração', icon: Settings },
     { id: 'products', label: 'Produtos', icon: Package, disabled: !config?.is_active },
+    { id: 'dishes', label: 'Pratos', icon: ChefHat, disabled: !config?.is_active },
     { id: 'sectors', label: 'Setores', icon: Utensils, disabled: !config?.is_active },
   ];
 
@@ -551,6 +609,33 @@ const ErbonIntegration: React.FC = () => {
                   Última sincronização: {new Date(config.last_sync_at).toLocaleString('pt-BR')}
                 </p>
               )}
+
+              {config && (
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-6 mt-6">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Configuração Sazonal</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Modo de Temporada</label>
+                      <select value={seasonMode} onChange={e => setSeasonMode(e.target.value)} className={inputCls}>
+                        <option value="auto">Automático (baseado em ocupação)</option>
+                        <option value="alta">Sempre Alta Temporada</option>
+                        <option value="baixa">Sempre Baixa Temporada</option>
+                      </select>
+                    </div>
+                    {seasonMode === 'auto' && (
+                      <div>
+                        <label className={labelCls}>Threshold de Ocupação (%)</label>
+                        <input type="text" inputMode="decimal" value={seasonThreshold}
+                          onChange={e => setSeasonThreshold(e.target.value)} placeholder="40" className={inputCls} />
+                        <p className="text-xs text-gray-400 mt-1">Acima deste % = alta temporada</p>
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={handleSaveSeasonConfig} className={btnPrimary + ' mt-4'}>
+                    <Settings className="w-4 h-4" /> Salvar Config. Sazonal
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -664,6 +749,115 @@ const ErbonIntegration: React.FC = () => {
               {erbonProducts.length === 0 && (
                 <div className="text-center py-12 text-gray-400">
                   <Package className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                  <p>Clique em "Carregar Produtos Erbon" para ver os produtos disponíveis.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════ TAB: PRATOS ══════════════ */}
+          {activeTab === 'dishes' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Mapeamento de Pratos (Baixa Decomposta)
+                </h3>
+                <button
+                  onClick={loadErbonProducts}
+                  disabled={loadingProducts}
+                  className={btnPrimary}
+                >
+                  {loadingProducts ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Carregar Produtos Erbon
+                </button>
+              </div>
+
+              {/* Mapeamentos de pratos existentes */}
+              {productMappings.filter(m => m.dish_id).length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">
+                    Mapeamentos de Pratos Ativos ({productMappings.filter(m => m.dish_id).length})
+                  </h4>
+                  <div className="space-y-2">
+                    {productMappings.filter(m => m.dish_id).map(mapping => {
+                      const dish = fluxoDishes.find(d => d.id === mapping.dish_id);
+                      return (
+                        <div
+                          key={mapping.id}
+                          className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800 rounded-lg"
+                        >
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              {dish?.name || mapping.dish_id}
+                            </span>
+                            <span className="text-gray-400">&harr;</span>
+                            <span className="text-sm text-purple-700 dark:text-purple-400">
+                              {mapping.erbon_service_description} (ID: {mapping.erbon_service_id})
+                            </span>
+                          </div>
+                          <button onClick={() => handleDeleteProductMapping(mapping.id)} className={btnDanger}>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Criar novo mapeamento de prato */}
+              {erbonProducts.length > 0 && fluxoDishes.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">
+                    Criar Novo Mapeamento de Prato
+                  </h4>
+
+                  {/* Search */}
+                  <div className="mb-3 relative">
+                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={dishSearch}
+                      onChange={e => setDishSearch(e.target.value)}
+                      placeholder="Buscar produto Erbon..."
+                      className={inputCls + ' pl-9'}
+                    />
+                  </div>
+
+                  <div className="grid gap-2 max-h-96 overflow-y-auto">
+                    {(dishSearch
+                      ? erbonProducts.filter(p =>
+                          p.description.toLowerCase().includes(dishSearch.toLowerCase()) ||
+                          p.code.toLowerCase().includes(dishSearch.toLowerCase())
+                        )
+                      : erbonProducts
+                    ).filter(p => !productMappings.some(m => m.dish_id && m.erbon_service_id === p.id)).map(erbonProd => (
+                      <div
+                        key={erbonProd.id}
+                        className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {erbonProd.description}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {erbonProd.stocksGroupDescription} &middot; {erbonProd.mensureUnite} &middot; R${erbonProd.priceSale?.toFixed(2)}
+                          </p>
+                        </div>
+                        <SearchableSelect
+                          placeholder="Vincular a prato..."
+                          onSelect={value => handleMapDish(value, erbonProd)}
+                          options={fluxoDishes.map(d => ({ value: d.id, label: d.name }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {erbonProducts.length === 0 && (
+                <div className="text-center py-12 text-gray-400">
+                  <ChefHat className="w-12 h-12 mx-auto mb-3 opacity-40" />
                   <p>Clique em "Carregar Produtos Erbon" para ver os produtos disponíveis.</p>
                 </div>
               )}

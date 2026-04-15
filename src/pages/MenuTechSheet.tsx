@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useHotel } from '../context/HotelContext';
+import { useNotification } from '../context/NotificationContext';
 import type { Ingredient, UnitType, Side, SideIngredient, Dish, DishIngredient, DishSide } from '../types/menu';
+import type { Product } from '../types/product';
 
 // ─── Cost calculation helpers ─────────────────────────────────────────────────
 
@@ -57,7 +60,17 @@ const TABS: { key: TabKey; label: string }[] = [
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function MenuTechSheet() {
+  const { selectedHotel } = useHotel();
+  const hotelId = selectedHotel?.id || '';
   const [activeTab, setActiveTab] = useState<TabKey>('ingredients');
+
+  if (!selectedHotel) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-gray-500 dark:text-gray-400 text-lg">Selecione um hotel para gerenciar fichas técnicas.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -86,9 +99,9 @@ export default function MenuTechSheet() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'ingredients' && <IngredientsTab />}
-      {activeTab === 'sides' && <SidesTab />}
-      {activeTab === 'dishes' && <DishesTab />}
+      {activeTab === 'ingredients' && <IngredientsTab hotelId={hotelId} />}
+      {activeTab === 'sides' && <SidesTab hotelId={hotelId} />}
+      {activeTab === 'dishes' && <DishesTab hotelId={hotelId} />}
     </div>
   );
 }
@@ -97,20 +110,30 @@ export default function MenuTechSheet() {
 // INGREDIENTS TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function IngredientsTab() {
+function IngredientsTab({ hotelId }: { hotelId: string }) {
+  const { addNotification } = useNotification();
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [filtered, setFiltered] = useState<Ingredient[]>([]);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', unit: 'g' as UnitType, price_per_unit: '' });
+  const [products, setProducts] = useState<Product[]>([]);
+  const [showProductSearch, setShowProductSearch] = useState(false);
+  const [linkingIngredientId, setLinkingIngredientId] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState('');
 
   const loadIngredients = useCallback(async () => {
-    const { data } = await supabase.from('ingredients').select('*').order('name');
+    const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
     setIngredients(data || []);
-  }, []);
+  }, [hotelId]);
 
-  useEffect(() => { loadIngredients(); }, [loadIngredients]);
+  const loadProducts = useCallback(async () => {
+    const { data } = await supabase.from('products').select('id, name, average_price').eq('hotel_id', hotelId).eq('is_active', true).order('name');
+    setProducts(data || []);
+  }, [hotelId]);
+
+  useEffect(() => { loadIngredients(); loadProducts(); }, [loadIngredients, loadProducts]);
 
   useEffect(() => {
     if (!search.trim()) { setFiltered(ingredients); return; }
@@ -124,7 +147,7 @@ function IngredientsTab() {
     if (editingId) {
       await supabase.from('ingredients').update(payload).eq('id', editingId);
     } else {
-      await supabase.from('ingredients').insert([payload]);
+      await supabase.from('ingredients').insert([{ ...payload, hotel_id: hotelId }]);
     }
     resetForm();
     loadIngredients();
@@ -142,11 +165,33 @@ function IngredientsTab() {
     setShowForm(true);
   }
 
+  async function handleLinkProduct(ingredientId: string, product: Product) {
+    await supabase.from('ingredients').update({
+      product_id: product.id,
+      price_per_unit: product.average_price || 0
+    }).eq('id', ingredientId);
+    setShowProductSearch(false);
+    setLinkingIngredientId(null);
+    setProductSearch('');
+    loadIngredients();
+    addNotification('Ingrediente vinculado ao produto!', 'success');
+  }
+
+  async function handleUnlinkProduct(ingredientId: string) {
+    await supabase.from('ingredients').update({ product_id: null }).eq('id', ingredientId);
+    loadIngredients();
+    addNotification('Vínculo removido', 'info');
+  }
+
   function resetForm() {
     setFormData({ name: '', unit: 'g', price_per_unit: '' });
     setShowForm(false);
     setEditingId(null);
   }
+
+  const filteredProducts = productSearch.trim()
+    ? products.filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()))
+    : products;
 
   return (
     <div className="space-y-4">
@@ -228,13 +273,14 @@ function IngredientsTab() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Nome</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Unidade</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Preço por Unidade</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vínculo</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     {search ? 'Nenhum ingrediente encontrado' : 'Nenhum ingrediente cadastrado'}
                   </td>
                 </tr>
@@ -245,6 +291,75 @@ function IngredientsTab() {
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{ing.unit}</td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 font-mono">
                       R$ {Number(ing.price_per_unit).toFixed(8)}
+                      {(ing as any).product_id && <span className="ml-1 text-xs text-green-600 dark:text-green-400">(auto)</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm relative">
+                      {(ing as any).product_id ? (
+                        <div className="flex items-center gap-1">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                            <Link2 size={12} />
+                            {products.find((p) => p.id === (ing as any).product_id)?.name || 'Produto'}
+                          </span>
+                          <button
+                            onClick={() => handleUnlinkProduct(ing.id)}
+                            className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-0.5"
+                            title="Remover vínculo"
+                          >
+                            <Unlink size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <button
+                            onClick={() => {
+                              if (linkingIngredientId === ing.id) {
+                                setShowProductSearch(false);
+                                setLinkingIngredientId(null);
+                                setProductSearch('');
+                              } else {
+                                setLinkingIngredientId(ing.id);
+                                setShowProductSearch(true);
+                                setProductSearch('');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                          >
+                            <Link2 size={12} /> Vincular
+                          </button>
+                          {showProductSearch && linkingIngredientId === ing.id && (
+                            <div className="absolute z-20 top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
+                              <div className="p-2">
+                                <input
+                                  type="text"
+                                  placeholder="Buscar produto..."
+                                  value={productSearch}
+                                  onChange={(e) => setProductSearch(e.target.value)}
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                                  autoFocus
+                                />
+                              </div>
+                              <div className="max-h-40 overflow-y-auto">
+                                {filteredProducts.length === 0 ? (
+                                  <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Nenhum produto encontrado</p>
+                                ) : (
+                                  filteredProducts.map((p) => (
+                                    <button
+                                      key={p.id}
+                                      onClick={() => handleLinkProduct(ing.id, p)}
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 flex justify-between items-center"
+                                    >
+                                      <span>{p.name}</span>
+                                      {p.average_price != null && (
+                                        <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">R$ {Number(p.average_price).toFixed(4)}</span>
+                                      )}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button onClick={() => handleEdit(ing)} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mr-2 p-1">
@@ -274,7 +389,7 @@ function IngredientsTab() {
 // SIDES TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function SidesTab() {
+function SidesTab({ hotelId }: { hotelId: string }) {
   const [sides, setSides] = useState<Side[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -287,14 +402,14 @@ function SidesTab() {
   }>({ name: '', ingredients: [] });
 
   const loadSides = useCallback(async () => {
-    const { data } = await supabase.from('sides').select('*').order('name');
+    const { data } = await supabase.from('sides').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
     setSides(data || []);
-  }, []);
+  }, [hotelId]);
 
   const loadIngredients = useCallback(async () => {
-    const { data } = await supabase.from('ingredients').select('*').order('name');
+    const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
     setIngredients(data || []);
-  }, []);
+  }, [hotelId]);
 
   useEffect(() => { loadSides(); loadIngredients(); }, [loadSides, loadIngredients]);
 
@@ -312,7 +427,7 @@ function SidesTab() {
         .map((i) => ({ side_id: editingId, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
       if (items.length > 0) await supabase.from('side_ingredients').insert(items);
     } else {
-      const { data } = await supabase.from('sides').insert([{ name: formData.name }]).select().single();
+      const { data } = await supabase.from('sides').insert([{ name: formData.name, hotel_id: hotelId }]).select().single();
       if (data) {
         const items = formData.ingredients
           .filter((i) => i.ingredient_id && i.quantity)
@@ -527,7 +642,7 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
 
 interface DishWithCost extends Dish { cost: number; }
 
-function DishesTab() {
+function DishesTab({ hotelId }: { hotelId: string }) {
   const [dishes, setDishes] = useState<DishWithCost[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [sides, setSides] = useState<Side[]>([]);
@@ -542,22 +657,22 @@ function DishesTab() {
   }>({ name: '', ingredients: [], sides: [] });
 
   const loadDishes = useCallback(async () => {
-    const { data } = await supabase.from('dishes').select('*').order('name');
+    const { data } = await supabase.from('dishes').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
     const withCost = await Promise.all(
       (data || []).map(async (d) => ({ ...d, cost: await calculateDishCost(d.id) }))
     );
     setDishes(withCost);
-  }, []);
+  }, [hotelId]);
 
   const loadIngredients = useCallback(async () => {
-    const { data } = await supabase.from('ingredients').select('*').order('name');
+    const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
     setIngredients(data || []);
-  }, []);
+  }, [hotelId]);
 
   const loadSides = useCallback(async () => {
-    const { data } = await supabase.from('sides').select('*').order('name');
+    const { data } = await supabase.from('sides').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
     setSides(data || []);
-  }, []);
+  }, [hotelId]);
 
   useEffect(() => { loadDishes(); loadIngredients(); loadSides(); }, [loadDishes, loadIngredients, loadSides]);
 
@@ -578,7 +693,7 @@ function DishesTab() {
       if (ingItems.length > 0) await supabase.from('dish_ingredients').insert(ingItems);
       if (sideItems.length > 0) await supabase.from('dish_sides').insert(sideItems);
     } else {
-      const { data } = await supabase.from('dishes').insert([{ name: formData.name }]).select().single();
+      const { data } = await supabase.from('dishes').insert([{ name: formData.name, hotel_id: hotelId }]).select().single();
       if (data) {
         const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
           .map((i) => ({ dish_id: data.id, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));

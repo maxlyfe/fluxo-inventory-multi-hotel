@@ -8,21 +8,7 @@ import BarcodeScanner from './BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { whatsappService, SupplierContact } from '../lib/whatsappService';
 
-interface Product {
-  id: string;
-  name: string;
-  quantity: number;
-  min_quantity: number;
-  max_quantity: number;
-  category: string;
-  updated_at: string;
-  supplier?: string;
-  image_url?: string;
-  description?: string;
-  is_active: boolean;
-  is_portionable?: boolean;
-  is_portion?: boolean;
-}
+import { Product, UNIT_MEASURE_OPTIONS, PRODUCT_TYPE_OPTIONS } from '../types/product';
 
 interface Sector {
   id: string;
@@ -50,6 +36,10 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     is_portionable: false, is_portion: false,
     auto_portion_product_id: null as string | null,
     auto_portion_multiplier: null as number | null,
+    unit_measure: 'und',
+    product_type: 'consumo',
+    mcu_code: '',
+    tax_percentage: '0',
   });
 
   // Produtos porção disponíveis para auto-porcionamento
@@ -164,6 +154,10 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           is_portion:     editingProduct.is_portion     || false,
           auto_portion_product_id: (editingProduct as any).auto_portion_product_id || null,
           auto_portion_multiplier: (editingProduct as any).auto_portion_multiplier || null,
+          unit_measure: editingProduct.unit_measure || 'und',
+          product_type: editingProduct.product_type || 'consumo',
+          mcu_code: editingProduct.mcu_code || '',
+          tax_percentage: editingProduct.tax_percentage?.toString() || '0',
         });
       } else {
         if (sectorsData) setSelectedSectors(new Set(sectorsData.map(s => s.id)));
@@ -175,6 +169,7 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           category: 'Outros', supplier: '', image_url: '', description: '',
           is_portionable: false, is_portion: false,
           auto_portion_product_id: null, auto_portion_multiplier: null,
+          unit_measure: 'und', product_type: 'consumo', mcu_code: '', tax_percentage: '0',
         });
       }
 
@@ -259,7 +254,17 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
         .map(c => c.company_name);
       const allSupplierNames = [...new Set([...manualSuppliers, ...contactNames])];
       const supplierField = allSupplierNames.join(', ');
-      const dataToSave = { ...formData, supplier: supplierField, quantity: qty, min_quantity: minQty, max_quantity: maxQty };
+      const dataToSave = {
+        ...formData,
+        supplier: supplierField,
+        quantity: qty,
+        min_quantity: minQty,
+        max_quantity: maxQty,
+        unit_measure: formData.unit_measure,
+        product_type: formData.product_type,
+        mcu_code: formData.mcu_code || null,
+        tax_percentage: parseFloat(String(formData.tax_percentage).replace(',', '.')) || 0,
+      };
 
       let savedProduct: Product | null = null;
 
@@ -732,6 +737,75 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* ── Classificação Fiscal ─────────────────────────── */}
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-4">
+                <h3 className="text-md font-medium text-gray-800 dark:text-gray-200">Classificação Fiscal</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Unidade de Medida */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unidade de Medida</label>
+                    <select
+                      name="unit_measure"
+                      value={formData.unit_measure}
+                      onChange={handleInputChange}
+                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    >
+                      {UNIT_MEASURE_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Código NCM */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Código NCM</label>
+                    <input
+                      name="mcu_code"
+                      type="text"
+                      value={formData.mcu_code}
+                      onChange={handleInputChange}
+                      placeholder="Código NCM"
+                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Tipo do Produto (radio) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipo do Produto</label>
+                  <div className="flex items-center gap-4">
+                    {PRODUCT_TYPE_OPTIONS.map(opt => (
+                      <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="product_type"
+                          value={opt.value}
+                          checked={formData.product_type === opt.value}
+                          onChange={handleInputChange}
+                          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-500 dark:bg-gray-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-800 dark:text-gray-200">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Percentual de Imposto */}
+                <div className="max-w-xs">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Imposto (%)</label>
+                  <input
+                    name="tax_percentage"
+                    type="text"
+                    inputMode="decimal"
+                    value={formData.tax_percentage}
+                    onChange={handleInputChange}
+                    placeholder="0"
+                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
               </div>
 
             </div>
