@@ -415,46 +415,43 @@ export const erbonService = {
     return await res.json();
   },
 
-  // ── Fetch Erbon Departments (pontos de venda) ──────────────────────────
+  // ── Fetch Erbon Departments (pontos de venda reais) ─────────────────────
 
   async fetchErbonDepartments(hotelId: string): Promise<string[]> {
-    const config = await this.getConfig(hotelId);
-    if (!config) throw new Error('Configuração Erbon não encontrada');
-    const token = await this.getToken(hotelId);
-
-    // Busca TODOS os serviços/produtos (sem filtro onlyProducts) para extrair
-    // os departamentos/pontos de venda reais (stocksGroupDescription + families)
-    const path = `/hotel/${config.erbon_hotel_id}/mapping/serviceproducts`;
-    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        ...proxyHeaders(config.erbon_base_url, path),
-      },
-    });
-    if (!res.ok) throw new Error(`Erro ao buscar departamentos Erbon (${res.status})`);
-    const allItems: ErbonProduct[] = await res.json();
-
     const departments = new Set<string>();
-    allItems.forEach(p => {
-      if (p.stocksGroupDescription) departments.add(p.stocksGroupDescription);
-    });
 
-    // Fallback: se ainda retornar poucos departamentos, buscar das transações recentes
-    if (departments.size <= 2) {
-      try {
-        const today = new Date();
-        // Tenta buscar transações dos últimos 3 dias para capturar mais departamentos
-        for (let daysBack = 0; daysBack < 3 && departments.size <= 2; daysBack++) {
-          const d = new Date(today);
-          d.setDate(d.getDate() - daysBack);
-          const dateStr = d.toISOString().split('T')[0];
+    // Busca departamentos das transações dos últimos 7 dias
+    // Esses são os pontos de venda reais (Restaurante, Bar, Frigobar, etc.)
+    try {
+      const today = new Date();
+      for (let daysBack = 0; daysBack < 7; daysBack++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - daysBack);
+        const dateStr = d.toISOString().split('T')[0];
+        try {
           const txs = await this.fetchTransactionsForDate(hotelId, dateStr);
           txs.forEach(tx => {
             if (tx.department) departments.add(tx.department);
           });
+        } catch {
+          // Dia sem transações, continua
         }
+        // Se já encontrou bastante, pode parar
+        if (departments.size >= 5) break;
+      }
+    } catch (err) {
+      console.error('[Erbon] Erro ao buscar departamentos via transações:', err);
+    }
+
+    // Fallback: se não encontrou transações, extrai stocksGroupDescription dos produtos
+    if (departments.size === 0) {
+      try {
+        const products = await this.fetchErbonProducts(hotelId);
+        products.forEach(p => {
+          if (p.stocksGroupDescription) departments.add(p.stocksGroupDescription);
+        });
       } catch (err) {
-        console.warn('[Erbon] Fallback de departamentos via transações falhou:', err);
+        console.error('[Erbon] Fallback de departamentos via produtos falhou:', err);
       }
     }
 
