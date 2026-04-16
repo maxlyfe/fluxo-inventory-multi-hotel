@@ -4,6 +4,7 @@ import {
   User, Users, Calendar, Mail, Phone, CreditCard, LogIn, LogOut,
   Clock, DollarSign, FileText, X, MapPin,
   Globe, Utensils, Coffee, Moon, Star, Sparkles,
+  Edit2, Trash2, UserPlus, Save,
 } from 'lucide-react';
 import { erbonService, ErbonRoom, ErbonBooking, ErbonGuest } from '../../lib/erbonService';
 import { useErbonData } from '../../hooks/useErbonData';
@@ -316,37 +317,55 @@ const StatCard: React.FC<StatCardProps> = ({ label, value, icon: Icon, color, ac
 // ═══════════════════════════════════════════════════════════════════════════
 
 const ReservationModal: React.FC<{
-  isOpen: boolean; onClose: () => void; room: ErbonRoom; hotelId: string;
-}> = ({ isOpen, onClose, room, hotelId }) => {
+  isOpen: boolean; onClose: () => void; room: ErbonRoom; hotelId: string; onRefresh: () => void;
+}> = ({ isOpen, onClose, room, hotelId, onRefresh }) => {
+  const { addNotification } = useNotification();
   const [booking, setBooking] = useState<ErbonBooking | null>(null);
   const [allGuests, setAllGuests] = useState<ErbonGuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'reserva' | 'hospede' | 'conta'>('reserva');
+  const [checkingIn, setCheckingIn] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!room.currentBookingID) { setLoading(false); return; }
+    setLoading(true); setError(null);
+    try {
+      const [bookings, inHouseGuests] = await Promise.all([
+        erbonService.searchBookings(hotelId, { bookingNumber: String(room.currentBookingID) }),
+        erbonService.fetchInHouseGuests(hotelId),
+      ]);
+      if (bookings.length > 0) setBooking(bookings[0]);
+      const roomGuests = inHouseGuests.filter(g =>
+        g.idBooking === room.currentBookingID ||
+        g.roomDescription === room.roomName
+      );
+      setAllGuests(roomGuests);
+      console.log(`[RoomRack] Booking ${room.currentBookingID}: ${bookings.length} bookings, ${roomGuests.length} in-house guests, guestList: ${bookings[0]?.guestList?.length || 0}`);
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  }, [room, hotelId]);
 
   React.useEffect(() => {
     if (!isOpen) return;
-    if (!room.currentBookingID) { setLoading(false); return; }
-    const load = async () => {
-      setLoading(true); setError(null);
-      try {
-        const [bookings, inHouseGuests] = await Promise.all([
-          erbonService.searchBookings(hotelId, { bookingNumber: String(room.currentBookingID) }),
-          erbonService.fetchInHouseGuests(hotelId),
-        ]);
-        if (bookings.length > 0) setBooking(bookings[0]);
-        // Filtrar TODOS os hóspedes desta reserva (por bookingID ou por quarto)
-        const roomGuests = inHouseGuests.filter(g =>
-          g.idBooking === room.currentBookingID ||
-          g.roomDescription === room.roomName
-        );
-        setAllGuests(roomGuests);
-        console.log(`[RoomRack] Booking ${room.currentBookingID}: ${bookings.length} bookings, ${roomGuests.length} in-house guests, guestList: ${bookings[0]?.guestList?.length || 0}`);
-      } catch (err: any) { setError(err.message); }
-      finally { setLoading(false); }
-    };
-    load();
-  }, [isOpen, room, hotelId]);
+    loadData();
+  }, [isOpen, loadData]);
+
+  const handleCheckIn = async () => {
+    if (!room.currentBookingID) return;
+    if (!window.confirm(`Confirmar check-in da reserva #${room.currentBookingID} para a UH ${room.roomName}?`)) return;
+    setCheckingIn(true);
+    try {
+      await erbonService.checkInBooking(hotelId, room.currentBookingID, { roomId: room.idRoom });
+      addNotification(`✅ Check-in realizado na UH ${room.roomName}`, 'success');
+      await loadData();
+      onRefresh();
+    } catch (err: any) {
+      addNotification(`Erro no check-in: ${err.message}`, 'error');
+    } finally {
+      setCheckingIn(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -379,22 +398,35 @@ const ReservationModal: React.FC<{
                 </div>
               </div>
             </div>
-            {isOccupied && booking && (
-              <div className="hidden sm:flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2">
-                <div className="text-center">
-                  <p className="text-[10px] text-white/50 uppercase tracking-wide">In</p>
-                  <p className="text-sm font-bold text-white">{fmtDate(booking.checkInDateTime)}</p>
+            <div className="flex items-center gap-2">
+              {/* Check-in button: aparece se reserva tem checkin hoje e quarto ainda não ocupado */}
+              {room.hasCheckinToday && !isOccupied && room.currentBookingID && (
+                <button
+                  onClick={handleCheckIn}
+                  disabled={checkingIn}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-700 hover:bg-emerald-50 font-semibold rounded-xl shadow-lg transition-all disabled:opacity-50"
+                >
+                  {checkingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+                  {checkingIn ? 'Processando...' : 'Fazer Check-in'}
+                </button>
+              )}
+              {isOccupied && booking && (
+                <div className="hidden sm:flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2">
+                  <div className="text-center">
+                    <p className="text-[10px] text-white/50 uppercase tracking-wide">In</p>
+                    <p className="text-sm font-bold text-white">{fmtDate(booking.checkInDateTime)}</p>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="w-8 border-t border-white/30" />
+                    <span className="text-xs font-bold text-white/80 mt-0.5">{nights}N</span>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-white/50 uppercase tracking-wide">Out</p>
+                    <p className="text-sm font-bold text-white">{fmtDate(booking.checkOutDateTime)}</p>
+                  </div>
                 </div>
-                <div className="flex flex-col items-center">
-                  <div className="w-8 border-t border-white/30" />
-                  <span className="text-xs font-bold text-white/80 mt-0.5">{nights}N</span>
-                </div>
-                <div className="text-center">
-                  <p className="text-[10px] text-white/50 uppercase tracking-wide">Out</p>
-                  <p className="text-sm font-bold text-white">{fmtDate(booking.checkOutDateTime)}</p>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -480,7 +512,13 @@ const ReservationModal: React.FC<{
           )}
 
           {activeTab === 'hospede' && (
-            <GuestTab booking={booking} allGuests={allGuests} />
+            <GuestTab
+              hotelId={hotelId}
+              booking={booking}
+              allGuests={allGuests}
+              bookingId={room.currentBookingID}
+              onReload={loadData}
+            />
           )}
 
           {activeTab === 'conta' && <AccountTab hotelId={hotelId} booking={booking} room={room} />}
@@ -491,29 +529,45 @@ const ReservationModal: React.FC<{
 };
 
 // ─── Guest Tab ──────────────────────────────────────────────────────────────
-const GuestTab: React.FC<{ booking: ErbonBooking | null; allGuests: ErbonGuest[] }> = ({ booking, allGuests }) => {
+
+interface UnifiedGuest {
+  id?: number;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  documents: Array<{ documentType: string; number: string }>;
+  inHouseData?: ErbonGuest;
+}
+
+const GuestTab: React.FC<{
+  hotelId: string;
+  booking: ErbonBooking | null;
+  allGuests: ErbonGuest[];
+  bookingId: number | null;
+  onReload: () => void;
+}> = ({ hotelId, booking, allGuests, bookingId, onReload }) => {
+  const { addNotification } = useNotification();
+  const [editingGuest, setEditingGuest] = useState<UnifiedGuest | null>(null);
+  const [isAddingGuest, setIsAddingGuest] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   // Merge: booking.guestList (dados da reserva) + allGuests (in-house com mais detalhes)
   const bookingGuests = booking?.guestList || [];
-  // Map in-house guests by name for enrichment
   const inHouseByName = new Map<string, ErbonGuest>();
   allGuests.forEach(g => {
     const key = g.guestName?.toLowerCase().trim();
     if (key) inHouseByName.set(key, g);
   });
 
-  // Build unified list: booking guests enriched with in-house data
-  const unifiedGuests: Array<{
-    name: string; email: string; phone: string; role: string;
-    documents: Array<{ documentType: string; number: string }>;
-    inHouseData?: ErbonGuest;
-  }> = [];
-
+  const unifiedGuests: UnifiedGuest[] = [];
   const addedNames = new Set<string>();
 
   bookingGuests.forEach((g, idx) => {
     const key = g.name?.toLowerCase().trim();
     const inHouse = key ? inHouseByName.get(key) : undefined;
     unifiedGuests.push({
+      id: g.id || inHouse?.idGuest,
       name: g.name, email: g.email || inHouse?.contactEmail || '', phone: g.phone || '',
       role: idx === 0 ? 'Titular da reserva' : `Acompanhante ${idx}`,
       documents: g.documents || [],
@@ -522,11 +576,11 @@ const GuestTab: React.FC<{ booking: ErbonBooking | null; allGuests: ErbonGuest[]
     if (key) addedNames.add(key);
   });
 
-  // Add in-house guests not in booking.guestList
   allGuests.forEach(g => {
     const key = g.guestName?.toLowerCase().trim();
     if (key && !addedNames.has(key)) {
       unifiedGuests.push({
+        id: g.idGuest,
         name: g.guestName, email: g.contactEmail || '', phone: '',
         role: unifiedGuests.length === 0 ? 'Titular da reserva' : `Acompanhante ${unifiedGuests.length}`,
         documents: [],
@@ -536,14 +590,23 @@ const GuestTab: React.FC<{ booking: ErbonBooking | null; allGuests: ErbonGuest[]
     }
   });
 
-  if (unifiedGuests.length === 0) {
-    return (
-      <div className="text-center py-10">
-        <User className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-        <p className="text-sm text-gray-500">Nenhuma informação de hóspede disponível.</p>
-      </div>
-    );
-  }
+  const handleDelete = async (guest: UnifiedGuest) => {
+    if (!bookingId || !guest.id) {
+      addNotification('ID do hóspede não disponível', 'error');
+      return;
+    }
+    if (!window.confirm(`Remover "${guest.name}" da reserva?`)) return;
+    setDeletingId(guest.id);
+    try {
+      await erbonService.removeGuestFromBooking(hotelId, bookingId, guest.id);
+      addNotification(`Hóspede ${guest.name} removido`, 'success');
+      onReload();
+    } catch (err: any) {
+      addNotification(`Erro ao remover: ${err.message}`, 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const gradients = [
     'from-sky-500 to-cyan-400 shadow-sky-500/20',
@@ -554,52 +617,235 @@ const GuestTab: React.FC<{ booking: ErbonBooking | null; allGuests: ErbonGuest[]
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          <Users className="w-4 h-4 inline mr-1" />
-          {unifiedGuests.length} hóspede{unifiedGuests.length > 1 ? 's' : ''} nesta reserva
-        </p>
+    <>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            <Users className="w-4 h-4 inline mr-1" />
+            {unifiedGuests.length} hóspede{unifiedGuests.length !== 1 ? 's' : ''} nesta reserva
+          </p>
+          {bookingId && (
+            <button
+              onClick={() => setIsAddingGuest(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg shadow-sm transition-all"
+            >
+              <UserPlus className="w-4 h-4" />
+              Adicionar Hóspede
+            </button>
+          )}
+        </div>
+
+        {unifiedGuests.length === 0 ? (
+          <div className="text-center py-10 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-2xl">
+            <User className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">Nenhum hóspede cadastrado ainda.</p>
+            {bookingId && (
+              <button onClick={() => setIsAddingGuest(true)} className="mt-3 text-sm text-emerald-500 hover:underline">
+                + Adicionar primeiro hóspede
+              </button>
+            )}
+          </div>
+        ) : (
+          unifiedGuests.map((g, idx) => {
+            const ih = g.inHouseData;
+            return (
+              <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-5 border border-gray-200 dark:border-gray-700/50 group">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${gradients[idx % gradients.length]} flex items-center justify-center text-white font-bold text-sm shadow-lg flex-shrink-0`}>
+                    {g.name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-semibold text-gray-800 dark:text-white truncate">{g.name}</h4>
+                    <p className="text-xs text-gray-500">{g.role}</p>
+                  </div>
+                  {ih?.mealPlan && (
+                    <span className="text-xs bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 px-2 py-1 rounded-full font-medium whitespace-nowrap">
+                      {getMealLabel(ih.mealPlan)}
+                    </span>
+                  )}
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => setEditingGuest(g)}
+                      className="p-1.5 hover:bg-sky-500/20 text-sky-500 rounded-lg transition"
+                      title="Editar hóspede"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(g)}
+                      disabled={deletingId === g.id}
+                      className="p-1.5 hover:bg-rose-500/20 text-rose-500 rounded-lg transition disabled:opacity-40"
+                      title="Remover hóspede"
+                    >
+                      {deletingId === g.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {g.email && <InfoRow icon={Mail} value={g.email} />}
+                  {g.phone && <InfoRow icon={Phone} value={g.phone} />}
+                  {g.documents?.map((doc, i) => (
+                    <InfoRow key={i} icon={CreditCard} value={`${doc.documentType}: ${doc.number}`} />
+                  ))}
+                  {ih?.localityGuest && (
+                    <InfoRow icon={MapPin} value={`${ih.localityGuest}${ih.stateGuest ? `, ${ih.stateGuest}` : ''}`} />
+                  )}
+                  {ih?.countryGuestISO && <InfoRow icon={Globe} value={ih.countryGuestISO} />}
+                  {ih?.birthDate && <InfoRow icon={Calendar} value={`Nascimento: ${fmtDate(ih.birthDate)}`} />}
+                  {ih?.checkInDate && <InfoRow icon={LogIn} value={`Check-in: ${fmtDate(ih.checkInDate)}`} />}
+                  {ih?.checkOutDate && <InfoRow icon={LogOut} value={`Check-out: ${fmtDate(ih.checkOutDate)}`} />}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
-      {unifiedGuests.map((g, idx) => {
-        const ih = g.inHouseData;
-        return (
-          <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-5 border border-gray-200 dark:border-gray-700/50">
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${gradients[idx % gradients.length]} flex items-center justify-center text-white font-bold text-sm shadow-lg`}>
-                {g.name?.charAt(0)?.toUpperCase() || '?'}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-gray-800 dark:text-white truncate">{g.name}</h4>
-                <p className="text-xs text-gray-500">{g.role}</p>
-              </div>
-              {ih?.mealPlan && (
-                <span className="text-xs bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 px-2 py-1 rounded-full font-medium">
-                  {getMealLabel(ih.mealPlan)}
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {g.email && <InfoRow icon={Mail} value={g.email} />}
-              {g.phone && <InfoRow icon={Phone} value={g.phone} />}
-              {g.documents?.map((doc, i) => (
-                <InfoRow key={i} icon={CreditCard} value={`${doc.documentType}: ${doc.number}`} />
-              ))}
-              {ih?.localityGuest && (
-                <InfoRow icon={MapPin} value={`${ih.localityGuest}${ih.stateGuest ? `, ${ih.stateGuest}` : ''}`} />
-              )}
-              {ih?.countryGuestISO && <InfoRow icon={Globe} value={ih.countryGuestISO} />}
-              {ih?.birthDate && <InfoRow icon={Calendar} value={`Nascimento: ${fmtDate(ih.birthDate)}`} />}
-              {ih?.checkInDate && <InfoRow icon={LogIn} value={`Check-in: ${fmtDate(ih.checkInDate)}`} />}
-              {ih?.checkOutDate && <InfoRow icon={LogOut} value={`Check-out: ${fmtDate(ih.checkOutDate)}`} />}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+      {/* Edit/Add Modal */}
+      {(editingGuest || isAddingGuest) && bookingId && (
+        <GuestEditModal
+          hotelId={hotelId}
+          bookingId={bookingId}
+          guest={editingGuest}
+          onClose={() => { setEditingGuest(null); setIsAddingGuest(false); }}
+          onSaved={() => { setEditingGuest(null); setIsAddingGuest(false); onReload(); }}
+        />
+      )}
+    </>
   );
 };
+
+// ─── Guest Edit/Add Modal ───────────────────────────────────────────────────
+const GuestEditModal: React.FC<{
+  hotelId: string;
+  bookingId: number;
+  guest: UnifiedGuest | null; // null = adding
+  onClose: () => void;
+  onSaved: () => void;
+}> = ({ hotelId, bookingId, guest, onClose, onSaved }) => {
+  const { addNotification } = useNotification();
+  const isEditing = !!guest;
+  const ih = guest?.inHouseData;
+  const doc = guest?.documents?.[0];
+
+  const [form, setForm] = useState({
+    name: guest?.name || '',
+    email: guest?.email || ih?.contactEmail || '',
+    phone: guest?.phone || '',
+    birthDate: ih?.birthDate ? ih.birthDate.split('T')[0] : '',
+    documentType: doc?.documentType || 'CPF',
+    documentNumber: doc?.number || '',
+    countryISO: ih?.countryGuestISO || 'BR',
+    localityGuest: ih?.localityGuest || '',
+    stateGuest: ih?.stateGuest || '',
+    mealPlan: ih?.mealPlan || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.name.trim()) {
+      addNotification('Nome é obrigatório', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (isEditing && guest?.id) {
+        await erbonService.updateGuest(hotelId, guest.id, form);
+        addNotification(`Hóspede ${form.name} atualizado`, 'success');
+      } else {
+        await erbonService.addGuestToBooking(hotelId, bookingId, form);
+        addNotification(`Hóspede ${form.name} adicionado`, 'success');
+      }
+      onSaved();
+    } catch (err: any) {
+      addNotification(`Erro: ${err.message}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title={isEditing ? `Editar Hóspede` : 'Adicionar Hóspede'} size="xl">
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="Nome completo *" value={form.name} onChange={v => setForm({ ...form, name: v })} />
+          <FormField label="E-mail" type="email" value={form.email} onChange={v => setForm({ ...form, email: v })} />
+          <FormField label="Telefone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} />
+          <FormField label="Data de Nascimento" type="date" value={form.birthDate} onChange={v => setForm({ ...form, birthDate: v })} />
+          <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo Documento</label>
+              <select
+                value={form.documentType}
+                onChange={e => setForm({ ...form, documentType: e.target.value })}
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-white"
+              >
+                <option value="CPF">CPF</option>
+                <option value="RG">RG</option>
+                <option value="PASSPORT">Passaporte</option>
+                <option value="CNH">CNH</option>
+                <option value="OTHER">Outro</option>
+              </select>
+            </div>
+            <FormField label="Número do Documento" value={form.documentNumber} onChange={v => setForm({ ...form, documentNumber: v })} />
+          </div>
+          <FormField label="País (ISO)" value={form.countryISO} onChange={v => setForm({ ...form, countryISO: v.toUpperCase() })} />
+          <FormField label="Cidade" value={form.localityGuest} onChange={v => setForm({ ...form, localityGuest: v })} />
+          <FormField label="Estado" value={form.stateGuest} onChange={v => setForm({ ...form, stateGuest: v.toUpperCase() })} />
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Regime Alimentar</label>
+            <select
+              value={form.mealPlan}
+              onChange={e => setForm({ ...form, mealPlan: e.target.value })}
+              className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-white"
+            >
+              <option value="">— Herdar da reserva —</option>
+              <option value="RO">Room Only</option>
+              <option value="BB">Café da manhã (BB)</option>
+              <option value="HB">Meia pensão (HB)</option>
+              <option value="FB">Pensão completa (FB)</option>
+              <option value="AI">All Inclusive</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.name.trim()}
+            className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isEditing ? 'Salvar Alterações' : 'Adicionar Hóspede'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+// ─── Form Field Helper ──────────────────────────────────────────────────────
+const FormField: React.FC<{
+  label: string; value: string; onChange: (v: string) => void; type?: string;
+}> = ({ label, value, onChange, type = 'text' }) => (
+  <div>
+    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+    <input
+      type={type}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+    />
+  </div>
+);
 
 // ─── Account Tab ────────────────────────────────────────────────────────────
 const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking, room }) => {
@@ -981,7 +1227,7 @@ const RoomRack: React.FC = () => {
       </div>
 
       {selectedRoom && selectedHotel && (
-        <ReservationModal isOpen={!!selectedRoom} onClose={() => setSelectedRoom(null)} room={selectedRoom} hotelId={selectedHotel.id} />
+        <ReservationModal isOpen={!!selectedRoom} onClose={() => setSelectedRoom(null)} room={selectedRoom} hotelId={selectedHotel.id} onRefresh={refetch} />
       )}
     </div>
   );
