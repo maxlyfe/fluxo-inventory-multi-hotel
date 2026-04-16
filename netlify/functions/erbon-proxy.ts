@@ -34,6 +34,7 @@ const ERBON_CUSTOM_HEADERS: Record<string, string> = {
   'generatedoorkey': 'generateDoorKey',
   'guestexternalid': 'guestExternalId',
   'guestcontact': 'guestContact',
+  'idguest': 'idGuest',
 };
 
 const handler: Handler = async (event: HandlerEvent) => {

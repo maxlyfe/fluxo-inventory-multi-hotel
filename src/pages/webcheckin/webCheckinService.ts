@@ -133,7 +133,7 @@ async function erbonPost(
   hotelId: string,
   path: string,
   body: string,
-  contentType: string
+  extraHeaders?: Record<string, string>
 ): Promise<{ ok: boolean; status: number; text: string }> {
   const config = await erbonService.getConfig(hotelId);
   if (!config) throw new Error('Configuração Erbon não encontrada');
@@ -147,11 +147,12 @@ async function erbonPost(
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
-      'Content-Type': contentType,
+      'Content-Type': 'application/json',
       ...(isDev ? {} : {
         'x-erbon-base-url': config.erbon_base_url,
         'x-erbon-path': path,
       }),
+      ...(extraHeaders || {}),
     },
     body,
   });
@@ -160,48 +161,68 @@ async function erbonPost(
   return { ok: res.ok, status: res.status, text };
 }
 
+/**
+ * Envia a assinatura PNG de um hóspede para a reserva no Erbon.
+ * Swagger: POST /hotel/{hotelID}/booking/{bookingInternalID}/signature
+ *   Body: string (base64 da imagem, como JSON string)
+ *   Header opcional: idGuest (int64) — vincula ao hóspede específico
+ */
 export async function submitSignature(
   hotelId: string,
   bookingInternalId: number,
-  signatureBase64: string // sem prefixo data:image/...
+  signatureBase64: string, // sem prefixo data:image/...
+  guestId?: number
 ): Promise<void> {
   const config = await erbonService.getConfig(hotelId);
   if (!config) throw new Error('Configuração Erbon não encontrada');
   const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/signature`;
 
-  // Tenta primeiro como JSON string, depois como plain text
-  let result = await erbonPost(hotelId, path, JSON.stringify(signatureBase64), 'application/json');
+  const extraHeaders: Record<string, string> = {};
+  if (guestId && guestId > 0) extraHeaders['idGuest'] = String(guestId);
+
+  const result = await erbonPost(
+    hotelId,
+    path,
+    JSON.stringify(signatureBase64), // JSON string → "\"base64...\""
+    extraHeaders
+  );
+
   if (!result.ok) {
-    console.warn(`[WebCheckin] submitSignature JSON failed ${result.status}: ${result.text} — tentando text/plain`);
-    result = await erbonPost(hotelId, path, signatureBase64, 'text/plain');
-  }
-  if (!result.ok) {
-    console.warn(`[WebCheckin] submitSignature final ${result.status}: ${result.text}`);
-    // best-effort — não bloqueia o fluxo
+    console.warn(`[WebCheckin] submitSignature ${result.status}: ${result.text}`);
   } else {
-    console.log('[WebCheckin] submitSignature OK');
+    console.log(`[WebCheckin] submitSignature OK (guest ${guestId ?? 'main'})`);
   }
 }
 
+/**
+ * Envia um PDF como anexo da reserva no Erbon.
+ * Swagger: POST /hotel/{hotelID}/booking/{bookingInternalID}/attachment
+ *   Body: BookingAttachmentModel { fileName: string, fileType: string, fileBase64: string }
+ *   Retorna: integer (attachmentId)
+ */
 export async function submitAttachment(
   hotelId: string,
   bookingInternalId: number,
-  pdfBase64: string
+  pdfBase64: string,
+  fileName?: string
 ): Promise<void> {
   const config = await erbonService.getConfig(hotelId);
   if (!config) throw new Error('Configuração Erbon não encontrada');
   const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/attachment`;
 
-  // Tenta primeiro como JSON string, depois como plain text
-  let result = await erbonPost(hotelId, path, JSON.stringify(pdfBase64), 'application/json');
+  const body = JSON.stringify({
+    fileName: fileName || `fnrh_${bookingInternalId}_${Date.now()}.pdf`,
+    fileType: 'application/pdf',
+    fileBase64: pdfBase64,
+  });
+
+  const result = await erbonPost(hotelId, path, body);
+
   if (!result.ok) {
-    console.warn(`[WebCheckin] submitAttachment JSON failed ${result.status}: ${result.text} — tentando text/plain`);
-    result = await erbonPost(hotelId, path, pdfBase64, 'text/plain');
-  }
-  if (!result.ok) {
-    console.warn(`[WebCheckin] submitAttachment final ${result.status}: ${result.text}`);
+    console.warn(`[WebCheckin] submitAttachment ${result.status}: ${result.text}`);
+    throw new Error(`Erro ao enviar anexo: ${result.status}`);
   } else {
-    console.log('[WebCheckin] submitAttachment OK');
+    console.log(`[WebCheckin] submitAttachment OK — id: ${result.text}`);
   }
 }
 

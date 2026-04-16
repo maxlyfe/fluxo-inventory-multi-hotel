@@ -363,10 +363,13 @@ export default function WCICompanionEntry() {
         ? `${guest.documents[0].documentType} — ${guest.documents[0].number}`
         : undefined;
 
+      const guestName = name || guest?.name || 'Hóspede';
+      const safeFileName = `fnrh_${guestName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
+
       const pdfBase64 = await buildGuestPDF({
         hotelName: 'Meridiana Hoteles',
         bookingId: bookingId!,
-        guestName: name || guest?.name || 'Hóspede',
+        guestName,
         guestDoc,
         signatureDataUrl: sigDataUrl,
         signedAt,
@@ -374,10 +377,11 @@ export default function WCICompanionEntry() {
 
       const sigBase64 = sigDataUrl.replace(/^data:image\/png;base64,/, '');
 
-      await Promise.allSettled([
-        submitAttachment(hotelId, Number(bookingId), pdfBase64),
-        submitSignature(hotelId, Number(bookingId), sigBase64),
-      ]);
+      // Enviar PDF como anexo da reserva
+      await submitAttachment(hotelId, Number(bookingId), pdfBase64, safeFileName);
+
+      // Enviar PNG da assinatura vinculado ao hóspede (idGuest header)
+      await submitSignature(hotelId, Number(bookingId), sigBase64, savedGuestId ?? undefined);
 
       setStep('done');
     } catch (err: any) {
