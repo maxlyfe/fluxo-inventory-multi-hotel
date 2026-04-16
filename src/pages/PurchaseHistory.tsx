@@ -20,7 +20,7 @@ interface Purchase {
   id: string;
   purchase_date: string;
   invoice_number: string | null;
-  supplier_name: string | null;
+  supplier: string | null;
   total_amount: number;
   notes: string | null;
   created_at: string;
@@ -52,7 +52,7 @@ export default function PurchaseHistory() {
       const { data, error } = await supabase
         .from('purchases')
         .select(`
-          id, purchase_date, invoice_number, supplier_name, total_amount, notes, created_at,
+          id, purchase_date, invoice_number, supplier, total_amount, notes, created_at,
           purchase_items(id, product_id, quantity, unit_price, total_price, products:products(id, name))
         `)
         .eq('hotel_id', selectedHotel.id)
@@ -72,7 +72,7 @@ export default function PurchaseHistory() {
 
   const filtered = search.trim()
     ? purchases.filter(p =>
-        p.supplier_name?.toLowerCase().includes(search.toLowerCase()) ||
+        p.supplier?.toLowerCase().includes(search.toLowerCase()) ||
         p.invoice_number?.toLowerCase().includes(search.toLowerCase()) ||
         p.purchase_items.some(i => i.products?.name.toLowerCase().includes(search.toLowerCase()))
       )
@@ -195,7 +195,7 @@ export default function PurchaseHistory() {
                     {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
                     <div>
                       <p className="text-sm font-semibold text-gray-800 dark:text-white">
-                        {p.supplier_name || 'Sem fornecedor'}
+                        {p.supplier || 'Sem fornecedor'}
                         {p.invoice_number && <span className="ml-2 text-xs text-gray-400">NF: {p.invoice_number}</span>}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
