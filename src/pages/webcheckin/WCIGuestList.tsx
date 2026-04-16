@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useWCI } from './WebCheckinLayout';
-import { loadGuestsFromStorage, saveGuestsToStorage, WebCheckinGuest } from './webCheckinService';
+import { loadGuestsFromStorage, loadGuestsFromServer, saveGuestsToStorage, WebCheckinGuest } from './webCheckinService';
 import { erbonService } from '../../lib/erbonService';
 
 const glassCard: React.CSSProperties = {
@@ -166,36 +166,39 @@ export default function WCIGuestList() {
   const [qrGuest, setQrGuest] = useState<WebCheckinGuest | null>(null);  // per-guest QR
   const [showAddModal, setShowAddModal] = useState(false);              // modal de adicionar
 
-  // ── Foco: recarregar lista quando volta para esta tela ───────────────────
-  const loadGuests = useCallback(async () => {
+  // ── Carregar hóspedes do servidor (cross-device) ─────────────────────────
+  const loadGuests = useCallback(async (showSpinner = true) => {
     if (!hotelId || !bookingId) return;
-    setLoading(true);
+    if (showSpinner) setLoading(true);
     try {
-      const stored = loadGuestsFromStorage(bookingId);
-      if (stored && stored.length > 0) {
-        setGuests(stored);
+      // Tenta Supabase primeiro (sincroniza estado do celular)
+      const serverGuests = await loadGuestsFromServer(bookingId);
+      if (serverGuests && serverGuests.length > 0) {
+        setGuests([...serverGuests]);
         setBookingRef(bookingId);
-      } else {
-        const booking = await erbonService.fetchBookingByInternalId(hotelId, Number(bookingId));
-        if (booking) {
-          const gs: WebCheckinGuest[] = (booking.guestList || []).map((g, idx) => ({
-            id: g.id,
-            name: g.name || 'Hóspede',
-            email: g.email,
-            phone: g.phone,
-            documents: g.documents,
-            fnrhCompleted: false,
-            isMainGuest: idx === 0,
-          }));
-          saveGuestsToStorage(bookingId, gs);
-          setGuests(gs);
-          setBookingRef(booking.bookingNumber || bookingId);
-        }
+        if (showSpinner) setLoading(false);
+        return;
+      }
+      // Fallback: buscar do Erbon e inicializar
+      const booking = await erbonService.fetchBookingByInternalId(hotelId, Number(bookingId));
+      if (booking) {
+        const gs: WebCheckinGuest[] = (booking.guestList || []).map((g, idx) => ({
+          id: g.id,
+          name: g.name || 'Hóspede',
+          email: g.email,
+          phone: g.phone,
+          documents: g.documents,
+          fnrhCompleted: false,
+          isMainGuest: idx === 0,
+        }));
+        await saveGuestsToStorage(bookingId, gs, hotelId);
+        setGuests(gs);
+        setBookingRef(booking.bookingNumber || bookingId);
       }
     } catch (err) {
       console.error('[WCIGuestList]', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }, [hotelId, bookingId]);
 
@@ -203,15 +206,18 @@ export default function WCIGuestList() {
     loadGuests();
   }, [loadGuests]);
 
-  // Recarregar quando a janela recupera o foco (usuário volta do formulário)
+  // Polling a cada 8s — detecta quando celular completa a assinatura
   useEffect(() => {
-    const onFocus = () => {
-      const stored = loadGuestsFromStorage(bookingId || '');
-      if (stored) setGuests([...stored]);
-    };
+    const interval = setInterval(() => loadGuests(false), 8000);
+    return () => clearInterval(interval);
+  }, [loadGuests]);
+
+  // Recarregar também ao recuperar foco (usuário volta do formulário no totem)
+  useEffect(() => {
+    const onFocus = () => loadGuests(false);
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [bookingId]);
+  }, [loadGuests]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 

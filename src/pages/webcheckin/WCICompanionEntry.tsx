@@ -25,6 +25,7 @@ import {
 import { useWCI } from './WebCheckinLayout';
 import {
   loadGuestsFromStorage,
+  loadGuestsFromServer,
   saveGuestsToStorage,
   saveGuestFNRH,
   submitSignature,
@@ -263,22 +264,25 @@ export default function WCICompanionEntry() {
   const [zipcode, setZipcode] = useState('');
   const [neighborhood, setNeighborhood] = useState('');
 
-  // Pre-fill se editando hóspede existente
+  // Pre-fill se editando hóspede existente (Supabase primeiro, fallback local)
   useEffect(() => {
     if (!bookingId || isNew) return;
-    const stored = loadGuestsFromStorage(bookingId);
-    if (!stored) return;
-    const g = stored.find(x => x.id === existingGuestId);
-    if (!g) return;
-    setName(g.name || '');
-    setEmail(g.email || '');
-    setPhone(g.phone || '');
-    if (g.documents?.length) {
-      setDocumentType(g.documents[0].documentType || 'CPF');
-      setDocumentNumber(g.documents[0].number || '');
-    }
-    // Se a FNRH já está completa, pular direto para assinatura
-    if (g.fnrhCompleted) setStep('signature');
+    const load = async () => {
+      const stored = await loadGuestsFromServer(bookingId) || loadGuestsFromStorage(bookingId);
+      if (!stored) return;
+      const g = stored.find(x => x.id === existingGuestId);
+      if (!g) return;
+      setName(g.name || '');
+      setEmail(g.email || '');
+      setPhone(g.phone || '');
+      if (g.documents?.length) {
+        setDocumentType(g.documents[0].documentType || 'CPF');
+        setDocumentNumber(g.documents[0].number || '');
+      }
+      // Se a FNRH já está completa, pular direto para assinatura
+      if (g.fnrhCompleted) setStep('signature');
+    };
+    load();
   }, [bookingId, isNew, existingGuestId]);
 
   // ── Passo 1: Salvar FNRH ──────────────────────────────────────────────────
@@ -316,20 +320,20 @@ export default function WCICompanionEntry() {
       const newId = await saveGuestFNRH(hotelId, Number(bookingId), existingGuestId, payload);
       setSavedGuestId(newId);
 
-      // Atualizar localStorage para o totem ver também
-      const stored = loadGuestsFromStorage(bookingId) || [];
+      // Sincronizar com Supabase (cross-device: totem verá a atualização via polling)
+      const stored = (await loadGuestsFromServer(bookingId)) || loadGuestsFromStorage(bookingId) || [];
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: newId, name: name.trim(), email: email.trim(), phone: phone.trim(),
           documents: payload.documents, fnrhCompleted: true, isMainGuest: false,
         };
-        saveGuestsToStorage(bookingId, [...stored, newGuest]);
+        await saveGuestsToStorage(bookingId, [...stored, newGuest], hotelId);
       } else {
-        saveGuestsToStorage(bookingId, stored.map(g =>
+        await saveGuestsToStorage(bookingId, stored.map(g =>
           g.id === existingGuestId
             ? { ...g, name: name.trim(), email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
             : g
-        ));
+        ), hotelId);
       }
 
       setStep('signature');

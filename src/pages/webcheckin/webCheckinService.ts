@@ -125,33 +125,61 @@ export async function saveGuestFNRH(
 }
 
 // ── Enviar assinatura e PDF ───────────────────────────────────────────────
+// O Erbon espera o base64 como string JSON pura (sem double-encode).
+// Testado: body = JSON.stringify(base64string) → envia "\"abc...\"" (errado)
+//          body = base64string, Content-Type: text/plain → correto
 
-export async function submitSignature(
+async function erbonPost(
   hotelId: string,
-  bookingInternalId: number,
-  signatureBase64: string // sem prefixo data:
-): Promise<void> {
+  path: string,
+  body: string,
+  contentType: string
+): Promise<{ ok: boolean; status: number; text: string }> {
   const config = await erbonService.getConfig(hotelId);
   if (!config) throw new Error('Configuração Erbon não encontrada');
   const token = await erbonService.getToken(hotelId);
 
   const isDev = import.meta.env.DEV;
   const proxyBase = isDev ? '/erbon-api' : '/.netlify/functions/erbon-proxy';
-  const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/signature`;
+  const url = isDev ? `${proxyBase}${path}` : proxyBase;
 
-  const res = await fetch(isDev ? `${proxyBase}${path}` : proxyBase, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(isDev ? {} : { 'x-erbon-base-url': config.erbon_base_url, 'x-erbon-path': path }),
+      'Content-Type': contentType,
+      ...(isDev ? {} : {
+        'x-erbon-base-url': config.erbon_base_url,
+        'x-erbon-path': path,
+      }),
     },
-    body: JSON.stringify(signatureBase64),
+    body,
   });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    console.warn(`[WebCheckin] submitSignature ${res.status}: ${txt}`);
-    // Não lança erro — assinatura é best-effort
+
+  const text = await res.text().catch(() => '');
+  return { ok: res.ok, status: res.status, text };
+}
+
+export async function submitSignature(
+  hotelId: string,
+  bookingInternalId: number,
+  signatureBase64: string // sem prefixo data:image/...
+): Promise<void> {
+  const config = await erbonService.getConfig(hotelId);
+  if (!config) throw new Error('Configuração Erbon não encontrada');
+  const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/signature`;
+
+  // Tenta primeiro como JSON string, depois como plain text
+  let result = await erbonPost(hotelId, path, JSON.stringify(signatureBase64), 'application/json');
+  if (!result.ok) {
+    console.warn(`[WebCheckin] submitSignature JSON failed ${result.status}: ${result.text} — tentando text/plain`);
+    result = await erbonPost(hotelId, path, signatureBase64, 'text/plain');
+  }
+  if (!result.ok) {
+    console.warn(`[WebCheckin] submitSignature final ${result.status}: ${result.text}`);
+    // best-effort — não bloqueia o fluxo
+  } else {
+    console.log('[WebCheckin] submitSignature OK');
   }
 }
 
@@ -162,31 +190,71 @@ export async function submitAttachment(
 ): Promise<void> {
   const config = await erbonService.getConfig(hotelId);
   if (!config) throw new Error('Configuração Erbon não encontrada');
-  const token = await erbonService.getToken(hotelId);
-
-  const isDev = import.meta.env.DEV;
-  const proxyBase = isDev ? '/erbon-api' : '/.netlify/functions/erbon-proxy';
   const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/attachment`;
 
-  const res = await fetch(isDev ? `${proxyBase}${path}` : proxyBase, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(isDev ? {} : { 'x-erbon-base-url': config.erbon_base_url, 'x-erbon-path': path }),
-    },
-    body: JSON.stringify(pdfBase64),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    console.warn(`[WebCheckin] submitAttachment ${res.status}: ${txt}`);
+  // Tenta primeiro como JSON string, depois como plain text
+  let result = await erbonPost(hotelId, path, JSON.stringify(pdfBase64), 'application/json');
+  if (!result.ok) {
+    console.warn(`[WebCheckin] submitAttachment JSON failed ${result.status}: ${result.text} — tentando text/plain`);
+    result = await erbonPost(hotelId, path, pdfBase64, 'text/plain');
+  }
+  if (!result.ok) {
+    console.warn(`[WebCheckin] submitAttachment final ${result.status}: ${result.text}`);
+  } else {
+    console.log('[WebCheckin] submitAttachment OK');
   }
 }
 
-// ── localStorage helpers ──────────────────────────────────────────────────
+// ── Sincronização cross-device via Supabase (wci_sessions) ───────────────
+// localStorage é por dispositivo — para sincronizar celular ↔ totem
+// usamos a tabela wci_sessions no Supabase (leitura/escrita pública).
 
 const STORAGE_KEY = (bookingId: string | number) => `wci_guests_${bookingId}`;
 
+/** Salva localmente E sincroniza para o Supabase (cross-device). */
+export async function saveGuestsToStorage(
+  bookingId: string | number,
+  guests: WebCheckinGuest[],
+  hotelId?: string
+): Promise<void> {
+  // 1. Sempre salvar local (rápido / offline)
+  localStorage.setItem(STORAGE_KEY(bookingId), JSON.stringify(guests));
+
+  // 2. Sincronizar para Supabase (best-effort — não bloqueia o fluxo)
+  try {
+    await anonClient.from('wci_sessions').upsert({
+      booking_id: String(bookingId),
+      hotel_id: hotelId || '',
+      guests,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'booking_id' });
+  } catch (e) {
+    console.warn('[WCI] Supabase sync failed:', e);
+  }
+}
+
+/** Carrega hóspedes: Supabase primeiro (cross-device), fallback para localStorage. */
+export async function loadGuestsFromServer(
+  bookingId: string | number
+): Promise<WebCheckinGuest[] | null> {
+  try {
+    const { data } = await anonClient
+      .from('wci_sessions')
+      .select('guests')
+      .eq('booking_id', String(bookingId))
+      .single();
+    if (data?.guests && Array.isArray(data.guests) && data.guests.length > 0) {
+      // Atualizar localStorage com dado do servidor
+      localStorage.setItem(STORAGE_KEY(bookingId), JSON.stringify(data.guests));
+      return data.guests as WebCheckinGuest[];
+    }
+  } catch { /* fallback */ }
+
+  // Fallback: localStorage
+  return loadGuestsFromStorage(bookingId);
+}
+
+/** Síncrono — lê apenas do localStorage (sem await). */
 export function loadGuestsFromStorage(bookingId: string | number): WebCheckinGuest[] | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY(bookingId));
@@ -194,10 +262,8 @@ export function loadGuestsFromStorage(bookingId: string | number): WebCheckinGue
   } catch { return null; }
 }
 
-export function saveGuestsToStorage(bookingId: string | number, guests: WebCheckinGuest[]): void {
-  localStorage.setItem(STORAGE_KEY(bookingId), JSON.stringify(guests));
-}
-
 export function clearGuestsFromStorage(bookingId: string | number): void {
   localStorage.removeItem(STORAGE_KEY(bookingId));
+  // Limpar do Supabase também (best-effort)
+  anonClient.from('wci_sessions').delete().eq('booking_id', String(bookingId)).then(() => {});
 }

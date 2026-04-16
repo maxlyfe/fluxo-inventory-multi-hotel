@@ -37,12 +37,12 @@ export default function WCIReservationSearch() {
         return;
       }
 
-      // Salvar hóspedes no localStorage para persistência entre telas
+      // Sincronizar hóspedes com Supabase (cross-device)
       const bookingId = result.booking.bookingInternalID;
       const stored = localStorage.getItem(`wci_guests_${bookingId}`);
       if (!stored) {
-        // Primeira vez: inicializar com guestList da reserva
-        saveGuestsToStorage(bookingId, result.guests as WebCheckinGuest[]);
+        // Primeira vez: inicializar e sincronizar com servidor
+        await saveGuestsToStorage(bookingId, result.guests as WebCheckinGuest[], hotelId);
       }
 
       navigate(`/web-checkin/${hotelId}/guests/${bookingId}`);
