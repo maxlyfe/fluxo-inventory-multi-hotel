@@ -463,19 +463,51 @@ export default function WCICompanionEntry() {
         throw new Error('Falha ao gerar o PDF da ficha.');
       }
 
-      // ── Passo 2: Enviar PDF como anexo da reserva ───────────────────────────
+      // ── Passo 2: Enviar anexo (tenta PDF → JPEG em sequência) ───────────────
       updateQueue(1, 'sending');
+      const sigBase64 = sigDataUrl.replace(/^data:image\/png;base64,/, '');
+
+      // Converte assinatura para JPEG (fallback de anexo)
+      let jpegBase64 = sigBase64;
       try {
-        await submitAttachment(hotelId, Number(bookingId), pdfBase64, safeFileName);
-        updateQueue(1, 'done', 'OK');
-      } catch (err: any) {
-        updateQueue(1, 'error', err.message);
-        throw new Error('Falha ao enviar o PDF para a reserva. Verifique a conexão e tente novamente.');
+        const cvs = document.createElement('canvas');
+        const img = new Image();
+        await new Promise<void>(res => { img.onload = () => res(); img.src = sigDataUrl; });
+        cvs.width = img.width; cvs.height = img.height;
+        const ctx = cvs.getContext('2d')!;
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cvs.width, cvs.height);
+        ctx.drawImage(img, 0, 0);
+        jpegBase64 = cvs.toDataURL('image/jpeg', 0.8).replace(/^data:image\/jpeg;base64,/, '');
+      } catch { /* usa sigBase64 (PNG) se falhar */ }
+
+      // Ordem de tentativas: 'pdf' → 'application/pdf' → imagem JPEG
+      const attachmentAttempts: Array<{ base64: string; fileName: string; fileType: string; label: string }> = [
+        { base64: pdfBase64,  fileName: safeFileName, fileType: 'pdf',              label: 'pdf' },
+        { base64: pdfBase64,  fileName: safeFileName, fileType: 'application/pdf',  label: 'application/pdf' },
+        { base64: jpegBase64, fileName: safeFileName.replace(/\.pdf$/, '.jpg'), fileType: 'image/jpeg', label: 'image/jpeg' },
+        { base64: sigBase64,  fileName: safeFileName.replace(/\.pdf$/, '.png'), fileType: 'image/png',  label: 'image/png' },
+      ];
+
+      let attachmentOk = false;
+      for (const attempt of attachmentAttempts) {
+        updateQueue(1, 'sending', `tentando ${attempt.label}...`);
+        const ok = await submitAttachment(
+          hotelId, Number(bookingId), attempt.base64, attempt.fileName, attempt.fileType
+        );
+        if (ok) {
+          updateQueue(1, 'done', `salvo como ${attempt.label}`);
+          attachmentOk = true;
+          break;
+        }
+      }
+      if (!attachmentOk) {
+        // Não bloqueia — assinatura digital ainda é enviada via /signature
+        updateQueue(1, 'error', 'Não foi possível salvar o anexo (não crítico)');
+        console.warn('[WCI] All attachment attempts failed — signature via /signature endpoint still valid');
       }
 
       // ── Passo 3: Enviar PNG da assinatura vinculado ao hóspede ──────────────
       updateQueue(2, 'sending');
-      const sigBase64 = sigDataUrl.replace(/^data:image\/png;base64,/, '');
       try {
         await submitSignature(hotelId, Number(bookingId), sigBase64, savedGuestId ?? undefined);
         updateQueue(2, 'done', 'OK');

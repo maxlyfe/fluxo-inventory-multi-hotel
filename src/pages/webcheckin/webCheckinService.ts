@@ -200,29 +200,44 @@ export async function submitSignature(
  *   Body: BookingAttachmentModel { fileName: string, fileType: string, fileBase64: string }
  *   Retorna: integer (attachmentId)
  */
+/**
+ * Tenta enviar um arquivo como anexo da reserva no Erbon.
+ * Retorna true se enviado com sucesso, false caso contrário (nunca lança).
+ *
+ * O campo `fileType` é enviado exatamente como fornecido — use para testar
+ * diferentes valores aceitos pelo Erbon (ex: 'pdf', 'application/pdf', 'image/jpeg').
+ */
 export async function submitAttachment(
   hotelId: string,
   bookingInternalId: number,
-  pdfBase64: string,
-  fileName?: string
-): Promise<void> {
-  const config = await erbonService.getConfig(hotelId);
-  if (!config) throw new Error('Configuração Erbon não encontrada');
-  const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/attachment`;
+  fileBase64: string,
+  fileName?: string,
+  fileType = 'pdf'
+): Promise<boolean> {
+  try {
+    const config = await erbonService.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/attachment`;
 
-  const body = JSON.stringify({
-    fileName: fileName || `fnrh_${bookingInternalId}_${Date.now()}.pdf`,
-    fileType: 'application/pdf',
-    fileBase64: pdfBase64,
-  });
+    const safeFileName = fileName || `fnrh_${bookingInternalId}_${Date.now()}.${fileType.split('/').pop() || 'pdf'}`;
 
-  const result = await erbonPost(hotelId, path, body);
+    const body = JSON.stringify({
+      fileName: safeFileName,
+      fileType,
+      fileBase64,
+    });
 
-  if (!result.ok) {
-    console.warn(`[WebCheckin] submitAttachment ${result.status}: ${result.text}`);
-    throw new Error(`Erro ao enviar anexo: ${result.status}`);
-  } else {
-    console.log(`[WebCheckin] submitAttachment OK — id: ${result.text}`);
+    const result = await erbonPost(hotelId, path, body);
+
+    if (!result.ok) {
+      console.warn(`[WebCheckin] submitAttachment [${fileType}] ${result.status}: ${result.text}`);
+      return false;
+    }
+    console.log(`[WebCheckin] submitAttachment [${fileType}] OK — id: ${result.text}`);
+    return true;
+  } catch (err: any) {
+    console.warn('[WebCheckin] submitAttachment error:', err.message);
+    return false;
   }
 }
 
