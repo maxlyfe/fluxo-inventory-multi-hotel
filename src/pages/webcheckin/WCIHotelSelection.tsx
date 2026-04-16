@@ -51,11 +51,11 @@ export default function WCIHotelSelection() {
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
           <div style={{ marginBottom: '1.25rem' }}>
-            <div style={{ fontSize: 'clamp(1.6rem,5vw,2.4rem)', fontWeight: 900, color: '#fff', letterSpacing: '-0.04em', textShadow: '0 2px 16px rgba(0,133,174,0.5)', lineHeight: 1 }}>
-              Ly<span style={{ color: '#0085ae' }}>Fe</span>
+            <div style={{ fontSize: 'clamp(1.6rem,5vw,2.4rem)', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', textShadow: '0 2px 16px rgba(0,133,174,0.5)', lineHeight: 1 }}>
+              Meridiana
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.25em', textTransform: 'uppercase' }}>
-              Hotels
+            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.3em', textTransform: 'uppercase' }}>
+              Hoteles
             </div>
           </div>
           <h1 style={{ fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 800, color: '#fff', margin: 0, textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>

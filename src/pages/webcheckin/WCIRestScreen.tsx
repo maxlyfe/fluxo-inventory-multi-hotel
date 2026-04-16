@@ -36,14 +36,14 @@ export default function WCIRestScreen() {
           fontSize: 'clamp(2rem, 6vw, 3.2rem)',
           fontWeight: 900,
           color: '#fff',
-          letterSpacing: '-0.04em',
+          letterSpacing: '-0.02em',
           textShadow: '0 2px 20px rgba(0,133,174,0.6)',
           lineHeight: 1,
         }}>
-          Ly<span style={{ color: '#0085ae' }}>Fe</span>
+          Meridiana
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.25em', textTransform: 'uppercase', marginTop: '0.25rem' }}>
-          Hotels
+        <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.3em', textTransform: 'uppercase', marginTop: '0.3rem' }}>
+          Hoteles
         </div>
       </div>
 

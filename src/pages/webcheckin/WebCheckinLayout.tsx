@@ -194,11 +194,11 @@ export default function WebCheckinLayout() {
             backdropFilter: 'blur(8px)',
           }}>
             <div style={{ lineHeight: 1 }}>
-              <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>
-                Ly<span style={{ color: '#0085ae' }}>Fe</span>
+              <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>
+                Meridiana
               </span>
               <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.2em', textTransform: 'uppercase', display: 'block' }}>
-                Hotels
+                Hoteles
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
