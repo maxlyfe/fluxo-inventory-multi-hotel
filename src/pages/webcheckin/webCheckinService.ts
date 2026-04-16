@@ -37,7 +37,7 @@ export async function fetchWebCheckinHotels(): Promise<WebCheckinHotel[]> {
   const { data, error } = await anonClient
     .from('hotels')
     .select(`
-      id, name, logo_url,
+      id, name,
       erbon_hotel_config!inner(erbon_hotel_id, is_active)
     `)
     .eq('erbon_hotel_config.is_active', true)
@@ -48,7 +48,7 @@ export async function fetchWebCheckinHotels(): Promise<WebCheckinHotel[]> {
   return (data || []).map((h: any) => ({
     id: h.id,
     name: h.name,
-    logo_url: h.logo_url,
+    logo_url: null,
     erbonHotelId: h.erbon_hotel_config?.[0]?.erbon_hotel_id || h.erbon_hotel_config?.erbon_hotel_id || '',
     hasErbon: true,
   }));

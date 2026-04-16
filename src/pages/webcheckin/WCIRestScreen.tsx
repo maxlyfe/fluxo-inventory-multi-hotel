@@ -31,12 +31,21 @@ export default function WCIRestScreen() {
       userSelect: 'none',
     }}>
       {/* Logo */}
-      <img
-        src="/lyfe_logo.svg"
-        alt="LyFe Hotels"
-        style={{ height: 100, marginBottom: '2.5rem', filter: 'brightness(0) invert(1)', opacity: 0.95 }}
-        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-      />
+      <div style={{ marginBottom: '2.5rem', textAlign: 'center' }}>
+        <div style={{
+          fontSize: 'clamp(2rem, 6vw, 3.2rem)',
+          fontWeight: 900,
+          color: '#fff',
+          letterSpacing: '-0.04em',
+          textShadow: '0 2px 20px rgba(0,133,174,0.6)',
+          lineHeight: 1,
+        }}>
+          Ly<span style={{ color: '#0085ae' }}>Fe</span>
+        </div>
+        <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.25em', textTransform: 'uppercase', marginTop: '0.25rem' }}>
+          Hotels
+        </div>
+      </div>
 
       {/* Animated touchpad icon */}
       <div style={{ marginBottom: '2rem' }}>

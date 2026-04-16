@@ -193,8 +193,14 @@ export default function WebCheckinLayout() {
             background: 'rgba(0,0,0,0.3)',
             backdropFilter: 'blur(8px)',
           }}>
-            <img src="/lyfe_logo.svg" alt="LyFe Hotels" style={{ height: 36, filter: 'brightness(0) invert(1)' }}
-              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <div style={{ lineHeight: 1 }}>
+              <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>
+                Ly<span style={{ color: '#0085ae' }}>Fe</span>
+              </span>
+              <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.2em', textTransform: 'uppercase', display: 'block' }}>
+                Hotels
+              </span>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Globe size={16} style={{ opacity: 0.7 }} />
               <select value={lang} onChange={e => setLang(e.target.value as Lang)}

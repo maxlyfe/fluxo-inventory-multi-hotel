@@ -50,9 +50,14 @@ export default function WCIHotelSelection() {
       <div style={{ width: '100%', maxWidth: 700 }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-          <img src="/lyfe_logo.svg" alt="LyFe Hotels"
-            style={{ height: 56, marginBottom: '1.5rem', filter: 'brightness(0) invert(1)', opacity: 0.95 }}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <div style={{ marginBottom: '1.25rem' }}>
+            <div style={{ fontSize: 'clamp(1.6rem,5vw,2.4rem)', fontWeight: 900, color: '#fff', letterSpacing: '-0.04em', textShadow: '0 2px 16px rgba(0,133,174,0.5)', lineHeight: 1 }}>
+              Ly<span style={{ color: '#0085ae' }}>Fe</span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.25em', textTransform: 'uppercase' }}>
+              Hotels
+            </div>
+          </div>
           <h1 style={{ fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 800, color: '#fff', margin: 0, textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
             {t('selectHotel')}
           </h1>
