@@ -107,7 +107,9 @@ O hóspede tem direito a: confirmar a existência de tratamento; acessar, corrig
 VALIDADE DA ASSINATURA DIGITAL
 A assinatura digital aposta neste documento tem validade jurídica plena nos termos do Marco Civil da Internet (Lei nº 12.965/2014) e da MP 2.200-2/2001.`;
 
-// ── PDF por hóspede ──────────────────────────────────────────────────────────
+// ── PDF compacto por hóspede (1 página) ──────────────────────────────────────
+// Mantido enxuto para respeitar o limite de tamanho do Erbon.
+// Os textos completos dos termos são exibidos na tela e aceitos pelos checkboxes.
 
 async function buildGuestPDF(params: {
   hotelName: string;
@@ -118,83 +120,104 @@ async function buildGuestPDF(params: {
   signedAt: string;
 }): Promise<string> {
   const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageW = 210;
-  const mL = 18;
-  const cW = pageW - mL - 18;
-  let y = 20;
 
-  const write = (text: string, size = 10, bold = false, color: [number,number,number] = [30,30,30]) => {
+  // Formato menor: 148mm × 210mm (A5) para reduzir tamanho do arquivo
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
+  const W = 148;
+  const mL = 12;
+  const cW = W - mL - 12;
+  let y = 12;
+
+  const t = (text: string, size: number, bold = false, color: [number,number,number] = [20,20,20]) => {
     pdf.setFontSize(size);
     pdf.setFont('helvetica', bold ? 'bold' : 'normal');
     pdf.setTextColor(...color);
     pdf.splitTextToSize(text, cW).forEach((l: string) => {
-      if (y > 270) { pdf.addPage(); y = 20; }
       pdf.text(l, mL, y);
-      y += size * 0.45;
+      y += size * 0.42;
     });
   };
-  const sp = (n = 4) => { y += n; };
-  const hr = () => { pdf.setDrawColor(200,200,200); pdf.line(mL, y, 192, y); sp(4); };
 
-  // Cabeçalho
+  // Cabeçalho colorido
   pdf.setFillColor(0, 133, 174);
-  pdf.rect(0, 0, pageW, 14, 'F');
-  pdf.setFontSize(13); pdf.setFont('helvetica','bold'); pdf.setTextColor(255,255,255);
-  pdf.text(hotelName, mL, 9);
-  pdf.setFontSize(9); pdf.setFont('helvetica','normal');
-  pdf.text('Ficha de Registro — FNRH', 192, 9, { align: 'right' });
-  y = 22;
+  pdf.rect(0, 0, W, 11, 'F');
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
+  pdf.text(hotelName, mL, 7);
+  pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
+  pdf.text('FNRH — Termo de Hospedagem', W - mL, 7, { align: 'right' });
+  y = 18;
 
-  write('DADOS DO HÓSPEDE', 11, true, [0,100,140]); sp(2);
-  write(`Reserva #${bookingId}  |  ${signedAt}`);
-  sp(1); write(guestName, 11, true);
-  if (guestDoc) { sp(1); write(`Documento: ${guestDoc}`); }
-  sp(4); hr();
+  // Dados
+  t('HÓSPEDE', 8, true, [0, 100, 140]);
+  y += 1;
+  t(guestName, 10, true);
+  y += 1;
+  if (guestDoc) t(`Documento: ${guestDoc}`, 7, false, [80, 80, 80]);
+  t(`Reserva: #${bookingId}`, 7, false, [80, 80, 80]);
+  t(`Data/Hora: ${signedAt}`, 7, false, [80, 80, 80]);
+  y += 4;
 
-  write('REGULAMENTO INTERNO E POLÍTICAS DO HOTEL', 11, true, [0,100,140]); sp(3);
-  HOTEL_TERMS.split('\n').forEach(l => {
-    if (/^\d+\./.test(l)) { sp(2); write(l, 9, true); }
-    else if (l.trim()) write(l, 8.5, false, [60,60,60]);
-  });
-  sp(4); hr();
+  // Linha
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(mL, y, W - mL, y);
+  y += 5;
 
-  write('POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS (LGPD)', 11, true, [0,100,140]); sp(3);
-  LGPD_TERMS.split('\n').forEach(l => {
-    if (/^[A-ZÁÉÍÓÚ]{3,}/.test(l) && l.length < 60) { sp(2); write(l, 9, true); }
-    else if (l.trim()) write(l, 8.5, false, [60,60,60]);
-  });
-  sp(6); hr();
-
-  write('DECLARAÇÃO E ASSINATURA DIGITAL', 11, true, [0,100,140]); sp(3);
-  write(
-    `Eu, ${guestName}, declaro que li, compreendi e aceito integralmente o Regulamento Interno ` +
-    `do hotel e a Política de Privacidade (LGPD) acima, e que todas as informações prestadas ` +
-    `são verdadeiras. Assino digitalmente em ${signedAt}.`,
-    9
+  // Declaração compacta
+  t('DECLARAÇÃO DO HÓSPEDE', 8, true, [0, 100, 140]);
+  y += 1;
+  t(
+    `Eu, ${guestName}, declaro que li e aceito integralmente o Regulamento Interno ` +
+    `e a Política de Privacidade (LGPD) do hotel, e que todas as informações prestadas ` +
+    `na Ficha Nacional de Registro de Hóspedes (FNRH) são verdadeiras. ` +
+    `Esta assinatura digital tem validade jurídica conforme Lei nº 13.709/2018 (LGPD) ` +
+    `e Marco Civil da Internet (Lei nº 12.965/2014).`,
+    7.5, false, [40, 40, 40]
   );
-  sp(8);
+  y += 6;
 
-  write('Assinatura Digital', 10, true);
-  sp(3);
-  if (y > 230) { pdf.addPage(); y = 20; }
+  // Linha
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(mL, y, W - mL, y);
+  y += 5;
+
+  // Assinatura — JPEG comprimido para reduzir tamanho
+  t('ASSINATURA DIGITAL', 8, true, [0, 100, 140]);
+  y += 2;
+
   try {
-    pdf.addImage(signatureDataUrl, 'PNG', mL, y, 80, 32);
-    pdf.setDrawColor(160,160,160);
-    pdf.line(mL, y + 34, mL + 80, y + 34);
-    pdf.setFontSize(8); pdf.setFont('helvetica','normal'); pdf.setTextColor(120,120,120);
-    pdf.text(guestName, mL, y + 38);
-    pdf.text(signedAt, mL, y + 42);
+    // Converter canvas para JPEG (muito menor que PNG)
+    const canvas = document.createElement('canvas');
+    const srcImg = new Image();
+    await new Promise<void>((resolve) => {
+      srcImg.onload = () => {
+        canvas.width = srcImg.width;
+        canvas.height = srcImg.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(srcImg, 0, 0);
+        resolve();
+      };
+      srcImg.src = signatureDataUrl;
+    });
+    const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+    pdf.addImage(jpegDataUrl, 'JPEG', mL, y, 70, 25);
   } catch {
-    write('[Assinatura digital registrada eletronicamente]', 9, false, [100,100,100]);
+    t('[Assinatura digital capturada eletronicamente]', 7, false, [100, 100, 100]);
   }
 
-  const total = (pdf as any).internal.getNumberOfPages();
-  for (let i = 1; i <= total; i++) {
-    pdf.setPage(i);
-    pdf.setFontSize(7.5); pdf.setFont('helvetica','normal'); pdf.setTextColor(160,160,160);
-    pdf.text(`${hotelName} — Documento gerado eletronicamente em ${signedAt} — Página ${i}/${total}`, pageW / 2, 290, { align: 'center' });
-  }
+  y += 28;
+  pdf.setDrawColor(150, 150, 150);
+  pdf.line(mL, y, mL + 70, y);
+  y += 4;
+  pdf.setFontSize(6.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(120, 120, 120);
+  pdf.text(guestName, mL, y);
+  y += 3.5;
+  pdf.text(signedAt, mL, y);
+
+  // Rodapé
+  pdf.setFontSize(6); pdf.setTextColor(180, 180, 180);
+  pdf.text(`${hotelName} — Documento eletrônico gerado em ${signedAt}`, W / 2, 203, { align: 'center' });
 
   return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
 }
@@ -202,6 +225,48 @@ async function buildGuestPDF(params: {
 // ── Componente principal ─────────────────────────────────────────────────────
 
 type Step = 'fnrh' | 'signature' | 'done';
+
+// ── Fila de envio ─────────────────────────────────────────────────────────────
+type QueueStatus = 'pending' | 'sending' | 'done' | 'error';
+interface QueueItem { label: string; status: QueueStatus; detail?: string }
+
+function SendQueue({ items }: { items: QueueItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div style={{
+      background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.15)',
+      borderRadius: 14, padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.6rem',
+    }}>
+      <p style={{ margin: 0, fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.05em' }}>
+        FILA DE ENVIO
+      </p>
+      {items.map((item, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '1.1rem', width: 22, textAlign: 'center' }}>
+            {item.status === 'pending'  ? '⏳' :
+             item.status === 'sending'  ? '🔄' :
+             item.status === 'done'     ? '✅' : '❌'}
+          </span>
+          <div style={{ flex: 1 }}>
+            <span style={{
+              fontSize: '0.88rem', fontWeight: 600,
+              color: item.status === 'done'  ? '#4ade80' :
+                     item.status === 'error' ? '#f87171' :
+                     item.status === 'sending' ? '#7dd3ee' : 'rgba(255,255,255,0.55)',
+            }}>
+              {item.label}
+            </span>
+            {item.detail && (
+              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginLeft: '0.5rem' }}>
+                {item.detail}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const COUNTRIES = [
   { code: 'BR', label: '🇧🇷 Brasileiro(a)' }, { code: 'AR', label: '🇦🇷 Argentino(a)' },
@@ -242,6 +307,7 @@ export default function WCICompanionEntry() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedGuestId, setSavedGuestId] = useState<number | null>(existingGuestId);
+  const [sendQueue, setSendQueue] = useState<QueueItem[]>([]);
   const [activeTab, setActiveTab] = useState<'hotel' | 'lgpd'>('hotel');
   const [hotelAccepted, setHotelAccepted] = useState(false);
   const [lgpdAccepted, setLgpdAccepted] = useState(false);
@@ -344,7 +410,7 @@ export default function WCICompanionEntry() {
     }
   };
 
-  // ── Passo 2: Enviar assinatura ────────────────────────────────────────────
+  // ── Passo 2: Enviar assinatura — fila sequencial com feedback visual ────────
 
   const handleSign = async () => {
     if (!hotelAccepted || !lgpdAccepted) { setError('Aceite os dois termos para prosseguir.'); return; }
@@ -353,6 +419,20 @@ export default function WCICompanionEntry() {
 
     setSaving(true);
     setError('');
+
+    // Inicializa a fila de envio
+    const queue: QueueItem[] = [
+      { label: 'Gerando PDF da ficha...', status: 'sending' },
+      { label: 'Enviando PDF (anexo da reserva)', status: 'pending' },
+      { label: 'Enviando assinatura digital', status: 'pending' },
+    ];
+    setSendQueue([...queue]);
+
+    const updateQueue = (idx: number, status: QueueStatus, detail?: string) => {
+      queue[idx] = { ...queue[idx], status, detail };
+      setSendQueue([...queue]);
+    };
+
     try {
       const sigDataUrl = sigRef.current!.getTrimmedCanvas().toDataURL('image/png');
       const signedAt = new Date().toLocaleString('pt-BR');
@@ -366,23 +446,47 @@ export default function WCICompanionEntry() {
       const guestName = name || guest?.name || 'Hóspede';
       const safeFileName = `fnrh_${guestName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
 
-      const pdfBase64 = await buildGuestPDF({
-        hotelName: 'Meridiana Hoteles',
-        bookingId: bookingId!,
-        guestName,
-        guestDoc,
-        signatureDataUrl: sigDataUrl,
-        signedAt,
-      });
+      // ── Passo 1: Gerar PDF ──────────────────────────────────────────────────
+      let pdfBase64: string;
+      try {
+        pdfBase64 = await buildGuestPDF({
+          hotelName: 'Meridiana Hoteles',
+          bookingId: bookingId!,
+          guestName,
+          guestDoc,
+          signatureDataUrl: sigDataUrl,
+          signedAt,
+        });
+        updateQueue(0, 'done', 'OK');
+      } catch (err: any) {
+        updateQueue(0, 'error', err.message);
+        throw new Error('Falha ao gerar o PDF da ficha.');
+      }
 
+      // ── Passo 2: Enviar PDF como anexo da reserva ───────────────────────────
+      updateQueue(1, 'sending');
+      try {
+        await submitAttachment(hotelId, Number(bookingId), pdfBase64, safeFileName);
+        updateQueue(1, 'done', 'OK');
+      } catch (err: any) {
+        updateQueue(1, 'error', err.message);
+        throw new Error('Falha ao enviar o PDF para a reserva. Verifique a conexão e tente novamente.');
+      }
+
+      // ── Passo 3: Enviar PNG da assinatura vinculado ao hóspede ──────────────
+      updateQueue(2, 'sending');
       const sigBase64 = sigDataUrl.replace(/^data:image\/png;base64,/, '');
+      try {
+        await submitSignature(hotelId, Number(bookingId), sigBase64, savedGuestId ?? undefined);
+        updateQueue(2, 'done', 'OK');
+      } catch (err: any) {
+        // Assinatura é não-bloqueante: loga o erro mas não impede o fluxo
+        updateQueue(2, 'error', err.message);
+        console.warn('[WCI] Signature upload failed (non-blocking):', err.message);
+      }
 
-      // Enviar PDF como anexo da reserva
-      await submitAttachment(hotelId, Number(bookingId), pdfBase64, safeFileName);
-
-      // Enviar PNG da assinatura vinculado ao hóspede (idGuest header)
-      await submitSignature(hotelId, Number(bookingId), sigBase64, savedGuestId ?? undefined);
-
+      // Aguarda 800ms para o usuário ver a fila completa antes de avançar
+      await new Promise(r => setTimeout(r, 800));
       setStep('done');
     } catch (err: any) {
       setError(err.message || t('errorGeneral'));
@@ -680,6 +784,9 @@ export default function WCICompanionEntry() {
             </p>
           </div>
 
+          {/* Fila de envio — visível enquanto envia */}
+          {sendQueue.length > 0 && <SendQueue items={sendQueue} />}
+
           {error && (
             <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10, padding: '0.75rem 1rem' }}>
               <span style={{ color: '#fca5a5', fontSize: '0.86rem' }}>{error}</span>
@@ -704,7 +811,7 @@ export default function WCICompanionEntry() {
           </button>
 
           {/* Voltar para FNRH */}
-          <button onClick={() => { setStep('fnrh'); setError(''); setHotelAccepted(false); setLgpdAccepted(false); }}
+          <button onClick={() => { setStep('fnrh'); setError(''); setHotelAccepted(false); setLgpdAccepted(false); setSendQueue([]); }}
             style={{ display: 'block', margin: '0 auto', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
             ← Corrigir dados
           </button>
