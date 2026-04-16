@@ -16,7 +16,7 @@ function AutoReturn({ delay, to, navigate }: { delay: number; to: string; naviga
 }
 import { useNavigate, useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
-import { jsPDF } from 'jspdf';
+// jsPDF removido — Erbon só aceita image/jpeg; documentos gerados via html2canvas
 import {
   ClipboardList, PenLine, CheckCircle,
   Loader2, RotateCcw, ChevronRight,
@@ -107,226 +107,114 @@ O hóspede tem direito a: confirmar a existência de tratamento; acessar, corrig
 VALIDADE DA ASSINATURA DIGITAL
 A assinatura digital aposta neste documento tem validade jurídica plena nos termos do Marco Civil da Internet (Lei nº 12.965/2014) e da MP 2.200-2/2001.`;
 
-// ── Helpers de PDF ────────────────────────────────────────────────────────────
+// ── Geração de documentos como JPEG via html2canvas ──────────────────────────
+// Erbon só aceita image/jpeg no endpoint /attachment.
+// Cada documento é renderizado como HTML off-screen e capturado pelo html2canvas.
 
-/** Converte qualquer data URL de imagem para JPEG base64 (sem prefixo). */
-async function toJpegBase64(dataUrl: string, quality = 0.65): Promise<string> {
-  const cvs = document.createElement('canvas');
-  const img = new Image();
-  await new Promise<void>(res => { img.onload = () => res(); img.src = dataUrl; });
-  cvs.width = img.width; cvs.height = img.height;
-  const ctx = cvs.getContext('2d')!;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, cvs.width, cvs.height);
-  ctx.drawImage(img, 0, 0);
-  return cvs.toDataURL('image/jpeg', quality).replace(/^data:image\/jpeg;base64,/, '');
+interface DocParams {
+  hotelName: string;
+  documentTitle: string;
+  documentSubtitle: string;
+  content: string;
+  declaration: string;
+  guestName: string;
+  guestDoc?: string;
+  bookingId: string;
+  signatureDataUrl: string;
+  signedAt: string;
 }
 
 /**
- * Adiciona o bloco de assinatura ao PDF atual (reutilizável nos 3 documentos).
- * Retorna o novo valor de `y` após o bloco.
+ * Renderiza um documento como imagem JPEG usando html2canvas.
+ * Retorna base64 puro (sem prefixo data URI).
  */
-async function appendSignatureBlock(
-  pdf: jsPDF,
-  signatureDataUrl: string,
-  guestName: string,
-  signedAt: string,
-  mL: number,
-  W: number,
-  yIn: number
-): Promise<number> {
-  let y = yIn;
-  const cW = W - mL - 10;
+async function buildDocumentJpeg(p: DocParams): Promise<string> {
+  const el = document.createElement('div');
+  el.style.cssText = [
+    'position:fixed', 'left:-9999px', 'top:0',
+    'width:794px', 'background:#fff',
+    'font-family:Arial,Helvetica,sans-serif',
+    'font-size:13px', 'color:#222', 'line-height:1.65',
+  ].join(';');
 
-  // Seção
-  pdf.setFontSize(8); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(0, 100, 140);
-  pdf.text('ASSINATURA DIGITAL', mL, y); y += 5;
+  // Escapa texto para HTML (preserva quebras de linha)
+  const esc = (s: string) => s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
 
-  // Imagem JPEG comprimida
+  el.innerHTML = `
+    <div style="background:#0085ae;padding:14px 28px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="color:#fff;font-size:16px;font-weight:bold;">${esc(p.hotelName)}</span>
+      <span style="color:rgba(255,255,255,.85);font-size:11px;">${esc(p.documentSubtitle)}</span>
+    </div>
+    <div style="padding:28px 36px;">
+      <h2 style="color:#006688;font-size:14px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.04em;">${esc(p.documentTitle)}</h2>
+      <p style="color:#888;font-size:11px;margin:0 0 16px;">
+        Hóspede: <strong>${esc(p.guestName)}</strong>${p.guestDoc ? ` &nbsp;|&nbsp; ${esc(p.guestDoc)}` : ''}
+        &nbsp;|&nbsp; Reserva: #${esc(p.bookingId)}
+      </p>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:0 0 18px;">
+      <div style="font-size:12px;color:#333;line-height:1.75;">${esc(p.content)}</div>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:22px 0 16px;">
+      <h3 style="color:#006688;font-size:12px;text-transform:uppercase;margin:0 0 10px;letter-spacing:.04em;">Declaração de Aceite</h3>
+      <p style="font-size:12px;color:#333;line-height:1.7;margin:0 0 22px;">${esc(p.declaration)}</p>
+      <h3 style="color:#006688;font-size:12px;text-transform:uppercase;margin:0 0 12px;letter-spacing:.04em;">Assinatura Digital</h3>
+      <img src="${p.signatureDataUrl}" style="max-width:300px;height:100px;border:1px solid #eee;background:#fff;display:block;object-fit:contain;" crossorigin="anonymous">
+      <div style="width:300px;border-top:1px solid #999;margin-top:8px;padding-top:6px;">
+        <p style="font-size:11px;color:#555;margin:0;">${esc(p.guestName)}</p>
+        <p style="font-size:11px;color:#555;margin:3px 0 0;">${esc(p.signedAt)}</p>
+      </div>
+    </div>
+    <div style="padding:10px 28px;background:#f7f7f7;border-top:1px solid #e8e8e8;">
+      <p style="font-size:10px;color:#bbb;margin:0;text-align:center;">
+        ${esc(p.hotelName)} — Documento eletrônico gerado em ${esc(p.signedAt)}
+      </p>
+    </div>
+  `;
+
+  document.body.appendChild(el);
   try {
-    const jpegDataUrl = 'data:image/jpeg;base64,' + (await toJpegBase64(signatureDataUrl, 0.65));
-    pdf.addImage(jpegDataUrl, 'JPEG', mL, y, 72, 24);
-    y += 27;
-  } catch {
-    pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 100, 100);
-    pdf.text('[Assinatura digital capturada eletronicamente]', mL, y); y += 5;
-  }
-
-  // Linha de assinatura
-  pdf.setDrawColor(150, 150, 150);
-  pdf.line(mL, y, mL + 72, y); y += 4;
-  pdf.setFontSize(6.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 100, 100);
-  const nameLine = pdf.splitTextToSize(guestName, cW);
-  nameLine.forEach((l: string) => { pdf.text(l, mL, y); y += 3.5; });
-  pdf.text(signedAt, mL, y); y += 5;
-
-  return y;
-}
-
-/** Adiciona rodapé em todas as páginas do PDF. */
-function addFooters(pdf: jsPDF, hotelName: string, signedAt: string, W: number) {
-  const n = pdf.getNumberOfPages();
-  for (let p = 1; p <= n; p++) {
-    pdf.setPage(p);
-    pdf.setFontSize(6); pdf.setTextColor(180, 180, 180);
-    pdf.text(`${hotelName} — Pág ${p}/${n} — ${signedAt}`, W / 2, 207, { align: 'center' });
+    const { default: html2canvas } = await import('html2canvas');
+    const canvas = await html2canvas(el, {
+      scale: 1.5,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    });
+    return canvas.toDataURL('image/jpeg', 0.88).replace(/^data:image\/jpeg;base64,/, '');
+  } finally {
+    document.body.removeChild(el);
   }
 }
 
-// ── 1. FNRH — Ficha de Registro de Hóspede ───────────────────────────────────
+// Builders específicos por documento
 
-async function buildFNRHPdf(params: {
-  hotelName: string; bookingId: string; guestName: string;
-  guestDoc?: string; signatureDataUrl: string; signedAt: string;
-}): Promise<string> {
-  const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
-  const W = 148; const mL = 12; const cW = W - mL - 12;
-  let y = 12;
-
-  const line = (text: string, size: number, bold = false, color: [number, number, number] = [20, 20, 20]) => {
-    pdf.setFontSize(size); pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setTextColor(...color);
-    pdf.splitTextToSize(text, cW).forEach((l: string) => { pdf.text(l, mL, y); y += size * 0.42; });
-  };
-
-  // Cabeçalho
-  pdf.setFillColor(0, 133, 174); pdf.rect(0, 0, W, 11, 'F');
-  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
-  pdf.text(hotelName, mL, 7);
-  pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
-  pdf.text('FNRH — Ficha de Registro de Hóspede', W - mL, 7, { align: 'right' });
-  y = 18;
-
-  line('HÓSPEDE', 8, true, [0, 100, 140]); y += 1;
-  line(guestName, 10, true); y += 1;
-  if (guestDoc) line(`Documento: ${guestDoc}`, 7, false, [80, 80, 80]);
-  line(`Reserva: #${bookingId}`, 7, false, [80, 80, 80]);
-  line(`Data/Hora: ${signedAt}`, 7, false, [80, 80, 80]);
-  y += 4;
-
-  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
-
-  line('DECLARAÇÃO DO HÓSPEDE', 8, true, [0, 100, 140]); y += 1;
-  line(
-    `Eu, ${guestName}, declaro que todas as informações prestadas na presente Ficha Nacional ` +
-    `de Registro de Hóspedes (FNRH) são verdadeiras e corretas, e que aceito integralmente ` +
-    `o Regulamento Interno e a Política de Privacidade (LGPD) do hotel. ` +
-    `Esta assinatura digital tem validade jurídica nos termos da Lei nº 13.709/2018 e ` +
-    `Marco Civil da Internet (Lei nº 12.965/2014).`,
-    7.5, false, [40, 40, 40]
-  );
-  y += 6;
-  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
-
-  y = await appendSignatureBlock(pdf, signatureDataUrl, guestName, signedAt, mL, W, y);
-  addFooters(pdf, hotelName, signedAt, W);
-
-  return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
+function buildHotelRulesJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>): Promise<string> {
+  return buildDocumentJpeg({
+    ...p,
+    documentTitle: 'Regulamento Interno e Políticas do Hotel',
+    documentSubtitle: 'Regulamento Interno',
+    content: HOTEL_TERMS,
+    declaration:
+      `Eu, ${p.guestName}, declaro que li, compreendi e aceito integralmente o presente ` +
+      `Regulamento Interno do hotel acima transcrito. ` +
+      `Data e hora: ${p.signedAt}.`,
+  });
 }
 
-// ── 2. Regulamento do Hotel ───────────────────────────────────────────────────
-
-async function buildHotelRulesPdf(params: {
-  hotelName: string; bookingId: string; guestName: string;
-  guestDoc?: string; signatureDataUrl: string; signedAt: string;
-}): Promise<string> {
-  const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
-  const W = 148; const mL = 10; const cW = W - mL - 10;
-  let y = 12;
-
-  const addLine = (text: string, size: number, bold = false, color: [number, number, number] = [30, 30, 30]) => {
-    pdf.setFontSize(size); pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setTextColor(...color);
-    pdf.splitTextToSize(text, cW).forEach((l: string) => {
-      if (y > 198) { pdf.addPage(); y = 12; }
-      pdf.text(l, mL, y); y += size * 0.43;
-    });
-  };
-
-  // Cabeçalho
-  pdf.setFillColor(0, 133, 174); pdf.rect(0, 0, W, 11, 'F');
-  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
-  pdf.text(hotelName, mL, 7);
-  pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
-  pdf.text('Regulamento Interno', W - mL, 7, { align: 'right' });
-  y = 18;
-
-  addLine('REGULAMENTO INTERNO E POLÍTICAS DO HOTEL', 10, true, [0, 100, 140]); y += 2;
-  addLine(`Hóspede: ${guestName}${guestDoc ? ` | ${guestDoc}` : ''} | Reserva: #${bookingId}`, 7, false, [100, 100, 100]); y += 2;
-  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
-
-  addLine(HOTEL_TERMS, 7.5, false, [40, 40, 40]);
-
-  y += 5;
-  if (y > 185) { pdf.addPage(); y = 12; }
-  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
-
-  addLine('DECLARAÇÃO DE ACEITE DO REGULAMENTO', 8, true, [0, 100, 140]); y += 1;
-  addLine(
-    `Eu, ${guestName}, declaro que li, compreendi e aceito integralmente o presente ` +
-    `Regulamento Interno do hotel acima transcrito. Data e hora: ${signedAt}.`,
-    7.5, false, [40, 40, 40]
-  );
-  y += 6;
-
-  if (y > 180) { pdf.addPage(); y = 12; }
-  y = await appendSignatureBlock(pdf, signatureDataUrl, guestName, signedAt, mL, W, y);
-  addFooters(pdf, hotelName, signedAt, W);
-
-  return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
-}
-
-// ── 3. Política de Privacidade LGPD ──────────────────────────────────────────
-
-async function buildLGPDPdf(params: {
-  hotelName: string; bookingId: string; guestName: string;
-  guestDoc?: string; signatureDataUrl: string; signedAt: string;
-}): Promise<string> {
-  const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
-  const W = 148; const mL = 10; const cW = W - mL - 10;
-  let y = 12;
-
-  const addLine = (text: string, size: number, bold = false, color: [number, number, number] = [30, 30, 30]) => {
-    pdf.setFontSize(size); pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setTextColor(...color);
-    pdf.splitTextToSize(text, cW).forEach((l: string) => {
-      if (y > 198) { pdf.addPage(); y = 12; }
-      pdf.text(l, mL, y); y += size * 0.43;
-    });
-  };
-
-  // Cabeçalho
-  pdf.setFillColor(0, 133, 174); pdf.rect(0, 0, W, 11, 'F');
-  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
-  pdf.text(hotelName, mL, 7);
-  pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
-  pdf.text('Política de Privacidade — LGPD', W - mL, 7, { align: 'right' });
-  y = 18;
-
-  addLine('POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS (LGPD)', 10, true, [0, 100, 140]); y += 2;
-  addLine(`Hóspede: ${guestName}${guestDoc ? ` | ${guestDoc}` : ''} | Reserva: #${bookingId}`, 7, false, [100, 100, 100]); y += 2;
-  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
-
-  addLine(LGPD_TERMS, 7.5, false, [40, 40, 40]);
-
-  y += 5;
-  if (y > 185) { pdf.addPage(); y = 12; }
-  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
-
-  addLine('DECLARAÇÃO DE ACEITE — LGPD', 8, true, [0, 100, 140]); y += 1;
-  addLine(
-    `Eu, ${guestName}, declaro que fui informado(a) sobre o tratamento dos meus dados pessoais ` +
-    `conforme a Lei nº 13.709/2018 (LGPD) e consinto com a coleta e uso das informações ` +
-    `descritas neste documento exclusivamente para os fins de hospedagem. Data e hora: ${signedAt}.`,
-    7.5, false, [40, 40, 40]
-  );
-  y += 6;
-
-  if (y > 180) { pdf.addPage(); y = 12; }
-  y = await appendSignatureBlock(pdf, signatureDataUrl, guestName, signedAt, mL, W, y);
-  addFooters(pdf, hotelName, signedAt, W);
-
-  return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
+function buildLGPDJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>): Promise<string> {
+  return buildDocumentJpeg({
+    ...p,
+    documentTitle: 'Política de Privacidade e Proteção de Dados (LGPD)',
+    documentSubtitle: 'Política LGPD — Lei nº 13.709/2018',
+    content: LGPD_TERMS,
+    declaration:
+      `Eu, ${p.guestName}, declaro que fui informado(a) sobre o tratamento dos meus dados pessoais ` +
+      `conforme a Lei nº 13.709/2018 (LGPD) e consinto com a coleta e uso das informações ` +
+      `descritas neste documento exclusivamente para os fins de hospedagem. ` +
+      `Data e hora: ${p.signedAt}.`,
+  });
 }
 
 // ── Componente principal ─────────────────────────────────────────────────────
@@ -517,30 +405,8 @@ export default function WCICompanionEntry() {
     }
   };
 
-  // ── Enviar PDF com fallback automático de fileType ───────────────────────────
-  const sendPdfWithFallback = async (
-    pdfBase64: string,
-    fileName: string,
-    jpegBase64: string,
-    sigBase64: string,
-    onProgress: (detail: string) => void
-  ): Promise<boolean> => {
-    const stem = fileName.replace(/\.pdf$/, '');
-    const attempts = [
-      { b64: pdfBase64,  name: fileName,        type: 'pdf' },
-      { b64: pdfBase64,  name: fileName,        type: 'application/pdf' },
-      { b64: jpegBase64, name: `${stem}.jpg`,   type: 'image/jpeg' },
-      { b64: sigBase64,  name: `${stem}.png`,   type: 'image/png' },
-    ];
-    for (const a of attempts) {
-      onProgress(`tentando ${a.type}...`);
-      const ok = await submitAttachment(hotelId!, Number(bookingId), a.b64, a.name, a.type);
-      if (ok) { onProgress(`salvo`); return true; }
-    }
-    return false;
-  };
-
   // ── Fila de envio: Assinatura + Regulamento + LGPD ───────────────────────────
+  // Erbon aceita image/jpeg → geramos cada documento como JPEG via html2canvas.
 
   const handleSign = async () => {
     if (!hotelAccepted || !lgpdAccepted) { setError('Aceite os dois termos para prosseguir.'); return; }
@@ -566,7 +432,6 @@ export default function WCICompanionEntry() {
       const sigDataUrl = sigRef.current!.getTrimmedCanvas().toDataURL('image/png');
       const signedAt   = new Date().toLocaleString('pt-BR');
       const sigBase64  = sigDataUrl.replace(/^data:image\/png;base64,/, '');
-      const jpegBase64 = await toJpegBase64(sigDataUrl, 0.8);
 
       const stored    = loadGuestsFromStorage(bookingId) || [];
       const guest     = savedGuestId ? stored.find(g => g.id === savedGuestId) : null;
@@ -577,13 +442,7 @@ export default function WCICompanionEntry() {
       const safeName  = guestName.replace(/[^a-zA-Z0-9]/g, '_');
       const ts        = Date.now();
 
-      const pdfParams = {
-        hotelName: 'Meridiana Hoteles',
-        bookingId: bookingId!,
-        guestName, guestDoc,
-        signatureDataUrl: sigDataUrl,
-        signedAt,
-      };
+      const docBase = { hotelName: 'Meridiana Hoteles', bookingId: bookingId!, guestName, guestDoc, signatureDataUrl: sigDataUrl, signedAt };
 
       // ── 1. Assinatura PNG via /signature ────────────────────────────────────
       upd(0, 'sending');
@@ -595,29 +454,23 @@ export default function WCICompanionEntry() {
         console.warn('[WCI] Signature upload failed (non-blocking):', err.message);
       }
 
-      // ── 2. Regulamento do Hotel (PDF completo + assinatura) ─────────────────
-      upd(1, 'sending', 'gerando...');
+      // ── 2. Regulamento do Hotel como JPEG ──────────────────────────────────
+      upd(1, 'sending', 'gerando imagem...');
       try {
-        const b64 = await buildHotelRulesPdf(pdfParams);
-        const ok = await sendPdfWithFallback(
-          b64, `Regulamento_${safeName}_${ts}.pdf`,
-          jpegBase64, sigBase64,
-          d => upd(1, 'sending', d)
-        );
+        const jpegB64 = await buildHotelRulesJpeg(docBase);
+        upd(1, 'sending', 'enviando...');
+        const ok = await submitAttachment(hotelId, Number(bookingId), jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(1, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
       } catch (err: any) {
         upd(1, 'error', err.message);
       }
 
-      // ── 3. LGPD (PDF completo + assinatura) ────────────────────────────────
-      upd(2, 'sending', 'gerando...');
+      // ── 3. LGPD como JPEG ──────────────────────────────────────────────────
+      upd(2, 'sending', 'gerando imagem...');
       try {
-        const b64 = await buildLGPDPdf(pdfParams);
-        const ok = await sendPdfWithFallback(
-          b64, `LGPD_${safeName}_${ts}.pdf`,
-          jpegBase64, sigBase64,
-          d => upd(2, 'sending', d)
-        );
+        const jpegB64 = await buildLGPDJpeg(docBase);
+        upd(2, 'sending', 'enviando...');
+        const ok = await submitAttachment(hotelId, Number(bookingId), jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
       } catch (err: any) {
         upd(2, 'error', err.message);
