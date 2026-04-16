@@ -331,17 +331,26 @@ const ReservationModal: React.FC<{
     if (!room.currentBookingID) { setLoading(false); return; }
     setLoading(true); setError(null);
     try {
-      const [bookings, inHouseGuests] = await Promise.all([
-        erbonService.searchBookings(hotelId, { bookingNumber: String(room.currentBookingID) }),
+      // Busca primária: GET direto pelo ID interno (mais confiável).
+      // Fallback: searchBookings caso o GET falhe.
+      const [bookingDirect, inHouseGuests] = await Promise.all([
+        erbonService.fetchBookingByInternalId(hotelId, room.currentBookingID),
         erbonService.fetchInHouseGuests(hotelId),
       ]);
-      if (bookings.length > 0) setBooking(bookings[0]);
+
+      let b: ErbonBooking | null = bookingDirect;
+      if (!b) {
+        const results = await erbonService.searchBookings(hotelId, { bookingNumber: String(room.currentBookingID) });
+        if (results.length > 0) b = results[0];
+      }
+      setBooking(b);
+
       const roomGuests = inHouseGuests.filter(g =>
         g.idBooking === room.currentBookingID ||
         g.roomDescription === room.roomName
       );
       setAllGuests(roomGuests);
-      console.log(`[RoomRack] Booking ${room.currentBookingID}: ${bookings.length} bookings, ${roomGuests.length} in-house guests, guestList: ${bookings[0]?.guestList?.length || 0}`);
+      console.log(`[RoomRack] Booking ${room.currentBookingID}: direct=${!!bookingDirect}, ${roomGuests.length} in-house, guestList: ${b?.guestList?.length || 0}, status=${b?.confirmedStatus || b?.status}`);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   }, [room, hotelId]);
@@ -370,7 +379,15 @@ const ReservationModal: React.FC<{
   if (!isOpen) return null;
 
   const isOccupied = room.currentlyOccupiedOrAvailable === 'Ocupado';
-  const nights = booking ? getNights(booking.checkInDateTime, booking.checkOutDateTime) : 0;
+  // Fallback para noites: usar booking se disponível; senão, usar datas do in-house guest.
+  const nights = (() => {
+    if (booking) return getNights(booking.checkInDateTime, booking.checkOutDateTime);
+    const ih = allGuests[0];
+    if (ih?.checkInDate && ih?.checkOutDate) return getNights(ih.checkInDate, ih.checkOutDate);
+    return 0;
+  })();
+  // Fallback para status: booking → inferido pelo estado do quarto (ocupado = Checked-in).
+  const statusLabel = booking?.confirmedStatus || booking?.status || (isOccupied ? 'Checked-in' : (room.hasCheckinToday ? 'Pendente Check-in' : '—'));
   const guestName = booking?.guestList?.[0]?.name || allGuests[0]?.guestName || room.bookingHolderName || 'Hóspede';
 
   return (
@@ -480,7 +497,7 @@ const ReservationModal: React.FC<{
                 <DetailCard icon={Users} label="Hóspedes"
                   value={`${booking?.adultQuantity || room.adultCount || 0} ADL${room.childrenCount ? ` + ${room.childrenCount} CHD` : ''}${room.babyCount ? ` + ${room.babyCount} INF` : ''}`} />
                 {(() => { const MI = getMealIcon(allGuests[0]?.mealPlan); return <DetailCard icon={MI} label="Regime" value={getMealLabel(allGuests[0]?.mealPlan)} />; })()}
-                <DetailCard icon={Star} label="Status" value={booking?.confirmedStatus || booking?.status || '—'} />
+                <DetailCard icon={Star} label="Status" value={statusLabel} />
               </div>
               {booking && (
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-5 border border-gray-200 dark:border-gray-700/50">
@@ -914,16 +931,20 @@ interface CurrentAccountEntry {
   idDepartment: number;
 }
 
-const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking }) => {
+const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking, room }) => {
   const [entries, setEntries] = useState<CurrentAccountEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Usa o bookingInternalID do booking (quando carregado) ou do próprio room como fallback
+  const bookingInternalId = booking?.bookingInternalID ?? room.currentBookingID;
+
   React.useEffect(() => {
-    if (!booking) { setLoading(false); return; }
+    if (!bookingInternalId) { setLoading(false); return; }
     (async () => {
       setLoading(true);
       try {
-        const data = await erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID);
+        const data = await erbonService.fetchBookingAccount(hotelId, bookingInternalId);
+        console.log(`[RoomRack] AccountTab: ${data.length} lançamentos carregados para booking ${bookingInternalId}`);
         setEntries(data as CurrentAccountEntry[]);
       } catch (err) {
         console.error('[RoomRack] AccountTab error:', err);
@@ -932,10 +953,10 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
         setLoading(false);
       }
     })();
-  }, [hotelId, booking]);
+  }, [hotelId, bookingInternalId]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-sky-500" /></div>;
-  if (!booking) return <div className="text-center py-12"><DollarSign className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" /><p className="text-sm text-gray-500">Dados financeiros indisponíveis.</p></div>;
+  if (!bookingInternalId) return <div className="text-center py-12"><DollarSign className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" /><p className="text-sm text-gray-500">Nenhuma reserva vinculada a esta UH.</p></div>;
 
   const totalDebit = entries.filter(e => e.isDebit).reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const totalCredit = entries.filter(e => e.isCredit).reduce((sum, e) => sum + Number(e.amount || 0), 0);
@@ -947,7 +968,7 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-sky-50 dark:bg-sky-900/15 rounded-xl p-4 border border-sky-200 dark:border-sky-800/40">
           <p className="text-[10px] uppercase tracking-wide text-sky-500 mb-1">Diárias</p>
-          <p className="text-lg font-bold text-sky-700 dark:text-sky-300">{fmtCurrency(booking.totalBookingRate)}</p>
+          <p className="text-lg font-bold text-sky-700 dark:text-sky-300">{booking ? fmtCurrency(booking.totalBookingRate) : '—'}</p>
         </div>
         <div className="bg-rose-50 dark:bg-rose-900/15 rounded-xl p-4 border border-rose-200 dark:border-rose-800/40">
           <p className="text-[10px] uppercase tracking-wide text-rose-500 mb-1">Total Débitos</p>

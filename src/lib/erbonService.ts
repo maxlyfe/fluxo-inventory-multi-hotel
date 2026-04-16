@@ -1042,6 +1042,26 @@ export const erbonService = {
 
   // ── Bookings ───────────────────────────────────────────────────────────
 
+  /**
+   * GET /hotel/{hotelID}/booking/{bookingInternalID}
+   * Busca UMA reserva pelo ID interno (mais confiável que search).
+   */
+  async fetchBookingByInternalId(hotelId: string, bookingInternalId: number): Promise<ErbonBooking | null> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) {
+      console.warn(`[Erbon] fetchBookingByInternalId ${bookingInternalId} → ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    return data || null;
+  },
+
   async searchBookings(hotelId: string, params: {
     checkin?: string;
     checkout?: string;
