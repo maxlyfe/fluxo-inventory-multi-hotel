@@ -30,6 +30,10 @@ const ERBON_CUSTOM_HEADERS: Record<string, string> = {
   'bookingid': 'bookingID',
   'guestid': 'guestID',
   'bookinginternalid': 'bookingInternalID',
+  'ismainguest': 'isMainGuest',
+  'generatedoorkey': 'generateDoorKey',
+  'guestexternalid': 'guestExternalId',
+  'guestcontact': 'guestContact',
 };
 
 const handler: Handler = async (event: HandlerEvent) => {

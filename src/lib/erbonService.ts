@@ -836,12 +836,19 @@ export const erbonService = {
 
   /**
    * POST /hotel/{hotelID}/booking/{bookingInternalID}/guest/new
-   * Adiciona um hóspede a uma reserva.
-   * Schema exato (swagger): Guest { id, name, email, phone, birthDate (date-time),
-   * genderID (int), nationality, professionID (int), profession, vehicleRegistration,
-   * isClient, isProvider, address, documents[] }
+   * Cria um novo hóspede no cadastro geral do hotel.
+   *
+   * IMPORTANTE: apesar do endpoint estar sob /booking/{id}/, na prática
+   * ele APENAS cria o hóspede no cadastro — não vincula automaticamente à
+   * reserva. É necessário chamar PUT /attach em seguida.
+   * Esta função faz o fluxo completo: cria → extrai ID retornado → anexa.
    */
-  async addGuestToBooking(hotelId: string, bookingInternalId: number, guestData: ErbonGuestPayload): Promise<any> {
+  async addGuestToBooking(
+    hotelId: string,
+    bookingInternalId: number,
+    guestData: ErbonGuestPayload,
+    options?: { isMainGuest?: boolean }
+  ): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
@@ -864,7 +871,63 @@ export const erbonService = {
       console.error('[Erbon] addGuest response:', res.status, txt);
       throw new Error(`Erro ao adicionar hóspede (${res.status}): ${txt}`);
     }
-    return await res.json().catch(() => ({}));
+
+    const created = await res.json().catch(() => ({} as any));
+    console.log('[Erbon] addGuest created:', JSON.stringify(created));
+
+    // Extrair ID do hóspede recém-criado (pode vir como `id`, `guestID`, `idGuest`)
+    const newGuestId: number | undefined =
+      created?.id ?? created?.guestID ?? created?.idGuest ?? created?.Id;
+
+    if (!newGuestId) {
+      console.warn('[Erbon] addGuest: ID não retornado, não foi possível anexar à reserva', created);
+      return created;
+    }
+
+    // Agora anexa à reserva
+    try {
+      await this.attachGuestToBooking(hotelId, bookingInternalId, newGuestId, options?.isMainGuest);
+    } catch (err: any) {
+      console.error('[Erbon] Falha ao anexar hóspede recém-criado à reserva:', err.message);
+      throw new Error(`Hóspede criado (id=${newGuestId}), mas falhou ao vincular à reserva: ${err.message}`);
+    }
+
+    return { ...created, id: newGuestId };
+  },
+
+  /**
+   * PUT /hotel/{hotelID}/booking/{bookingInternalID}/guest/{guestID}/attach
+   * Vincula um hóspede existente (que já está no cadastro geral) a uma reserva.
+   * Header opcional: isMainGuest (boolean)
+   */
+  async attachGuestToBooking(
+    hotelId: string,
+    bookingInternalId: number,
+    guestId: number,
+    isMainGuest?: boolean
+  ): Promise<void> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/${guestId}/attach`;
+
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${token}`,
+      ...proxyHeaders(config.erbon_base_url, path),
+    };
+    if (typeof isMainGuest === 'boolean') {
+      headers['isMainGuest'] = String(isMainGuest);
+    }
+
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'PUT',
+      headers,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      console.error('[Erbon] attachGuest response:', res.status, txt);
+      throw new Error(`Erro ao vincular hóspede (${res.status}): ${txt}`);
+    }
   },
 
   /**
