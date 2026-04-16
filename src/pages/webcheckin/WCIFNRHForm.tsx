@@ -265,8 +265,26 @@ export default function WCIFNRHForm() {
                 </Row>
                 <Row>
                   <Field label={t('nationalityField')}>
-                    <input style={inputStyle} type="text" value={nationality}
-                      onChange={e => setNationality(e.target.value)} placeholder="BR" />
+                    <select style={{ ...inputStyle, cursor: 'pointer' }}
+                      value={nationality} onChange={e => setNationality(e.target.value)}>
+                      <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasileiro(a)</option>
+                      <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentino(a)</option>
+                      <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguaio(a)</option>
+                      <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguaio(a)</option>
+                      <option value="CL" style={{ color: '#000' }}>🇨🇱 Chileno(a)</option>
+                      <option value="BO" style={{ color: '#000' }}>🇧🇴 Boliviano(a)</option>
+                      <option value="PE" style={{ color: '#000' }}>🇵🇪 Peruano(a)</option>
+                      <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombiano(a)</option>
+                      <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuelano(a)</option>
+                      <option value="US" style={{ color: '#000' }}>🇺🇸 Americano(a)</option>
+                      <option value="DE" style={{ color: '#000' }}>🇩🇪 Alemão/ã</option>
+                      <option value="FR" style={{ color: '#000' }}>🇫🇷 Francês/esa</option>
+                      <option value="IT" style={{ color: '#000' }}>🇮🇹 Italiano(a)</option>
+                      <option value="ES" style={{ color: '#000' }}>🇪🇸 Espanhol(a)</option>
+                      <option value="PT" style={{ color: '#000' }}>🇵🇹 Português(a)</option>
+                      <option value="GB" style={{ color: '#000' }}>🇬🇧 Britânico(a)</option>
+                      <option value="OTHER" style={{ color: '#000' }}>Outro</option>
+                    </select>
                   </Field>
                   <Field label={t('professionField')}>
                     <input style={inputStyle} type="text" value={profession}
@@ -307,8 +325,26 @@ export default function WCIFNRHForm() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <Row>
                   <Field label={t('countryField')}>
-                    <input style={inputStyle} type="text" value={country}
-                      onChange={e => setCountry(e.target.value)} placeholder="BR" />
+                    <select style={{ ...inputStyle, cursor: 'pointer' }}
+                      value={country} onChange={e => setCountry(e.target.value)}>
+                      <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
+                      <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
+                      <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
+                      <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
+                      <option value="CL" style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
+                      <option value="BO" style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
+                      <option value="PE" style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
+                      <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
+                      <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
+                      <option value="US" style={{ color: '#000' }}>🇺🇸 United States (US)</option>
+                      <option value="DE" style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
+                      <option value="FR" style={{ color: '#000' }}>🇫🇷 France (FR)</option>
+                      <option value="IT" style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
+                      <option value="ES" style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
+                      <option value="PT" style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
+                      <option value="GB" style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
+                      <option value="OTHER" style={{ color: '#000' }}>Outro</option>
+                    </select>
                   </Field>
                   <Field label={t('zipcodeField')}>
                     <input style={inputStyle} type="text" value={zipcode}

@@ -240,27 +240,34 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
   const docCountryFallback =
     data.address?.country?.trim() || data.nationality?.trim() || 'BR';
 
+  // birthDate: Erbon exige ISO datetime completo. O input HTML date retorna
+  // "YYYY-MM-DD"; precisamos garantir "YYYY-MM-DDTHH:mm:ss".
+  const birthDateFormatted = data.birthDate
+    ? (data.birthDate.includes('T') ? data.birthDate : `${data.birthDate}T00:00:00`)
+    : null;
+
   return {
     id: existingId ?? 0,
     name: data.name?.trim() || '',
     email: data.email?.trim() || null,
     phone: data.phone?.trim() || null,
-    birthDate: data.birthDate || null,
-    genderID: data.genderID ?? null,
+    birthDate: birthDateFormatted,
+    genderID: data.genderID || null,
     nationality: data.nationality?.trim() || null,
-    professionID: data.professionID ?? null,
-    profession: data.profession?.trim() || null,
+    // professionID e profession: omitir se ausentes (Erbon rejeita null explícito)
+    ...(data.professionID ? { professionID: data.professionID } : {}),
+    ...(data.profession?.trim() ? { profession: data.profession.trim() } : {}),
     vehicleRegistration: data.vehicleRegistration?.trim() || null,
     isClient: data.isClient ?? true,
     isProvider: data.isProvider ?? false,
     address: data.address
       ? {
-          country: data.address.country || null,
-          state: data.address.state || null,
-          city: data.address.city || null,
-          street: data.address.street || null,
-          zipcode: data.address.zipcode || null,
-          neighborhood: data.address.neighborhood || null,
+          country: data.address.country?.trim() || 'BR',
+          state: data.address.state?.trim() || null,
+          city: data.address.city?.trim() || null,
+          street: data.address.street?.trim() || null,
+          zipcode: data.address.zipcode?.trim() || null,
+          neighborhood: data.address.neighborhood?.trim() || null,
         }
       : null,
     documents: (data.documents || []).map(d => ({
