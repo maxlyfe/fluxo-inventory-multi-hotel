@@ -193,6 +193,80 @@ export interface ErbonAccountReceivable {
   [key: string]: any; // Estrutura a validar com dados reais
 }
 
+// ── Guest Payload (para POST /guest/new e PUT /guests/update) ──────────────
+// Schema exato conforme swagger v1: /definitions/Guest
+// https://api.erbonsoftware.com/swagger/v1/swagger.json
+
+export interface ErbonGuestDocument {
+  documentType: string;           // ex: 'RG', 'CPF', 'PASSPORT'
+  number: string;
+  expirationDate?: string | null; // ISO 8601 (date-time)
+  country?: string | null;        // ISO country code
+}
+
+export interface ErbonGuestAddress {
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
+  street?: string | null;
+  zipcode?: string | null;
+  neighborhood?: string | null;
+}
+
+export interface ErbonGuestPayload {
+  name: string;                        // Nome completo (campo único na API)
+  email?: string | null;
+  phone?: string | null;
+  birthDate?: string | null;           // ISO 8601 date-time
+  genderID?: number | null;            // ID de gênero (inteiro)
+  nationality?: string | null;
+  professionID?: number | null;
+  profession?: string | null;          // Descrição textual
+  vehicleRegistration?: string | null;
+  isClient?: boolean;
+  isProvider?: boolean;
+  address?: ErbonGuestAddress | null;
+  documents?: ErbonGuestDocument[];
+}
+
+/**
+ * Monta o body exato que a API Erbon espera em POST /guest/new e PUT /guests/update.
+ * Garante campos obrigatórios e tipos corretos. Valores ausentes viram null/[]
+ * para evitar 400 Bad Request por campo faltando.
+ */
+function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Record<string, any> {
+  return {
+    id: existingId ?? 0,
+    name: data.name?.trim() || '',
+    email: data.email?.trim() || null,
+    phone: data.phone?.trim() || null,
+    birthDate: data.birthDate || null,
+    genderID: data.genderID ?? null,
+    nationality: data.nationality?.trim() || null,
+    professionID: data.professionID ?? null,
+    profession: data.profession?.trim() || null,
+    vehicleRegistration: data.vehicleRegistration?.trim() || null,
+    isClient: data.isClient ?? true,
+    isProvider: data.isProvider ?? false,
+    address: data.address
+      ? {
+          country: data.address.country || null,
+          state: data.address.state || null,
+          city: data.address.city || null,
+          street: data.address.street || null,
+          zipcode: data.address.zipcode || null,
+          neighborhood: data.address.neighborhood || null,
+        }
+      : null,
+    documents: (data.documents || []).map(d => ({
+      documentType: d.documentType,
+      number: d.number,
+      expirationDate: d.expirationDate || null,
+      country: d.country || null,
+    })),
+  };
+}
+
 // ── Token cache (in-memory) ────────────────────────────────────────────────
 
 interface TokenEntry {
@@ -758,46 +832,18 @@ export const erbonService = {
   /**
    * POST /hotel/{hotelID}/booking/{bookingInternalID}/guest/new
    * Adiciona um hóspede a uma reserva.
+   * Schema exato (swagger): Guest { id, name, email, phone, birthDate (date-time),
+   * genderID (int), nationality, professionID (int), profession, vehicleRegistration,
+   * isClient, isProvider, address, documents[] }
    */
-  async addGuestToBooking(hotelId: string, bookingInternalId: number, guestData: {
-    firstName: string;
-    lastName?: string;
-    email?: string;
-    phone?: string;
-    dateOfBirth?: string;
-    documentType?: string;
-    documentNumber?: string;
-    nationality?: string;
-    gender?: string;
-    profession?: string;
-    address?: {
-      country?: string;
-      state?: string;
-      city?: string;
-      street?: string;
-      zipcode?: string;
-      neighborhood?: string;
-    };
-  }): Promise<any> {
+  async addGuestToBooking(hotelId: string, bookingInternalId: number, guestData: ErbonGuestPayload): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
     const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
-    const body = {
-      id: 0,
-      firstName: guestData.firstName,
-      lastName: guestData.lastName || '',
-      email: guestData.email || '',
-      phone: guestData.phone || '',
-      documentType: guestData.documentType || '',
-      documentNumber: guestData.documentNumber || '',
-      nationality: guestData.nationality || '',
-      dateOfBirth: guestData.dateOfBirth || null,
-      gender: guestData.gender || '',
-      profession: guestData.profession || '',
-      address: guestData.address || {},
-    };
+    const body = buildGuestBody(guestData, null);
+    console.log('[Erbon] addGuest payload:', JSON.stringify(body));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
       method: 'POST',
@@ -810,6 +856,7 @@ export const erbonService = {
     });
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
+      console.error('[Erbon] addGuest response:', res.status, txt);
       throw new Error(`Erro ao adicionar hóspede (${res.status}): ${txt}`);
     }
     return await res.json().catch(() => ({}));
@@ -819,45 +866,14 @@ export const erbonService = {
    * PUT /hotel/{hotelID}/guests/update
    * Atualiza os dados de um hóspede (id no body).
    */
-  async updateGuest(hotelId: string, guestId: number, guestData: {
-    firstName?: string;
-    lastName?: string;
-    email?: string;
-    phone?: string;
-    dateOfBirth?: string;
-    documentType?: string;
-    documentNumber?: string;
-    nationality?: string;
-    gender?: string;
-    profession?: string;
-    address?: {
-      country?: string;
-      state?: string;
-      city?: string;
-      street?: string;
-      zipcode?: string;
-      neighborhood?: string;
-    };
-  }): Promise<any> {
+  async updateGuest(hotelId: string, guestId: number, guestData: ErbonGuestPayload): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
     const path = `/hotel/${config.erbon_hotel_id}/guests/update`;
 
-    const body = {
-      id: guestId,
-      firstName: guestData.firstName || '',
-      lastName: guestData.lastName || '',
-      email: guestData.email || '',
-      phone: guestData.phone || '',
-      documentType: guestData.documentType || '',
-      documentNumber: guestData.documentNumber || '',
-      nationality: guestData.nationality || '',
-      dateOfBirth: guestData.dateOfBirth || null,
-      gender: guestData.gender || '',
-      profession: guestData.profession || '',
-      address: guestData.address || {},
-    };
+    const body = buildGuestBody(guestData, guestId);
+    console.log('[Erbon] updateGuest payload:', JSON.stringify(body));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
       method: 'PUT',
@@ -870,6 +886,7 @@ export const erbonService = {
     });
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
+      console.error('[Erbon] updateGuest response:', res.status, txt);
       throw new Error(`Erro ao atualizar hóspede (${res.status}): ${txt}`);
     }
     return await res.json().catch(() => ({}));

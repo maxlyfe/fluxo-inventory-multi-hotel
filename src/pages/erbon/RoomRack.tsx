@@ -729,23 +729,20 @@ const GuestEditModal: React.FC<{
   const ih = guest?.inHouseData;
   const doc = guest?.documents?.[0];
 
-  // Split existing name into firstName / lastName
-  const nameParts = (guest?.name || '').trim().split(/\s+/);
-  const initialFirstName = nameParts[0] || '';
-  const initialLastName = nameParts.slice(1).join(' ');
-
   const [form, setForm] = useState({
-    firstName: initialFirstName,
-    lastName: initialLastName,
+    // Schema real Erbon: nome único
+    name: guest?.name || [ih?.guestName, ih?.lastName].filter(Boolean).join(' ').trim() || '',
     email: guest?.email || ih?.contactEmail || '',
     phone: guest?.phone || '',
-    dateOfBirth: ih?.birthDate ? ih.birthDate.split('T')[0] : '',
+    birthDate: ih?.birthDate ? ih.birthDate.split('T')[0] : '',
+    genderID: '' as string, // int no envio, '' = não informado
+    nationality: ih?.countryGuestISO || 'BR',
+    profession: '',
+    vehicleRegistration: '',
+    // Documento principal (um; API aceita array)
     documentType: doc?.documentType || 'CPF',
     documentNumber: doc?.number || '',
-    nationality: ih?.countryGuestISO || 'BR',
-    gender: '',
-    profession: '',
-    // Address
+    // Endereço
     country: ih?.countryGuestISO || 'BR',
     state: ih?.stateGuest || '',
     city: ih?.localityGuest || '',
@@ -756,39 +753,41 @@ const GuestEditModal: React.FC<{
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!form.firstName.trim()) {
-      addNotification('Primeiro nome é obrigatório', 'error');
+    if (!form.name.trim()) {
+      addNotification('Nome é obrigatório', 'error');
       return;
     }
     setSaving(true);
     try {
       const payload = {
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        email: form.email,
-        phone: form.phone,
-        dateOfBirth: form.dateOfBirth || undefined,
-        documentType: form.documentType,
-        documentNumber: form.documentNumber,
-        nationality: form.nationality,
-        gender: form.gender,
-        profession: form.profession,
+        name: form.name.trim(),
+        email: form.email.trim() || null,
+        phone: form.phone.trim() || null,
+        birthDate: form.birthDate ? new Date(form.birthDate).toISOString() : null,
+        genderID: form.genderID ? parseInt(form.genderID, 10) : null,
+        nationality: form.nationality.trim() || null,
+        profession: form.profession.trim() || null,
+        vehicleRegistration: form.vehicleRegistration.trim() || null,
+        isClient: true,
+        isProvider: false,
         address: {
-          country: form.country,
-          state: form.state,
-          city: form.city,
-          street: form.street,
-          zipcode: form.zipcode,
-          neighborhood: form.neighborhood,
+          country: form.country.trim() || null,
+          state: form.state.trim() || null,
+          city: form.city.trim() || null,
+          street: form.street.trim() || null,
+          zipcode: form.zipcode.trim() || null,
+          neighborhood: form.neighborhood.trim() || null,
         },
+        documents: form.documentNumber.trim()
+          ? [{ documentType: form.documentType, number: form.documentNumber.trim() }]
+          : [],
       };
-      const fullName = `${payload.firstName} ${payload.lastName}`.trim();
       if (isEditing && guest?.id) {
         await erbonService.updateGuest(hotelId, guest.id, payload);
-        addNotification(`Hóspede ${fullName} atualizado`, 'success');
+        addNotification(`Hóspede ${payload.name} atualizado`, 'success');
       } else {
         await erbonService.addGuestToBooking(hotelId, bookingId, payload);
-        addNotification(`Hóspede ${fullName} adicionado`, 'success');
+        addNotification(`Hóspede ${payload.name} adicionado`, 'success');
       }
       onSaved();
     } catch (err: any) {
@@ -805,26 +804,28 @@ const GuestEditModal: React.FC<{
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Dados Pessoais</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FormField label="Primeiro Nome *" value={form.firstName} onChange={v => setForm({ ...form, firstName: v })} />
-            <FormField label="Sobrenome" value={form.lastName} onChange={v => setForm({ ...form, lastName: v })} />
+            <div className="sm:col-span-2">
+              <FormField label="Nome Completo *" value={form.name} onChange={v => setForm({ ...form, name: v })} />
+            </div>
             <FormField label="E-mail" type="email" value={form.email} onChange={v => setForm({ ...form, email: v })} />
             <FormField label="Telefone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} />
-            <FormField label="Data de Nascimento" type="date" value={form.dateOfBirth} onChange={v => setForm({ ...form, dateOfBirth: v })} />
+            <FormField label="Data de Nascimento" type="date" value={form.birthDate} onChange={v => setForm({ ...form, birthDate: v })} />
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Gênero</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Gênero (ID)</label>
               <select
-                value={form.gender}
-                onChange={e => setForm({ ...form, gender: e.target.value })}
+                value={form.genderID}
+                onChange={e => setForm({ ...form, genderID: e.target.value })}
                 className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-white"
               >
-                <option value="">—</option>
-                <option value="M">Masculino</option>
-                <option value="F">Feminino</option>
-                <option value="O">Outro</option>
+                <option value="">— não informado —</option>
+                <option value="1">Masculino (1)</option>
+                <option value="2">Feminino (2)</option>
+                <option value="3">Outro (3)</option>
               </select>
             </div>
             <FormField label="Profissão" value={form.profession} onChange={v => setForm({ ...form, profession: v })} />
             <FormField label="Nacionalidade (ISO)" value={form.nationality} onChange={v => setForm({ ...form, nationality: v.toUpperCase() })} />
+            <FormField label="Placa Veículo" value={form.vehicleRegistration} onChange={v => setForm({ ...form, vehicleRegistration: v.toUpperCase() })} />
           </div>
         </div>
 
@@ -873,7 +874,7 @@ const GuestEditModal: React.FC<{
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !form.firstName.trim()}
+            disabled={saving || !form.name.trim()}
             className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
