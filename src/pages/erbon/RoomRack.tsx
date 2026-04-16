@@ -729,33 +729,66 @@ const GuestEditModal: React.FC<{
   const ih = guest?.inHouseData;
   const doc = guest?.documents?.[0];
 
+  // Split existing name into firstName / lastName
+  const nameParts = (guest?.name || '').trim().split(/\s+/);
+  const initialFirstName = nameParts[0] || '';
+  const initialLastName = nameParts.slice(1).join(' ');
+
   const [form, setForm] = useState({
-    name: guest?.name || '',
+    firstName: initialFirstName,
+    lastName: initialLastName,
     email: guest?.email || ih?.contactEmail || '',
     phone: guest?.phone || '',
-    birthDate: ih?.birthDate ? ih.birthDate.split('T')[0] : '',
+    dateOfBirth: ih?.birthDate ? ih.birthDate.split('T')[0] : '',
     documentType: doc?.documentType || 'CPF',
     documentNumber: doc?.number || '',
-    countryISO: ih?.countryGuestISO || 'BR',
-    localityGuest: ih?.localityGuest || '',
-    stateGuest: ih?.stateGuest || '',
-    mealPlan: ih?.mealPlan || '',
+    nationality: ih?.countryGuestISO || 'BR',
+    gender: '',
+    profession: '',
+    // Address
+    country: ih?.countryGuestISO || 'BR',
+    state: ih?.stateGuest || '',
+    city: ih?.localityGuest || '',
+    street: '',
+    zipcode: '',
+    neighborhood: '',
   });
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      addNotification('Nome é obrigatório', 'error');
+    if (!form.firstName.trim()) {
+      addNotification('Primeiro nome é obrigatório', 'error');
       return;
     }
     setSaving(true);
     try {
+      const payload = {
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email,
+        phone: form.phone,
+        dateOfBirth: form.dateOfBirth || undefined,
+        documentType: form.documentType,
+        documentNumber: form.documentNumber,
+        nationality: form.nationality,
+        gender: form.gender,
+        profession: form.profession,
+        address: {
+          country: form.country,
+          state: form.state,
+          city: form.city,
+          street: form.street,
+          zipcode: form.zipcode,
+          neighborhood: form.neighborhood,
+        },
+      };
+      const fullName = `${payload.firstName} ${payload.lastName}`.trim();
       if (isEditing && guest?.id) {
-        await erbonService.updateGuest(hotelId, guest.id, form);
-        addNotification(`Hóspede ${form.name} atualizado`, 'success');
+        await erbonService.updateGuest(hotelId, guest.id, payload);
+        addNotification(`Hóspede ${fullName} atualizado`, 'success');
       } else {
-        await erbonService.addGuestToBooking(hotelId, bookingId, form);
-        addNotification(`Hóspede ${form.name} adicionado`, 'success');
+        await erbonService.addGuestToBooking(hotelId, bookingId, payload);
+        addNotification(`Hóspede ${fullName} adicionado`, 'success');
       }
       onSaved();
     } catch (err: any) {
@@ -766,16 +799,41 @@ const GuestEditModal: React.FC<{
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} title={isEditing ? `Editar Hóspede` : 'Adicionar Hóspede'} size="xl">
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FormField label="Nome completo *" value={form.name} onChange={v => setForm({ ...form, name: v })} />
-          <FormField label="E-mail" type="email" value={form.email} onChange={v => setForm({ ...form, email: v })} />
-          <FormField label="Telefone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} />
-          <FormField label="Data de Nascimento" type="date" value={form.birthDate} onChange={v => setForm({ ...form, birthDate: v })} />
-          <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+    <Modal isOpen={true} onClose={onClose} title={isEditing ? `Editar Hóspede` : 'Adicionar Hóspede'} size="2xl">
+      <div className="space-y-5">
+        {/* Dados pessoais */}
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Dados Pessoais</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="Primeiro Nome *" value={form.firstName} onChange={v => setForm({ ...form, firstName: v })} />
+            <FormField label="Sobrenome" value={form.lastName} onChange={v => setForm({ ...form, lastName: v })} />
+            <FormField label="E-mail" type="email" value={form.email} onChange={v => setForm({ ...form, email: v })} />
+            <FormField label="Telefone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} />
+            <FormField label="Data de Nascimento" type="date" value={form.dateOfBirth} onChange={v => setForm({ ...form, dateOfBirth: v })} />
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo Documento</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Gênero</label>
+              <select
+                value={form.gender}
+                onChange={e => setForm({ ...form, gender: e.target.value })}
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-white"
+              >
+                <option value="">—</option>
+                <option value="M">Masculino</option>
+                <option value="F">Feminino</option>
+                <option value="O">Outro</option>
+              </select>
+            </div>
+            <FormField label="Profissão" value={form.profession} onChange={v => setForm({ ...form, profession: v })} />
+            <FormField label="Nacionalidade (ISO)" value={form.nationality} onChange={v => setForm({ ...form, nationality: v.toUpperCase() })} />
+          </div>
+        </div>
+
+        {/* Documento */}
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Documento</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo</label>
               <select
                 value={form.documentType}
                 onChange={e => setForm({ ...form, documentType: e.target.value })}
@@ -788,25 +846,20 @@ const GuestEditModal: React.FC<{
                 <option value="OTHER">Outro</option>
               </select>
             </div>
-            <FormField label="Número do Documento" value={form.documentNumber} onChange={v => setForm({ ...form, documentNumber: v })} />
+            <FormField label="Número" value={form.documentNumber} onChange={v => setForm({ ...form, documentNumber: v })} />
           </div>
-          <FormField label="País (ISO)" value={form.countryISO} onChange={v => setForm({ ...form, countryISO: v.toUpperCase() })} />
-          <FormField label="Cidade" value={form.localityGuest} onChange={v => setForm({ ...form, localityGuest: v })} />
-          <FormField label="Estado" value={form.stateGuest} onChange={v => setForm({ ...form, stateGuest: v.toUpperCase() })} />
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Regime Alimentar</label>
-            <select
-              value={form.mealPlan}
-              onChange={e => setForm({ ...form, mealPlan: e.target.value })}
-              className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-white"
-            >
-              <option value="">— Herdar da reserva —</option>
-              <option value="RO">Room Only</option>
-              <option value="BB">Café da manhã (BB)</option>
-              <option value="HB">Meia pensão (HB)</option>
-              <option value="FB">Pensão completa (FB)</option>
-              <option value="AI">All Inclusive</option>
-            </select>
+        </div>
+
+        {/* Endereço */}
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Endereço</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="País" value={form.country} onChange={v => setForm({ ...form, country: v.toUpperCase() })} />
+            <FormField label="Estado" value={form.state} onChange={v => setForm({ ...form, state: v.toUpperCase() })} />
+            <FormField label="Cidade" value={form.city} onChange={v => setForm({ ...form, city: v })} />
+            <FormField label="Bairro" value={form.neighborhood} onChange={v => setForm({ ...form, neighborhood: v })} />
+            <FormField label="Rua" value={form.street} onChange={v => setForm({ ...form, street: v })} />
+            <FormField label="CEP" value={form.zipcode} onChange={v => setForm({ ...form, zipcode: v })} />
           </div>
         </div>
 
@@ -820,7 +873,7 @@ const GuestEditModal: React.FC<{
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !form.name.trim()}
+            disabled={saving || !form.firstName.trim()}
             className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -848,86 +901,44 @@ const FormField: React.FC<{
 );
 
 // ─── Account Tab ────────────────────────────────────────────────────────────
-const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking, room }) => {
-  const [charges, setCharges] = useState<any[]>([]);
+// CurrentAccountModel: { id, description, amount, isDebit, isCredit, currency, isInvoiced, idDepartment }
+interface CurrentAccountEntry {
+  id: number;
+  description: string;
+  amount: number;
+  isDebit: boolean;
+  isCredit: boolean;
+  currency: string;
+  isInvoiced: boolean;
+  idDepartment: number;
+}
+
+const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking }) => {
+  const [entries, setEntries] = useState<CurrentAccountEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState<string>('');
 
   React.useEffect(() => {
     if (!booking) { setLoading(false); return; }
     (async () => {
       setLoading(true);
       try {
-        // 1) Tenta endpoint específico por booking
-        const bookingAccount = await erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID);
-        if (bookingAccount.length > 0) {
-          setCharges(bookingAccount);
-          setSource('bookingAccount');
-          return;
-        }
-
-        // 2) Fallback: buscar contas a receber e filtrar
-        const allAccounts = await erbonService.fetchAccountsReceivable(hotelId);
-        if (allAccounts.length > 0) {
-          // Log keys do primeiro item para debug
-          console.log('[RoomRack] AccountReceivable keys:', Object.keys(allAccounts[0]));
-
-          // Tentar filtrar por múltiplas chaves possíveis
-          const filtered = allAccounts.filter((c: any) => {
-            const matchId = c.bookingInternalID === booking.bookingInternalID ||
-              c.idBooking === booking.bookingInternalID ||
-              c.bookingId === booking.bookingInternalID;
-            const matchNumber = c.bookingNumber === booking.erbonNumber ||
-              c.erbonNumber === booking.erbonNumber ||
-              c.reservationNumber === booking.erbonNumber ||
-              String(c.bookingNumber) === String(booking.erbonNumber);
-            const matchRoom = c.roomDescription === room.roomName ||
-              c.room === room.roomName ||
-              c.roomName === room.roomName ||
-              String(c.idRoom) === String(room.idRoom);
-            return matchId || matchNumber || matchRoom;
-          });
-
-          if (filtered.length > 0) {
-            setCharges(filtered);
-            setSource('accountsReceivable-filtered');
-          } else {
-            // Se não conseguiu filtrar, mostra tudo que tem (para debug)
-            console.log('[RoomRack] No match found. Booking:', { bookingInternalID: booking.bookingInternalID, erbonNumber: booking.erbonNumber, roomName: room.roomName });
-            console.log('[RoomRack] Sample account data (first 2):', JSON.stringify(allAccounts.slice(0, 2)));
-            setCharges([]);
-            setSource('no-match');
-          }
-        }
+        const data = await erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID);
+        setEntries(data as CurrentAccountEntry[]);
       } catch (err) {
         console.error('[RoomRack] AccountTab error:', err);
-        setCharges([]);
+        setEntries([]);
       } finally {
         setLoading(false);
       }
     })();
-  }, [hotelId, booking, room]);
+  }, [hotelId, booking]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-sky-500" /></div>;
   if (!booking) return <div className="text-center py-12"><DollarSign className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" /><p className="text-sm text-gray-500">Dados financeiros indisponíveis.</p></div>;
 
-  // Auto-detect field names from first charge
-  const getField = (obj: any, ...keys: string[]): any => {
-    for (const k of keys) {
-      if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-    }
-    return null;
-  };
-
-  const totalCharges = charges.reduce((sum, c) => {
-    const val = getField(c, 'valueTotal', 'value', 'amount', 'totalValue', 'debit', 'valor') || 0;
-    return sum + Number(val);
-  }, 0);
-
-  const totalPayments = charges.reduce((sum, c) => {
-    const val = getField(c, 'credit', 'payment', 'creditValue', 'pagamento') || 0;
-    return sum + Number(val);
-  }, 0);
+  const totalDebit = entries.filter(e => e.isDebit).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const totalCredit = entries.filter(e => e.isCredit).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const balance = totalDebit - totalCredit;
 
   return (
     <div className="space-y-5">
@@ -937,28 +948,30 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
           <p className="text-[10px] uppercase tracking-wide text-sky-500 mb-1">Diárias</p>
           <p className="text-lg font-bold text-sky-700 dark:text-sky-300">{fmtCurrency(booking.totalBookingRate)}</p>
         </div>
+        <div className="bg-rose-50 dark:bg-rose-900/15 rounded-xl p-4 border border-rose-200 dark:border-rose-800/40">
+          <p className="text-[10px] uppercase tracking-wide text-rose-500 mb-1">Total Débitos</p>
+          <p className="text-lg font-bold text-rose-700 dark:text-rose-300">{fmtCurrency(totalDebit)}</p>
+        </div>
         <div className="bg-emerald-50 dark:bg-emerald-900/15 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800/40">
-          <p className="text-[10px] uppercase tracking-wide text-emerald-500 mb-1">Total c/ Taxas</p>
-          <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{fmtCurrency(booking.totalBookingRateWithTax)}</p>
+          <p className="text-[10px] uppercase tracking-wide text-emerald-500 mb-1">Total Créditos</p>
+          <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{fmtCurrency(totalCredit)}</p>
         </div>
-        <div className="bg-violet-50 dark:bg-violet-900/15 rounded-xl p-4 border border-violet-200 dark:border-violet-800/40">
-          <p className="text-[10px] uppercase tracking-wide text-violet-500 mb-1">Taxas</p>
-          <p className="text-lg font-bold text-violet-700 dark:text-violet-300">{fmtCurrency(booking.totalBookingRateWithTax - booking.totalBookingRate)}</p>
+        <div className={`rounded-xl p-4 border ${balance > 0
+          ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800/40'
+          : 'bg-green-50 dark:bg-green-900/15 border-green-200 dark:border-green-800/40'}`}>
+          <p className={`text-[10px] uppercase tracking-wide mb-1 ${balance > 0 ? 'text-amber-500' : 'text-green-500'}`}>Saldo</p>
+          <p className={`text-lg font-bold ${balance > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}`}>
+            {fmtCurrency(balance)}
+          </p>
         </div>
-        {charges.length > 0 && (
-          <div className="bg-amber-50 dark:bg-amber-900/15 rounded-xl p-4 border border-amber-200 dark:border-amber-800/40">
-            <p className="text-[10px] uppercase tracking-wide text-amber-500 mb-1">Extras</p>
-            <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{fmtCurrency(totalCharges)}</p>
-          </div>
-        )}
       </div>
 
-      {/* Charges table */}
-      {charges.length > 0 ? (
+      {/* Entries table */}
+      {entries.length > 0 ? (
         <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Extrato da Conta</h4>
-            <span className="text-[10px] text-gray-400">{charges.length} lançamento{charges.length > 1 ? 's' : ''}</span>
+            <span className="text-[10px] text-gray-400">{entries.length} lançamento{entries.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="max-h-80 overflow-y-auto">
             <table className="w-full text-sm">
@@ -968,54 +981,44 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
                   <th className="text-left px-4 py-2.5">Depto</th>
                   <th className="text-right px-4 py-2.5">Débito</th>
                   <th className="text-right px-4 py-2.5">Crédito</th>
-                  <th className="text-right px-4 py-2.5">Data</th>
+                  <th className="text-center px-4 py-2.5">NF</th>
                 </tr>
               </thead>
               <tbody>
-                {charges.map((c: any, i: number) => {
-                  const desc = getField(c, 'serviceDescription', 'description', 'desc', 'itemDescription', 'descricao') || '—';
-                  const dept = getField(c, 'department', 'departmentDescription', 'departamento') || '';
-                  const debit = Number(getField(c, 'valueTotal', 'value', 'amount', 'debit', 'valor', 'totalValue') || 0);
-                  const credit = Number(getField(c, 'credit', 'payment', 'creditValue', 'pagamento') || 0);
-                  const date = getField(c, 'transactionDate', 'date', 'createdAt', 'data', 'postingDate');
-                  const canceled = getField(c, 'isCanceled', 'canceled', 'cancelled');
-
-                  return (
-                    <tr key={i} className={`border-t border-gray-100 dark:border-gray-800 ${canceled ? 'opacity-40 line-through' : ''}`}>
-                      <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 max-w-[200px] truncate" title={desc}>
-                        {desc}
-                        {getField(c, 'quantity', 'qty') > 1 && <span className="text-gray-400 ml-1">×{getField(c, 'quantity', 'qty')}</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-gray-500 text-xs">{dept}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-red-600 dark:text-red-400">
-                        {debit > 0 ? fmtCurrency(debit) : ''}
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400">
-                        {credit > 0 ? fmtCurrency(credit) : ''}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-gray-500 text-xs whitespace-nowrap">{fmtDate(date)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {(totalCharges > 0 || totalPayments > 0) && (
-                <tfoot>
-                  <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 font-semibold">
-                    <td colSpan={2} className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs uppercase">Total</td>
-                    <td className="px-4 py-3 text-right font-mono text-red-700 dark:text-red-300">{totalCharges > 0 ? fmtCurrency(totalCharges) : ''}</td>
-                    <td className="px-4 py-3 text-right font-mono text-emerald-700 dark:text-emerald-300">{totalPayments > 0 ? fmtCurrency(totalPayments) : ''}</td>
-                    <td></td>
+                {entries.map((e) => (
+                  <tr key={e.id} className="border-t border-gray-100 dark:border-gray-800">
+                    <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 max-w-[250px] truncate" title={e.description}>
+                      {e.description || '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-500 text-xs">{e.idDepartment || ''}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-red-600 dark:text-red-400">
+                      {e.isDebit ? fmtCurrency(e.amount) : ''}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                      {e.isCredit ? fmtCurrency(e.amount) : ''}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {e.isInvoiced && <span className="text-[10px] bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded font-medium">Faturado</span>}
+                    </td>
                   </tr>
-                </tfoot>
-              )}
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 font-semibold">
+                  <td colSpan={2} className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs uppercase">Total</td>
+                  <td className="px-4 py-3 text-right font-mono text-red-700 dark:text-red-300">{totalDebit > 0 ? fmtCurrency(totalDebit) : ''}</td>
+                  <td className="px-4 py-3 text-right font-mono text-emerald-700 dark:text-emerald-300">{totalCredit > 0 ? fmtCurrency(totalCredit) : ''}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
       ) : (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700/50">
           <FileText className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-          <p className="text-sm text-gray-500 mb-1">Nenhum lançamento encontrado na conta.</p>
-          <p className="text-xs text-gray-400">Verifique o console para diagnóstico da API.</p>
+          <p className="text-sm text-gray-500 mb-1">Nenhum lançamento na conta desta reserva.</p>
+          <p className="text-xs text-gray-400">Lançamentos aparecerão conforme consumos forem registrados no PDV.</p>
         </div>
       )}
     </div>

@@ -753,183 +753,206 @@ export const erbonService = {
   },
 
   // ── Guest CRUD (adicionar / editar / excluir) ───────────────────────────
-  // Tenta múltiplos padrões de endpoint — o Erbon não tem documentação pública
-  // e diferentes tenants podem expor rotas ligeiramente diferentes.
+  // Endpoints validados via swagger: https://api.erbonsoftware.com/swagger/v1/swagger.json
 
-  async _tryErbonEndpoints(
-    hotelId: string,
-    attempts: Array<{ path: string; method: string; headers?: Record<string, string>; body?: any }>
-  ): Promise<{ ok: boolean; data: any; tried: Array<{ path: string; status: number; body: string }> }> {
+  /**
+   * POST /hotel/{hotelID}/booking/{bookingInternalID}/guest/new
+   * Adiciona um hóspede a uma reserva.
+   */
+  async addGuestToBooking(hotelId: string, bookingInternalId: number, guestData: {
+    firstName: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+    dateOfBirth?: string;
+    documentType?: string;
+    documentNumber?: string;
+    nationality?: string;
+    gender?: string;
+    profession?: string;
+    address?: {
+      country?: string;
+      state?: string;
+      city?: string;
+      street?: string;
+      zipcode?: string;
+      neighborhood?: string;
+    };
+  }): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
-    const tried: Array<{ path: string; status: number; body: string }> = [];
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
-    for (const att of attempts) {
-      try {
-        const headers: Record<string, string> = {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          ...(att.headers || {}),
-          ...proxyHeaders(config.erbon_base_url, att.path),
-        };
-        const res = await fetch(resolveErbonUrl(config.erbon_base_url, att.path), {
-          method: att.method,
-          headers,
-          body: att.body ? JSON.stringify(att.body) : undefined,
-        });
-        const bodyText = await res.text().catch(() => '');
-        tried.push({ path: att.path, status: res.status, body: bodyText.slice(0, 200) });
-        if (res.ok) {
-          try { return { ok: true, data: JSON.parse(bodyText), tried }; }
-          catch { return { ok: true, data: bodyText, tried }; }
-        }
-      } catch (e: any) {
-        tried.push({ path: att.path, status: 0, body: e.message });
-      }
+    const body = {
+      id: 0,
+      firstName: guestData.firstName,
+      lastName: guestData.lastName || '',
+      email: guestData.email || '',
+      phone: guestData.phone || '',
+      documentType: guestData.documentType || '',
+      documentNumber: guestData.documentNumber || '',
+      nationality: guestData.nationality || '',
+      dateOfBirth: guestData.dateOfBirth || null,
+      gender: guestData.gender || '',
+      profession: guestData.profession || '',
+      address: guestData.address || {},
+    };
+
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao adicionar hóspede (${res.status}): ${txt}`);
     }
-    return { ok: false, data: null, tried };
+    return await res.json().catch(() => ({}));
   },
 
-  async addGuestToBooking(hotelId: string, bookingId: number, guestData: {
-    name: string;
-    email?: string;
-    phone?: string;
-    birthDate?: string;
-    documentType?: string;
-    documentNumber?: string;
-    countryISO?: string;
-    localityGuest?: string;
-    stateGuest?: string;
-    mealPlan?: string;
-  }): Promise<any> {
-    const config = await this.getConfig(hotelId);
-    if (!config) throw new Error('Configuração Erbon não encontrada');
-
-    const bodyVariants = [
-      { ...guestData, bookingID: bookingId, guestName: guestData.name },
-      { ...guestData, bookingId, name: guestData.name },
-      { bookingID: bookingId, guest: guestData },
-    ];
-    const attempts: Array<{ path: string; method: string; headers?: Record<string, string>; body?: any }> = [];
-    for (const body of bodyVariants) {
-      attempts.push(
-        { path: `/hotel/${config.erbon_hotel_id}/guest/add`, method: 'POST', body, headers: { bookingID: String(bookingId) } },
-        { path: `/hotel/${config.erbon_hotel_id}/guest/create`, method: 'POST', body, headers: { bookingID: String(bookingId) } },
-        { path: `/hotel/${config.erbon_hotel_id}/booking/guest/add`, method: 'POST', body, headers: { bookingID: String(bookingId) } },
-        { path: `/hotel/${config.erbon_hotel_id}/booking/addguest`, method: 'POST', body, headers: { bookingID: String(bookingId) } },
-      );
-    }
-
-    const result = await this._tryErbonEndpoints(hotelId, attempts);
-    console.log('[Erbon] addGuest attempts:', result.tried);
-    if (!result.ok) {
-      const summary = result.tried.map(t => `${t.path} → ${t.status}`).join(' | ');
-      throw new Error(`Nenhum endpoint Erbon de adicionar hóspede respondeu. Tentados: ${summary}`);
-    }
-    return result.data;
-  },
-
+  /**
+   * PUT /hotel/{hotelID}/guests/update
+   * Atualiza os dados de um hóspede (id no body).
+   */
   async updateGuest(hotelId: string, guestId: number, guestData: {
-    name?: string;
+    firstName?: string;
+    lastName?: string;
     email?: string;
     phone?: string;
-    birthDate?: string;
+    dateOfBirth?: string;
     documentType?: string;
     documentNumber?: string;
-    countryISO?: string;
-    localityGuest?: string;
-    stateGuest?: string;
-    mealPlan?: string;
+    nationality?: string;
+    gender?: string;
+    profession?: string;
+    address?: {
+      country?: string;
+      state?: string;
+      city?: string;
+      street?: string;
+      zipcode?: string;
+      neighborhood?: string;
+    };
   }): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/guests/update`;
 
-    const body = { ...guestData, guestID: guestId, idGuest: guestId, guestName: guestData.name };
-    const attempts: Array<{ path: string; method: string; headers?: Record<string, string>; body?: any }> = [
-      { path: `/hotel/${config.erbon_hotel_id}/guest/update`, method: 'PUT', body, headers: { guestID: String(guestId) } },
-      { path: `/hotel/${config.erbon_hotel_id}/guest/update`, method: 'POST', body, headers: { guestID: String(guestId) } },
-      { path: `/hotel/${config.erbon_hotel_id}/guest/edit`, method: 'PUT', body, headers: { guestID: String(guestId) } },
-      { path: `/hotel/${config.erbon_hotel_id}/guest/modify`, method: 'POST', body, headers: { guestID: String(guestId) } },
-    ];
+    const body = {
+      id: guestId,
+      firstName: guestData.firstName || '',
+      lastName: guestData.lastName || '',
+      email: guestData.email || '',
+      phone: guestData.phone || '',
+      documentType: guestData.documentType || '',
+      documentNumber: guestData.documentNumber || '',
+      nationality: guestData.nationality || '',
+      dateOfBirth: guestData.dateOfBirth || null,
+      gender: guestData.gender || '',
+      profession: guestData.profession || '',
+      address: guestData.address || {},
+    };
 
-    const result = await this._tryErbonEndpoints(hotelId, attempts);
-    console.log('[Erbon] updateGuest attempts:', result.tried);
-    if (!result.ok) {
-      const summary = result.tried.map(t => `${t.path} → ${t.status}`).join(' | ');
-      throw new Error(`Nenhum endpoint Erbon de editar hóspede respondeu. Tentados: ${summary}`);
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao atualizar hóspede (${res.status}): ${txt}`);
     }
-    return result.data;
+    return await res.json().catch(() => ({}));
   },
 
-  async removeGuestFromBooking(hotelId: string, bookingId: number, guestId: number): Promise<void> {
+  /**
+   * DELETE /hotel/{hotelID}/booking/{bookingInternalID}/guest/{guestID}/remove
+   */
+  async removeGuestFromBooking(hotelId: string, bookingInternalId: number, guestId: number): Promise<void> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/${guestId}/remove`;
 
-    const headers = { guestID: String(guestId), bookingID: String(bookingId) };
-    const attempts: Array<{ path: string; method: string; headers?: Record<string, string>; body?: any }> = [
-      { path: `/hotel/${config.erbon_hotel_id}/guest/remove`, method: 'DELETE', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/guest/remove`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/guest/delete`, method: 'DELETE', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/booking/removeguest`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/booking/guest/remove`, method: 'DELETE', headers },
-    ];
-
-    const result = await this._tryErbonEndpoints(hotelId, attempts);
-    console.log('[Erbon] removeGuest attempts:', result.tried);
-    if (!result.ok) {
-      const summary = result.tried.map(t => `${t.path} → ${t.status}`).join(' | ');
-      throw new Error(`Nenhum endpoint Erbon de remover hóspede respondeu. Tentados: ${summary}`);
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao remover hóspede (${res.status}): ${txt}`);
     }
   },
 
   // ── Check-in / Check-out ────────────────────────────────────────────────
 
-  async checkInBooking(hotelId: string, bookingId: number, options?: {
-    roomId?: number;
+  /**
+   * PUT /hotel/{hotelID}/booking/{bookingInternalID}/checkin
+   */
+  async checkInBooking(hotelId: string, bookingInternalId: number, options?: {
+    generateDoorKey?: string;
+    guestExternalId?: string;
+    guestContact?: string;
   }): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/checkin`;
 
-    const headers: Record<string, string> = { bookingID: String(bookingId) };
-    if (options?.roomId) headers.roomID = String(options.roomId);
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...proxyHeaders(config.erbon_base_url, path),
+    };
+    if (options?.generateDoorKey) headers['generateDoorKey'] = options.generateDoorKey;
+    if (options?.guestExternalId) headers['guestExternalId'] = options.guestExternalId;
+    if (options?.guestContact) headers['guestContact'] = options.guestContact;
 
-    const attempts: Array<{ path: string; method: string; headers?: Record<string, string>; body?: any }> = [
-      { path: `/hotel/${config.erbon_hotel_id}/booking/checkin`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/booking/checkin`, method: 'PUT', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/checkin`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/booking/makecheckin`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/reservation/checkin`, method: 'POST', headers },
-    ];
-
-    const result = await this._tryErbonEndpoints(hotelId, attempts);
-    console.log('[Erbon] checkIn attempts:', result.tried);
-    if (!result.ok) {
-      const summary = result.tried.map(t => `${t.path} → ${t.status}`).join(' | ');
-      throw new Error(`Nenhum endpoint Erbon de check-in respondeu. Tentados: ${summary}`);
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'PUT',
+      headers,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao realizar check-in (${res.status}): ${txt}`);
     }
-    return result.data;
+    return await res.json().catch(() => ({}));
   },
 
-  async checkOutBooking(hotelId: string, bookingId: number): Promise<any> {
+  /**
+   * PUT /hotel/{hotelID}/booking/{bookingInternalID}/checkout
+   */
+  async checkOutBooking(hotelId: string, bookingInternalId: number): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/checkout`;
 
-    const headers = { bookingID: String(bookingId) };
-    const attempts: Array<{ path: string; method: string; headers?: Record<string, string>; body?: any }> = [
-      { path: `/hotel/${config.erbon_hotel_id}/booking/checkout`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/booking/checkout`, method: 'PUT', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/checkout`, method: 'POST', headers },
-      { path: `/hotel/${config.erbon_hotel_id}/booking/makecheckout`, method: 'POST', headers },
-    ];
-
-    const result = await this._tryErbonEndpoints(hotelId, attempts);
-    console.log('[Erbon] checkOut attempts:', result.tried);
-    if (!result.ok) {
-      const summary = result.tried.map(t => `${t.path} → ${t.status}`).join(' | ');
-      throw new Error(`Nenhum endpoint Erbon de check-out respondeu. Tentados: ${summary}`);
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao realizar check-out (${res.status}): ${txt}`);
     }
-    return result.data;
+    return await res.json().catch(() => ({}));
   },
 
   // ── Bookings ───────────────────────────────────────────────────────────
@@ -1054,38 +1077,26 @@ export const erbonService = {
   },
 
   /**
-   * Busca extrato/conta corrente de uma reserva específica.
-   * Tenta múltiplos endpoints comuns do Erbon PMS.
+   * GET /hotel/{hotelID}/booking/{bookingInternalID}/currentaccount
+   * Busca conta corrente / extrato de uma reserva específica.
+   * Retorno: Array de CurrentAccountModel { id, description, amount, isDebit, isCredit, currency, isInvoiced, idDepartment }
    */
-  async fetchBookingAccount(hotelId: string, bookingId: number): Promise<any[]> {
+  async fetchBookingAccount(hotelId: string, bookingInternalId: number): Promise<any[]> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/currentaccount`;
 
-    // Tenta endpoint de guest account / folio
-    const endpoints = [
-      `/hotel/${config.erbon_hotel_id}/sales/guestaccount/${bookingId}`,
-      `/hotel/${config.erbon_hotel_id}/booking/${bookingId}/account`,
-      `/hotel/${config.erbon_hotel_id}/sales/guestledger/${bookingId}`,
-      `/hotel/${config.erbon_hotel_id}/sales/folio/${bookingId}`,
-    ];
-
-    for (const path of endpoints) {
-      try {
-        const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
-          headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          console.log(`[Erbon] BookingAccount OK from ${path}:`, JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
-          return Array.isArray(data) ? data : data ? [data] : [];
-        }
-        console.log(`[Erbon] BookingAccount ${path} → ${res.status}`);
-      } catch (e) {
-        console.log(`[Erbon] BookingAccount ${path} → error:`, e);
-      }
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) {
+      console.log(`[Erbon] BookingAccount ${path} → ${res.status}`);
+      return [];
     }
-    return [];
+    const data = await res.json();
+    console.log(`[Erbon] BookingAccount (${Array.isArray(data) ? data.length : 0} items):`, JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
+    return Array.isArray(data) ? data : data ? [data] : [];
   },
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────
