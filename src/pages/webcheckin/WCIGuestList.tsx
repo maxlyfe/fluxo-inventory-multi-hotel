@@ -215,8 +215,9 @@ export default function WCIGuestList() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
+  // Preencher/editar no totem → usa o mesmo fluxo completo (FNRH + termos + assinatura)
   const handleFillGuest = (guest: WebCheckinGuest) => {
-    navigate(`/web-checkin/${hotelId}/fnrh/${bookingId}/${guest.id}`);
+    navigate(`/web-checkin/${hotelId}/companion/${bookingId}/${guest.id}`);
   };
 
   // QR de hóspede existente → companion entry com guestId (edit + assinar)

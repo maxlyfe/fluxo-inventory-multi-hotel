@@ -4,7 +4,16 @@
 // Rota: /web-checkin/:hotelId/companion/:bookingId          (novo acompanhante)
 // Rota: /web-checkin/:hotelId/companion/:bookingId/:guestId  (editar/assinar existente)
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+
+// Componente interno: redireciona automaticamente após N ms
+function AutoReturn({ delay, to, navigate }: { delay: number; to: string; navigate: (path: string) => void }) {
+  useEffect(() => {
+    const t = setTimeout(() => navigate(to), delay);
+    return () => clearTimeout(t);
+  }, [delay, to, navigate]);
+  return null;
+}
 import { useNavigate, useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
 import { jsPDF } from 'jspdf';
@@ -377,6 +386,12 @@ export default function WCICompanionEntry() {
   // ── Tela de sucesso ──────────────────────────────────────────────────────
 
   if (step === 'done') {
+    // Se veio do totem (hotelId + bookingId presentes), volta para a lista de hóspedes
+    // Se veio do celular via QR sem bookingId no contexto, volta para o início
+    const backUrl = hotelId && bookingId
+      ? `/web-checkin/${hotelId}/guests/${bookingId}`
+      : '/web-checkin';
+
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', flexDirection: 'column',
@@ -385,21 +400,29 @@ export default function WCICompanionEntry() {
       }}>
         <CheckCircle size={72} color="#22c55e" style={{ marginBottom: '1.25rem' }} />
         <h1 style={{ fontSize: 'clamp(1.4rem,5vw,2rem)', fontWeight: 800, color: '#fff', marginBottom: '0.75rem' }}>
-          {t('successTitle')}
+          Ficha Assinada!
         </h1>
         <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', maxWidth: 400, lineHeight: 1.6, marginBottom: '2rem' }}>
-          Sua ficha foi registrada e assinada com sucesso. Dirija-se à recepção para concluir o check-in.
+          {hotelId && bookingId
+            ? 'Ficha registrada e assinada com sucesso. Retornando para a lista de hóspedes...'
+            : 'Sua ficha foi registrada e assinada com sucesso. Dirija-se à recepção para concluir o check-in.'
+          }
         </p>
         <button
-          onClick={() => navigate('/web-checkin')}
+          onClick={() => navigate(backUrl)}
           style={{
             padding: '0.875rem 2rem', borderRadius: 50, border: 'none', cursor: 'pointer',
             background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem',
             display: 'flex', alignItems: 'center', gap: '0.5rem',
           }}
         >
-          <Home size={18} /> Voltar ao Início
+          <Home size={18} />
+          {hotelId && bookingId ? 'Voltar à Lista' : 'Voltar ao Início'}
         </button>
+        {/* Auto-retorno para o totem */}
+        {hotelId && bookingId && (
+          <AutoReturn delay={3000} to={backUrl} navigate={navigate} />
+        )}
       </div>
     );
   }
