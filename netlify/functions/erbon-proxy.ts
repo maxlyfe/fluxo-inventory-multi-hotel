@@ -27,6 +27,9 @@ const ERBON_CUSTOM_HEADERS: Record<string, string> = {
   'status': 'status',
   'bookingnumber': 'bookingNumber',
   'mainguestemail': 'mainguestEmail',
+  'bookingid': 'bookingID',
+  'guestid': 'guestID',
+  'bookinginternalid': 'bookingInternalID',
 };
 
 const handler: Handler = async (event: HandlerEvent) => {
