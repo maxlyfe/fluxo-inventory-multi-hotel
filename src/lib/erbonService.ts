@@ -235,6 +235,11 @@ export interface ErbonGuestPayload {
  * para evitar 400 Bad Request por campo faltando.
  */
 function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Record<string, any> {
+  // Fallback chain para country em documentos (campo obrigatório pela API):
+  // doc.country → address.country → nationality → 'BR'
+  const docCountryFallback =
+    data.address?.country?.trim() || data.nationality?.trim() || 'BR';
+
   return {
     id: existingId ?? 0,
     name: data.name?.trim() || '',
@@ -262,7 +267,7 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
       documentType: d.documentType,
       number: d.number,
       expirationDate: d.expirationDate || null,
-      country: d.country || null,
+      country: (d.country && d.country.trim()) || docCountryFallback,
     })),
   };
 }
