@@ -107,117 +107,224 @@ O hóspede tem direito a: confirmar a existência de tratamento; acessar, corrig
 VALIDADE DA ASSINATURA DIGITAL
 A assinatura digital aposta neste documento tem validade jurídica plena nos termos do Marco Civil da Internet (Lei nº 12.965/2014) e da MP 2.200-2/2001.`;
 
-// ── PDF compacto por hóspede (1 página) ──────────────────────────────────────
-// Mantido enxuto para respeitar o limite de tamanho do Erbon.
-// Os textos completos dos termos são exibidos na tela e aceitos pelos checkboxes.
+// ── Helpers de PDF ────────────────────────────────────────────────────────────
 
-async function buildGuestPDF(params: {
-  hotelName: string;
-  bookingId: string;
-  guestName: string;
-  guestDoc?: string;
-  signatureDataUrl: string;
-  signedAt: string;
+/** Converte qualquer data URL de imagem para JPEG base64 (sem prefixo). */
+async function toJpegBase64(dataUrl: string, quality = 0.65): Promise<string> {
+  const cvs = document.createElement('canvas');
+  const img = new Image();
+  await new Promise<void>(res => { img.onload = () => res(); img.src = dataUrl; });
+  cvs.width = img.width; cvs.height = img.height;
+  const ctx = cvs.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, cvs.width, cvs.height);
+  ctx.drawImage(img, 0, 0);
+  return cvs.toDataURL('image/jpeg', quality).replace(/^data:image\/jpeg;base64,/, '');
+}
+
+/**
+ * Adiciona o bloco de assinatura ao PDF atual (reutilizável nos 3 documentos).
+ * Retorna o novo valor de `y` após o bloco.
+ */
+async function appendSignatureBlock(
+  pdf: jsPDF,
+  signatureDataUrl: string,
+  guestName: string,
+  signedAt: string,
+  mL: number,
+  W: number,
+  yIn: number
+): Promise<number> {
+  let y = yIn;
+  const cW = W - mL - 10;
+
+  // Seção
+  pdf.setFontSize(8); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(0, 100, 140);
+  pdf.text('ASSINATURA DIGITAL', mL, y); y += 5;
+
+  // Imagem JPEG comprimida
+  try {
+    const jpegDataUrl = 'data:image/jpeg;base64,' + (await toJpegBase64(signatureDataUrl, 0.65));
+    pdf.addImage(jpegDataUrl, 'JPEG', mL, y, 72, 24);
+    y += 27;
+  } catch {
+    pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 100, 100);
+    pdf.text('[Assinatura digital capturada eletronicamente]', mL, y); y += 5;
+  }
+
+  // Linha de assinatura
+  pdf.setDrawColor(150, 150, 150);
+  pdf.line(mL, y, mL + 72, y); y += 4;
+  pdf.setFontSize(6.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 100, 100);
+  const nameLine = pdf.splitTextToSize(guestName, cW);
+  nameLine.forEach((l: string) => { pdf.text(l, mL, y); y += 3.5; });
+  pdf.text(signedAt, mL, y); y += 5;
+
+  return y;
+}
+
+/** Adiciona rodapé em todas as páginas do PDF. */
+function addFooters(pdf: jsPDF, hotelName: string, signedAt: string, W: number) {
+  const n = pdf.getNumberOfPages();
+  for (let p = 1; p <= n; p++) {
+    pdf.setPage(p);
+    pdf.setFontSize(6); pdf.setTextColor(180, 180, 180);
+    pdf.text(`${hotelName} — Pág ${p}/${n} — ${signedAt}`, W / 2, 207, { align: 'center' });
+  }
+}
+
+// ── 1. FNRH — Ficha de Registro de Hóspede ───────────────────────────────────
+
+async function buildFNRHPdf(params: {
+  hotelName: string; bookingId: string; guestName: string;
+  guestDoc?: string; signatureDataUrl: string; signedAt: string;
 }): Promise<string> {
   const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
-
-  // Formato menor: 148mm × 210mm (A5) para reduzir tamanho do arquivo
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
-  const W = 148;
-  const mL = 12;
-  const cW = W - mL - 12;
+  const W = 148; const mL = 12; const cW = W - mL - 12;
   let y = 12;
 
-  const t = (text: string, size: number, bold = false, color: [number,number,number] = [20,20,20]) => {
-    pdf.setFontSize(size);
-    pdf.setFont('helvetica', bold ? 'bold' : 'normal');
-    pdf.setTextColor(...color);
-    pdf.splitTextToSize(text, cW).forEach((l: string) => {
-      pdf.text(l, mL, y);
-      y += size * 0.42;
-    });
+  const line = (text: string, size: number, bold = false, color: [number, number, number] = [20, 20, 20]) => {
+    pdf.setFontSize(size); pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setTextColor(...color);
+    pdf.splitTextToSize(text, cW).forEach((l: string) => { pdf.text(l, mL, y); y += size * 0.42; });
   };
 
-  // Cabeçalho colorido
-  pdf.setFillColor(0, 133, 174);
-  pdf.rect(0, 0, W, 11, 'F');
+  // Cabeçalho
+  pdf.setFillColor(0, 133, 174); pdf.rect(0, 0, W, 11, 'F');
   pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
   pdf.text(hotelName, mL, 7);
   pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
-  pdf.text('FNRH — Termo de Hospedagem', W - mL, 7, { align: 'right' });
+  pdf.text('FNRH — Ficha de Registro de Hóspede', W - mL, 7, { align: 'right' });
   y = 18;
 
-  // Dados
-  t('HÓSPEDE', 8, true, [0, 100, 140]);
-  y += 1;
-  t(guestName, 10, true);
-  y += 1;
-  if (guestDoc) t(`Documento: ${guestDoc}`, 7, false, [80, 80, 80]);
-  t(`Reserva: #${bookingId}`, 7, false, [80, 80, 80]);
-  t(`Data/Hora: ${signedAt}`, 7, false, [80, 80, 80]);
+  line('HÓSPEDE', 8, true, [0, 100, 140]); y += 1;
+  line(guestName, 10, true); y += 1;
+  if (guestDoc) line(`Documento: ${guestDoc}`, 7, false, [80, 80, 80]);
+  line(`Reserva: #${bookingId}`, 7, false, [80, 80, 80]);
+  line(`Data/Hora: ${signedAt}`, 7, false, [80, 80, 80]);
   y += 4;
 
-  // Linha
-  pdf.setDrawColor(200, 200, 200);
-  pdf.line(mL, y, W - mL, y);
-  y += 5;
+  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
 
-  // Declaração compacta
-  t('DECLARAÇÃO DO HÓSPEDE', 8, true, [0, 100, 140]);
-  y += 1;
-  t(
-    `Eu, ${guestName}, declaro que li e aceito integralmente o Regulamento Interno ` +
-    `e a Política de Privacidade (LGPD) do hotel, e que todas as informações prestadas ` +
-    `na Ficha Nacional de Registro de Hóspedes (FNRH) são verdadeiras. ` +
-    `Esta assinatura digital tem validade jurídica conforme Lei nº 13.709/2018 (LGPD) ` +
-    `e Marco Civil da Internet (Lei nº 12.965/2014).`,
+  line('DECLARAÇÃO DO HÓSPEDE', 8, true, [0, 100, 140]); y += 1;
+  line(
+    `Eu, ${guestName}, declaro que todas as informações prestadas na presente Ficha Nacional ` +
+    `de Registro de Hóspedes (FNRH) são verdadeiras e corretas, e que aceito integralmente ` +
+    `o Regulamento Interno e a Política de Privacidade (LGPD) do hotel. ` +
+    `Esta assinatura digital tem validade jurídica nos termos da Lei nº 13.709/2018 e ` +
+    `Marco Civil da Internet (Lei nº 12.965/2014).`,
+    7.5, false, [40, 40, 40]
+  );
+  y += 6;
+  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
+
+  y = await appendSignatureBlock(pdf, signatureDataUrl, guestName, signedAt, mL, W, y);
+  addFooters(pdf, hotelName, signedAt, W);
+
+  return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
+}
+
+// ── 2. Regulamento do Hotel ───────────────────────────────────────────────────
+
+async function buildHotelRulesPdf(params: {
+  hotelName: string; bookingId: string; guestName: string;
+  guestDoc?: string; signatureDataUrl: string; signedAt: string;
+}): Promise<string> {
+  const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
+  const W = 148; const mL = 10; const cW = W - mL - 10;
+  let y = 12;
+
+  const addLine = (text: string, size: number, bold = false, color: [number, number, number] = [30, 30, 30]) => {
+    pdf.setFontSize(size); pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setTextColor(...color);
+    pdf.splitTextToSize(text, cW).forEach((l: string) => {
+      if (y > 198) { pdf.addPage(); y = 12; }
+      pdf.text(l, mL, y); y += size * 0.43;
+    });
+  };
+
+  // Cabeçalho
+  pdf.setFillColor(0, 133, 174); pdf.rect(0, 0, W, 11, 'F');
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
+  pdf.text(hotelName, mL, 7);
+  pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
+  pdf.text('Regulamento Interno', W - mL, 7, { align: 'right' });
+  y = 18;
+
+  addLine('REGULAMENTO INTERNO E POLÍTICAS DO HOTEL', 10, true, [0, 100, 140]); y += 2;
+  addLine(`Hóspede: ${guestName}${guestDoc ? ` | ${guestDoc}` : ''} | Reserva: #${bookingId}`, 7, false, [100, 100, 100]); y += 2;
+  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
+
+  addLine(HOTEL_TERMS, 7.5, false, [40, 40, 40]);
+
+  y += 5;
+  if (y > 185) { pdf.addPage(); y = 12; }
+  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
+
+  addLine('DECLARAÇÃO DE ACEITE DO REGULAMENTO', 8, true, [0, 100, 140]); y += 1;
+  addLine(
+    `Eu, ${guestName}, declaro que li, compreendi e aceito integralmente o presente ` +
+    `Regulamento Interno do hotel acima transcrito. Data e hora: ${signedAt}.`,
     7.5, false, [40, 40, 40]
   );
   y += 6;
 
-  // Linha
-  pdf.setDrawColor(200, 200, 200);
-  pdf.line(mL, y, W - mL, y);
-  y += 5;
+  if (y > 180) { pdf.addPage(); y = 12; }
+  y = await appendSignatureBlock(pdf, signatureDataUrl, guestName, signedAt, mL, W, y);
+  addFooters(pdf, hotelName, signedAt, W);
 
-  // Assinatura — JPEG comprimido para reduzir tamanho
-  t('ASSINATURA DIGITAL', 8, true, [0, 100, 140]);
-  y += 2;
+  return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
+}
 
-  try {
-    // Converter canvas para JPEG (muito menor que PNG)
-    const canvas = document.createElement('canvas');
-    const srcImg = new Image();
-    await new Promise<void>((resolve) => {
-      srcImg.onload = () => {
-        canvas.width = srcImg.width;
-        canvas.height = srcImg.height;
-        const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(srcImg, 0, 0);
-        resolve();
-      };
-      srcImg.src = signatureDataUrl;
+// ── 3. Política de Privacidade LGPD ──────────────────────────────────────────
+
+async function buildLGPDPdf(params: {
+  hotelName: string; bookingId: string; guestName: string;
+  guestDoc?: string; signatureDataUrl: string; signedAt: string;
+}): Promise<string> {
+  const { hotelName, bookingId, guestName, guestDoc, signatureDataUrl, signedAt } = params;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a5' });
+  const W = 148; const mL = 10; const cW = W - mL - 10;
+  let y = 12;
+
+  const addLine = (text: string, size: number, bold = false, color: [number, number, number] = [30, 30, 30]) => {
+    pdf.setFontSize(size); pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setTextColor(...color);
+    pdf.splitTextToSize(text, cW).forEach((l: string) => {
+      if (y > 198) { pdf.addPage(); y = 12; }
+      pdf.text(l, mL, y); y += size * 0.43;
     });
-    const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.6);
-    pdf.addImage(jpegDataUrl, 'JPEG', mL, y, 70, 25);
-  } catch {
-    t('[Assinatura digital capturada eletronicamente]', 7, false, [100, 100, 100]);
-  }
+  };
 
-  y += 28;
-  pdf.setDrawColor(150, 150, 150);
-  pdf.line(mL, y, mL + 70, y);
-  y += 4;
-  pdf.setFontSize(6.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(120, 120, 120);
-  pdf.text(guestName, mL, y);
-  y += 3.5;
-  pdf.text(signedAt, mL, y);
+  // Cabeçalho
+  pdf.setFillColor(0, 133, 174); pdf.rect(0, 0, W, 11, 'F');
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
+  pdf.text(hotelName, mL, 7);
+  pdf.setFontSize(7); pdf.setFont('helvetica', 'normal');
+  pdf.text('Política de Privacidade — LGPD', W - mL, 7, { align: 'right' });
+  y = 18;
 
-  // Rodapé
-  pdf.setFontSize(6); pdf.setTextColor(180, 180, 180);
-  pdf.text(`${hotelName} — Documento eletrônico gerado em ${signedAt}`, W / 2, 203, { align: 'center' });
+  addLine('POLÍTICA DE PRIVACIDADE E PROTEÇÃO DE DADOS (LGPD)', 10, true, [0, 100, 140]); y += 2;
+  addLine(`Hóspede: ${guestName}${guestDoc ? ` | ${guestDoc}` : ''} | Reserva: #${bookingId}`, 7, false, [100, 100, 100]); y += 2;
+  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
+
+  addLine(LGPD_TERMS, 7.5, false, [40, 40, 40]);
+
+  y += 5;
+  if (y > 185) { pdf.addPage(); y = 12; }
+  pdf.setDrawColor(200, 200, 200); pdf.line(mL, y, W - mL, y); y += 5;
+
+  addLine('DECLARAÇÃO DE ACEITE — LGPD', 8, true, [0, 100, 140]); y += 1;
+  addLine(
+    `Eu, ${guestName}, declaro que fui informado(a) sobre o tratamento dos meus dados pessoais ` +
+    `conforme a Lei nº 13.709/2018 (LGPD) e consinto com a coleta e uso das informações ` +
+    `descritas neste documento exclusivamente para os fins de hospedagem. Data e hora: ${signedAt}.`,
+    7.5, false, [40, 40, 40]
+  );
+  y += 6;
+
+  if (y > 180) { pdf.addPage(); y = 12; }
+  y = await appendSignatureBlock(pdf, signatureDataUrl, guestName, signedAt, mL, W, y);
+  addFooters(pdf, hotelName, signedAt, W);
 
   return pdf.output('datauristring').replace(/^data:application\/pdf;base64,/, '');
 }
@@ -410,7 +517,30 @@ export default function WCICompanionEntry() {
     }
   };
 
-  // ── Passo 2: Enviar assinatura — fila sequencial com feedback visual ────────
+  // ── Enviar PDF com fallback automático de fileType ───────────────────────────
+  const sendPdfWithFallback = async (
+    pdfBase64: string,
+    fileName: string,
+    jpegBase64: string,
+    sigBase64: string,
+    onProgress: (detail: string) => void
+  ): Promise<boolean> => {
+    const stem = fileName.replace(/\.pdf$/, '');
+    const attempts = [
+      { b64: pdfBase64,  name: fileName,        type: 'pdf' },
+      { b64: pdfBase64,  name: fileName,        type: 'application/pdf' },
+      { b64: jpegBase64, name: `${stem}.jpg`,   type: 'image/jpeg' },
+      { b64: sigBase64,  name: `${stem}.png`,   type: 'image/png' },
+    ];
+    for (const a of attempts) {
+      onProgress(`tentando ${a.type}...`);
+      const ok = await submitAttachment(hotelId!, Number(bookingId), a.b64, a.name, a.type);
+      if (ok) { onProgress(`salvo`); return true; }
+    }
+    return false;
+  };
+
+  // ── Fila de envio: Assinatura + Regulamento + LGPD ───────────────────────────
 
   const handleSign = async () => {
     if (!hotelAccepted || !lgpdAccepted) { setError('Aceite os dois termos para prosseguir.'); return; }
@@ -420,105 +550,81 @@ export default function WCICompanionEntry() {
     setSaving(true);
     setError('');
 
-    // Inicializa a fila de envio
     const queue: QueueItem[] = [
-      { label: 'Gerando PDF da ficha...', status: 'sending' },
-      { label: 'Enviando PDF (anexo da reserva)', status: 'pending' },
-      { label: 'Enviando assinatura digital', status: 'pending' },
+      { label: '✍️  Assinatura digital',            status: 'sending' },
+      { label: '📋 Regulamento do Hotel',            status: 'pending' },
+      { label: '🔒 Política de Privacidade (LGPD)', status: 'pending' },
     ];
     setSendQueue([...queue]);
 
-    const updateQueue = (idx: number, status: QueueStatus, detail?: string) => {
+    const upd = (idx: number, status: QueueStatus, detail?: string) => {
       queue[idx] = { ...queue[idx], status, detail };
       setSendQueue([...queue]);
     };
 
     try {
       const sigDataUrl = sigRef.current!.getTrimmedCanvas().toDataURL('image/png');
-      const signedAt = new Date().toLocaleString('pt-BR');
+      const signedAt   = new Date().toLocaleString('pt-BR');
+      const sigBase64  = sigDataUrl.replace(/^data:image\/png;base64,/, '');
+      const jpegBase64 = await toJpegBase64(sigDataUrl, 0.8);
 
-      const stored = loadGuestsFromStorage(bookingId) || [];
-      const guest = savedGuestId ? stored.find(g => g.id === savedGuestId) : null;
-      const guestDoc = guest?.documents?.[0]
+      const stored    = loadGuestsFromStorage(bookingId) || [];
+      const guest     = savedGuestId ? stored.find(g => g.id === savedGuestId) : null;
+      const guestDoc  = guest?.documents?.[0]
         ? `${guest.documents[0].documentType} — ${guest.documents[0].number}`
         : undefined;
-
       const guestName = name || guest?.name || 'Hóspede';
-      const safeFileName = `fnrh_${guestName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
+      const safeName  = guestName.replace(/[^a-zA-Z0-9]/g, '_');
+      const ts        = Date.now();
 
-      // ── Passo 1: Gerar PDF ──────────────────────────────────────────────────
-      let pdfBase64: string;
-      try {
-        pdfBase64 = await buildGuestPDF({
-          hotelName: 'Meridiana Hoteles',
-          bookingId: bookingId!,
-          guestName,
-          guestDoc,
-          signatureDataUrl: sigDataUrl,
-          signedAt,
-        });
-        updateQueue(0, 'done', 'OK');
-      } catch (err: any) {
-        updateQueue(0, 'error', err.message);
-        throw new Error('Falha ao gerar o PDF da ficha.');
-      }
+      const pdfParams = {
+        hotelName: 'Meridiana Hoteles',
+        bookingId: bookingId!,
+        guestName, guestDoc,
+        signatureDataUrl: sigDataUrl,
+        signedAt,
+      };
 
-      // ── Passo 2: Enviar anexo (tenta PDF → JPEG em sequência) ───────────────
-      updateQueue(1, 'sending');
-      const sigBase64 = sigDataUrl.replace(/^data:image\/png;base64,/, '');
-
-      // Converte assinatura para JPEG (fallback de anexo)
-      let jpegBase64 = sigBase64;
-      try {
-        const cvs = document.createElement('canvas');
-        const img = new Image();
-        await new Promise<void>(res => { img.onload = () => res(); img.src = sigDataUrl; });
-        cvs.width = img.width; cvs.height = img.height;
-        const ctx = cvs.getContext('2d')!;
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cvs.width, cvs.height);
-        ctx.drawImage(img, 0, 0);
-        jpegBase64 = cvs.toDataURL('image/jpeg', 0.8).replace(/^data:image\/jpeg;base64,/, '');
-      } catch { /* usa sigBase64 (PNG) se falhar */ }
-
-      // Ordem de tentativas: 'pdf' → 'application/pdf' → imagem JPEG
-      const attachmentAttempts: Array<{ base64: string; fileName: string; fileType: string; label: string }> = [
-        { base64: pdfBase64,  fileName: safeFileName, fileType: 'pdf',              label: 'pdf' },
-        { base64: pdfBase64,  fileName: safeFileName, fileType: 'application/pdf',  label: 'application/pdf' },
-        { base64: jpegBase64, fileName: safeFileName.replace(/\.pdf$/, '.jpg'), fileType: 'image/jpeg', label: 'image/jpeg' },
-        { base64: sigBase64,  fileName: safeFileName.replace(/\.pdf$/, '.png'), fileType: 'image/png',  label: 'image/png' },
-      ];
-
-      let attachmentOk = false;
-      for (const attempt of attachmentAttempts) {
-        updateQueue(1, 'sending', `tentando ${attempt.label}...`);
-        const ok = await submitAttachment(
-          hotelId, Number(bookingId), attempt.base64, attempt.fileName, attempt.fileType
-        );
-        if (ok) {
-          updateQueue(1, 'done', `salvo como ${attempt.label}`);
-          attachmentOk = true;
-          break;
-        }
-      }
-      if (!attachmentOk) {
-        // Não bloqueia — assinatura digital ainda é enviada via /signature
-        updateQueue(1, 'error', 'Não foi possível salvar o anexo (não crítico)');
-        console.warn('[WCI] All attachment attempts failed — signature via /signature endpoint still valid');
-      }
-
-      // ── Passo 3: Enviar PNG da assinatura vinculado ao hóspede ──────────────
-      updateQueue(2, 'sending');
+      // ── 1. Assinatura PNG via /signature ────────────────────────────────────
+      upd(0, 'sending');
       try {
         await submitSignature(hotelId, Number(bookingId), sigBase64, savedGuestId ?? undefined);
-        updateQueue(2, 'done', 'OK');
+        upd(0, 'done', 'OK');
       } catch (err: any) {
-        // Assinatura é não-bloqueante: loga o erro mas não impede o fluxo
-        updateQueue(2, 'error', err.message);
+        upd(0, 'error', err.message);
         console.warn('[WCI] Signature upload failed (non-blocking):', err.message);
       }
 
-      // Aguarda 800ms para o usuário ver a fila completa antes de avançar
-      await new Promise(r => setTimeout(r, 800));
+      // ── 2. Regulamento do Hotel (PDF completo + assinatura) ─────────────────
+      upd(1, 'sending', 'gerando...');
+      try {
+        const b64 = await buildHotelRulesPdf(pdfParams);
+        const ok = await sendPdfWithFallback(
+          b64, `Regulamento_${safeName}_${ts}.pdf`,
+          jpegBase64, sigBase64,
+          d => upd(1, 'sending', d)
+        );
+        upd(1, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
+      } catch (err: any) {
+        upd(1, 'error', err.message);
+      }
+
+      // ── 3. LGPD (PDF completo + assinatura) ────────────────────────────────
+      upd(2, 'sending', 'gerando...');
+      try {
+        const b64 = await buildLGPDPdf(pdfParams);
+        const ok = await sendPdfWithFallback(
+          b64, `LGPD_${safeName}_${ts}.pdf`,
+          jpegBase64, sigBase64,
+          d => upd(2, 'sending', d)
+        );
+        upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
+      } catch (err: any) {
+        upd(2, 'error', err.message);
+      }
+
+      // Breve pausa para o usuário ver a fila completa
+      await new Promise(r => setTimeout(r, 900));
       setStep('done');
     } catch (err: any) {
       setError(err.message || t('errorGeneral'));
