@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
-import { Search, ChevronDown, ChevronUp, Edit2, Check, X, History } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Edit2, Check, X, History, Trash2, AlertTriangle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 interface PurchaseItem {
@@ -44,6 +44,8 @@ export default function PurchaseHistory() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<Purchase | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadPurchases = useCallback(async () => {
     if (!selectedHotel?.id) return;
@@ -155,6 +157,26 @@ export default function PurchaseHistory() {
     }
   }
 
+  async function handleDelete(purchase: Purchase) {
+    setDeleting(true);
+    try {
+      const { error } = await supabase.rpc('delete_purchase_with_reversal', {
+        p_purchase_id: purchase.id,
+      });
+      if (error) throw error;
+      addNotification(
+        `Compra de "${purchase.supplier || 'S/N'}" excluída e estoque estornado.`,
+        'success'
+      );
+      setDeleteConfirm(null);
+      loadPurchases();
+    } catch (err: any) {
+      addNotification('Erro ao excluir compra: ' + err.message, 'error');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (!selectedHotel) {
     return <div className="flex items-center justify-center h-64"><p className="text-gray-500 dark:text-gray-400">Selecione um hotel.</p></div>;
   }
@@ -208,10 +230,18 @@ export default function PurchaseHistory() {
                       R$ {Number(p.total_amount).toFixed(2)}
                     </span>
                     {!isEditing && (
-                      <button onClick={() => startEdit(p)}
-                        className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors">
-                        <Edit2 size={16} />
-                      </button>
+                      <>
+                        <button onClick={() => startEdit(p)}
+                          className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                          title="Editar compra">
+                          <Edit2 size={16} />
+                        </button>
+                        <button onClick={() => setDeleteConfirm(p)}
+                          className="p-1.5 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                          title="Excluir compra">
+                          <Trash2 size={16} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -307,6 +337,63 @@ export default function PurchaseHistory() {
               </div>
             );
           })}
+        </div>
+      )}
+      {/* Modal de confirmação de exclusão */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-md p-6">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Excluir compra?</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Esta ação é irreversível. A compra de{' '}
+                  <strong className="text-gray-700 dark:text-gray-300">{deleteConfirm.supplier || 'fornecedor'}</strong>
+                  {deleteConfirm.invoice_number && <> (NF: {deleteConfirm.invoice_number})</>}{' '}
+                  será excluída e o estoque dos {deleteConfirm.purchase_items.length} produto(s) será estornado automaticamente.
+                </p>
+              </div>
+            </div>
+
+            {/* Itens afetados */}
+            <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/40 rounded-xl p-3 mb-5 max-h-40 overflow-y-auto">
+              <p className="text-[10px] uppercase font-semibold text-red-500 mb-2 tracking-wide">Produtos com estoque estornado</p>
+              <ul className="space-y-1">
+                {deleteConfirm.purchase_items.map(item => (
+                  <li key={item.id} className="flex justify-between text-xs text-gray-700 dark:text-gray-300">
+                    <span>{item.products?.name || 'Produto removido'}</span>
+                    <span className="font-mono text-red-600 dark:text-red-400">−{item.quantity}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition disabled:opacity-50">
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDelete(deleteConfirm)}
+                disabled={deleting}
+                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition disabled:opacity-50">
+                {deleting ? (
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                ) : (
+                  <Trash2 size={16} />
+                )}
+                {deleting ? 'Excluindo...' : 'Excluir e estornar estoque'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
