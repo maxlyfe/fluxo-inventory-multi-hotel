@@ -86,6 +86,7 @@ import WCIReservationSearch  from './pages/webcheckin/WCIReservationSearch';
 import WCIGuestList          from './pages/webcheckin/WCIGuestList';
 import WCIFNRHForm           from './pages/webcheckin/WCIFNRHForm';
 import WCISignatureAndTerms  from './pages/webcheckin/WCISignatureAndTerms';
+import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import RoomRack          from './pages/erbon/RoomRack';
@@ -205,6 +206,9 @@ function App() {
                     <Route path=":hotelId/guests/:bookingId" element={<WCIGuestList />} />
                     <Route path=":hotelId/fnrh/:bookingId/:guestId" element={<WCIFNRHForm />} />
                     <Route path=":hotelId/signature/:bookingId" element={<WCISignatureAndTerms />} />
+                    {/* Fluxo mobile para acompanhante: FNRH + termos + assinatura */}
+                    <Route path=":hotelId/companion/:bookingId" element={<WCICompanionEntry />} />
+                    <Route path=":hotelId/companion/:bookingId/:guestId" element={<WCICompanionEntry />} />
                   </Route>
 
                   {/* ── Rotas privadas com MainLayout (Navbar) ──────────────── */}
