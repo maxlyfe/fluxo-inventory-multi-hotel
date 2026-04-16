@@ -78,6 +78,15 @@ import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
 import SupplierContacts    from './pages/SupplierContacts';
 import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages';
 
+// ── Pages — Web Check-in (público) ───────────────────────────────────────────
+import WebCheckinLayout      from './pages/webcheckin/WebCheckinLayout';
+import WCIRestScreen         from './pages/webcheckin/WCIRestScreen';
+import WCIHotelSelection     from './pages/webcheckin/WCIHotelSelection';
+import WCIReservationSearch  from './pages/webcheckin/WCIReservationSearch';
+import WCIGuestList          from './pages/webcheckin/WCIGuestList';
+import WCIFNRHForm           from './pages/webcheckin/WCIFNRHForm';
+import WCISignatureAndTerms  from './pages/webcheckin/WCISignatureAndTerms';
+
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import RoomRack          from './pages/erbon/RoomRack';
 import InHouse           from './pages/erbon/InHouse';
@@ -187,6 +196,16 @@ function App() {
                   <Route path="/privacy"       element={<PrivacyPolicy />} />
                   <Route path="/terms"         element={<TermsOfService />} />
                   <Route path="/data-deletion" element={<DataDeletion />} />
+
+                  {/* ── Web Check-in público (totem / mobile — sem auth) ──── */}
+                  <Route path="/web-checkin" element={<WebCheckinLayout />}>
+                    <Route index element={<WCIRestScreen />} />
+                    <Route path="hotels" element={<WCIHotelSelection />} />
+                    <Route path=":hotelId/search" element={<WCIReservationSearch />} />
+                    <Route path=":hotelId/guests/:bookingId" element={<WCIGuestList />} />
+                    <Route path=":hotelId/fnrh/:bookingId/:guestId" element={<WCIFNRHForm />} />
+                    <Route path=":hotelId/signature/:bookingId" element={<WCISignatureAndTerms />} />
+                  </Route>
 
                   {/* ── Rotas privadas com MainLayout (Navbar) ──────────────── */}
                   <Route element={<MainLayout />}>
