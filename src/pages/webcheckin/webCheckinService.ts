@@ -15,9 +15,13 @@ const anonClient   = createClient(supabaseUrl, supabaseAnon);
 export interface WebCheckinHotel {
   id: string;               // UUID do hotel no LyFe
   name: string;
+  image_url?: string | null;
   logo_url?: string | null;
+  description?: string | null;
   erbonHotelId: string;     // ID do hotel no Erbon (erbon_hotel_id)
   hasErbon: boolean;
+  wci_hotel_terms?: string | null;
+  wci_lgpd_terms?: string | null;
 }
 
 export interface WebCheckinGuest {
@@ -37,10 +41,12 @@ export async function fetchWebCheckinHotels(): Promise<WebCheckinHotel[]> {
   const { data, error } = await anonClient
     .from('hotels')
     .select(`
-      id, name,
+      id, name, image_url, description,
+      wci_visible, wci_hotel_terms, wci_lgpd_terms,
       erbon_hotel_config!inner(erbon_hotel_id, is_active)
     `)
     .eq('erbon_hotel_config.is_active', true)
+    .neq('wci_visible', false)
     .order('name');
 
   if (error) throw error;
@@ -48,10 +54,25 @@ export async function fetchWebCheckinHotels(): Promise<WebCheckinHotel[]> {
   return (data || []).map((h: any) => ({
     id: h.id,
     name: h.name,
+    image_url: h.image_url || null,
     logo_url: null,
+    description: h.description || null,
     erbonHotelId: h.erbon_hotel_config?.[0]?.erbon_hotel_id || h.erbon_hotel_config?.erbon_hotel_id || '',
     hasErbon: true,
+    wci_hotel_terms: h.wci_hotel_terms || null,
+    wci_lgpd_terms: h.wci_lgpd_terms || null,
   }));
+}
+
+/** Busca as políticas de um hotel específico (para o web check-in e management). */
+export async function fetchHotelPolicies(hotelId: string): Promise<{ wci_hotel_terms: string | null; wci_lgpd_terms: string | null; wci_visible: boolean }> {
+  const { data, error } = await anonClient
+    .from('hotels')
+    .select('wci_hotel_terms, wci_lgpd_terms, wci_visible')
+    .eq('id', hotelId)
+    .single();
+  if (error) throw error;
+  return { wci_hotel_terms: data?.wci_hotel_terms ?? null, wci_lgpd_terms: data?.wci_lgpd_terms ?? null, wci_visible: data?.wci_visible ?? true };
 }
 
 // ── Buscar reserva (retorna booking + guests mesclados) ───────────────────

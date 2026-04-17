@@ -147,6 +147,7 @@ const TRANSLATIONS: Record<Lang, Record<string, string>> = {
 // ── Provider + Layout ────────────────────────────────────────────────────────
 
 export default function WebCheckinLayout() {
+  const navigate = useNavigate();
   const location = useLocation();
   const isRoot = location.pathname === '/web-checkin' || location.pathname === '/web-checkin/';
 
@@ -193,14 +194,18 @@ export default function WebCheckinLayout() {
             background: 'rgba(0,0,0,0.3)',
             backdropFilter: 'blur(8px)',
           }}>
-            <div style={{ lineHeight: 1 }}>
-              <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>
+            <button
+              onClick={() => navigate('/web-checkin')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, padding: 0 }}
+              title="Voltar à tela inicial"
+            >
+              <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', display: 'block' }}>
                 Meridiana
               </span>
               <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.2em', textTransform: 'uppercase', display: 'block' }}>
                 Hoteles
               </span>
-            </div>
+            </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Globe size={16} style={{ opacity: 0.7 }} />
               <select value={lang} onChange={e => setLang(e.target.value as Lang)}

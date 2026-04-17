@@ -49,6 +49,7 @@ import CpfRegistry           from './pages/rh/CpfRegistry';
 import PublicJobApplication  from './pages/rh/PublicJobApplication';
 import HRAnalytics           from './pages/rh/HRAnalytics';
 import DocumentsLicenses     from './pages/management/DocumentsLicenses';
+import WCIManagement         from './pages/management/WCIManagement';
 
 // ── Pages — Comercial ────────────────────────────────────────────────────────
 import CorporateClients      from './pages/commercial/CorporateClients';
@@ -287,6 +288,11 @@ function App() {
                     <Route path="/management/documents" element={
                       <PrivateRoute module="hotel_documents">
                         <DocumentsLicenses />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/management/webcheckin" element={
+                      <PrivateRoute module="management">
+                        <WCIManagement />
                       </PrivateRoute>
                     } />
 

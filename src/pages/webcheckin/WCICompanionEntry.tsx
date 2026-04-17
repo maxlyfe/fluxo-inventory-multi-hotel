@@ -21,6 +21,7 @@ import {
   ClipboardList, PenLine, CheckCircle,
   Loader2, RotateCcw, ChevronRight,
   FileText, Shield, Home,
+  Camera, Upload, X as XIcon, ImagePlus,
 } from 'lucide-react';
 import { useWCI } from './WebCheckinLayout';
 import {
@@ -219,7 +220,7 @@ function buildLGPDJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' |
 
 // ── Componente principal ─────────────────────────────────────────────────────
 
-type Step = 'fnrh' | 'signature' | 'done';
+type Step = 'fnrh' | 'documents' | 'signature' | 'done';
 
 // ── Fila de envio ─────────────────────────────────────────────────────────────
 type QueueStatus = 'pending' | 'sending' | 'done' | 'error';
@@ -304,6 +305,8 @@ export default function WCICompanionEntry() {
   const [savedGuestId, setSavedGuestId] = useState<number | null>(existingGuestId);
   const [sendQueue, setSendQueue] = useState<QueueItem[]>([]);
   const [activeTab, setActiveTab] = useState<'hotel' | 'lgpd'>('hotel');
+  const [docUploads, setDocUploads] = useState<Array<{ preview: string; base64: string; name: string }>>([]);
+  const [docUploading, setDocUploading] = useState(false);
   const [hotelAccepted, setHotelAccepted] = useState(false);
   const [lgpdAccepted, setLgpdAccepted] = useState(false);
 
@@ -397,7 +400,7 @@ export default function WCICompanionEntry() {
         ), hotelId);
       }
 
-      setStep('signature');
+      setStep('documents');
     } catch (err: any) {
       setError(err.message || t('errorGeneral'));
     } finally {
@@ -416,10 +419,12 @@ export default function WCICompanionEntry() {
     setSaving(true);
     setError('');
 
+    const hasDocUploads = docUploads.length > 0;
     const queue: QueueItem[] = [
       { label: '✍️  Assinatura digital',            status: 'sending' },
       { label: '📋 Regulamento do Hotel',            status: 'pending' },
       { label: '🔒 Política de Privacidade (LGPD)', status: 'pending' },
+      ...(hasDocUploads ? [{ label: `📎 Documentos (${docUploads.length})`, status: 'pending' as QueueStatus }] : []),
     ];
     setSendQueue([...queue]);
 
@@ -474,6 +479,21 @@ export default function WCICompanionEntry() {
         upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
       } catch (err: any) {
         upd(2, 'error', err.message);
+      }
+
+      // ── 4. Documentos de identificação (se enviados) ───────────────────────
+      if (hasDocUploads) {
+        const docIdx = 3;
+        upd(docIdx, 'sending', 'enviando...');
+        let docsSent = 0;
+        for (let i = 0; i < docUploads.length; i++) {
+          const doc = docUploads[i];
+          upd(docIdx, 'sending', `${i + 1}/${docUploads.length}...`);
+          const docFileName = `doc_${safeName}_${ts}_${i + 1}.jpg`;
+          const ok = await submitAttachment(hotelId, Number(bookingId), doc.base64, docFileName, 'image/jpeg');
+          if (ok) docsSent++;
+        }
+        upd(docIdx, docsSent > 0 ? 'done' : 'error', docsSent > 0 ? `${docsSent}/${docUploads.length} salvo(s)` : 'falha no envio');
       }
 
       // Breve pausa para o usuário ver a fila completa
@@ -680,6 +700,152 @@ export default function WCICompanionEntry() {
           input::placeholder { color: rgba(255,255,255,0.3); }
           input:focus, select:focus { border-color: #0085ae !important; }
         `}</style>
+      </div>
+    );
+  }
+
+  // ── Upload de Documentos (opcional) ─────────────────────────────────────
+
+  if (step === 'documents') {
+    const handleFileInput = async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      setDocUploading(true);
+      const toAdd: typeof docUploads = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) continue;
+        const dataUrl = await new Promise<string>(res => {
+          const reader = new FileReader();
+          reader.onload = e => res(e.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+        // Comprime para JPEG via canvas
+        const cvs = document.createElement('canvas');
+        const img = new Image();
+        await new Promise<void>(r => { img.onload = () => r(); img.src = dataUrl; });
+        const MAX_W = 1600;
+        const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+        cvs.width = img.width * scale; cvs.height = img.height * scale;
+        const ctx = cvs.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+        const jpegDataUrl = cvs.toDataURL('image/jpeg', 0.82);
+        toAdd.push({ preview: jpegDataUrl, base64: jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''), name: file.name.replace(/\.[^.]+$/, '.jpg') });
+      }
+      setDocUploads(prev => [...prev, ...toAdd]);
+      setDocUploading(false);
+    };
+
+    return (
+      <div style={{ minHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem' }}>
+        <div style={{ width: '100%', maxWidth: 680 }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+            <ImagePlus size={38} color="#0085ae" style={{ marginBottom: '0.6rem' }} />
+            <h1 style={{ fontSize: 'clamp(1.1rem,3.5vw,1.5rem)', fontWeight: 800, color: '#fff', margin: 0 }}>
+              Documentos de Identificação
+            </h1>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.83rem', margin: '0.4rem 0 0' }}>
+              Opcional — fotografe ou faça upload do seu documento. Pode ser feito pela recepção posteriormente.
+            </p>
+          </div>
+
+          <div style={{
+            background: 'rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: 20,
+            padding: '1.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem',
+          }}>
+            {/* Botões de upload */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              {/* Câmera */}
+              <label style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: '0.5rem', padding: '1.25rem',
+                background: 'rgba(0,133,174,0.15)', border: '2px dashed rgba(0,133,174,0.5)',
+                borderRadius: 14, cursor: 'pointer', color: '#7dd3ee', fontWeight: 600, fontSize: '0.88rem',
+              }}>
+                <Camera size={28} />
+                Usar Câmera
+                <input type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }}
+                  onChange={e => handleFileInput(e.target.files)} />
+              </label>
+
+              {/* Arquivo */}
+              <label style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: '0.5rem', padding: '1.25rem',
+                background: 'rgba(255,255,255,0.08)', border: '2px dashed rgba(255,255,255,0.25)',
+                borderRadius: 14, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.88rem',
+              }}>
+                <Upload size={28} />
+                Galeria / Arquivo
+                <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                  onChange={e => handleFileInput(e.target.files)} />
+              </label>
+            </div>
+
+            {docUploading && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'rgba(255,255,255,0.6)' }}>
+                <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: '0.85rem' }}>Processando imagem...</span>
+              </div>
+            )}
+
+            {/* Preview das imagens carregadas */}
+            {docUploads.length > 0 && (
+              <div>
+                <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginBottom: '0.75rem' }}>
+                  {docUploads.length} documento(s) adicionado(s)
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.5rem' }}>
+                  {docUploads.map((doc, i) => (
+                    <div key={i} style={{ position: 'relative', borderRadius: 10, overflow: 'hidden' }}>
+                      <img src={doc.preview} alt={doc.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
+                      <button
+                        onClick={() => setDocUploads(prev => prev.filter((_, j) => j !== i))}
+                        style={{
+                          position: 'absolute', top: 4, right: 4,
+                          background: 'rgba(0,0,0,0.65)', border: 'none', borderRadius: '50%',
+                          width: 22, height: 22, cursor: 'pointer', color: '#fff',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <XIcon size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.35)', textAlign: 'center', margin: 0 }}>
+              Aceitos: foto do RG (frente e verso), CNH, Passaporte ou qualquer documento com foto.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1.25rem' }}>
+            <button
+              onClick={() => setStep('signature')}
+              style={{
+                padding: '1rem', borderRadius: 50, border: 'none', cursor: 'pointer',
+                background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+              }}
+            >
+              {docUploads.length > 0 ? `Continuar com ${docUploads.length} documento(s)` : 'Continuar sem documentos'}
+              <ChevronRight size={18} />
+            </button>
+            <button
+              onClick={() => setStep('fnrh')}
+              style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}
+            >
+              ← Voltar ao formulário
+            </button>
+          </div>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
