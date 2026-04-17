@@ -26,6 +26,7 @@ import { useWCI } from './WebCheckinLayout';
 import {
   resolveHotelByCode,
   resolveSession,
+  fetchHotelPolicies,
   loadGuestsFromStorage,
   loadGuestsFromServer,
   saveGuestsToStorage,
@@ -180,22 +181,28 @@ async function buildDocumentJpeg(p: DocParams): Promise<string> {
   }
 }
 
-function buildHotelRulesJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>): Promise<string> {
+function buildHotelRulesJpeg(
+  p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>,
+  customContent?: string
+): Promise<string> {
   return buildDocumentJpeg({
     ...p,
     documentTitle: 'Regulamento Interno e Políticas do Hotel',
     documentSubtitle: 'Regulamento Interno',
-    content: HOTEL_TERMS,
+    content: customContent || HOTEL_TERMS,
     declaration: `Eu, ${p.guestName}, declaro que li, compreendi e aceito integralmente o presente Regulamento Interno do hotel acima transcrito. Data e hora: ${p.signedAt}.`,
   });
 }
 
-function buildLGPDJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>): Promise<string> {
+function buildLGPDJpeg(
+  p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>,
+  customContent?: string
+): Promise<string> {
   return buildDocumentJpeg({
     ...p,
     documentTitle: 'Política de Privacidade e Proteção de Dados (LGPD)',
     documentSubtitle: 'Política LGPD — Lei nº 13.709/2018',
-    content: LGPD_TERMS,
+    content: customContent || LGPD_TERMS,
     declaration: `Eu, ${p.guestName}, declaro que fui informado(a) sobre o tratamento dos meus dados pessoais conforme a Lei nº 13.709/2018 (LGPD) e consinto com a coleta e uso das informações descritas neste documento exclusivamente para os fins de hospedagem. Data e hora: ${p.signedAt}.`,
   });
 }
@@ -283,6 +290,10 @@ export default function WCICompanionEntry() {
   const [realBookingId, setRealBookingId] = useState<number | null>(null);
   const [resolving, setResolving]         = useState(true);
 
+  // Políticas do hotel (carregadas do banco — substituem as constantes hardcoded)
+  const [hotelTerms, setHotelTerms] = useState<string | null>(null);
+  const [lgpdTerms,  setLgpdTerms]  = useState<string | null>(null);
+
   const [step, setStep]           = useState<Step>('fnrh');
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
@@ -312,14 +323,21 @@ export default function WCICompanionEntry() {
   const [zipcode, setZipcode]               = useState('');
   const [neighborhood, setNeighborhood]     = useState('');
 
-  // ── Resolver tokens → IDs reais ──────────────────────────────────────────
+  // ── Resolver tokens → IDs reais + políticas do hotel ─────────────────────
   useEffect(() => {
     if (!wciCode || !sessionToken) return;
     Promise.all([
       resolveHotelByCode(wciCode),
       resolveSession(sessionToken),
     ]).then(([hotel, session]) => {
-      if (hotel) setRealHotelId(hotel.id);
+      if (hotel) {
+        setRealHotelId(hotel.id);
+        // Buscar regulamento e LGPD personalizados do banco
+        fetchHotelPolicies(hotel.id).then(policies => {
+          if (policies.wci_hotel_terms) setHotelTerms(policies.wci_hotel_terms);
+          if (policies.wci_lgpd_terms)  setLgpdTerms(policies.wci_lgpd_terms);
+        }).catch(() => { /* usa defaults hardcoded */ });
+      }
       if (session) setRealBookingId(session.bookingId);
       setResolving(false);
     });
@@ -457,10 +475,10 @@ export default function WCICompanionEntry() {
         upd(0, 'error', 'não foi possível salvar');
       }
 
-      // ── 2. Regulamento do Hotel (JPEG) ────────────────────────────────────
+      // ── 2. Regulamento do Hotel (JPEG) — usa texto do banco se disponível ──
       upd(1, 'sending', 'gerando imagem...');
       try {
-        const jpegB64 = await buildHotelRulesJpeg(docBase);
+        const jpegB64 = await buildHotelRulesJpeg(docBase, hotelTerms ?? undefined);
         upd(1, 'sending', 'enviando...');
         const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(1, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
@@ -468,10 +486,10 @@ export default function WCICompanionEntry() {
         upd(1, 'error', 'erro ao gerar');
       }
 
-      // ── 3. LGPD (JPEG) ────────────────────────────────────────────────────
+      // ── 3. LGPD (JPEG) — usa texto do banco se disponível ─────────────────
       upd(2, 'sending', 'gerando imagem...');
       try {
-        const jpegB64 = await buildLGPDJpeg(docBase);
+        const jpegB64 = await buildLGPDJpeg(docBase, lgpdTerms ?? undefined);
         upd(2, 'sending', 'enviando...');
         const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
@@ -830,7 +848,7 @@ export default function WCICompanionEntry() {
             </div>
 
             <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 12, padding: '0.875rem', maxHeight: 200, overflowY: 'auto', fontSize: '0.77rem', lineHeight: 1.75, color: 'rgba(255,255,255,0.72)', whiteSpace: 'pre-wrap' }}>
-              {activeTab === 'hotel' ? HOTEL_TERMS : LGPD_TERMS}
+              {activeTab === 'hotel' ? (hotelTerms ?? HOTEL_TERMS) : (lgpdTerms ?? LGPD_TERMS)}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem', marginTop: '1.1rem' }}>
