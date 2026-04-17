@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#f9f3a0"/>
+      <stop offset="50%"  stop-color="#f5c518"/>
+      <stop offset="100%" stop-color="#e8a000"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Pétalas externas (8 pétalas em forma de losango arredondado) -->
+  <g fill="none" stroke="url(#gold)" stroke-width="3.2" stroke-linecap="round">
+
+    <!-- Pétala topo -->
+    <path d="M50 8 C44 20, 44 35, 50 50 C56 35, 56 20, 50 8 Z"/>
+    <!-- Pétala baixo -->
+    <path d="M50 92 C44 80, 44 65, 50 50 C56 65, 56 80, 50 92 Z"/>
+    <!-- Pétala esquerda -->
+    <path d="M8 50 C20 44, 35 44, 50 50 C35 56, 20 56, 8 50 Z"/>
+    <!-- Pétala direita -->
+    <path d="M92 50 C80 44, 65 44, 50 50 C65 56, 80 56, 92 50 Z"/>
+
+    <!-- Pétala diagonal ↗ -->
+    <path d="M71 29 C63 37, 56 44, 50 50 C58 46, 67 41, 71 29 Z"/>
+    <!-- Pétala diagonal ↙ -->
+    <path d="M29 71 C37 63, 44 56, 50 50 C42 54, 33 59, 29 71 Z"/>
+    <!-- Pétala diagonal ↖ -->
+    <path d="M29 29 C37 37, 44 44, 50 50 C46 42, 41 33, 29 29 Z"/>
+    <!-- Pétala diagonal ↘ -->
+    <path d="M71 71 C63 63, 56 56, 50 50 C54 58, 59 67, 71 71 Z"/>
+
+    <!-- Círculo central -->
+    <circle cx="50" cy="50" r="18" stroke="url(#gold)" stroke-width="3.2"/>
+
+    <!-- Anel externo -->
+    <circle cx="50" cy="50" r="40" stroke="url(#gold)" stroke-width="2.2" stroke-dasharray="none" opacity="0.55"/>
+  </g>
+</svg>
