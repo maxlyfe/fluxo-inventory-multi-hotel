@@ -1,4 +1,5 @@
 // src/pages/webcheckin/WCIGuestList.tsx
+// :hotelId = wci_code opaco   :bookingId = session token opaco
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -7,7 +8,13 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useWCI } from './WebCheckinLayout';
-import { loadGuestsFromStorage, loadGuestsFromServer, saveGuestsToStorage, WebCheckinGuest } from './webCheckinService';
+import {
+  loadGuestsFromServer,
+  saveGuestsToStorage,
+  resolveHotelByCode,
+  resolveSession,
+  WebCheckinGuest,
+} from './webCheckinService';
 import { erbonService } from '../../lib/erbonService';
 
 const glassCard: React.CSSProperties = {
@@ -20,11 +27,10 @@ const glassCard: React.CSSProperties = {
   padding: '1.5rem',
 };
 
-// ── Modal de QR (per-guest ou companion genérico) ────────────────────────────
+// ── Modal de QR ──────────────────────────────────────────────────────────────
 
-function QRModal({ url, title, subtitle, onClose, t }: {
-  url: string; title: string; subtitle: string;
-  onClose: () => void; t: (k: string) => string;
+function QRModal({ url, title, subtitle, onClose }: {
+  url: string; title: string; subtitle: string; onClose: () => void;
 }) {
   return (
     <div style={{
@@ -42,7 +48,6 @@ function QRModal({ url, title, subtitle, onClose, t }: {
         }}>
           <X size={20} />
         </button>
-
         <QrCode size={32} color="#0085ae" style={{ marginBottom: '0.75rem' }} />
         <h3 style={{ color: '#fff', fontWeight: 700, margin: '0 0 0.3rem', fontSize: '1.05rem' }}>
           {title}
@@ -50,30 +55,22 @@ function QRModal({ url, title, subtitle, onClose, t }: {
         <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.82rem', margin: '0 0 1.25rem', lineHeight: 1.5 }}>
           {subtitle}
         </p>
-
-        <div style={{
-          background: '#fff', borderRadius: 16, padding: '1rem',
-          display: 'inline-block', marginBottom: '1rem',
-        }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: '1rem', display: 'inline-block', marginBottom: '1rem' }}>
           <QRCodeSVG value={url} size={200} level="M" />
         </div>
-
-        <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem', wordBreak: 'break-all', margin: 0 }}>
-          {url}
-        </p>
       </div>
     </div>
   );
 }
 
-// ── Modal de escolha para adicionar acompanhante ──────────────────────────────
+// ── Modal adicionar acompanhante ─────────────────────────────────────────────
 
-function AddCompanionModal({ hotelId, bookingId, onFillHere, onClose }: {
-  hotelId: string; bookingId: string;
+function AddCompanionModal({ wciCode, sessionToken, onFillHere, onClose }: {
+  wciCode: string; sessionToken: string;
   onFillHere: () => void; onClose: () => void;
 }) {
   const [showQR, setShowQR] = useState(false);
-  const companionUrl = `${window.location.origin}/web-checkin/${hotelId}/companion/${bookingId}`;
+  const companionUrl = `${window.location.origin}/web-checkin/${wciCode}/companion/${sessionToken}`;
 
   if (showQR) {
     return (
@@ -82,7 +79,6 @@ function AddCompanionModal({ hotelId, bookingId, onFillHere, onClose }: {
         title="QR para Acompanhante"
         subtitle="Qualquer acompanhante pode escanear este QR com o celular para preencher a própria ficha e assinar."
         onClose={onClose}
-        t={k => k}
       />
     );
   }
@@ -113,7 +109,6 @@ function AddCompanionModal({ hotelId, bookingId, onFillHere, onClose }: {
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          {/* Opção 1: Preencher aqui no totem */}
           <button onClick={onFillHere} style={{
             background: '#0085ae', border: 'none', borderRadius: 14, padding: '1rem 1.25rem',
             cursor: 'pointer', color: '#fff', textAlign: 'left',
@@ -130,7 +125,6 @@ function AddCompanionModal({ hotelId, bookingId, onFillHere, onClose }: {
             </div>
           </button>
 
-          {/* Opção 2: QR Code */}
           <button onClick={() => setShowQR(true)} style={{
             background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.25)',
             borderRadius: 14, padding: '1rem 1.25rem',
@@ -156,31 +150,49 @@ function AddCompanionModal({ hotelId, bookingId, onFillHere, onClose }: {
 // ── Componente principal ─────────────────────────────────────────────────────
 
 export default function WCIGuestList() {
-  const { hotelId, bookingId } = useParams<{ hotelId: string; bookingId: string }>();
+  // URL params: wciCode = slug opaco do hotel, sessionToken = token da sessão
+  const { hotelId: wciCode, bookingId: sessionToken } = useParams<{ hotelId: string; bookingId: string }>();
   const navigate = useNavigate();
   const { t } = useWCI();
 
-  const [guests, setGuests] = useState<WebCheckinGuest[]>([]);
-  const [bookingRef, setBookingRef] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [qrGuest, setQrGuest] = useState<WebCheckinGuest | null>(null);  // per-guest QR
-  const [showAddModal, setShowAddModal] = useState(false);              // modal de adicionar
+  // IDs reais (resolvidos a partir dos tokens)
+  const [realHotelId, setRealHotelId]     = useState<string | null>(null);
+  const [realBookingId, setRealBookingId] = useState<number | null>(null);
+  const [resolveError, setResolveError]   = useState(false);
 
-  // ── Carregar hóspedes do servidor (cross-device) ─────────────────────────
+  const [guests, setGuests]       = useState<WebCheckinGuest[]>([]);
+  const [bookingRef, setBookingRef] = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [qrGuest, setQrGuest]     = useState<WebCheckinGuest | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // ── Resolver tokens → IDs reais ──────────────────────────────────────────
+  useEffect(() => {
+    if (!wciCode || !sessionToken) return;
+    Promise.all([
+      resolveHotelByCode(wciCode),
+      resolveSession(sessionToken),
+    ]).then(([hotel, session]) => {
+      if (hotel) setRealHotelId(hotel.id);
+      if (session) setRealBookingId(session.bookingId);
+      if (!hotel || !session) setResolveError(true);
+    });
+  }, [wciCode, sessionToken]);
+
+  // ── Carregar hóspedes (usa IDs reais) ────────────────────────────────────
   const loadGuests = useCallback(async (showSpinner = true) => {
-    if (!hotelId || !bookingId) return;
+    if (!realHotelId || !realBookingId) return;
     if (showSpinner) setLoading(true);
     try {
-      // Tenta Supabase primeiro (sincroniza estado do celular)
-      const serverGuests = await loadGuestsFromServer(bookingId);
+      const serverGuests = await loadGuestsFromServer(realBookingId);
       if (serverGuests && serverGuests.length > 0) {
         setGuests([...serverGuests]);
-        setBookingRef(bookingId);
+        setBookingRef('');    // não expõe bookingId na UI
         if (showSpinner) setLoading(false);
         return;
       }
-      // Fallback: buscar do Erbon e inicializar
-      const booking = await erbonService.fetchBookingByInternalId(hotelId, Number(bookingId));
+      // Fallback: buscar do Erbon e inicializar sessão
+      const booking = await erbonService.fetchBookingByInternalId(realHotelId, realBookingId);
       if (booking) {
         const gs: WebCheckinGuest[] = (booking.guestList || []).map((g, idx) => ({
           id: g.id,
@@ -191,28 +203,28 @@ export default function WCIGuestList() {
           fnrhCompleted: false,
           isMainGuest: idx === 0,
         }));
-        await saveGuestsToStorage(bookingId, gs, hotelId);
+        await saveGuestsToStorage(realBookingId, gs, realHotelId);
         setGuests(gs);
-        setBookingRef(booking.bookingNumber || bookingId);
+        // Usa o bookingNumber do Erbon (cliente-facing), não o internal ID
+        setBookingRef(booking.bookingNumber ? String(booking.bookingNumber) : '');
       }
-    } catch (err) {
-      console.error('[WCIGuestList]', err);
-    } finally {
+    } catch { /* silencioso — não expõe erros internos */ } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [hotelId, bookingId]);
+  }, [realHotelId, realBookingId]);
 
+  // Carregar quando IDs reais estiverem disponíveis
   useEffect(() => {
-    loadGuests();
-  }, [loadGuests]);
+    if (realHotelId && realBookingId) loadGuests();
+  }, [realHotelId, realBookingId, loadGuests]);
 
-  // Polling a cada 8s — detecta quando celular completa a assinatura
+  // Polling 8s — detecta quando celular completa assinatura
   useEffect(() => {
     const interval = setInterval(() => loadGuests(false), 8000);
     return () => clearInterval(interval);
   }, [loadGuests]);
 
-  // Recarregar também ao recuperar foco (usuário volta do formulário no totem)
+  // Recarregar ao recuperar foco
   useEffect(() => {
     const onFocus = () => loadGuests(false);
     window.addEventListener('focus', onFocus);
@@ -221,28 +233,38 @@ export default function WCIGuestList() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  // Preencher/editar no totem → usa o mesmo fluxo completo (FNRH + termos + assinatura)
   const handleFillGuest = (guest: WebCheckinGuest) => {
-    navigate(`/web-checkin/${hotelId}/companion/${bookingId}/${guest.id}`);
+    navigate(`/web-checkin/${wciCode}/companion/${sessionToken}/${guest.id}`);
   };
 
-  // QR de hóspede existente → companion entry com guestId (edit + assinar)
-  const handleGuestQR = (guest: WebCheckinGuest) => {
-    setQrGuest(guest);
-  };
-
-  // "Preencher aqui" no totem para novo acompanhante
   const handleFillHere = () => {
     setShowAddModal(false);
-    navigate(`/web-checkin/${hotelId}/companion/${bookingId}`);
+    navigate(`/web-checkin/${wciCode}/companion/${sessionToken}`);
   };
 
   const handleContinue = () => {
-    navigate(`/web-checkin/${hotelId}/signature/${bookingId}`);
+    navigate(`/web-checkin/${wciCode}/signature/${sessionToken}`);
   };
 
   const anyDone = guests.some(g => g.fnrhCompleted);
   const allDone = guests.length > 0 && guests.every(g => g.fnrhCompleted);
+
+  // Erro de resolução — token inválido ou expirado
+  if (resolveError) {
+    return (
+      <div style={{ minHeight: 'calc(100vh - 70px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
+        <div>
+          <p style={{ color: '#fca5a5', fontSize: '1rem', marginBottom: '1.5rem' }}>
+            Sessão não encontrada. Por favor, realize uma nova busca.
+          </p>
+          <button onClick={() => navigate('/web-checkin/hotels')}
+            style={{ background: '#0085ae', border: 'none', borderRadius: 50, padding: '0.875rem 2rem', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+            Voltar ao início
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -283,7 +305,6 @@ export default function WCIGuestList() {
               <div key={`${guest.id}_${idx}`} style={glassCard}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
 
-                  {/* Status */}
                   <div style={{
                     width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
                     background: guest.fnrhCompleted ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.1)',
@@ -294,7 +315,6 @@ export default function WCIGuestList() {
                       : <Clock size={22} color="rgba(255,255,255,0.5)" />}
                   </div>
 
-                  {/* Nome */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}>{guest.name}</span>
@@ -309,11 +329,10 @@ export default function WCIGuestList() {
                     </p>
                   </div>
 
-                  {/* Ações */}
                   <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-                    {/* QR por hóspede → companion entry com guestId */}
+                    {/* QR — token opaco, sem expor IDs reais */}
                     <button
-                      onClick={() => handleGuestQR(guest)}
+                      onClick={() => setQrGuest(guest)}
                       title="QR Code para preencher/assinar pelo celular"
                       style={{
                         background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)',
@@ -343,7 +362,7 @@ export default function WCIGuestList() {
               </div>
             ))}
 
-            {/* Botão adicionar acompanhante */}
+            {/* Adicionar acompanhante */}
             <button
               onClick={() => setShowAddModal(true)}
               style={{
@@ -362,7 +381,7 @@ export default function WCIGuestList() {
           </div>
         )}
 
-        {/* Continuar para assinatura */}
+        {/* Continuar */}
         {anyDone && (
           <button
             onClick={handleContinue}
@@ -379,17 +398,17 @@ export default function WCIGuestList() {
         )}
 
         <button
-          onClick={() => navigate(`/web-checkin/${hotelId}/search`)}
+          onClick={() => navigate(`/web-checkin/${wciCode}/search`)}
           style={{ display: 'block', margin: '1.25rem auto 0', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', cursor: 'pointer', fontSize: '0.9rem', textDecoration: 'underline' }}
         >
           {t('newSearch')}
         </button>
       </div>
 
-      {/* QR Modal — hóspede existente → companion entry com guestId */}
-      {qrGuest && (
+      {/* QR Modal — URL usa tokens opacos, sem IDs reais */}
+      {qrGuest && wciCode && sessionToken && (
         <QRModal
-          url={`${window.location.origin}/web-checkin/${hotelId}/companion/${bookingId}/${qrGuest.id}`}
+          url={`${window.location.origin}/web-checkin/${wciCode}/companion/${sessionToken}/${qrGuest.id}`}
           title={qrGuest.name}
           subtitle={
             qrGuest.fnrhCompleted
@@ -397,15 +416,14 @@ export default function WCIGuestList() {
               : 'Escanear para preencher a ficha e assinar digitalmente pelo celular.'
           }
           onClose={() => setQrGuest(null)}
-          t={t}
         />
       )}
 
-      {/* Modal de adicionar acompanhante */}
-      {showAddModal && hotelId && bookingId && (
+      {/* Modal adicionar acompanhante */}
+      {showAddModal && wciCode && sessionToken && (
         <AddCompanionModal
-          hotelId={hotelId}
-          bookingId={bookingId}
+          wciCode={wciCode}
+          sessionToken={sessionToken}
           onFillHere={handleFillHere}
           onClose={() => setShowAddModal(false)}
         />

@@ -58,11 +58,14 @@ export default function WCIHotelSelection() {
             <p>Nenhum hotel disponível para check-in online.</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '1.25rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1.25rem' }}>
             {hotels.map(hotel => (
-              <HotelCard key={hotel.id} hotel={hotel} onClick={() => navigate(`/web-checkin/${hotel.id}/search`)} />
+              <div key={hotel.id} style={{ flexBasis: 330, flexGrow: 0, flexShrink: 0, maxWidth: '100%' }}>
+                <HotelCard hotel={hotel} onClick={() => navigate(`/web-checkin/${hotel.wci_code}/search`)} />
+              </div>
             ))}
           </div>
+
         )}
       </div>
     </div>

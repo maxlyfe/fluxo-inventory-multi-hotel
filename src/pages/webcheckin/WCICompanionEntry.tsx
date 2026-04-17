@@ -1,22 +1,21 @@
 // src/pages/webcheckin/WCICompanionEntry.tsx
-// Fluxo mobile completo para acompanhantes: FNRH → Termos + Assinatura → Sucesso
-// Acessado via QR Code pelo celular do hóspede.
-// Rota: /web-checkin/:hotelId/companion/:bookingId          (novo acompanhante)
-// Rota: /web-checkin/:hotelId/companion/:bookingId/:guestId  (editar/assinar existente)
+// Fluxo mobile completo: FNRH → Upload docs → Termos + Assinatura → Sucesso
+// :hotelId  = wci_code opaco   :bookingId = session token opaco
+// Rota: /web-checkin/:hotelId/companion/:bookingId           (novo acompanhante)
+// Rota: /web-checkin/:hotelId/companion/:bookingId/:guestId  (editar/assinar)
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-// Componente interno: redireciona automaticamente após N ms
-function AutoReturn({ delay, to, navigate }: { delay: number; to: string; navigate: (path: string) => void }) {
+function AutoReturn({ delay, to, navigate }: { delay: number; to: string; navigate: (p: string) => void }) {
   useEffect(() => {
     const t = setTimeout(() => navigate(to), delay);
     return () => clearTimeout(t);
   }, [delay, to, navigate]);
   return null;
 }
+
 import { useNavigate, useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
-// jsPDF removido — Erbon só aceita image/jpeg; documentos gerados via html2canvas
 import {
   ClipboardList, PenLine, CheckCircle,
   Loader2, RotateCcw, ChevronRight,
@@ -25,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useWCI } from './WebCheckinLayout';
 import {
+  resolveHotelByCode,
+  resolveSession,
   loadGuestsFromStorage,
   loadGuestsFromServer,
   saveGuestsToStorage,
@@ -61,7 +62,7 @@ const labelStyle: React.CSSProperties = {
   color: 'rgba(255,255,255,0.75)',
 };
 
-// ── Termos (replicados aqui para independência do módulo) ─────────────────────
+// ── Termos ────────────────────────────────────────────────────────────────────
 
 const HOTEL_TERMS = `REGULAMENTO INTERNO E POLÍTICAS DO HOTEL
 
@@ -109,8 +110,6 @@ VALIDADE DA ASSINATURA DIGITAL
 A assinatura digital aposta neste documento tem validade jurídica plena nos termos do Marco Civil da Internet (Lei nº 12.965/2014) e da MP 2.200-2/2001.`;
 
 // ── Geração de documentos como JPEG via html2canvas ──────────────────────────
-// Erbon só aceita image/jpeg no endpoint /attachment.
-// Cada documento é renderizado como HTML off-screen e capturado pelo html2canvas.
 
 interface DocParams {
   hotelName: string;
@@ -120,15 +119,11 @@ interface DocParams {
   declaration: string;
   guestName: string;
   guestDoc?: string;
-  bookingId: string;
+  bookingRef: string;
   signatureDataUrl: string;
   signedAt: string;
 }
 
-/**
- * Renderiza um documento como imagem JPEG usando html2canvas.
- * Retorna base64 puro (sem prefixo data URI).
- */
 async function buildDocumentJpeg(p: DocParams): Promise<string> {
   const el = document.createElement('div');
   el.style.cssText = [
@@ -138,7 +133,6 @@ async function buildDocumentJpeg(p: DocParams): Promise<string> {
     'font-size:13px', 'color:#222', 'line-height:1.65',
   ].join(';');
 
-  // Escapa texto para HTML (preserva quebras de linha)
   const esc = (s: string) => s
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\n/g, '<br>');
@@ -152,7 +146,7 @@ async function buildDocumentJpeg(p: DocParams): Promise<string> {
       <h2 style="color:#006688;font-size:14px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.04em;">${esc(p.documentTitle)}</h2>
       <p style="color:#888;font-size:11px;margin:0 0 16px;">
         Hóspede: <strong>${esc(p.guestName)}</strong>${p.guestDoc ? ` &nbsp;|&nbsp; ${esc(p.guestDoc)}` : ''}
-        &nbsp;|&nbsp; Reserva: #${esc(p.bookingId)}
+        ${p.bookingRef ? `&nbsp;|&nbsp; Reserva: ${esc(p.bookingRef)}` : ''}
       </p>
       <hr style="border:none;border-top:1px solid #e0e0e0;margin:0 0 18px;">
       <div style="font-size:12px;color:#333;line-height:1.75;">${esc(p.content)}</div>
@@ -177,11 +171,8 @@ async function buildDocumentJpeg(p: DocParams): Promise<string> {
   try {
     const { default: html2canvas } = await import('html2canvas');
     const canvas = await html2canvas(el, {
-      scale: 1.5,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-      logging: false,
+      scale: 1.5, useCORS: true, allowTaint: true,
+      backgroundColor: '#ffffff', logging: false,
     });
     return canvas.toDataURL('image/jpeg', 0.88).replace(/^data:image\/jpeg;base64,/, '');
   } finally {
@@ -189,18 +180,13 @@ async function buildDocumentJpeg(p: DocParams): Promise<string> {
   }
 }
 
-// Builders específicos por documento
-
 function buildHotelRulesJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' | 'content' | 'declaration'>): Promise<string> {
   return buildDocumentJpeg({
     ...p,
     documentTitle: 'Regulamento Interno e Políticas do Hotel',
     documentSubtitle: 'Regulamento Interno',
     content: HOTEL_TERMS,
-    declaration:
-      `Eu, ${p.guestName}, declaro que li, compreendi e aceito integralmente o presente ` +
-      `Regulamento Interno do hotel acima transcrito. ` +
-      `Data e hora: ${p.signedAt}.`,
+    declaration: `Eu, ${p.guestName}, declaro que li, compreendi e aceito integralmente o presente Regulamento Interno do hotel acima transcrito. Data e hora: ${p.signedAt}.`,
   });
 }
 
@@ -210,19 +196,13 @@ function buildLGPDJpeg(p: Omit<DocParams, 'documentTitle' | 'documentSubtitle' |
     documentTitle: 'Política de Privacidade e Proteção de Dados (LGPD)',
     documentSubtitle: 'Política LGPD — Lei nº 13.709/2018',
     content: LGPD_TERMS,
-    declaration:
-      `Eu, ${p.guestName}, declaro que fui informado(a) sobre o tratamento dos meus dados pessoais ` +
-      `conforme a Lei nº 13.709/2018 (LGPD) e consinto com a coleta e uso das informações ` +
-      `descritas neste documento exclusivamente para os fins de hospedagem. ` +
-      `Data e hora: ${p.signedAt}.`,
+    declaration: `Eu, ${p.guestName}, declaro que fui informado(a) sobre o tratamento dos meus dados pessoais conforme a Lei nº 13.709/2018 (LGPD) e consinto com a coleta e uso das informações descritas neste documento exclusivamente para os fins de hospedagem. Data e hora: ${p.signedAt}.`,
   });
 }
 
-// ── Componente principal ─────────────────────────────────────────────────────
+// ── Tipos ─────────────────────────────────────────────────────────────────────
 
 type Step = 'fnrh' | 'documents' | 'signature' | 'done';
-
-// ── Fila de envio ─────────────────────────────────────────────────────────────
 type QueueStatus = 'pending' | 'sending' | 'done' | 'error';
 interface QueueItem { label: string; status: QueueStatus; detail?: string }
 
@@ -239,16 +219,12 @@ function SendQueue({ items }: { items: QueueItem[] }) {
       {items.map((item, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '1.1rem', width: 22, textAlign: 'center' }}>
-            {item.status === 'pending'  ? '⏳' :
-             item.status === 'sending'  ? '🔄' :
-             item.status === 'done'     ? '✅' : '❌'}
+            {item.status === 'pending' ? '⏳' : item.status === 'sending' ? '🔄' : item.status === 'done' ? '✅' : '❌'}
           </span>
           <div style={{ flex: 1 }}>
             <span style={{
               fontSize: '0.88rem', fontWeight: 600,
-              color: item.status === 'done'  ? '#4ade80' :
-                     item.status === 'error' ? '#f87171' :
-                     item.status === 'sending' ? '#7dd3ee' : 'rgba(255,255,255,0.55)',
+              color: item.status === 'done' ? '#4ade80' : item.status === 'error' ? '#f87171' : item.status === 'sending' ? '#7dd3ee' : 'rgba(255,255,255,0.55)',
             }}>
               {item.label}
             </span>
@@ -288,8 +264,11 @@ const COUNTRY_FLAGS = [
   { code: 'OTHER', label: 'Outro' },
 ];
 
+// ── Componente principal ─────────────────────────────────────────────────────
+
 export default function WCICompanionEntry() {
-  const { hotelId, bookingId, guestId: guestIdParam } = useParams<{
+  // URL params: wciCode e sessionToken são opacos (não expõem IDs reais)
+  const { hotelId: wciCode, bookingId: sessionToken, guestId: guestIdParam } = useParams<{
     hotelId: string; bookingId: string; guestId?: string;
   }>();
   const navigate = useNavigate();
@@ -299,40 +278,58 @@ export default function WCICompanionEntry() {
   const isNew = !guestIdParam || guestIdParam === '0';
   const existingGuestId = isNew ? null : Number(guestIdParam);
 
-  const [step, setStep] = useState<Step>('fnrh');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  // IDs reais (resolvidos a partir dos tokens)
+  const [realHotelId, setRealHotelId]     = useState<string | null>(null);
+  const [realBookingId, setRealBookingId] = useState<number | null>(null);
+  const [resolving, setResolving]         = useState(true);
+
+  const [step, setStep]           = useState<Step>('fnrh');
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
   const [savedGuestId, setSavedGuestId] = useState<number | null>(existingGuestId);
   const [sendQueue, setSendQueue] = useState<QueueItem[]>([]);
   const [activeTab, setActiveTab] = useState<'hotel' | 'lgpd'>('hotel');
   const [docUploads, setDocUploads] = useState<Array<{ preview: string; base64: string; name: string }>>([]);
   const [docUploading, setDocUploading] = useState(false);
   const [hotelAccepted, setHotelAccepted] = useState(false);
-  const [lgpdAccepted, setLgpdAccepted] = useState(false);
+  const [lgpdAccepted, setLgpdAccepted]   = useState(false);
 
   // FNRH fields
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  const [genderID, setGenderID] = useState(0);
-  const [nationality, setNationality] = useState('BR');
-  const [profession, setProfession] = useState('');
+  const [name, setName]                     = useState('');
+  const [email, setEmail]                   = useState('');
+  const [phone, setPhone]                   = useState('');
+  const [birthDate, setBirthDate]           = useState('');
+  const [genderID, setGenderID]             = useState(0);
+  const [nationality, setNationality]       = useState('BR');
+  const [profession, setProfession]         = useState('');
   const [vehicleRegistration, setVehicleRegistration] = useState('');
-  const [documentType, setDocumentType] = useState('CPF');
+  const [documentType, setDocumentType]     = useState('CPF');
   const [documentNumber, setDocumentNumber] = useState('');
-  const [country, setCountry] = useState('BR');
-  const [state, setState] = useState('');
-  const [city, setCity] = useState('');
-  const [street, setStreet] = useState('');
-  const [zipcode, setZipcode] = useState('');
-  const [neighborhood, setNeighborhood] = useState('');
+  const [country, setCountry]               = useState('BR');
+  const [state, setState]                   = useState('');
+  const [city, setCity]                     = useState('');
+  const [street, setStreet]                 = useState('');
+  const [zipcode, setZipcode]               = useState('');
+  const [neighborhood, setNeighborhood]     = useState('');
 
-  // Pre-fill se editando hóspede existente (Supabase primeiro, fallback local)
+  // ── Resolver tokens → IDs reais ──────────────────────────────────────────
   useEffect(() => {
-    if (!bookingId || isNew) return;
+    if (!wciCode || !sessionToken) return;
+    Promise.all([
+      resolveHotelByCode(wciCode),
+      resolveSession(sessionToken),
+    ]).then(([hotel, session]) => {
+      if (hotel) setRealHotelId(hotel.id);
+      if (session) setRealBookingId(session.bookingId);
+      setResolving(false);
+    });
+  }, [wciCode, sessionToken]);
+
+  // Pre-fill se editando hóspede existente
+  useEffect(() => {
+    if (!realBookingId || isNew) return;
     const load = async () => {
-      const stored = await loadGuestsFromServer(bookingId) || loadGuestsFromStorage(bookingId);
+      const stored = await loadGuestsFromServer(realBookingId) || loadGuestsFromStorage(realBookingId);
       if (!stored) return;
       const g = stored.find(x => x.id === existingGuestId);
       if (!g) return;
@@ -343,19 +340,18 @@ export default function WCICompanionEntry() {
         setDocumentType(g.documents[0].documentType || 'CPF');
         setDocumentNumber(g.documents[0].number || '');
       }
-      // Se a FNRH já está completa, pular direto para assinatura
       if (g.fnrhCompleted) setStep('signature');
     };
     load();
-  }, [bookingId, isNew, existingGuestId]);
+  }, [realBookingId, isNew, existingGuestId]);
 
-  // ── Passo 1: Salvar FNRH ──────────────────────────────────────────────────
+  // ── Passo 1: Salvar FNRH ─────────────────────────────────────────────────
 
   const handleSaveFNRH = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hotelId || !bookingId) return;
-    if (!name.trim()) { setError('Nome completo é obrigatório.'); return; }
-    if (!email.trim()) { setError('E-mail é obrigatório.'); return; }
+    if (!realHotelId || !realBookingId) return;
+    if (!name.trim())           { setError('Nome completo é obrigatório.'); return; }
+    if (!email.trim())          { setError('E-mail é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
 
     setSaving(true);
@@ -370,9 +366,7 @@ export default function WCICompanionEntry() {
         nationality: nationality || 'BR',
         profession: profession || undefined,
         vehicleRegistration: vehicleRegistration || undefined,
-        documents: documentNumber.trim() ? [{
-          documentType, number: documentNumber.trim(), country: country || 'BR',
-        }] : [],
+        documents: documentNumber.trim() ? [{ documentType, number: documentNumber.trim(), country: country || 'BR' }] : [],
         address: {
           country: country || 'BR',
           state: state || undefined, city: city || undefined,
@@ -381,23 +375,22 @@ export default function WCICompanionEntry() {
         },
       };
 
-      const newId = await saveGuestFNRH(hotelId, Number(bookingId), existingGuestId, payload);
+      const newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, payload);
       setSavedGuestId(newId);
 
-      // Sincronizar com Supabase (cross-device: totem verá a atualização via polling)
-      const stored = (await loadGuestsFromServer(bookingId)) || loadGuestsFromStorage(bookingId) || [];
+      const stored = (await loadGuestsFromServer(realBookingId)) || loadGuestsFromStorage(realBookingId) || [];
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: newId, name: name.trim(), email: email.trim(), phone: phone.trim(),
           documents: payload.documents, fnrhCompleted: true, isMainGuest: false,
         };
-        await saveGuestsToStorage(bookingId, [...stored, newGuest], hotelId);
+        await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId);
       } else {
-        await saveGuestsToStorage(bookingId, stored.map(g =>
+        await saveGuestsToStorage(realBookingId, stored.map(g =>
           g.id === existingGuestId
             ? { ...g, name: name.trim(), email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
             : g
-        ), hotelId);
+        ), realHotelId);
       }
 
       setStep('documents');
@@ -408,13 +401,12 @@ export default function WCICompanionEntry() {
     }
   };
 
-  // ── Fila de envio: Assinatura + Regulamento + LGPD ───────────────────────────
-  // Erbon aceita image/jpeg → geramos cada documento como JPEG via html2canvas.
+  // ── Passo 3: Assinatura + envio de documentos ─────────────────────────────
 
   const handleSign = async () => {
     if (!hotelAccepted || !lgpdAccepted) { setError('Aceite os dois termos para prosseguir.'); return; }
-    if (sigRef.current?.isEmpty()) { setError('Por favor, assine no campo de assinatura.'); return; }
-    if (!hotelId || !bookingId) return;
+    if (sigRef.current?.isEmpty())       { setError('Por favor, assine no campo de assinatura.'); return; }
+    if (!realHotelId || !realBookingId)  return;
 
     setSaving(true);
     setError('');
@@ -438,7 +430,7 @@ export default function WCICompanionEntry() {
       const signedAt   = new Date().toLocaleString('pt-BR');
       const sigBase64  = sigDataUrl.replace(/^data:image\/png;base64,/, '');
 
-      const stored    = loadGuestsFromStorage(bookingId) || [];
+      const stored    = loadGuestsFromStorage(realBookingId) || [];
       const guest     = savedGuestId ? stored.find(g => g.id === savedGuestId) : null;
       const guestDoc  = guest?.documents?.[0]
         ? `${guest.documents[0].documentType} — ${guest.documents[0].number}`
@@ -447,41 +439,47 @@ export default function WCICompanionEntry() {
       const safeName  = guestName.replace(/[^a-zA-Z0-9]/g, '_');
       const ts        = Date.now();
 
-      const docBase = { hotelName: 'Meridiana Hoteles', bookingId: bookingId!, guestName, guestDoc, signatureDataUrl: sigDataUrl, signedAt };
+      const docBase = {
+        hotelName: 'Meridiana Hoteles',
+        bookingRef: '',    // não expõe ID real na URL; omite do documento
+        guestName,
+        guestDoc,
+        signatureDataUrl: sigDataUrl,
+        signedAt,
+      };
 
-      // ── 1. Assinatura PNG via /signature ────────────────────────────────────
+      // ── 1. Assinatura PNG ──────────────────────────────────────────────────
       upd(0, 'sending');
       try {
-        await submitSignature(hotelId, Number(bookingId), sigBase64, savedGuestId ?? undefined);
+        await submitSignature(realHotelId, realBookingId, sigBase64, savedGuestId ?? undefined);
         upd(0, 'done', 'OK');
-      } catch (err: any) {
-        upd(0, 'error', err.message);
-        console.warn('[WCI] Signature upload failed (non-blocking):', err.message);
+      } catch {
+        upd(0, 'error', 'não foi possível salvar');
       }
 
-      // ── 2. Regulamento do Hotel como JPEG ──────────────────────────────────
+      // ── 2. Regulamento do Hotel (JPEG) ────────────────────────────────────
       upd(1, 'sending', 'gerando imagem...');
       try {
         const jpegB64 = await buildHotelRulesJpeg(docBase);
         upd(1, 'sending', 'enviando...');
-        const ok = await submitAttachment(hotelId, Number(bookingId), jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg');
+        const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(1, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
-      } catch (err: any) {
-        upd(1, 'error', err.message);
+      } catch {
+        upd(1, 'error', 'erro ao gerar');
       }
 
-      // ── 3. LGPD como JPEG ──────────────────────────────────────────────────
+      // ── 3. LGPD (JPEG) ────────────────────────────────────────────────────
       upd(2, 'sending', 'gerando imagem...');
       try {
         const jpegB64 = await buildLGPDJpeg(docBase);
         upd(2, 'sending', 'enviando...');
-        const ok = await submitAttachment(hotelId, Number(bookingId), jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg');
+        const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
-      } catch (err: any) {
-        upd(2, 'error', err.message);
+      } catch {
+        upd(2, 'error', 'erro ao gerar');
       }
 
-      // ── 4. Documentos de identificação (se enviados) ───────────────────────
+      // ── 4. Documentos de identificação ────────────────────────────────────
       if (hasDocUploads) {
         const docIdx = 3;
         upd(docIdx, 'sending', 'enviando...');
@@ -490,13 +488,12 @@ export default function WCICompanionEntry() {
           const doc = docUploads[i];
           upd(docIdx, 'sending', `${i + 1}/${docUploads.length}...`);
           const docFileName = `doc_${safeName}_${ts}_${i + 1}.jpg`;
-          const ok = await submitAttachment(hotelId, Number(bookingId), doc.base64, docFileName, 'image/jpeg');
+          const ok = await submitAttachment(realHotelId, realBookingId, doc.base64, docFileName, 'image/jpeg');
           if (ok) docsSent++;
         }
-        upd(docIdx, docsSent > 0 ? 'done' : 'error', docsSent > 0 ? `${docsSent}/${docUploads.length} salvo(s)` : 'falha no envio');
+        upd(docIdx, docsSent > 0 ? 'done' : 'error', `${docsSent}/${docUploads.length} salvo(s)`);
       }
 
-      // Breve pausa para o usuário ver a fila completa
       await new Promise(r => setTimeout(r, 900));
       setStep('done');
     } catch (err: any) {
@@ -506,44 +503,44 @@ export default function WCICompanionEntry() {
     }
   };
 
-  // ── Tela de sucesso ──────────────────────────────────────────────────────
+  // ── Loader enquanto resolve tokens ────────────────────────────────────────
+
+  if (resolving) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader2 size={40} color="#0085ae" style={{ animation: 'spin 1s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // ── Tela de sucesso ───────────────────────────────────────────────────────
 
   if (step === 'done') {
-    // Se veio do totem (hotelId + bookingId presentes), volta para a lista de hóspedes
-    // Se veio do celular via QR sem bookingId no contexto, volta para o início
-    const backUrl = hotelId && bookingId
-      ? `/web-checkin/${hotelId}/guests/${bookingId}`
+    const backUrl = wciCode && sessionToken
+      ? `/web-checkin/${wciCode}/guests/${sessionToken}`
       : '/web-checkin';
 
     return (
-      <div style={{
-        minHeight: '100vh', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        textAlign: 'center', padding: '2rem',
-      }}>
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '2rem' }}>
         <CheckCircle size={72} color="#22c55e" style={{ marginBottom: '1.25rem' }} />
         <h1 style={{ fontSize: 'clamp(1.4rem,5vw,2rem)', fontWeight: 800, color: '#fff', marginBottom: '0.75rem' }}>
           Ficha Assinada!
         </h1>
         <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', maxWidth: 400, lineHeight: 1.6, marginBottom: '2rem' }}>
-          {hotelId && bookingId
+          {wciCode && sessionToken
             ? 'Ficha registrada e assinada com sucesso. Retornando para a lista de hóspedes...'
             : 'Sua ficha foi registrada e assinada com sucesso. Dirija-se à recepção para concluir o check-in.'
           }
         </p>
         <button
           onClick={() => navigate(backUrl)}
-          style={{
-            padding: '0.875rem 2rem', borderRadius: 50, border: 'none', cursor: 'pointer',
-            background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem',
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-          }}
+          style={{ padding: '0.875rem 2rem', borderRadius: 50, border: 'none', cursor: 'pointer', background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >
           <Home size={18} />
-          {hotelId && bookingId ? 'Voltar à Lista' : 'Voltar ao Início'}
+          {wciCode && sessionToken ? 'Voltar à Lista' : 'Voltar ao Início'}
         </button>
-        {/* Auto-retorno para o totem */}
-        {hotelId && bookingId && (
+        {wciCode && sessionToken && (
           <AutoReturn delay={3000} to={backUrl} navigate={navigate} />
         )}
       </div>
@@ -568,17 +565,13 @@ export default function WCICompanionEntry() {
 
           <div style={glass}>
             <form onSubmit={handleSaveFNRH} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-              {/* Dados pessoais */}
               <p style={{ margin: 0, fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.12)', paddingBottom: '0.4rem' }}>
                 Dados Pessoais
               </p>
-
               <div>
                 <label style={labelStyle}>{t('nameField')}</label>
                 <input style={inputStyle} type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nome completo" required autoFocus />
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
                   <label style={labelStyle}>{t('emailField')}</label>
@@ -612,13 +605,11 @@ export default function WCICompanionEntry() {
                   <input style={inputStyle} type="text" value={profession} onChange={e => setProfession(e.target.value)} placeholder="Opcional" />
                 </div>
               </div>
-
               <div>
                 <label style={labelStyle}>{t('vehicleField')}</label>
                 <input style={inputStyle} type="text" value={vehicleRegistration} onChange={e => setVehicleRegistration(e.target.value.toUpperCase())} placeholder="ABC-1234 (opcional)" />
               </div>
 
-              {/* Documento */}
               <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.12)', paddingBottom: '0.4rem' }}>
                 Documento de Identidade
               </p>
@@ -638,7 +629,6 @@ export default function WCICompanionEntry() {
                 </div>
               </div>
 
-              {/* Endereço */}
               <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.12)', paddingBottom: '0.4rem' }}>
                 {t('addressSection')}
               </p>
@@ -677,16 +667,13 @@ export default function WCICompanionEntry() {
                 </div>
               )}
 
-              <button
-                type="submit" disabled={saving}
-                style={{
-                  padding: '1rem', borderRadius: 50, border: 'none',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  background: saving ? 'rgba(0,133,174,0.5)' : '#0085ae',
-                  color: '#fff', fontWeight: 700, fontSize: '1rem',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                }}
-              >
+              <button type="submit" disabled={saving} style={{
+                padding: '1rem', borderRadius: 50, border: 'none',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                background: saving ? 'rgba(0,133,174,0.5)' : '#0085ae',
+                color: '#fff', fontWeight: 700, fontSize: '1rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+              }}>
                 {saving
                   ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> {t('saving')}</>
                   : <>{t('saveData')} <ChevronRight size={18} /></>
@@ -704,7 +691,7 @@ export default function WCICompanionEntry() {
     );
   }
 
-  // ── Upload de Documentos (opcional) ─────────────────────────────────────
+  // ── Upload de Documentos (opcional) ──────────────────────────────────────
 
   if (step === 'documents') {
     const handleFileInput = async (files: FileList | null) => {
@@ -718,7 +705,6 @@ export default function WCICompanionEntry() {
           reader.onload = e => res(e.target?.result as string);
           reader.readAsDataURL(file);
         });
-        // Comprime para JPEG via canvas
         const cvs = document.createElement('canvas');
         const img = new Image();
         await new Promise<void>(r => { img.onload = () => r(); img.src = dataUrl; });
@@ -743,46 +729,21 @@ export default function WCICompanionEntry() {
               Documentos de Identificação
             </h1>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.83rem', margin: '0.4rem 0 0' }}>
-              Opcional — fotografe ou faça upload do seu documento. Pode ser feito pela recepção posteriormente.
+              Opcional — fotografe ou faça upload do seu documento.
             </p>
           </div>
 
-          <div style={{
-            background: 'rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            borderRadius: 20,
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1.25rem',
-          }}>
-            {/* Botões de upload */}
+          <div style={{ background: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              {/* Câmera */}
-              <label style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: '0.5rem', padding: '1.25rem',
-                background: 'rgba(0,133,174,0.15)', border: '2px dashed rgba(0,133,174,0.5)',
-                borderRadius: 14, cursor: 'pointer', color: '#7dd3ee', fontWeight: 600, fontSize: '0.88rem',
-              }}>
+              <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1.25rem', background: 'rgba(0,133,174,0.15)', border: '2px dashed rgba(0,133,174,0.5)', borderRadius: 14, cursor: 'pointer', color: '#7dd3ee', fontWeight: 600, fontSize: '0.88rem' }}>
                 <Camera size={28} />
                 Usar Câmera
-                <input type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }}
-                  onChange={e => handleFileInput(e.target.files)} />
+                <input type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }} onChange={e => handleFileInput(e.target.files)} />
               </label>
-
-              {/* Arquivo */}
-              <label style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: '0.5rem', padding: '1.25rem',
-                background: 'rgba(255,255,255,0.08)', border: '2px dashed rgba(255,255,255,0.25)',
-                borderRadius: 14, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.88rem',
-              }}>
+              <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1.25rem', background: 'rgba(255,255,255,0.08)', border: '2px dashed rgba(255,255,255,0.25)', borderRadius: 14, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.88rem' }}>
                 <Upload size={28} />
                 Galeria / Arquivo
-                <input type="file" accept="image/*" multiple style={{ display: 'none' }}
-                  onChange={e => handleFileInput(e.target.files)} />
+                <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => handleFileInput(e.target.files)} />
               </label>
             </div>
 
@@ -793,7 +754,6 @@ export default function WCICompanionEntry() {
               </div>
             )}
 
-            {/* Preview das imagens carregadas */}
             {docUploads.length > 0 && (
               <div>
                 <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginBottom: '0.75rem' }}>
@@ -803,15 +763,7 @@ export default function WCICompanionEntry() {
                   {docUploads.map((doc, i) => (
                     <div key={i} style={{ position: 'relative', borderRadius: 10, overflow: 'hidden' }}>
                       <img src={doc.preview} alt={doc.name} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
-                      <button
-                        onClick={() => setDocUploads(prev => prev.filter((_, j) => j !== i))}
-                        style={{
-                          position: 'absolute', top: 4, right: 4,
-                          background: 'rgba(0,0,0,0.65)', border: 'none', borderRadius: '50%',
-                          width: 22, height: 22, cursor: 'pointer', color: '#fff',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}
-                      >
+                      <button onClick={() => setDocUploads(prev => prev.filter((_, j) => j !== i))} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.65)', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <XIcon size={12} />
                       </button>
                     </div>
@@ -821,26 +773,16 @@ export default function WCICompanionEntry() {
             )}
 
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.35)', textAlign: 'center', margin: 0 }}>
-              Aceitos: foto do RG (frente e verso), CNH, Passaporte ou qualquer documento com foto.
+              Aceitos: RG (frente e verso), CNH, Passaporte ou qualquer documento com foto.
             </p>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1.25rem' }}>
-            <button
-              onClick={() => setStep('signature')}
-              style={{
-                padding: '1rem', borderRadius: 50, border: 'none', cursor: 'pointer',
-                background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-              }}
-            >
+            <button onClick={() => setStep('signature')} style={{ padding: '1rem', borderRadius: 50, border: 'none', cursor: 'pointer', background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
               {docUploads.length > 0 ? `Continuar com ${docUploads.length} documento(s)` : 'Continuar sem documentos'}
               <ChevronRight size={18} />
             </button>
-            <button
-              onClick={() => setStep('fnrh')}
-              style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}
-            >
+            <button onClick={() => setStep('fnrh')} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
               ← Voltar ao formulário
             </button>
           </div>
@@ -850,7 +792,7 @@ export default function WCICompanionEntry() {
     );
   }
 
-  // ── Assinatura ───────────────────────────────────────────────────────────
+  // ── Assinatura ────────────────────────────────────────────────────────────
 
   return (
     <div style={{ minHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem' }}>
@@ -887,26 +829,20 @@ export default function WCICompanionEntry() {
               ))}
             </div>
 
-            <div style={{
-              background: 'rgba(0,0,0,0.3)', borderRadius: 12, padding: '0.875rem',
-              maxHeight: 200, overflowY: 'auto', fontSize: '0.77rem',
-              lineHeight: 1.75, color: 'rgba(255,255,255,0.72)', whiteSpace: 'pre-wrap',
-            }}>
+            <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 12, padding: '0.875rem', maxHeight: 200, overflowY: 'auto', fontSize: '0.77rem', lineHeight: 1.75, color: 'rgba(255,255,255,0.72)', whiteSpace: 'pre-wrap' }}>
               {activeTab === 'hotel' ? HOTEL_TERMS : LGPD_TERMS}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem', marginTop: '1.1rem' }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.7rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={hotelAccepted}
-                  onChange={e => { setHotelAccepted(e.target.checked); setError(''); }}
+                <input type="checkbox" checked={hotelAccepted} onChange={e => { setHotelAccepted(e.target.checked); setError(''); }}
                   style={{ width: 20, height: 20, marginTop: 2, cursor: 'pointer', accentColor: '#0085ae', flexShrink: 0 }} />
                 <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.86rem', lineHeight: 1.5 }}>
                   Li e aceito o <strong>Regulamento Interno e as Políticas do Hotel</strong>.
                 </span>
               </label>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.7rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={lgpdAccepted}
-                  onChange={e => { setLgpdAccepted(e.target.checked); setError(''); }}
+                <input type="checkbox" checked={lgpdAccepted} onChange={e => { setLgpdAccepted(e.target.checked); setError(''); }}
                   style={{ width: 20, height: 20, marginTop: 2, cursor: 'pointer', accentColor: '#0085ae', flexShrink: 0 }} />
                 <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.86rem', lineHeight: 1.5 }}>
                   Li e autorizo o tratamento dos meus dados conforme a <strong>LGPD</strong>.
@@ -918,21 +854,13 @@ export default function WCICompanionEntry() {
           {/* Canvas de assinatura */}
           <div style={glass}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-              <h3 style={{ color: '#fff', fontWeight: 700, margin: 0, fontSize: '0.95rem' }}>
-                {t('digitalSignature')}
-              </h3>
-              <button onClick={() => sigRef.current?.clear()} style={{
-                background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)',
-                borderRadius: 8, padding: '0.35rem 0.7rem', cursor: 'pointer',
-                color: 'rgba(255,255,255,0.65)', fontSize: '0.78rem',
-                display: 'flex', alignItems: 'center', gap: '0.3rem',
-              }}>
+              <h3 style={{ color: '#fff', fontWeight: 700, margin: 0, fontSize: '0.95rem' }}>{t('digitalSignature')}</h3>
+              <button onClick={() => sigRef.current?.clear()} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 8, padding: '0.35rem 0.7rem', cursor: 'pointer', color: 'rgba(255,255,255,0.65)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                 <RotateCcw size={12} /> {t('clearSignature')}
               </button>
             </div>
             <div style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 12, overflow: 'hidden', border: '2px solid rgba(255,255,255,0.3)' }}>
-              <SignatureCanvas
-                ref={sigRef} penColor="#1a1a2e"
+              <SignatureCanvas ref={sigRef} penColor="#1a1a2e"
                 canvasProps={{ style: { width: '100%', height: 160, display: 'block', touchAction: 'none' } }}
               />
             </div>
@@ -941,7 +869,6 @@ export default function WCICompanionEntry() {
             </p>
           </div>
 
-          {/* Fila de envio — visível enquanto envia */}
           {sendQueue.length > 0 && <SendQueue items={sendQueue} />}
 
           {error && (
@@ -950,24 +877,19 @@ export default function WCICompanionEntry() {
             </div>
           )}
 
-          <button
-            onClick={handleSign}
-            disabled={saving || !hotelAccepted || !lgpdAccepted}
-            style={{
-              padding: '1rem', borderRadius: 50, border: 'none',
-              cursor: (saving || !hotelAccepted || !lgpdAccepted) ? 'not-allowed' : 'pointer',
-              background: (saving || !hotelAccepted || !lgpdAccepted) ? 'rgba(0,133,174,0.35)' : '#0085ae',
-              color: '#fff', fontWeight: 700, fontSize: '1rem',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-            }}
-          >
+          <button onClick={handleSign} disabled={saving || !hotelAccepted || !lgpdAccepted} style={{
+            padding: '1rem', borderRadius: 50, border: 'none',
+            cursor: (saving || !hotelAccepted || !lgpdAccepted) ? 'not-allowed' : 'pointer',
+            background: (saving || !hotelAccepted || !lgpdAccepted) ? 'rgba(0,133,174,0.35)' : '#0085ae',
+            color: '#fff', fontWeight: 700, fontSize: '1rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+          }}>
             {saving
               ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> {t('sending')}</>
               : t('finishCheckin')
             }
           </button>
 
-          {/* Voltar para FNRH */}
           <button onClick={() => { setStep('fnrh'); setError(''); setHotelAccepted(false); setLgpdAccepted(false); setSendQueue([]); }}
             style={{ display: 'block', margin: '0 auto', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
             ← Corrigir dados
