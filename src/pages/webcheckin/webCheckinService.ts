@@ -93,22 +93,30 @@ export async function resolveHotelByCode(
   return result;
 }
 
-/** Busca políticas de um hotel específico (management). */
+/** Busca políticas de um hotel específico (todas as línguas). */
 export async function fetchHotelPolicies(hotelId: string): Promise<{
   wci_hotel_terms: string | null;
   wci_lgpd_terms: string | null;
+  wci_hotel_terms_en: string | null;
+  wci_lgpd_terms_en: string | null;
+  wci_hotel_terms_es: string | null;
+  wci_lgpd_terms_es: string | null;
   wci_visible: boolean;
 }> {
   const { data, error } = await anonClient
     .from('hotels')
-    .select('wci_hotel_terms, wci_lgpd_terms, wci_visible')
+    .select('wci_hotel_terms, wci_lgpd_terms, wci_hotel_terms_en, wci_lgpd_terms_en, wci_hotel_terms_es, wci_lgpd_terms_es, wci_visible')
     .eq('id', hotelId)
     .single();
   if (error) throw error;
   return {
-    wci_hotel_terms: data?.wci_hotel_terms ?? null,
-    wci_lgpd_terms: data?.wci_lgpd_terms ?? null,
-    wci_visible: data?.wci_visible ?? true,
+    wci_hotel_terms:    data?.wci_hotel_terms    ?? null,
+    wci_lgpd_terms:     data?.wci_lgpd_terms     ?? null,
+    wci_hotel_terms_en: data?.wci_hotel_terms_en ?? null,
+    wci_lgpd_terms_en:  data?.wci_lgpd_terms_en  ?? null,
+    wci_hotel_terms_es: data?.wci_hotel_terms_es ?? null,
+    wci_lgpd_terms_es:  data?.wci_lgpd_terms_es  ?? null,
+    wci_visible:        data?.wci_visible         ?? true,
   };
 }
 
@@ -168,11 +176,47 @@ export async function saveGuestFNRH(
   payload: ErbonGuestPayload
 ): Promise<number> {
   if (guestId && guestId > 0) {
-    const result = await erbonService.updateGuest(hotelId, guestId, payload);
-    return result?.id ?? guestId;
+    try {
+      const result = await erbonService.updateGuest(hotelId, guestId, payload);
+      return result?.id ?? guestId;
+    } catch {
+      // Hóspede pode ter sido excluído e recriado na Erbon (id inválido → 400).
+      // Fallback: criar novo hóspede e vincular à reserva.
+      const result = await erbonService.addGuestToBooking(hotelId, bookingInternalId, payload);
+      return result?.id ?? 0;
+    }
   } else {
     const result = await erbonService.addGuestToBooking(hotelId, bookingInternalId, payload);
     return result?.id ?? 0;
+  }
+}
+
+/**
+ * Busca hóspedes frescos da Erbon para uma reserva (por bookingInternalID).
+ * Faz uma pesquisa por intervalo de datas e filtra pelo ID interno.
+ * Retorna null se não encontrar.
+ */
+export async function fetchFreshBookingGuests(
+  hotelId: string,
+  bookingInternalId: number
+): Promise<WebCheckinGuest[] | null> {
+  try {
+    const past   = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+    const future = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+    const bookings = await erbonService.searchBookings(hotelId, { checkin: past, checkout: future });
+    const booking  = bookings.find(b => b.bookingInternalID === bookingInternalId);
+    if (!booking) return null;
+    return (booking.guestList || []).map((g, idx) => ({
+      id: g.id,
+      name: g.name || 'Hóspede',
+      email: g.email,
+      phone: g.phone,
+      documents: g.documents,
+      fnrhCompleted: false,
+      isMainGuest: idx === 0,
+    }));
+  } catch {
+    return null;
   }
 }
 

@@ -9,11 +9,16 @@ export default function WCIRestScreen() {
   const { t } = useWCI();
 
   // Toque/click em qualquer lugar → ir para seleção de hotel
+  // Guard de 500 ms: evita que o mesmo clique que navegou até esta tela
+  // (ex: botão "Meridiana" no top bar) dispare imediatamente o handler.
   useEffect(() => {
-    const handler = () => navigate('/web-checkin/hotels');
+    let ready = false;
+    const guard = setTimeout(() => { ready = true; }, 500);
+    const handler = () => { if (ready) navigate('/web-checkin/hotels'); };
     window.addEventListener('click', handler);
     window.addEventListener('touchstart', handler);
     return () => {
+      clearTimeout(guard);
       window.removeEventListener('click', handler);
       window.removeEventListener('touchstart', handler);
     };

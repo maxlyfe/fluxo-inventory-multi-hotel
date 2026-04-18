@@ -31,6 +31,7 @@ import {
   loadGuestsFromServer,
   saveGuestsToStorage,
   saveGuestFNRH,
+  fetchFreshBookingGuests,
   submitSignature,
   submitAttachment,
   WebCheckinGuest,
@@ -279,7 +280,7 @@ export default function WCICompanionEntry() {
     hotelId: string; bookingId: string; guestId?: string;
   }>();
   const navigate = useNavigate();
-  const { t } = useWCI();
+  const { t, lang } = useWCI();
   const sigRef = useRef<SignatureCanvas>(null);
 
   const isNew = !guestIdParam || guestIdParam === '0';
@@ -290,9 +291,11 @@ export default function WCICompanionEntry() {
   const [realBookingId, setRealBookingId] = useState<number | null>(null);
   const [resolving, setResolving]         = useState(true);
 
-  // Políticas do hotel (carregadas do banco — substituem as constantes hardcoded)
-  const [hotelTerms, setHotelTerms] = useState<string | null>(null);
-  const [lgpdTerms,  setLgpdTerms]  = useState<string | null>(null);
+  // Políticas do hotel por idioma — 6 variantes (PT/EN/ES × regulamento/LGPD)
+  const [policies, setPolicies] = useState<{
+    hotel: { pt: string | null; en: string | null; es: string | null };
+    lgpd:  { pt: string | null; en: string | null; es: string | null };
+  }>({ hotel: { pt: null, en: null, es: null }, lgpd: { pt: null, en: null, es: null } });
 
   const [step, setStep]           = useState<Step>('fnrh');
   const [saving, setSaving]       = useState(false);
@@ -332,10 +335,12 @@ export default function WCICompanionEntry() {
     ]).then(([hotel, session]) => {
       if (hotel) {
         setRealHotelId(hotel.id);
-        // Buscar regulamento e LGPD personalizados do banco
-        fetchHotelPolicies(hotel.id).then(policies => {
-          if (policies.wci_hotel_terms) setHotelTerms(policies.wci_hotel_terms);
-          if (policies.wci_lgpd_terms)  setLgpdTerms(policies.wci_lgpd_terms);
+        // Buscar regulamento e LGPD em todos os idiomas do banco
+        fetchHotelPolicies(hotel.id).then(p => {
+          setPolicies({
+            hotel: { pt: p.wci_hotel_terms, en: p.wci_hotel_terms_en, es: p.wci_hotel_terms_es },
+            lgpd:  { pt: p.wci_lgpd_terms,  en: p.wci_lgpd_terms_en,  es: p.wci_lgpd_terms_es  },
+          });
         }).catch(() => { /* usa defaults hardcoded */ });
       }
       if (session) setRealBookingId(session.bookingId);
@@ -343,13 +348,20 @@ export default function WCICompanionEntry() {
     });
   }, [wciCode, sessionToken]);
 
-  // Pre-fill se editando hóspede existente
+  // Pre-fill se editando hóspede existente — tenta Erbon primeiro, depois cache
   useEffect(() => {
-    if (!realBookingId || isNew) return;
+    if (!realBookingId || !realHotelId || isNew) return;
     const load = async () => {
-      const stored = await loadGuestsFromServer(realBookingId) || loadGuestsFromStorage(realBookingId);
-      if (!stored) return;
-      const g = stored.find(x => x.id === existingGuestId);
+      // 1. Tentar dados frescos da Erbon
+      const fresh = await fetchFreshBookingGuests(realHotelId, realBookingId);
+      let g = fresh?.find(x => x.id === existingGuestId);
+
+      // 2. Fallback: dados armazenados (Supabase/localStorage)
+      if (!g) {
+        const stored = await loadGuestsFromServer(realBookingId) || loadGuestsFromStorage(realBookingId);
+        g = stored?.find(x => x.id === existingGuestId);
+      }
+
       if (!g) return;
       setName(g.name || '');
       setEmail(g.email || '');
@@ -361,7 +373,20 @@ export default function WCICompanionEntry() {
       if (g.fnrhCompleted) setStep('signature');
     };
     load();
-  }, [realBookingId, isNew, existingGuestId]);
+  }, [realBookingId, realHotelId, isNew, existingGuestId]);
+
+  // Termos ativos no idioma selecionado (fallback PT → constante hardcoded)
+  const activeHotelTerms = (
+    lang === 'en' ? policies.hotel.en :
+    lang === 'es' ? policies.hotel.es :
+    policies.hotel.pt
+  ) ?? HOTEL_TERMS;
+
+  const activeLgpdTerms = (
+    lang === 'en' ? policies.lgpd.en :
+    lang === 'es' ? policies.lgpd.es :
+    policies.lgpd.pt
+  ) ?? LGPD_TERMS;
 
   // ── Passo 1: Salvar FNRH ─────────────────────────────────────────────────
 
@@ -475,10 +500,10 @@ export default function WCICompanionEntry() {
         upd(0, 'error', 'não foi possível salvar');
       }
 
-      // ── 2. Regulamento do Hotel (JPEG) — usa texto do banco se disponível ──
+      // ── 2. Regulamento do Hotel (JPEG) — usa texto no idioma ativo ──────────
       upd(1, 'sending', 'gerando imagem...');
       try {
-        const jpegB64 = await buildHotelRulesJpeg(docBase, hotelTerms ?? undefined);
+        const jpegB64 = await buildHotelRulesJpeg(docBase, activeHotelTerms);
         upd(1, 'sending', 'enviando...');
         const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(1, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
@@ -486,10 +511,10 @@ export default function WCICompanionEntry() {
         upd(1, 'error', 'erro ao gerar');
       }
 
-      // ── 3. LGPD (JPEG) — usa texto do banco se disponível ─────────────────
+      // ── 3. LGPD (JPEG) — usa texto no idioma ativo ────────────────────────
       upd(2, 'sending', 'gerando imagem...');
       try {
-        const jpegB64 = await buildLGPDJpeg(docBase, lgpdTerms ?? undefined);
+        const jpegB64 = await buildLGPDJpeg(docBase, activeLgpdTerms);
         upd(2, 'sending', 'enviando...');
         const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg');
         upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
@@ -712,27 +737,76 @@ export default function WCICompanionEntry() {
   // ── Upload de Documentos (opcional) ──────────────────────────────────────
 
   if (step === 'documents') {
+    /** Converte imagem para JPEG normalizado (max 1600px) */
+    const imageToJpeg = async (file: File): Promise<{ preview: string; base64: string; name: string }> => {
+      const dataUrl = await new Promise<string>(res => {
+        const reader = new FileReader();
+        reader.onload = e => res(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      const cvs = document.createElement('canvas');
+      const img = new Image();
+      await new Promise<void>(r => { img.onload = () => r(); img.src = dataUrl; });
+      const MAX_W = 1600;
+      const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+      cvs.width = img.width * scale; cvs.height = img.height * scale;
+      cvs.getContext('2d')!.drawImage(img, 0, 0, cvs.width, cvs.height);
+      const jpegDataUrl = cvs.toDataURL('image/jpeg', 0.82);
+      return { preview: jpegDataUrl, base64: jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''), name: file.name.replace(/\.[^.]+$/, '.jpg') };
+    };
+
+    /** Carrega PDF.js do CDN (uma vez) e converte cada página em JPEG */
+    const pdfToJpegs = async (file: File): Promise<Array<{ preview: string; base64: string; name: string }>> => {
+      // Carrega PDF.js via CDN se ainda não disponível
+      if (!(window as any).pdfjsLib) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Falha ao carregar PDF.js'));
+          document.head.appendChild(script);
+        });
+        (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      const pdfLib = (window as any).pdfjsLib;
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfLib.getDocument({ data: arrayBuffer }).promise;
+      const results: Array<{ preview: string; base64: string; name: string }> = [];
+      const numPages = Math.min(pdf.numPages, 6); // máx 6 páginas
+      const baseName = file.name.replace(/\.pdf$/i, '');
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const cvs = document.createElement('canvas');
+        cvs.width = viewport.width; cvs.height = viewport.height;
+        await page.render({ canvasContext: cvs.getContext('2d')!, viewport }).promise;
+        const jpegDataUrl = cvs.toDataURL('image/jpeg', 0.82);
+        results.push({
+          preview: jpegDataUrl,
+          base64: jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''),
+          name: numPages > 1 ? `${baseName}_p${i}.jpg` : `${baseName}.jpg`,
+        });
+      }
+      return results;
+    };
+
     const handleFileInput = async (files: FileList | null) => {
       if (!files || files.length === 0) return;
       setDocUploading(true);
       const toAdd: typeof docUploads = [];
       for (const file of Array.from(files)) {
-        if (!file.type.startsWith('image/')) continue;
-        const dataUrl = await new Promise<string>(res => {
-          const reader = new FileReader();
-          reader.onload = e => res(e.target?.result as string);
-          reader.readAsDataURL(file);
-        });
-        const cvs = document.createElement('canvas');
-        const img = new Image();
-        await new Promise<void>(r => { img.onload = () => r(); img.src = dataUrl; });
-        const MAX_W = 1600;
-        const scale = img.width > MAX_W ? MAX_W / img.width : 1;
-        cvs.width = img.width * scale; cvs.height = img.height * scale;
-        const ctx = cvs.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
-        const jpegDataUrl = cvs.toDataURL('image/jpeg', 0.82);
-        toAdd.push({ preview: jpegDataUrl, base64: jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''), name: file.name.replace(/\.[^.]+$/, '.jpg') });
+        if (file.type === 'application/pdf') {
+          try {
+            const pages = await pdfToJpegs(file);
+            toAdd.push(...pages);
+          } catch { /* PDF inválido ou erro de rede — ignorar */ }
+        } else if (file.type.startsWith('image/')) {
+          try {
+            const jpeg = await imageToJpeg(file);
+            toAdd.push(jpeg);
+          } catch { /* ignorar */ }
+        }
       }
       setDocUploads(prev => [...prev, ...toAdd]);
       setDocUploading(false);
@@ -760,8 +834,8 @@ export default function WCICompanionEntry() {
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '1.25rem', background: 'rgba(255,255,255,0.08)', border: '2px dashed rgba(255,255,255,0.25)', borderRadius: 14, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.88rem' }}>
                 <Upload size={28} />
-                Galeria / Arquivo
-                <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => handleFileInput(e.target.files)} />
+                Galeria / Arquivo / PDF
+                <input type="file" accept="image/*,application/pdf" multiple style={{ display: 'none' }} onChange={e => handleFileInput(e.target.files)} />
               </label>
             </div>
 
@@ -791,7 +865,7 @@ export default function WCICompanionEntry() {
             )}
 
             <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.35)', textAlign: 'center', margin: 0 }}>
-              Aceitos: RG (frente e verso), CNH, Passaporte ou qualquer documento com foto.
+              Aceitos: fotos (RG, passaporte) e PDFs (CNH digital, passaporte digital).
             </p>
           </div>
 
@@ -848,7 +922,7 @@ export default function WCICompanionEntry() {
             </div>
 
             <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 12, padding: '0.875rem', maxHeight: 200, overflowY: 'auto', fontSize: '0.77rem', lineHeight: 1.75, color: 'rgba(255,255,255,0.72)', whiteSpace: 'pre-wrap' }}>
-              {activeTab === 'hotel' ? (hotelTerms ?? HOTEL_TERMS) : (lgpdTerms ?? LGPD_TERMS)}
+              {activeTab === 'hotel' ? activeHotelTerms : activeLgpdTerms}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem', marginTop: '1.1rem' }}>

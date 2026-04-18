@@ -8,13 +8,19 @@ import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
 import { Loader2, Save, Eye, EyeOff, ChevronDown, ChevronUp, CheckCircle, AlertTriangle } from 'lucide-react';
 
+type PolicyLang = 'pt' | 'en' | 'es';
+
 interface HotelPolicy {
   id: string;
   name: string;
   image_url: string | null;
   wci_visible: boolean;
-  wci_hotel_terms: string | null;
-  wci_lgpd_terms: string | null;
+  wci_hotel_terms:    string | null;
+  wci_lgpd_terms:     string | null;
+  wci_hotel_terms_en: string | null;
+  wci_lgpd_terms_en:  string | null;
+  wci_hotel_terms_es: string | null;
+  wci_lgpd_terms_es:  string | null;
 }
 
 const DEFAULT_HOTEL_TERMS = `REGULAMENTO INTERNO E POLÍTICAS DO HOTEL
@@ -67,6 +73,8 @@ export default function WCIManagement() {
   const [hotels, setHotels] = useState<HotelPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Aba de idioma ativa por hotel: { hotelId: 'pt' | 'en' | 'es' }
+  const [policyLang, setPolicyLang] = useState<Record<string, PolicyLang>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -79,10 +87,16 @@ export default function WCIManagement() {
     setLoading(true);
     const { data, error } = await supabase
       .from('hotels')
-      .select('id, name, image_url, wci_visible, wci_hotel_terms, wci_lgpd_terms')
+      .select('id, name, image_url, wci_visible, wci_hotel_terms, wci_lgpd_terms, wci_hotel_terms_en, wci_lgpd_terms_en, wci_hotel_terms_es, wci_lgpd_terms_es')
       .order('name');
     if (error) { setError(error.message); setLoading(false); return; }
-    setHotels(data || []);
+    setHotels((data || []).map((h: any) => ({
+      ...h,
+      wci_hotel_terms_en: h.wci_hotel_terms_en ?? null,
+      wci_lgpd_terms_en:  h.wci_lgpd_terms_en  ?? null,
+      wci_hotel_terms_es: h.wci_hotel_terms_es ?? null,
+      wci_lgpd_terms_es:  h.wci_lgpd_terms_es  ?? null,
+    })));
     setLoading(false);
   };
 
@@ -96,7 +110,14 @@ export default function WCIManagement() {
     setSaving(hotel.id);
     const { error } = await supabase
       .from('hotels')
-      .update({ wci_hotel_terms: hotel.wci_hotel_terms, wci_lgpd_terms: hotel.wci_lgpd_terms })
+      .update({
+        wci_hotel_terms:    hotel.wci_hotel_terms,
+        wci_lgpd_terms:     hotel.wci_lgpd_terms,
+        wci_hotel_terms_en: hotel.wci_hotel_terms_en,
+        wci_lgpd_terms_en:  hotel.wci_lgpd_terms_en,
+        wci_hotel_terms_es: hotel.wci_hotel_terms_es,
+        wci_lgpd_terms_es:  hotel.wci_lgpd_terms_es,
+      })
       .eq('id', hotel.id);
     setSaving(null);
     if (error) { setError(error.message); return; }
@@ -104,9 +125,27 @@ export default function WCIManagement() {
     setTimeout(() => setSaved(null), 2500);
   };
 
-  const updateField = (id: string, field: keyof HotelPolicy, value: any) => {
-    setHotels(prev => prev.map(h => h.id === id ? { ...h, [field]: value } : h));
+  /** Devolve os campos corretos baseado no idioma selecionado */
+  const getLangFields = (hotel: HotelPolicy, lang: PolicyLang) => {
+    if (lang === 'en') return { hotel_terms: hotel.wci_hotel_terms_en, lgpd_terms: hotel.wci_lgpd_terms_en };
+    if (lang === 'es') return { hotel_terms: hotel.wci_hotel_terms_es, lgpd_terms: hotel.wci_lgpd_terms_es };
+    return { hotel_terms: hotel.wci_hotel_terms, lgpd_terms: hotel.wci_lgpd_terms };
   };
+
+  const setLangField = (hotelId: string, lang: PolicyLang, field: 'hotel_terms' | 'lgpd_terms', value: string) => {
+    setHotels(prev => prev.map(h => {
+      if (h.id !== hotelId) return h;
+      if (lang === 'en') return { ...h, [field === 'hotel_terms' ? 'wci_hotel_terms_en' : 'wci_lgpd_terms_en']: value };
+      if (lang === 'es') return { ...h, [field === 'hotel_terms' ? 'wci_hotel_terms_es' : 'wci_lgpd_terms_es']: value };
+      return { ...h, [field === 'hotel_terms' ? 'wci_hotel_terms' : 'wci_lgpd_terms']: value };
+    }));
+  };
+
+  const getDefaultForLang = (type: 'hotel' | 'lgpd', lang: PolicyLang) => {
+    if (lang !== 'pt') return ''; // sem texto padrão para EN/ES — o admin deve preencher
+    return type === 'hotel' ? DEFAULT_HOTEL_TERMS : DEFAULT_LGPD_TERMS;
+  };
+
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -173,64 +212,98 @@ export default function WCIManagement() {
             </div>
 
             {/* Editors — expandido */}
-            {expanded === hotel.id && (
-              <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Regulamento Interno do Hotel
-                    </label>
+            {expanded === hotel.id && (() => {
+              const activeLang: PolicyLang = policyLang[hotel.id] ?? 'pt';
+              const fields = getLangFields(hotel, activeLang);
+              const LANG_LABELS: Record<PolicyLang, string> = { pt: '🇧🇷 Português', en: '🇬🇧 English', es: '🇪🇸 Español' };
+              return (
+                <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
+
+                  {/* Tabs de idioma */}
+                  <div className="flex gap-2">
+                    {(['pt', 'en', 'es'] as PolicyLang[]).map(l => (
+                      <button
+                        key={l}
+                        onClick={() => setPolicyLang(prev => ({ ...prev, [hotel.id]: l }))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeLang === l
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {LANG_LABELS[l]}
+                      </button>
+                    ))}
+                    <span className="ml-auto text-xs text-gray-400 dark:text-gray-500 self-center">
+                      {activeLang !== 'pt' && 'Deixe em branco para usar a versão em Português como fallback.'}
+                    </span>
+                  </div>
+
+                  {/* Regulamento */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Regulamento Interno do Hotel
+                        {activeLang !== 'pt' && <span className="ml-1 text-xs text-blue-400">({activeLang.toUpperCase()})</span>}
+                      </label>
+                      {activeLang === 'pt' && (
+                        <button
+                          className="text-xs text-blue-500 hover:underline"
+                          onClick={() => setLangField(hotel.id, activeLang, 'hotel_terms', DEFAULT_HOTEL_TERMS)}
+                        >
+                          Restaurar padrão
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      className="w-full h-48 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 text-sm p-3 font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={fields.hotel_terms ?? getDefaultForLang('hotel', activeLang)}
+                      onChange={e => setLangField(hotel.id, activeLang, 'hotel_terms', e.target.value)}
+                      placeholder={activeLang === 'pt' ? DEFAULT_HOTEL_TERMS : 'Enter hotel regulations in English…'}
+                    />
+                  </div>
+
+                  {/* LGPD */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Política de Privacidade (LGPD)
+                        {activeLang !== 'pt' && <span className="ml-1 text-xs text-blue-400">({activeLang.toUpperCase()})</span>}
+                      </label>
+                      {activeLang === 'pt' && (
+                        <button
+                          className="text-xs text-blue-500 hover:underline"
+                          onClick={() => setLangField(hotel.id, activeLang, 'lgpd_terms', DEFAULT_LGPD_TERMS)}
+                        >
+                          Restaurar padrão
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      className="w-full h-48 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 text-sm p-3 font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={fields.lgpd_terms ?? getDefaultForLang('lgpd', activeLang)}
+                      onChange={e => setLangField(hotel.id, activeLang, 'lgpd_terms', e.target.value)}
+                      placeholder={activeLang === 'pt' ? DEFAULT_LGPD_TERMS : 'Enter privacy policy in English…'}
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
                     <button
-                      className="text-xs text-blue-500 hover:underline"
-                      onClick={() => updateField(hotel.id, 'wci_hotel_terms', DEFAULT_HOTEL_TERMS)}
+                      onClick={() => savePolicy(hotel)}
+                      disabled={saving === hotel.id}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      Restaurar padrão
+                      {saving === hotel.id
+                        ? <><Loader2 size={15} className="animate-spin" /> Salvando...</>
+                        : saved === hotel.id
+                          ? <><CheckCircle size={15} /> Salvo!</>
+                          : <><Save size={15} /> Salvar Políticas (todas as línguas)</>
+                      }
                     </button>
                   </div>
-                  <textarea
-                    className="w-full h-48 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 text-sm p-3 font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={hotel.wci_hotel_terms ?? DEFAULT_HOTEL_TERMS}
-                    onChange={e => updateField(hotel.id, 'wci_hotel_terms', e.target.value)}
-                    placeholder={DEFAULT_HOTEL_TERMS}
-                  />
                 </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Política de Privacidade (LGPD)
-                    </label>
-                    <button
-                      className="text-xs text-blue-500 hover:underline"
-                      onClick={() => updateField(hotel.id, 'wci_lgpd_terms', DEFAULT_LGPD_TERMS)}
-                    >
-                      Restaurar padrão
-                    </button>
-                  </div>
-                  <textarea
-                    className="w-full h-48 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 text-sm p-3 font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={hotel.wci_lgpd_terms ?? DEFAULT_LGPD_TERMS}
-                    onChange={e => updateField(hotel.id, 'wci_lgpd_terms', e.target.value)}
-                    placeholder={DEFAULT_LGPD_TERMS}
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => savePolicy(hotel)}
-                    disabled={saving === hotel.id}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors"
-                  >
-                    {saving === hotel.id
-                      ? <><Loader2 size={15} className="animate-spin" /> Salvando...</>
-                      : saved === hotel.id
-                        ? <><CheckCircle size={15} /> Salvo!</>
-                        : <><Save size={15} /> Salvar Políticas</>
-                    }
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         ))}
       </div>
