@@ -326,30 +326,57 @@ export default function WCICompanionEntry() {
   const [zipcode, setZipcode]               = useState('');
   const [neighborhood, setNeighborhood]     = useState('');
   const [cepLoading, setCepLoading]         = useState(false);
+  const [birthDateDisplay, setBirthDateDisplay] = useState(''); // DD/MM/AAAA
+
+  // ── Máscara de data DD/MM/AAAA ────────────────────────────────────────────
+  const handleDateInput = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    let formatted = digits;
+    if (digits.length > 4) formatted = `${digits.slice(0,2)}/${digits.slice(2,4)}/${digits.slice(4)}`;
+    else if (digits.length > 2) formatted = `${digits.slice(0,2)}/${digits.slice(2)}`;
+    setBirthDateDisplay(formatted);
+    if (digits.length === 8) {
+      const d = digits.slice(0,2), m = digits.slice(2,4), y = digits.slice(4,8);
+      setBirthDate(`${y}-${m}-${d}`);
+    } else {
+      setBirthDate('');
+    }
+  };
+
+  // Converte YYYY-MM-DD → DD/MM/AAAA para exibição
+  const isoToDisplay = (iso: string) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  };
 
   // ── Busca automática de endereço por CEP (ViaCEP) ────────────────────────
-  const lookupCep = async (raw: string) => {
-    const digits = raw.replace(/\D/g, '');
-    if (digits.length !== 8 || country !== 'BR') return;
+  const lookupCep = async (digits: string) => {
+    if (digits.length !== 8) return;
     setCepLoading(true);
     try {
       const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
       if (!res.ok) return;
       const data = await res.json();
-      if (data.erro) return;
+      if (data.erro) return; // CEP inválido — não sobrescreve nada
       if (data.logradouro) setStreet(data.logradouro);
       if (data.bairro)     setNeighborhood(data.bairro);
       if (data.localidade) setCity(data.localidade);
-      if (data.uf)         setState(data.uf);
-    } catch { /* silencioso — o usuário pode preencher manualmente */ }
+      if (data.uf)         { setState(data.uf); setCountry('BR'); }
+    } catch { /* usuário preenche manualmente */ }
     finally  { setCepLoading(false); }
   };
 
   const handleZipcodeChange = (raw: string) => {
-    // Formata como 00000-000 enquanto digita
     const digits = raw.replace(/\D/g, '').slice(0, 8);
-    const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+    const formatted = digits.length > 5 ? `${digits.slice(0,5)}-${digits.slice(5)}` : digits;
     setZipcode(formatted);
+    if (digits.length === 8) lookupCep(digits);
+  };
+
+  const handleZipcodeBlur = () => {
+    // Dispara lookup ao perder foco (útil quando usuário cola o CEP inteiro)
+    const digits = zipcode.replace(/\D/g, '');
     if (digits.length === 8) lookupCep(digits);
   };
 
@@ -406,7 +433,7 @@ export default function WCICompanionEntry() {
 
             // Perfil completo (da Erbon in-house ou payload raw)
             if (g.nationality) setNationality(g.nationality);
-            if (g.birthDate)   setBirthDate(g.birthDate);
+            if (g.birthDate)   { setBirthDate(g.birthDate); setBirthDateDisplay(isoToDisplay(g.birthDate)); }
             if (g.genderID)    setGenderID(g.genderID);
 
             // Endereço
@@ -485,9 +512,10 @@ export default function WCICompanionEntry() {
         };
         await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId);
       } else {
+        // Atualiza o ID caso o hóspede tenha sido recriado na Erbon (newId ≠ existingGuestId)
         await saveGuestsToStorage(realBookingId, stored.map(g =>
           g.id === existingGuestId
-            ? { ...g, name: name.trim(), email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
+            ? { ...g, id: newId, name: name.trim(), email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
             : g
         ), realHotelId);
       }
@@ -685,7 +713,15 @@ export default function WCICompanionEntry() {
                 </div>
                 <div>
                   <label style={labelStyle}>{t('birthField')}</label>
-                  <input style={inputStyle} type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} />
+                  <input
+                    style={inputStyle}
+                    type="text"
+                    inputMode="numeric"
+                    value={birthDateDisplay}
+                    onChange={e => handleDateInput(e.target.value)}
+                    placeholder="DD/MM/AAAA"
+                    maxLength={10}
+                  />
                 </div>
                 <div>
                   <label style={labelStyle}>{t('genderField')}</label>
@@ -754,6 +790,7 @@ export default function WCICompanionEntry() {
                     inputMode="numeric"
                     value={zipcode}
                     onChange={e => handleZipcodeChange(e.target.value)}
+                    onBlur={handleZipcodeBlur}
                     placeholder="00000-000"
                     maxLength={9}
                   />

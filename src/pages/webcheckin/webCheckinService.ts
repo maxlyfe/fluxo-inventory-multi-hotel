@@ -215,16 +215,12 @@ export async function fetchFreshBookingGuests(
   bookingInternalId: number
 ): Promise<WebCheckinGuest[] | null> {
   try {
-    const past   = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
-    const future = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-
-    // Busca em paralelo: reservas + perfis in-house (fallback silencioso)
-    const [bookings, inHouseGuests] = await Promise.all([
-      erbonService.searchBookings(hotelId, { checkin: past, checkout: future }),
+    // Busca direta por ID interno + perfis in-house em paralelo
+    const [booking, inHouseGuests] = await Promise.all([
+      erbonService.fetchBookingByInternalId(hotelId, bookingInternalId),
       erbonService.fetchInHouseGuests(hotelId).catch(() => [] as ErbonGuest[]),
     ]);
 
-    const booking = bookings.find(b => b.bookingInternalID === bookingInternalId);
     if (!booking) return null;
 
     // Mapa rápido idGuest → ErbonGuest (perfil completo)

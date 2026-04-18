@@ -179,36 +179,48 @@ export default function WCIGuestList() {
     });
   }, [wciCode, sessionToken]);
 
-  // ── Carregar hóspedes (usa IDs reais) ────────────────────────────────────
+  // ── Carregar hóspedes — Erbon é sempre a fonte de verdade ───────────────
+  // Hóspedes excluídos da Erbon desaparecem automaticamente;
+  // o status fnrhCompleted é preservado via merge com a sessão local.
   const loadGuests = useCallback(async (showSpinner = true) => {
     if (!realHotelId || !realBookingId) return;
     if (showSpinner) setLoading(true);
     try {
-      const serverGuests = await loadGuestsFromServer(realBookingId);
-      if (serverGuests && serverGuests.length > 0) {
-        setGuests([...serverGuests]);
-        setBookingRef('');    // não expõe bookingId na UI
-        if (showSpinner) setLoading(false);
-        return;
-      }
-      // Fallback: buscar do Erbon e inicializar sessão
-      const booking = await erbonService.fetchBookingByInternalId(realHotelId, realBookingId);
+      // Busca em paralelo: Erbon (fonte de verdade) + sessão (status fnrhCompleted)
+      const [booking, sessionGuests] = await Promise.all([
+        erbonService.fetchBookingByInternalId(realHotelId, realBookingId),
+        loadGuestsFromServer(realBookingId),
+      ]);
+
       if (booking) {
-        const gs: WebCheckinGuest[] = (booking.guestList || []).map((g, idx) => ({
-          id: g.id,
-          name: g.name || 'Hóspede',
-          email: g.email,
-          phone: g.phone,
-          documents: g.documents,
+        const erbonGuests: WebCheckinGuest[] = (booking.guestList || []).map((g: any, idx: number) => ({
+          id:            g.id,
+          name:          g.name  || 'Hóspede',
+          email:         g.email,
+          phone:         g.phone,
+          documents:     g.documents,
           fnrhCompleted: false,
-          isMainGuest: idx === 0,
+          isMainGuest:   idx === 0,
         }));
-        await saveGuestsToStorage(realBookingId, gs, realHotelId);
-        setGuests(gs);
-        // Usa o bookingNumber do Erbon (cliente-facing), não o internal ID
-        setBookingRef(booking.bookingNumber ? String(booking.bookingNumber) : '');
+
+        // Mescla: mantém fnrhCompleted do cache (preenchido no web check-in)
+        const merged: WebCheckinGuest[] = erbonGuests.map(eg => {
+          const cached = sessionGuests?.find(sg => sg.id === eg.id);
+          return cached ? { ...eg, fnrhCompleted: cached.fnrhCompleted } : eg;
+        });
+
+        await saveGuestsToStorage(realBookingId, merged, realHotelId);
+        setGuests(merged);
+        // Exibe bookingNumber (cliente-facing), nunca o internal ID
+        const ref = (booking as any).bookingNumber || booking.erbonNumber;
+        setBookingRef(ref ? String(ref) : '');
+      } else {
+        // Fallback: cache local (Erbon offline / erro de rede)
+        if (sessionGuests && sessionGuests.length > 0) {
+          setGuests(sessionGuests);
+        }
       }
-    } catch { /* silencioso — não expõe erros internos */ } finally {
+    } catch { /* silencioso */ } finally {
       if (showSpinner) setLoading(false);
     }
   }, [realHotelId, realBookingId]);
