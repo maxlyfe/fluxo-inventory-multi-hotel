@@ -325,6 +325,33 @@ export default function WCICompanionEntry() {
   const [street, setStreet]                 = useState('');
   const [zipcode, setZipcode]               = useState('');
   const [neighborhood, setNeighborhood]     = useState('');
+  const [cepLoading, setCepLoading]         = useState(false);
+
+  // ── Busca automática de endereço por CEP (ViaCEP) ────────────────────────
+  const lookupCep = async (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 8 || country !== 'BR') return;
+    setCepLoading(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.erro) return;
+      if (data.logradouro) setStreet(data.logradouro);
+      if (data.bairro)     setNeighborhood(data.bairro);
+      if (data.localidade) setCity(data.localidade);
+      if (data.uf)         setState(data.uf);
+    } catch { /* silencioso — o usuário pode preencher manualmente */ }
+    finally  { setCepLoading(false); }
+  };
+
+  const handleZipcodeChange = (raw: string) => {
+    // Formata como 00000-000 enquanto digita
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+    setZipcode(formatted);
+    if (digits.length === 8) lookupCep(digits);
+  };
 
   // ── Resolver tokens → IDs reais + políticas do hotel ─────────────────────
   useEffect(() => {
@@ -683,8 +710,21 @@ export default function WCICompanionEntry() {
                   </select>
                 </div>
                 <div>
-                  <label style={labelStyle}>{t('zipcodeField')}</label>
-                  <input style={inputStyle} type="text" value={zipcode} onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
+                  <label style={labelStyle}>
+                    {t('zipcodeField')}
+                    {cepLoading && (
+                      <Loader2 size={12} style={{ animation: 'spin 1s linear infinite', marginLeft: '0.4rem', display: 'inline-block', verticalAlign: 'middle', color: '#0085ae' }} />
+                    )}
+                  </label>
+                  <input
+                    style={{ ...inputStyle, borderColor: cepLoading ? '#0085ae' : undefined }}
+                    type="text"
+                    inputMode="numeric"
+                    value={zipcode}
+                    onChange={e => handleZipcodeChange(e.target.value)}
+                    placeholder="00000-000"
+                    maxLength={9}
+                  />
                 </div>
                 <div>
                   <label style={labelStyle}>{t('stateField')}</label>
