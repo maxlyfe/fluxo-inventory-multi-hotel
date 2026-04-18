@@ -353,16 +353,21 @@ export default function WCICompanionEntry() {
     if (digits.length === 8) lookupCep(digits);
   };
 
-  // ── Resolver tokens → IDs reais + políticas do hotel ─────────────────────
+  // ── Resolver tokens + pré-carregar dados (efeito único) ──────────────────
+  // O formulário só aparece quando tokens E dados do hóspede estão prontos,
+  // evitando o flash de formulário vazio.
   useEffect(() => {
     if (!wciCode || !sessionToken) return;
-    Promise.all([
-      resolveHotelByCode(wciCode),
-      resolveSession(sessionToken),
-    ]).then(([hotel, session]) => {
+
+    const init = async () => {
+      const [hotel, session] = await Promise.all([
+        resolveHotelByCode(wciCode),
+        resolveSession(sessionToken),
+      ]);
+
       if (hotel) {
         setRealHotelId(hotel.id);
-        // Buscar regulamento e LGPD em todos os idiomas do banco
+        // Carregar políticas em paralelo (não bloqueia o formulário)
         fetchHotelPolicies(hotel.id).then(p => {
           setPolicies({
             hotel: { pt: p.wci_hotel_terms, en: p.wci_hotel_terms_en, es: p.wci_hotel_terms_es },
@@ -370,37 +375,61 @@ export default function WCICompanionEntry() {
           });
         }).catch(() => { /* usa defaults hardcoded */ });
       }
-      if (session) setRealBookingId(session.bookingId);
-      setResolving(false);
-    });
-  }, [wciCode, sessionToken]);
 
-  // Pre-fill se editando hóspede existente — tenta Erbon primeiro, depois cache
-  useEffect(() => {
-    if (!realBookingId || !realHotelId || isNew) return;
-    const load = async () => {
-      // 1. Tentar dados frescos da Erbon
-      const fresh = await fetchFreshBookingGuests(realHotelId, realBookingId);
-      let g = fresh?.find(x => x.id === existingGuestId);
+      if (session) {
+        setRealBookingId(session.bookingId);
 
-      // 2. Fallback: dados armazenados (Supabase/localStorage)
-      if (!g) {
-        const stored = await loadGuestsFromServer(realBookingId) || loadGuestsFromStorage(realBookingId);
-        g = stored?.find(x => x.id === existingGuestId);
+        // Pré-preencher campos se estiver editando um hóspede existente
+        // (feito ANTES de setResolving(false) → formulário já aparece preenchido)
+        if (!isNew && existingGuestId && hotel) {
+          // 1. Dados frescos da Erbon (inclui nationality, birthDate, address via in-house)
+          const fresh = await fetchFreshBookingGuests(hotel.id, session.bookingId);
+          let g: WebCheckinGuest | undefined = fresh?.find(x => x.id === existingGuestId);
+
+          // 2. Fallback: cache Supabase / localStorage
+          if (!g) {
+            const stored = await loadGuestsFromServer(session.bookingId)
+              || loadGuestsFromStorage(session.bookingId);
+            g = stored?.find(x => x.id === existingGuestId);
+          }
+
+          if (g) {
+            setName(g.name || '');
+            setEmail(g.email || '');
+            setPhone(g.phone || '');
+
+            // Documento
+            if (g.documents?.length) {
+              setDocumentType(g.documents[0].documentType || 'CPF');
+              setDocumentNumber(g.documents[0].number || '');
+            }
+
+            // Perfil completo (da Erbon in-house ou payload raw)
+            if (g.nationality) setNationality(g.nationality);
+            if (g.birthDate)   setBirthDate(g.birthDate);
+            if (g.genderID)    setGenderID(g.genderID);
+
+            // Endereço
+            if (g.address) {
+              if (g.address.country)      setCountry(g.address.country);
+              if (g.address.state)        setState(g.address.state);
+              if (g.address.city)         setCity(g.address.city);
+              if (g.address.street)       setStreet(g.address.street);
+              if (g.address.zipcode)      setZipcode(g.address.zipcode);
+              if (g.address.neighborhood) setNeighborhood(g.address.neighborhood);
+            }
+
+            if (g.fnrhCompleted) setStep('signature');
+          }
+        }
       }
 
-      if (!g) return;
-      setName(g.name || '');
-      setEmail(g.email || '');
-      setPhone(g.phone || '');
-      if (g.documents?.length) {
-        setDocumentType(g.documents[0].documentType || 'CPF');
-        setDocumentNumber(g.documents[0].number || '');
-      }
-      if (g.fnrhCompleted) setStep('signature');
+      setResolving(false); // formulário aparece apenas aqui (já preenchido)
     };
-    load();
-  }, [realBookingId, realHotelId, isNew, existingGuestId]);
+
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wciCode, sessionToken]);
 
   // Termos ativos no idioma selecionado (fallback PT → constante hardcoded)
   const activeHotelTerms = (
@@ -577,8 +606,11 @@ export default function WCICompanionEntry() {
 
   if (resolving) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
         <Loader2 size={40} color="#0085ae" style={{ animation: 'spin 1s linear infinite' }} />
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', margin: 0 }}>
+          {!isNew ? 'Carregando dados da reserva...' : 'Aguarde...'}
+        </p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );

@@ -33,6 +33,18 @@ export interface WebCheckinGuest {
   fnrhCompleted: boolean;
   isMainGuest: boolean;
   inHouseData?: ErbonGuest;
+  // Perfil completo (do in-house ou do guest payload da Erbon)
+  nationality?: string;   // ISO country code, ex: 'AR', 'BR'
+  birthDate?: string;     // 'YYYY-MM-DD'
+  genderID?: number;
+  address?: {
+    country?: string;
+    state?: string;
+    city?: string;
+    street?: string;
+    zipcode?: string;
+    neighborhood?: string;
+  };
 }
 
 // ── Cache em memória (evita chamadas Supabase repetidas por navegação) ─────
@@ -193,8 +205,10 @@ export async function saveGuestFNRH(
 
 /**
  * Busca hóspedes frescos da Erbon para uma reserva (por bookingInternalID).
- * Faz uma pesquisa por intervalo de datas e filtra pelo ID interno.
- * Retorna null se não encontrar.
+ * Também busca o perfil completo via /guest/inhouse e /guest/todaycheckout
+ * para cruzar nationality, birthDate, address — campos não retornados no guestList
+ * da busca de reservas.
+ * Retorna null se não encontrar a reserva.
  */
 export async function fetchFreshBookingGuests(
   hotelId: string,
@@ -203,18 +217,59 @@ export async function fetchFreshBookingGuests(
   try {
     const past   = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
     const future = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-    const bookings = await erbonService.searchBookings(hotelId, { checkin: past, checkout: future });
-    const booking  = bookings.find(b => b.bookingInternalID === bookingInternalId);
+
+    // Busca em paralelo: reservas + perfis in-house (fallback silencioso)
+    const [bookings, inHouseGuests] = await Promise.all([
+      erbonService.searchBookings(hotelId, { checkin: past, checkout: future }),
+      erbonService.fetchInHouseGuests(hotelId).catch(() => [] as ErbonGuest[]),
+    ]);
+
+    const booking = bookings.find(b => b.bookingInternalID === bookingInternalId);
     if (!booking) return null;
-    return (booking.guestList || []).map((g, idx) => ({
-      id: g.id,
-      name: g.name || 'Hóspede',
-      email: g.email,
-      phone: g.phone,
-      documents: g.documents,
-      fnrhCompleted: false,
-      isMainGuest: idx === 0,
-    }));
+
+    // Mapa rápido idGuest → ErbonGuest (perfil completo)
+    const inHouseMap = new Map<number, ErbonGuest>();
+    for (const ih of inHouseGuests) {
+      if (ih.idGuest) inHouseMap.set(ih.idGuest, ih);
+    }
+
+    return (booking.guestList || []).map((g: any, idx) => {
+      const ih = inHouseMap.get(g.id);
+
+      // Extrair campos extras se a Erbon os retornar no guestList (fields extras via 'any')
+      const rawNationality = g.nationality || g.countryISO || g.nationalityISO;
+      const rawBirth       = g.birthDate   || g.birthdate  || g.birth_date;
+      const rawGender      = g.genderID    || g.gender;
+      const rawAddr        = g.address     || {};
+
+      // Preferir perfil in-house (mais completo); fallback aos campos raw do guestList
+      const nationality = ih?.countryGuestISO || rawNationality || undefined;
+      const birthDate   = ih?.birthDate
+        ? ih.birthDate.split('T')[0]
+        : (rawBirth ? String(rawBirth).split('T')[0] : undefined);
+
+      return {
+        id:            g.id,
+        name:          g.name  || 'Hóspede',
+        email:         g.email,
+        phone:         g.phone,
+        documents:     g.documents,
+        fnrhCompleted: false,
+        isMainGuest:   idx === 0,
+        inHouseData:   ih,
+        nationality,
+        birthDate,
+        genderID: rawGender || undefined,
+        address: {
+          country:      ih?.countryGuestISO || rawAddr.country || nationality || undefined,
+          state:        ih?.stateGuest      || rawAddr.state   || rawAddr.uf  || undefined,
+          city:         ih?.localityGuest   || rawAddr.city    || undefined,
+          street:       rawAddr.street      || rawAddr.logradouro || undefined,
+          zipcode:      rawAddr.zipcode     || rawAddr.cep     || undefined,
+          neighborhood: rawAddr.neighborhood|| rawAddr.bairro  || undefined,
+        },
+      } satisfies WebCheckinGuest;
+    });
   } catch {
     return null;
   }
