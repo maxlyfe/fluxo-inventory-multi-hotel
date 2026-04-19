@@ -1,9 +1,9 @@
 // src/pages/erbon/CheckOutList.tsx
-import React, { useState, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
-  LogOut, RefreshCw, Loader2, Calendar, Users, BedDouble,
+  LogOut, LogIn, RefreshCw, Loader2, Calendar, Users, BedDouble,
   Search, FileText, User, DollarSign, Mail, MapPin, Clock,
-  Star, LogIn, UserCheck
+  Star, UserCheck, ChevronRight,
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -32,6 +32,50 @@ function getNights(a?: string, b?: string) {
   if (!a || !b) return 0;
   try { return differenceInDays(parseISO(b), parseISO(a)); } catch { return 0; }
 }
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface CheckoutRow {
+  bookingId: number;
+  bookingNumber: string;
+  room: string;
+  mainGuest: ErbonGuest;
+  allGuests: ErbonGuest[];
+  checkIn: string;
+  checkOut: string;
+  mealPlan: string;
+  nights: number;
+}
+
+// ── Grouping logic ────────────────────────────────────────────────────────────
+
+function groupByBooking(guests: ErbonGuest[]): CheckoutRow[] {
+  const map = new Map<number, CheckoutRow>();
+  for (const g of guests) {
+    if (!map.has(g.idBooking)) {
+      map.set(g.idBooking, {
+        bookingId: g.idBooking,
+        bookingNumber: g.bookingNumber,
+        room: g.roomDescription,
+        mainGuest: g,
+        allGuests: [g],
+        checkIn: g.checkInDate,
+        checkOut: g.checkOutDate,
+        mealPlan: g.mealPlan,
+        nights: getNights(g.checkInDate, g.checkOutDate),
+      });
+    } else {
+      map.get(g.idBooking)!.allGuests.push(g);
+    }
+  }
+  return Array.from(map.values());
+}
+
+// ── Meal plan labels ──────────────────────────────────────────────────────────
+
+const MEAL_PLAN_LABELS: Record<string, string> = {
+  RO: 'Room Only', BB: 'Café da Manhã', HB: 'Meia Pensão', FB: 'Pensão Completa', AI: 'All Inclusive',
+};
 
 // ── Small shared UI ───────────────────────────────────────────────────────────
 
@@ -171,7 +215,7 @@ const CheckOutModal: React.FC<{
                 <DetailCard icon={LogOut} label="Check-out" value={fmtDateTime(guest.checkOutDate)} valueColor="text-amber-600 dark:text-amber-400" />
                 <DetailCard icon={Clock} label="Noites" value={`${nights}`} />
                 <DetailCard icon={Users} label="Hóspedes" value={`${inHouseGuests.length} in-house`} />
-                <DetailCard icon={Star} label="Regime" value={guest.mealPlan || '—'} />
+                <DetailCard icon={Star} label="Regime" value={MEAL_PLAN_LABELS[guest.mealPlan] || guest.mealPlan || '—'} />
                 {booking && <DetailCard icon={DollarSign} label="Total" value={fmtBRL(booking.totalBookingRateWithTax)} />}
               </div>
 
@@ -232,7 +276,7 @@ const CheckOutModal: React.FC<{
                   {g.localityGuest && <InfoRow icon={MapPin} value={`${g.localityGuest}${g.stateGuest ? `, ${g.stateGuest}` : ''}`} />}
                   {g.checkInDate && <InfoRow icon={LogIn} value={`In: ${fmtDateTime(g.checkInDate)}`} />}
                   {g.checkOutDate && <InfoRow icon={LogOut} value={`Out: ${fmtDate(g.checkOutDate)}`} />}
-                  {g.mealPlan && <InfoRow icon={Star} value={`Regime: ${g.mealPlan}`} />}
+                  {g.mealPlan && <InfoRow icon={Star} value={`Regime: ${MEAL_PLAN_LABELS[g.mealPlan] || g.mealPlan}`} />}
                 </div>
               </div>
             ))
@@ -311,95 +355,160 @@ const CheckOutModal: React.FC<{
 const CheckOutList: React.FC = () => {
   const { selectedHotel } = useHotel();
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<ErbonGuest | null>(null);
+  const [selectedRow, setSelectedRow] = useState<CheckoutRow | null>(null);
 
   const { data: guests, loading, error, refetch, erbonConfigured } = useErbonData<ErbonGuest[]>(
     (hotelId) => erbonService.fetchTodayCheckouts(hotelId),
   );
 
-  const filtered = search.trim()
-    ? (guests || []).filter(g =>
-        g.guestName?.toLowerCase().includes(search.toLowerCase()) ||
-        g.roomDescription?.toLowerCase().includes(search.toLowerCase()) ||
-        g.bookingNumber?.includes(search)
-      )
-    : (guests || []);
+  // Group by booking
+  const bookingRows = useMemo(() => groupByBooking(guests || []), [guests]);
 
-  const fmtShort = (d: string) => { try { return format(parseISO(d), 'dd/MM/yy', { locale: ptBR }); } catch { return d; } };
+  // Filter on grouped rows
+  const filtered = useMemo(() => {
+    if (!search.trim()) return bookingRows;
+    const q = search.toLowerCase();
+    return bookingRows.filter(row =>
+      row.mainGuest.guestName?.toLowerCase().includes(q) ||
+      row.bookingNumber?.includes(q) ||
+      row.room?.toLowerCase().includes(q) ||
+      row.allGuests.some(g => g.guestName?.toLowerCase().includes(q))
+    );
+  }, [bookingRows, search]);
+
+  const totalGuests = filtered.reduce((sum, row) => sum + row.allGuests.length, 0);
 
   if (!erbonConfigured && !loading) return <ErbonNotConfigured hotelName={selectedHotel?.name} />;
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <LogOut className="w-7 h-7 text-amber-600 dark:text-amber-400" />
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Check-outs de Hoje</h1>
-          {!loading && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-sm font-bold px-2.5 py-0.5 rounded-full">{filtered.length}</span>}
+    <div className="container mx-auto p-4 md:p-6 max-w-5xl">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <LogOut className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Check-outs de Hoje</h1>
+          </div>
+          {!loading && (
+            <div className="flex items-center gap-2 pl-1">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                <BedDouble className="w-3.5 h-3.5" /> {filtered.length} reservas
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                <Users className="w-3.5 h-3.5" /> {totalGuests} hóspedes
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Buscar hóspede, UH ou reserva..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              className="pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent w-56" />
+            <input
+              type="text"
+              placeholder="Buscar hóspede, UH ou reserva..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9 pr-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent w-72 shadow-sm"
+            />
           </div>
-          <button onClick={refetch} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
+          <button
+            onClick={refetch}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-2.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition font-medium text-gray-600 dark:text-gray-300"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Atualizar
           </button>
         </div>
       </div>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
 
       {loading ? (
-        <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-amber-500" /></div>
+        <div className="flex justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+        </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16">
+        <div className="text-center py-20 bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700">
           <UserCheck className="w-14 h-14 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-gray-500 dark:text-gray-400 font-medium">Nenhum check-out previsto para hoje.</p>
+          <p className="text-gray-600 dark:text-gray-400 font-semibold text-lg">Nenhum check-out previsto</p>
+          <p className="text-sm text-gray-400 mt-1">Não há check-outs agendados para hoje.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(guest => {
-            const nights = getNights(guest.checkInDate, guest.checkOutDate);
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          {filtered.map((row, idx) => {
+            const isLast = idx === filtered.length - 1;
+            const guestCount = row.allGuests.length;
             return (
-              <button key={`${guest.idBooking}-${guest.idGuest}`}
-                onClick={() => setSelected(guest)}
-                className="text-left bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md hover:border-amber-400 dark:hover:border-amber-600 transition-all group">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{guest.roomDescription}</span>
-                    <p className="text-xs text-gray-500 mt-0.5">#{guest.bookingNumber}</p>
+              <button
+                key={row.bookingId}
+                onClick={() => setSelectedRow(row)}
+                className={`w-full text-left flex items-center gap-4 px-5 py-4 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors group border-l-4 border-transparent hover:border-amber-500 ${!isLast ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
+              >
+                {/* Room badge */}
+                <div className="flex-shrink-0 w-16 h-16 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shadow-sm">
+                  <span className="text-xl font-black text-amber-700 dark:text-amber-300 leading-none text-center px-1">{row.room || '—'}</span>
+                </div>
+
+                {/* Main info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs text-gray-400 font-medium">#{row.bookingNumber}</span>
+                    <span className="text-gray-300 dark:text-gray-600">·</span>
+                    <span className="font-bold text-gray-800 dark:text-white truncate">
+                      {row.mainGuest.guestName}
+                      {row.mainGuest.lastName && row.mainGuest.lastName !== row.mainGuest.guestName ? ` ${row.mainGuest.lastName}` : ''}
+                    </span>
                   </div>
-                  <span className="px-2 py-1 rounded-lg text-xs font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
-                    CHECK-OUT
+                  {guestCount > 1 && (
+                    <p className="text-xs text-gray-400 flex items-center gap-1">
+                      <Users className="w-3 h-3" /> +{guestCount - 1} hóspede{guestCount > 2 ? 's' : ''}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="flex items-center gap-1">
+                      <LogIn className="w-3 h-3 text-emerald-500" />
+                      {fmtDate(row.checkIn)}
+                    </span>
+                    <span className="text-gray-300">→</span>
+                    <span className="flex items-center gap-1">
+                      <LogOut className="w-3 h-3 text-amber-500" />
+                      {fmtDate(row.checkOut)}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 font-semibold">
+                      {row.nights}N
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right side: meal plan + action */}
+                <div className="flex-shrink-0 flex flex-col items-end gap-2">
+                  {row.mealPlan && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                      {MEAL_PLAN_LABELS[row.mealPlan] || row.mealPlan}
+                    </span>
+                  )}
+                  <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 group-hover:underline">
+                    Fazer Check-out
                   </span>
                 </div>
-                <p className="font-semibold text-gray-800 dark:text-white mb-2 truncate">
-                  {guest.guestName}{guest.lastName && guest.lastName !== guest.guestName ? ` ${guest.lastName}` : ''}
-                </p>
-                <div className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  <p className="flex items-center gap-1.5"><LogIn className="w-3 h-3 text-emerald-500" /> In: {fmtShort(guest.checkInDate)}</p>
-                  <p className="flex items-center gap-1.5"><LogOut className="w-3 h-3 text-red-500" /> Out: {fmtShort(guest.checkOutDate)} · {nights}N</p>
-                  {guest.localityGuest && <p className="flex items-center gap-1.5"><UserCheck className="w-3 h-3" /> {guest.localityGuest}{guest.stateGuest ? `, ${guest.stateGuest}` : ''}</p>}
-                  {guest.mealPlan && <p className="flex items-center gap-1.5"><Star className="w-3 h-3" /> {guest.mealPlan}</p>}
-                </div>
-                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium group-hover:underline">Ver detalhes e fazer check-out →</span>
-                </div>
+
+                {/* Arrow */}
+                <ChevronRight className="w-5 h-5 text-gray-300 dark:text-gray-600 group-hover:text-amber-500 transition-colors flex-shrink-0" />
               </button>
             );
           })}
         </div>
       )}
 
-      {selected && (
+      {selectedRow && (
         <CheckOutModal
           hotelId={selectedHotel!.id}
-          guest={selected}
-          onClose={() => setSelected(null)}
-          onDone={() => { setSelected(null); refetch(); }}
+          guest={selectedRow.mainGuest}
+          onClose={() => setSelectedRow(null)}
+          onDone={() => { setSelectedRow(null); refetch(); }}
         />
       )}
     </div>
