@@ -90,6 +90,8 @@ import WCISignatureAndTerms  from './pages/webcheckin/WCISignatureAndTerms';
 import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
+import PDVPage           from './pages/pdv/PDV';
+import PDVHistory        from './pages/pdv/PDVHistory';
 import RoomRack          from './pages/erbon/RoomRack';
 import InHouse           from './pages/erbon/InHouse';
 import CheckInList       from './pages/erbon/CheckInList';
@@ -498,6 +500,18 @@ function App() {
                     <Route path="/dp/medical-exams" element={
                       <PrivateRoute module="nr1_compliance">
                         <MedicalExams />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── PDV ─────────────────────────────────────────────── */}
+                    <Route path="/pdv" element={
+                      <PrivateRoute module="pdv">
+                        <PDVPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/pdv/history" element={
+                      <PrivateRoute module="pdv">
+                        <PDVHistory />
                       </PrivateRoute>
                     } />
 

@@ -18,6 +18,10 @@ import {
   Search,
   ChevronDown,
   ChefHat,
+  ShoppingCart,
+  Edit2,
+  Save,
+  X,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { supabase } from '../../lib/supabase';
@@ -28,6 +32,7 @@ import {
   ErbonProductMapping,
   ErbonSectorMapping,
 } from '../../lib/erbonService';
+import { getProductsWithPrices, upsertProductPrice } from '../../lib/pdvService';
 
 // ── Interfaces locais ───────────────────────────────────────────────────────
 
@@ -49,7 +54,18 @@ const labelCls = 'block text-xs font-bold text-gray-500 dark:text-gray-400 upper
 const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed';
 const btnDanger = 'p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors';
 
-type TabId = 'config' | 'products' | 'dishes' | 'sectors';
+type TabId = 'config' | 'products' | 'dishes' | 'sectors' | 'prices';
+
+interface PDVPriceRow {
+  product_id: string;
+  product_name: string;
+  category: string;
+  unit_measure: string;
+  average_price: number;
+  sale_price: number | null;
+  erbon_service_id: number | null;
+  erbon_service_description: string | null;
+}
 
 interface FluxoDish {
   id: string;
@@ -177,6 +193,18 @@ const ErbonIntegration: React.FC = () => {
   const [seasonMode, setSeasonMode] = useState('auto');
   const [seasonThreshold, setSeasonThreshold] = useState('40');
 
+  // ── PDV Prices state ────────────────────────────────────────────────────
+  const [pdvPrices, setPdvPrices] = useState<PDVPriceRow[]>([]);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState<string>('');
+  const [priceSearch, setPriceSearch] = useState('');
+  const [savingPrice, setSavingPrice] = useState(false);
+  // Sector mapping department ID editing
+  const [editingDeptId, setEditingDeptId] = useState<string | null>(null); // mapping.id
+  const [editingDeptIdValue, setEditingDeptIdValue] = useState<string>('');
+  const [savingDeptId, setSavingDeptId] = useState(false);
+
   // ── Init ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -187,6 +215,7 @@ const ErbonIntegration: React.FC = () => {
     if (activeTab === 'products' && config?.is_active) loadProductMappings();
     if (activeTab === 'dishes' && config?.is_active) loadDishMappings();
     if (activeTab === 'sectors' && config?.is_active) loadSectorMappings();
+    if (activeTab === 'prices') loadPdvPrices();
   }, [activeTab, config]);
 
   // Auto-clear messages
@@ -418,6 +447,54 @@ const ErbonIntegration: React.FC = () => {
     }
   };
 
+  // ── PDV Prices ─────────────────────────────────────────────────────────
+
+  const loadPdvPrices = async () => {
+    if (!selectedHotel) return;
+    setLoadingPrices(true);
+    try {
+      const rows = await getProductsWithPrices(selectedHotel.id);
+      setPdvPrices(rows);
+    } catch (err: any) {
+      setError(err.message);
+    } finally { setLoadingPrices(false); }
+  };
+
+  const handleSavePrice = async (productId: string) => {
+    if (!selectedHotel) return;
+    const val = parseFloat(editingPriceValue.replace(',', '.'));
+    if (isNaN(val) || val < 0) { setError('Preço inválido'); return; }
+    setSavingPrice(true);
+    try {
+      await upsertProductPrice(selectedHotel.id, productId, val);
+      setEditingPriceId(null);
+      setEditingPriceValue('');
+      await loadPdvPrices();
+      setSuccess('Preço de venda atualizado');
+    } catch (err: any) {
+      setError(err.message);
+    } finally { setSavingPrice(false); }
+  };
+
+  const handleSaveDeptId = async (mappingId: string) => {
+    if (!selectedHotel) return;
+    const val = parseInt(editingDeptIdValue, 10);
+    if (isNaN(val)) { setError('ID de departamento inválido'); return; }
+    setSavingDeptId(true);
+    try {
+      await supabase
+        .from('erbon_sector_mappings')
+        .update({ erbon_department_id: val })
+        .eq('id', mappingId);
+      setEditingDeptId(null);
+      setEditingDeptIdValue('');
+      await loadSectorMappings();
+      setSuccess('ID de departamento Erbon salvo');
+    } catch (err: any) {
+      setError(err.message);
+    } finally { setSavingDeptId(false); }
+  };
+
   // ── Tabs ────────────────────────────────────────────────────────────────
 
   const tabs: { id: TabId; label: string; icon: React.FC<any>; disabled?: boolean }[] = [
@@ -425,6 +502,7 @@ const ErbonIntegration: React.FC = () => {
     { id: 'products', label: 'Produtos', icon: Package, disabled: !config?.is_active },
     { id: 'dishes', label: 'Pratos', icon: ChefHat, disabled: !config?.is_active },
     { id: 'sectors', label: 'Setores', icon: Utensils, disabled: !config?.is_active },
+    { id: 'prices', label: 'Preços PDV', icon: ShoppingCart },
   ];
 
   // ── Render ──────────────────────────────────────────────────────────────
@@ -890,12 +968,13 @@ const ErbonIntegration: React.FC = () => {
                   <div className="space-y-2">
                     {sectorMappings.map(mapping => {
                       const sector = fluxoSectors.find(s => s.id === mapping.sector_id);
+                      const isEditingDept = editingDeptId === mapping.id;
                       return (
                         <div
                           key={mapping.id}
-                          className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg"
+                          className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg gap-3"
                         >
-                          <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-4 flex-1 min-w-0">
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
                               {sector?.name || mapping.sector_id}
                             </span>
@@ -904,6 +983,49 @@ const ErbonIntegration: React.FC = () => {
                               {mapping.erbon_department}
                             </span>
                           </div>
+                          {/* erbon_department_id field (needed for PDV POST) */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs text-gray-400">ID Dept:</span>
+                            {isEditingDept ? (
+                              <>
+                                <input
+                                  type="number"
+                                  value={editingDeptIdValue}
+                                  onChange={e => setEditingDeptIdValue(e.target.value)}
+                                  className="w-20 px-2 py-1 text-xs border border-blue-400 rounded bg-white dark:bg-gray-800 dark:text-white focus:ring-1 focus:ring-blue-500"
+                                  placeholder="ex: 3"
+                                  autoFocus
+                                  onKeyDown={e => { if (e.key === 'Enter') handleSaveDeptId(mapping.id); if (e.key === 'Escape') { setEditingDeptId(null); setEditingDeptIdValue(''); } }}
+                                />
+                                <button
+                                  onClick={() => handleSaveDeptId(mapping.id)}
+                                  disabled={savingDeptId}
+                                  className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded"
+                                >
+                                  {savingDeptId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  onClick={() => { setEditingDeptId(null); setEditingDeptIdValue(''); }}
+                                  className="p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className={`text-xs font-mono px-2 py-0.5 rounded ${mapping.erbon_department_id ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'}`}>
+                                  {mapping.erbon_department_id ?? '—'}
+                                </span>
+                                <button
+                                  onClick={() => { setEditingDeptId(mapping.id); setEditingDeptIdValue(String(mapping.erbon_department_id ?? '')); }}
+                                  className="p-1 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded"
+                                  title="Editar ID de departamento Erbon (necessário para PDV)"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                           <button onClick={() => handleDeleteSectorMapping(mapping.id)} className={btnDanger}>
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -911,6 +1033,10 @@ const ErbonIntegration: React.FC = () => {
                       );
                     })}
                   </div>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5 mt-2">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    O campo "ID Dept" é necessário para lançar consumos no PDV. Consult a API Erbon para obter o ID numérico de cada departamento.
+                  </p>
                 </div>
               )}
 
@@ -960,6 +1086,191 @@ const ErbonIntegration: React.FC = () => {
                   <Utensils className="w-12 h-12 mx-auto mb-3 opacity-40" />
                   <p>Clique em "Carregar Departamentos Erbon" para ver os departamentos.</p>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════ TAB: PREÇOS PDV ══════════════ */}
+          {activeTab === 'prices' && (
+            <div className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Preços de Venda — PDV</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Defina o preço de venda de cada produto para o PDV. Os preços de custo são somente leitura.
+                  </p>
+                </div>
+                <button onClick={loadPdvPrices} disabled={loadingPrices} className={btnPrimary}>
+                  {loadingPrices ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Atualizar
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={priceSearch}
+                  onChange={e => setPriceSearch(e.target.value)}
+                  placeholder="Buscar produto..."
+                  className={inputCls + ' pl-9'}
+                />
+              </div>
+
+              {loadingPrices ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                </div>
+              ) : (
+                <>
+                  {/* Summary badges */}
+                  <div className="flex gap-3 flex-wrap">
+                    <span className="text-xs px-2.5 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-medium">
+                      {pdvPrices.length} produtos
+                    </span>
+                    <span className="text-xs px-2.5 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full font-medium">
+                      {pdvPrices.filter(r => !r.sale_price).length} sem preço
+                    </span>
+                    <span className="text-xs px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-medium">
+                      {pdvPrices.filter(r => !r.erbon_service_id).length} sem mapeamento Erbon
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-900/60 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          <th className="px-4 py-3 text-left">Produto</th>
+                          <th className="px-4 py-3 text-left">Categoria</th>
+                          <th className="px-4 py-3 text-right">Custo Médio</th>
+                          <th className="px-4 py-3 text-right">Preço Venda</th>
+                          <th className="px-4 py-3 text-center">Erbon</th>
+                          <th className="px-4 py-3 text-center">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                        {(priceSearch
+                          ? pdvPrices.filter(r =>
+                              r.product_name.toLowerCase().includes(priceSearch.toLowerCase()) ||
+                              r.category.toLowerCase().includes(priceSearch.toLowerCase())
+                            )
+                          : pdvPrices
+                        ).map(row => {
+                          const isEditing = editingPriceId === row.product_id;
+                          const margin = row.sale_price && row.average_price > 0
+                            ? ((row.sale_price - row.average_price) / row.average_price * 100).toFixed(0)
+                            : null;
+                          return (
+                            <tr
+                              key={row.product_id}
+                              className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                            >
+                              {/* Produto */}
+                              <td className="px-4 py-3">
+                                <span className="font-medium text-gray-900 dark:text-white">
+                                  {row.product_name}
+                                </span>
+                                {row.unit_measure && row.unit_measure !== 'und' && (
+                                  <span className="ml-1.5 text-xs text-gray-400">{row.unit_measure}</span>
+                                )}
+                              </td>
+                              {/* Categoria */}
+                              <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{row.category || '—'}</td>
+                              {/* Custo */}
+                              <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400 font-mono text-xs">
+                                {row.average_price > 0 ? `R$ ${row.average_price.toFixed(2)}` : '—'}
+                              </td>
+                              {/* Preço Venda */}
+                              <td className="px-4 py-3 text-right">
+                                {isEditing ? (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <span className="text-xs text-gray-400">R$</span>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={editingPriceValue}
+                                      onChange={e => setEditingPriceValue(e.target.value)}
+                                      className="w-24 px-2 py-1 text-right text-xs border border-amber-400 rounded bg-white dark:bg-gray-800 dark:text-white focus:ring-1 focus:ring-amber-500"
+                                      autoFocus
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter') handleSavePrice(row.product_id);
+                                        if (e.key === 'Escape') { setEditingPriceId(null); setEditingPriceValue(''); }
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => handleSavePrice(row.product_id)}
+                                      disabled={savingPrice}
+                                      className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded"
+                                    >
+                                      {savingPrice ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                    </button>
+                                    <button
+                                      onClick={() => { setEditingPriceId(null); setEditingPriceValue(''); }}
+                                      className="p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-2">
+                                    {row.sale_price ? (
+                                      <>
+                                        <span className="font-bold text-green-600 dark:text-green-400">
+                                          R$ {row.sale_price.toFixed(2)}
+                                        </span>
+                                        {margin && (
+                                          <span className="text-xs text-gray-400">+{margin}%</span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 font-medium">
+                                        Sem preço
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              {/* Erbon mapping */}
+                              <td className="px-4 py-3 text-center">
+                                {row.erbon_service_id ? (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-medium">
+                                    #{row.erbon_service_id}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 font-medium">
+                                    Não mapeado
+                                  </span>
+                                )}
+                              </td>
+                              {/* Ações */}
+                              <td className="px-4 py-3 text-center">
+                                {!isEditing && (
+                                  <button
+                                    onClick={() => {
+                                      setEditingPriceId(row.product_id);
+                                      setEditingPriceValue(row.sale_price ? String(row.sale_price) : '');
+                                    }}
+                                    className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
+                                    title="Editar preço de venda"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {pdvPrices.length === 0 && !loadingPrices && (
+                      <div className="text-center py-12 text-gray-400">
+                        <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                        <p>Nenhum produto ativo encontrado neste hotel.</p>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

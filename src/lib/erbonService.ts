@@ -81,6 +81,7 @@ export interface ErbonSectorMapping {
   hotel_id: string;
   sector_id: string;
   erbon_department: string;
+  erbon_department_id?: number | null;
 }
 
 // ── Interfaces Recepção / Reservas ──────────────────────────────────────────
@@ -191,6 +192,19 @@ export interface ErbonAvailabilityDay {
 
 export interface ErbonAccountReceivable {
   [key: string]: any; // Estrutura a validar com dados reais
+}
+
+// ── PDV Charge Payload (para POST /booking/{id}/currentaccount) ────────────
+// Lança um item de consumo na conta corrente da reserva (UH) no Erbon PMS.
+// ⚠️  Validar body shape real contra swagger antes de produção:
+//      POST /hotel/{hotelID}/booking/{bookingInternalID}/currentaccount
+export interface ErbonChargePayload {
+  idService:            number;   // erbon_product_mappings.erbon_service_id
+  idDepartment:         number;   // erbon_sector_mappings.erbon_department_id
+  quantity:             number;
+  valueUnit:            number;   // preço unitário de venda
+  serviceDescription?:  string;   // snapshot do nome do produto
+  idSource?:            string;   // 'PDV' — identifica a origem do lançamento
 }
 
 // ── Guest Payload (para POST /guest/new e PUT /guests/update) ──────────────
@@ -1211,6 +1225,56 @@ export const erbonService = {
     const data = await res.json();
     console.log(`[Erbon] BookingAccount (${Array.isArray(data) ? data.length : 0} items):`, JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
     return Array.isArray(data) ? data : data ? [data] : [];
+  },
+
+  // ── PDV: Lançar consumo na conta corrente da UH ────────────────────────
+
+  /**
+   * POST /hotel/{hotelID}/booking/{bookingInternalID}/currentaccount
+   * Registra um item de consumo (A&B, minibar, etc.) diretamente na conta
+   * corrente da reserva no Erbon PMS. Retorna { success, error? } — nunca lança
+   * exceção — permitindo tratamento local-first no pdvService.
+   *
+   * ⚠️  Body shape inferido de ErbonTransaction + padrão swagger. Validar
+   *     contra a API real antes de usar em produção. Pode precisar de wrapping
+   *     { "currentAccount": {...} } como foi necessário em /guest/new.
+   */
+  async postChargeToBooking(
+    hotelId: string,
+    bookingInternalId: number,
+    charge: ErbonChargePayload
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const config = await this.getConfig(hotelId);
+      if (!config) throw new Error('Configuração Erbon não encontrada');
+      const token = await this.getToken(hotelId);
+      const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/currentaccount`;
+
+      const body = { ...charge, idSource: charge.idSource ?? 'PDV' };
+      console.log('[Erbon] postCharge payload:', JSON.stringify(body));
+
+      const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...proxyHeaders(config.erbon_base_url, path),
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        console.error(`[Erbon] postCharge booking=${bookingInternalId} → ${res.status}`, txt);
+        return { success: false, error: `Erbon ${res.status}: ${txt}` };
+      }
+
+      console.log(`[Erbon] postCharge OK → booking=${bookingInternalId} service=${charge.idService}`);
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Erbon] postCharge exception:', err.message);
+      return { success: false, error: err.message };
+    }
   },
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────

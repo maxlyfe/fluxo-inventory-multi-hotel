@@ -177,6 +177,17 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'pdv',
+    label: 'PDV',
+    icon: ShoppingCart,
+    module: 'pdv',
+    activePrefixes: ['/pdv'],
+    items: [
+      { module: 'pdv', label: 'Ponto de Venda', href: '/pdv',         icon: ShoppingCart, color: '#f59e0b' },
+      { module: 'pdv', label: 'Histórico PDV',  href: '/pdv/history', icon: History,      color: '#8b5cf6' },
+    ],
+  },
+  {
     key: 'reservas',
     label: 'Reservas',
     icon: Search,
