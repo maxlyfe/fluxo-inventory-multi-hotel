@@ -45,6 +45,13 @@ export interface SelectedBooking {
   checkOutDate: string | null;
 }
 
+export interface PdvTable {
+  id: string;
+  label: string;
+  capacity: number;
+  display_order: number;
+}
+
 export interface CreateSaleInput {
   hotelId: string;
   sectorId: string;
@@ -56,6 +63,8 @@ export interface CreateSaleInput {
   items: CartItem[];
   erbonDepartmentId: number | null;
   erbonDepartmentLabel: string | null;
+  tableId?: string | null;
+  tableLabel?: string | null;
 }
 
 export interface SaleResult {
@@ -104,6 +113,20 @@ export interface SalesHistoryFilters {
 }
 
 // ── Funções ────────────────────────────────────────────────────────────────
+
+/** Busca as mesas configuradas para um setor. */
+export async function getSectorTables(hotelId: string, sectorId: string): Promise<PdvTable[]> {
+  const { data, error } = await supabase
+    .from('pdv_tables')
+    .select('id, label, capacity, display_order')
+    .eq('hotel_id', hotelId)
+    .eq('sector_id', sectorId)
+    .eq('is_active', true)
+    .order('display_order')
+    .order('label');
+  if (error) throw error;
+  return (data || []) as PdvTable[];
+}
 
 /**
  * Busca produtos disponíveis no estoque de um setor,
@@ -305,6 +328,8 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
       status: 'completed',
       erbon_posted: false,
       sale_date: new Date().toISOString().split('T')[0],
+      table_id: input.tableId ?? null,
+      table_label: input.tableLabel ?? null,
     })
     .select('id')
     .single();
