@@ -102,6 +102,8 @@ const PDV: React.FC = () => {
   const [receiptSale, setReceiptSale] = useState<SaleResult | null>(null);
   const [erbonConfigured, setErbonConfigured] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  // Mobile: which panel is visible ('products' | 'cart')
+  const [mobileTab, setMobileTab] = useState<'products' | 'cart'>('products');
 
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -213,6 +215,11 @@ const PDV: React.FC = () => {
         return prev.map(i =>
           i.product_id === product.product_id ? { ...i, quantity: i.quantity + 1 } : i
         );
+      }
+      // First item added — nudge mobile user to cart tab so they see the UH selector
+      if (prev.length === 0) {
+        // Only switch on mobile (lg breakpoint = 1024px)
+        if (window.innerWidth < 1024) setMobileTab('cart');
       }
       return [...prev, {
         product_id: product.product_id,
@@ -396,13 +403,51 @@ const PDV: React.FC = () => {
         </div>
       </header>
 
+      {/* ══ MOBILE TAB BAR ══════════════════════════════════════════════════ */}
+      <div className="lg:hidden flex shrink-0 bg-slate-900 border-b border-slate-800">
+        <button
+          onClick={() => setMobileTab('products')}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold transition-all duration-150
+            ${mobileTab === 'products'
+              ? 'text-amber-400 border-b-2 border-amber-400'
+              : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <Package className="w-4 h-4" />
+          Produtos
+          {filteredProducts.length > 0 && (
+            <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-400">
+              {filteredProducts.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setMobileTab('cart')}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold transition-all duration-150 relative
+            ${mobileTab === 'cart'
+              ? 'text-amber-400 border-b-2 border-amber-400'
+              : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <ShoppingCart className="w-4 h-4" />
+          Carrinho
+          {cartCount > 0 && (
+            <span className="ml-0.5 flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-black shadow-md shadow-amber-500/40">
+              {cartCount}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* ══ MAIN ════════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* ═══════════════════════════════════════
             LEFT PANEL — Cart + Booking (dark terminal)
+            Mobile: shown only on 'cart' tab
+            Desktop: always visible at fixed width
         ═══════════════════════════════════════ */}
-        <aside className="w-[360px] min-w-[320px] max-w-[400px] flex flex-col bg-slate-900 border-r border-slate-800">
+        <aside className={`flex-col bg-slate-900 border-r border-slate-800
+          ${mobileTab === 'products' ? 'hidden' : 'flex w-full'}
+          lg:flex lg:w-[360px] lg:min-w-[320px] lg:max-w-[400px]`}>
 
           {/* ── Booking selector ── */}
           <div className="px-4 pt-4 pb-3 border-b border-slate-800 shrink-0">
@@ -628,6 +673,7 @@ const PDV: React.FC = () => {
             <button
               onClick={handleConfirm}
               disabled={cart.length === 0 || !selectedBooking}
+              onMouseDown={() => { /* noop — mobile auto-scroll handled by tab */ }}
               className="w-full flex items-center justify-center gap-2.5 px-5 py-4 rounded-2xl
                 font-bold text-sm text-white
                 bg-gradient-to-r from-amber-500 to-orange-500
@@ -658,8 +704,12 @@ const PDV: React.FC = () => {
 
         {/* ═══════════════════════════════════════
             RIGHT PANEL — Product browser
+            Mobile: shown only on 'products' tab
+            Desktop: always visible, flex-1
         ═══════════════════════════════════════ */}
-        <main className="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-900">
+        <main className={`flex-col overflow-hidden bg-slate-50 dark:bg-slate-900
+          ${mobileTab === 'cart' ? 'hidden' : 'flex flex-1'}
+          lg:flex lg:flex-1`}>
 
           {/* ── Sector tabs ── */}
           <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0 overflow-x-auto border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
