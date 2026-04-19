@@ -861,7 +861,9 @@ export const erbonService = {
     const token = await this.getToken(hotelId);
     const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
-    const body = buildGuestBody(guestData, null);
+    const guestBody = buildGuestBody(guestData, null);
+    // POST /guest/new espera o objeto dentro da chave "guest": { guest: {...} }
+    const body = { guest: guestBody };
     console.log('[Erbon] addGuest payload:', JSON.stringify(body));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
