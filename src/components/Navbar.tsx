@@ -55,6 +55,14 @@ const Navbar = () => {
   const [hotelDisplayName, setHotelDisplayName] = useState("");
   const [allHotels, setAllHotels] = useState<{ id: string; name: string }[]>([]);
 
+  // Expanded sections state — persisted in sessionStorage
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    try {
+      const saved = sessionStorage.getItem('nav_expanded_sections');
+      return new Set<string>(saved ? JSON.parse(saved) : []);
+    } catch { return new Set<string>(); }
+  });
+
   useEffect(() => {
     const name = selectedHotel?.name || "Hotel";
     setHotelDisplayName(hotelNameMapping[name] || name);
@@ -114,6 +122,31 @@ const Navbar = () => {
 
   // Itens contextuais a mostrar na navbar
   const contextItems = activeSection?.items || [];
+
+  // Auto-expand active section when route changes (after activeSection is declared)
+  useEffect(() => {
+    if (activeSection) {
+      setExpandedSections(prev => {
+        if (prev.has(activeSection.key)) return prev;
+        const next = new Set(prev);
+        next.add(activeSection.key);
+        try { sessionStorage.setItem('nav_expanded_sections', JSON.stringify([...next])); } catch {}
+        return next;
+      });
+    }
+  }, [activeSection?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleNavSection = (key: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try { sessionStorage.setItem('nav_expanded_sections', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
 
   // Early return DEPOIS de todos os hooks
   if (!user) return null;
@@ -240,19 +273,34 @@ const Navbar = () => {
 
                       <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
 
-                      {/* Módulos com sub-itens */}
+                      {/* Módulos com sub-itens — recolhíveis, com memória */}
                       {visibleSections.map(section => {
                         const isCurrent = activeSection?.key === section.key;
+                        const isExpanded = expandedSections.has(section.key);
                         return (
                           <div key={section.key}>
-                            <p className={classNames(
-                              'px-4 pt-2.5 pb-1 text-[11px] font-bold uppercase tracking-widest flex items-center gap-1.5',
-                              isCurrent ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
-                            )}>
-                              <section.icon className="h-3.5 w-3.5" />
-                              {section.label}
-                            </p>
-                            {section.items.map(item => (
+                            {/* Section header — clicável para expandir/recolher */}
+                            <button
+                              onClick={(e) => toggleNavSection(section.key, e)}
+                              className={classNames(
+                                'w-full flex items-center justify-between px-4 pt-2.5 pb-2 text-[11px] font-bold uppercase tracking-widest transition-colors',
+                                isCurrent
+                                  ? 'text-blue-500 dark:text-blue-400'
+                                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400'
+                              )}
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <section.icon className="h-3.5 w-3.5" />
+                                {section.label}
+                              </span>
+                              <ChevronRight className={classNames(
+                                'h-3 w-3 transition-transform duration-200',
+                                isExpanded ? 'rotate-90' : ''
+                              )} />
+                            </button>
+
+                            {/* Sub-itens — só visíveis quando expandido */}
+                            {isExpanded && section.items.map(item => (
                               <Menu.Item key={item.href}>
                                 {({ active }) => (
                                   <Link

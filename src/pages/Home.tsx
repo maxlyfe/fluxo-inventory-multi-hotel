@@ -244,9 +244,9 @@ const Home = () => {
 
   // ── Sidebar ──────────────────────────────────────────────────────────────
   const renderSidebarContent = () => (
-    <div className="flex flex-col h-full bg-slate-900">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900">
       {/* User info */}
-      <div className="px-4 py-5 border-b border-slate-800">
+      <div className="px-4 py-5 border-b border-gray-200 dark:border-slate-800">
         <div className="flex items-center gap-3">
           {/* Avatar */}
           <div
@@ -256,12 +256,12 @@ const Home = () => {
             {(user?.full_name || user?.email || 'U')[0].toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-white truncate">
+            <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">
               {user?.full_name || user?.email?.split('@')[0] || 'Usuário'}
             </p>
             <span
-              className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
-              style={{ backgroundColor: `${roleColor}30`, color: roleColor, border: `1px solid ${roleColor}40` }}
+              className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold"
+              style={{ backgroundColor: `${roleColor}20`, color: roleColor, border: `1px solid ${roleColor}40` }}
             >
               {roleName}
             </span>
@@ -270,10 +270,10 @@ const Home = () => {
       </div>
 
       {/* Hotel chip */}
-      <div className="px-4 py-3 border-b border-slate-800">
-        <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700">
-          <Hotel className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span className="text-xs font-semibold text-slate-300 truncate">{selectedHotel.name}</span>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-slate-800">
+        <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
+          <Hotel className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
+          <span className="text-xs font-semibold text-gray-600 dark:text-slate-300 truncate">{selectedHotel.name}</span>
         </div>
       </div>
 
@@ -286,7 +286,8 @@ const Home = () => {
               onClick={() => toggleGroup(group.label)}
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg
                 text-[10px] font-bold uppercase tracking-[0.12em] transition-all duration-150
-                text-slate-500 hover:text-slate-300 hover:bg-slate-800/60"
+                text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300
+                hover:bg-gray-100 dark:hover:bg-slate-800/60"
             >
               <span>{group.label}</span>
               {isGroupExpanded(group.label)
@@ -306,12 +307,14 @@ const Home = () => {
                       to={item.href}
                       onClick={() => setSidebarOpen(false)}
                       className="group flex items-center gap-3 px-3 py-2.5 rounded-xl
-                        text-sm text-slate-400 hover:text-white
-                        hover:bg-slate-800 transition-all duration-150 active:scale-[0.98]"
+                        text-sm text-gray-600 dark:text-slate-400
+                        hover:text-gray-900 dark:hover:text-white
+                        hover:bg-gray-100 dark:hover:bg-slate-800
+                        transition-all duration-150 active:scale-[0.98]"
                     >
                       <div
                         className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-transform duration-150 group-hover:scale-110"
-                        style={{ backgroundColor: `${item.color}20` }}
+                        style={{ backgroundColor: `${item.color}18` }}
                       >
                         <Icon className="w-3.5 h-3.5" style={{ color: item.color }} />
                       </div>
@@ -364,17 +367,18 @@ const Home = () => {
           ref={sidebarRef}
           className={`
             fixed top-16 left-0 h-[calc(100vh-4rem)] w-72 z-50 lg:z-0
-            bg-slate-900 border-r border-slate-800
+            bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800
             transition-transform duration-300 ease-out
             lg:sticky lg:top-16 lg:translate-x-0 lg:w-64 lg:shrink-0
-            ${sidebarOpen ? 'translate-x-0 shadow-2xl shadow-black/40' : '-translate-x-full'}
+            ${sidebarOpen ? 'translate-x-0 shadow-2xl shadow-black/20 dark:shadow-black/40' : '-translate-x-full'}
           `}
         >
           {/* Close btn mobile */}
           <button
             onClick={() => setSidebarOpen(false)}
             className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center
-              rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all lg:hidden"
+              rounded-lg text-gray-400 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-slate-800 transition-all lg:hidden"
           >
             <X className="w-4 h-4" />
           </button>
