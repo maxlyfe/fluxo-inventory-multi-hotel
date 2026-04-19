@@ -644,20 +644,41 @@ export async function upsertProductPrice(
   salePrice: number,
   sectorId?: string | null
 ): Promise<void> {
-  const { error } = await supabase
+  // Postgres NULL != NULL em unique constraints, então onConflict com sector_id=NULL
+  // nunca dispara. Usamos SELECT→UPDATE/INSERT explícito.
+  const query = supabase
     .from('pdv_prices')
-    .upsert(
-      {
+    .select('id')
+    .eq('hotel_id', hotelId)
+    .eq('product_id', productId);
+
+  if (sectorId == null) {
+    query.is('sector_id', null);
+  } else {
+    query.eq('sector_id', sectorId);
+  }
+
+  const { data: existing, error: selectErr } = await query.maybeSingle();
+  if (selectErr) throw selectErr;
+
+  if (existing?.id) {
+    const { error } = await supabase
+      .from('pdv_prices')
+      .update({ sale_price: salePrice, updated_at: new Date().toISOString() })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('pdv_prices')
+      .insert({
         hotel_id: hotelId,
         product_id: productId,
         sector_id: sectorId ?? null,
         sale_price: salePrice,
         updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'hotel_id,product_id,sector_id' }
-    );
-
-  if (error) throw error;
+      });
+    if (error) throw error;
+  }
 }
 
 /**

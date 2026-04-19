@@ -517,11 +517,12 @@ export const erbonService = {
 
   // ── Fetch Erbon Departments (pontos de venda reais) ─────────────────────
 
-  async fetchErbonDepartments(hotelId: string): Promise<string[]> {
-    const departments = new Set<string>();
+  async fetchErbonDepartments(hotelId: string): Promise<{ name: string; id: number }[]> {
+    // name → numeric id (idDepartment from transactions)
+    const departments = new Map<string, number>();
 
     // Busca departamentos das transações dos últimos 7 dias
-    // Esses são os pontos de venda reais (Restaurante, Bar, Frigobar, etc.)
+    // ErbonTransaction já contém idDepartment (número) + department (nome)
     try {
       const today = new Date();
       for (let daysBack = 0; daysBack < 7; daysBack++) {
@@ -531,7 +532,9 @@ export const erbonService = {
         try {
           const txs = await this.fetchTransactionsForDate(hotelId, dateStr);
           txs.forEach(tx => {
-            if (tx.department) departments.add(tx.department);
+            if (tx.department && !departments.has(tx.department)) {
+              departments.set(tx.department, tx.idDepartment);
+            }
           });
         } catch {
           // Dia sem transações, continua
@@ -544,18 +547,23 @@ export const erbonService = {
     }
 
     // Fallback: se não encontrou transações, extrai stocksGroupDescription dos produtos
+    // (sem idDepartment disponível — id ficará como 0)
     if (departments.size === 0) {
       try {
         const products = await this.fetchErbonProducts(hotelId);
         products.forEach(p => {
-          if (p.stocksGroupDescription) departments.add(p.stocksGroupDescription);
+          if (p.stocksGroupDescription && !departments.has(p.stocksGroupDescription)) {
+            departments.set(p.stocksGroupDescription, 0);
+          }
         });
       } catch (err) {
         console.error('[Erbon] Fallback de departamentos via produtos falhou:', err);
       }
     }
 
-    return Array.from(departments).sort();
+    return Array.from(departments.entries())
+      .map(([name, id]) => ({ name, id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 
   // ── Fetch Transactions for a single date ────────────────────────────────
@@ -768,6 +776,7 @@ export const erbonService = {
     hotel_id: string;
     sector_id: string;
     erbon_department: string;
+    erbon_department_id?: number | null;
   }): Promise<void> {
     const { error } = await supabase
       .from('erbon_sector_mappings')

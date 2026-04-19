@@ -22,6 +22,7 @@ import {
   Edit2,
   Save,
   X,
+  Zap,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { supabase } from '../../lib/supabase';
@@ -183,7 +184,7 @@ const ErbonIntegration: React.FC = () => {
 
   // ── Sectors mapping state ───────────────────────────────────────────────
   const [fluxoSectors, setFluxoSectors] = useState<FluxoSector[]>([]);
-  const [erbonDepartments, setErbonDepartments] = useState<string[]>([]);
+  const [erbonDepartments, setErbonDepartments] = useState<{ name: string; id: number }[]>([]);
   const [sectorMappings, setSectorMappings] = useState<ErbonSectorMapping[]>([]);
   const [loadingSectors, setLoadingSectors] = useState(false);
 
@@ -416,7 +417,8 @@ const ErbonIntegration: React.FC = () => {
     try {
       const depts = await erbonService.fetchErbonDepartments(selectedHotel!.id);
       setErbonDepartments(depts);
-      setSuccess(`${depts.length} departamentos carregados da Erbon!`);
+      const withId = depts.filter(d => d.id > 0).length;
+      setSuccess(`${depts.length} departamentos carregados da Erbon${withId > 0 ? ` (${withId} com ID numérico — será salvo automaticamente ao vincular)` : ''}!`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -424,15 +426,16 @@ const ErbonIntegration: React.FC = () => {
     }
   };
 
-  const handleMapSector = async (sectorId: string, department: string) => {
+  const handleMapSector = async (sectorId: string, deptName: string, deptId?: number) => {
     try {
       await erbonService.saveSectorMapping({
         hotel_id: selectedHotel!.id,
         sector_id: sectorId,
-        erbon_department: department,
+        erbon_department: deptName,
+        erbon_department_id: deptId && deptId > 0 ? deptId : null,
       });
       await loadSectorMappings();
-      setSuccess(`Setor mapeado: ${department}`);
+      setSuccess(`Setor mapeado: ${deptName}${deptId && deptId > 0 ? ` (ID ${deptId} capturado automaticamente)` : ''}`);
     } catch (err: any) {
       setError(err.message);
     }
@@ -444,6 +447,36 @@ const ErbonIntegration: React.FC = () => {
       await loadSectorMappings();
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  /** Busca IDs numéricos da Erbon e auto-preenche os mapeamentos que estão com erbon_department_id=null */
+  const handleSyncDeptIds = async () => {
+    if (!selectedHotel) return;
+    setLoadingSectors(true);
+    try {
+      const depts = await erbonService.fetchErbonDepartments(selectedHotel.id);
+      const deptMap = new Map(depts.filter(d => d.id > 0).map(d => [d.name, d.id]));
+      const toSync = sectorMappings.filter(m => !m.erbon_department_id && deptMap.has(m.erbon_department));
+      if (toSync.length === 0) {
+        setSuccess('Nenhum mapeamento precisa de atualização (ou IDs não encontrados nas transações recentes).');
+        return;
+      }
+      let updated = 0;
+      for (const m of toSync) {
+        const deptId = deptMap.get(m.erbon_department)!;
+        const { error: upErr } = await supabase
+          .from('erbon_sector_mappings')
+          .update({ erbon_department_id: deptId })
+          .eq('id', m.id);
+        if (!upErr) updated++;
+      }
+      await loadSectorMappings();
+      setSuccess(`${updated} mapeamento(s) atualizados com ID numérico da Erbon!`);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao sincronizar IDs');
+    } finally {
+      setLoadingSectors(false);
     }
   };
 
@@ -479,19 +512,20 @@ const ErbonIntegration: React.FC = () => {
   const handleSaveDeptId = async (mappingId: string) => {
     if (!selectedHotel) return;
     const val = parseInt(editingDeptIdValue, 10);
-    if (isNaN(val)) { setError('ID de departamento inválido'); return; }
+    if (isNaN(val) || val <= 0) { setError('ID de departamento inválido (deve ser número positivo)'); return; }
     setSavingDeptId(true);
     try {
-      await supabase
+      const { error: updateErr } = await supabase
         .from('erbon_sector_mappings')
         .update({ erbon_department_id: val })
         .eq('id', mappingId);
+      if (updateErr) throw updateErr;
       setEditingDeptId(null);
       setEditingDeptIdValue('');
       await loadSectorMappings();
       setSuccess('ID de departamento Erbon salvo');
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Erro ao salvar ID de departamento');
     } finally { setSavingDeptId(false); }
   };
 
@@ -945,18 +979,31 @@ const ErbonIntegration: React.FC = () => {
           {/* ══════════════ TAB: SETORES ══════════════ */}
           {activeTab === 'sectors' && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">
                   Mapeamento de Setores
                 </h3>
-                <button
-                  onClick={loadErbonDepartments}
-                  disabled={loadingSectors}
-                  className={btnPrimary}
-                >
-                  {loadingSectors ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  Carregar Departamentos Erbon
-                </button>
+                <div className="flex items-center gap-2">
+                  {sectorMappings.some(m => !m.erbon_department_id) && (
+                    <button
+                      onClick={handleSyncDeptIds}
+                      disabled={loadingSectors}
+                      className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+                      title="Busca IDs numéricos da Erbon e preenche automaticamente"
+                    >
+                      {loadingSectors ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                      Sincronizar IDs
+                    </button>
+                  )}
+                  <button
+                    onClick={loadErbonDepartments}
+                    disabled={loadingSectors}
+                    className={btnPrimary}
+                  >
+                    {loadingSectors ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    Carregar Departamentos Erbon
+                  </button>
+                </div>
               </div>
 
               {/* Mapeamentos existentes */}
@@ -1048,15 +1095,20 @@ const ErbonIntegration: React.FC = () => {
                   </h4>
                   <div className="grid gap-2">
                     {erbonDepartments.map(dept => {
-                      const existingMappings = sectorMappings.filter(m => m.erbon_department === dept);
+                      const existingMappings = sectorMappings.filter(m => m.erbon_department === dept.name);
                       return (
                         <div
-                          key={dept}
+                          key={dept.name}
                           className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
                         >
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {dept}
+                            <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
+                              {dept.name}
+                              {dept.id > 0 && (
+                                <span className="text-xs font-mono px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded">
+                                  ID {dept.id}
+                                </span>
+                              )}
                             </p>
                             {existingMappings.length > 0 && (
                               <p className="text-xs text-green-600 dark:text-green-400">
@@ -1069,9 +1121,9 @@ const ErbonIntegration: React.FC = () => {
                           </div>
                           <SearchableSelect
                             placeholder="Vincular a setor..."
-                            onSelect={value => handleMapSector(value, dept)}
+                            onSelect={value => handleMapSector(value, dept.name, dept.id)}
                             options={fluxoSectors
-                              .filter(s => !mappedSectorDepts.has(`${s.id}::${dept}`))
+                              .filter(s => !mappedSectorDepts.has(`${s.id}::${dept.name}`))
                               .map(s => ({ value: s.id, label: s.name }))}
                           />
                         </div>
