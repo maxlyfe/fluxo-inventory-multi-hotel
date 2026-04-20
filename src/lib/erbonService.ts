@@ -266,7 +266,9 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     email: data.email?.trim() || null,
     phone: data.phone?.trim() || null,
     birthDate: birthDateFormatted,
-    genderID: data.genderID || null,
+    // genderID: omitir completamente quando null/0 (Erbon rejeita null explícito;
+    // o GOV faz a tratativa quando o campo não está presente no payload)
+    ...(data.genderID ? { genderID: data.genderID } : {}),
     nationality: data.nationality?.trim() || null,
     // professionID e profession: omitir se ausentes (Erbon rejeita null explícito)
     ...(data.professionID ? { professionID: data.professionID } : {}),

@@ -347,58 +347,61 @@ export default function WCIFNRHForm() {
             <div>
               <p style={sectionTitle}>{t('addressSection')}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* País — sempre visível */}
+                <Field label={t('countryField')}>
+                  <select style={{ ...inputStyle, cursor: 'pointer' }}
+                    value={country} onChange={e => handleCountryChange(e.target.value)}>
+                    <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
+                    <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
+                    <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
+                    <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
+                    <option value="CL" style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
+                    <option value="BO" style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
+                    <option value="PE" style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
+                    <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
+                    <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
+                    <option value="US" style={{ color: '#000' }}>🇺🇸 United States (US)</option>
+                    <option value="DE" style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
+                    <option value="FR" style={{ color: '#000' }}>🇫🇷 France (FR)</option>
+                    <option value="IT" style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
+                    <option value="ES" style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
+                    <option value="PT" style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
+                    <option value="GB" style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
+                    <option value="OTHER" style={{ color: '#000' }}>Outro</option>
+                  </select>
+                </Field>
+
+                {/* CEP e Estado/UF — apenas Brasil */}
                 <Row>
-                  <Field label={t('countryField')}>
-                    <select style={{ ...inputStyle, cursor: 'pointer' }}
-                      value={country} onChange={e => handleCountryChange(e.target.value)}>
-                      <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
-                      <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
-                      <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
-                      <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
-                      <option value="CL" style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
-                      <option value="BO" style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
-                      <option value="PE" style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
-                      <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
-                      <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
-                      <option value="US" style={{ color: '#000' }}>🇺🇸 United States (US)</option>
-                      <option value="DE" style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
-                      <option value="FR" style={{ color: '#000' }}>🇫🇷 France (FR)</option>
-                      <option value="IT" style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
-                      <option value="ES" style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
-                      <option value="PT" style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
-                      <option value="GB" style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
-                      <option value="OTHER" style={{ color: '#000' }}>Outro</option>
-                    </select>
-                  </Field>
-                  {isBrazil && (
+                  <div style={{ display: isBrazil ? undefined : 'none' }}>
                     <Field label={t('zipcodeField')}>
                       <input style={inputStyle} type="text" value={zipcode}
                         onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
                     </Field>
-                  )}
-                </Row>
-                <Row>
-                  {isBrazil && (
+                  </div>
+                  <div style={{ display: isBrazil ? undefined : 'none' }}>
                     <Field label={t('stateField')}>
                       <input style={inputStyle} type="text" value={state}
-                        onChange={e => setState(e.target.value)} placeholder="SP" maxLength={2} />
+                        onChange={e => setState(e.target.value)} placeholder="RJ" maxLength={2} />
                     </Field>
-                  )}
+                  </div>
+                </Row>
+
+                {/* Cidade, Bairro, Rua — todos os países */}
+                <Row>
                   <Field label={t('cityField')}>
                     <input style={inputStyle} type="text" value={city}
-                      onChange={e => setCity(e.target.value)} placeholder="São Paulo" />
+                      onChange={e => setCity(e.target.value)} placeholder="Cidade" />
                   </Field>
-                </Row>
-                <Row>
                   <Field label={t('neighborhoodField')}>
                     <input style={inputStyle} type="text" value={neighborhood}
-                      onChange={e => setNeighborhood(e.target.value)} placeholder="Centro" />
-                  </Field>
-                  <Field label={t('streetField')}>
-                    <input style={inputStyle} type="text" value={street}
-                      onChange={e => setStreet(e.target.value)} placeholder="Rua das Flores, 100" />
+                      onChange={e => setNeighborhood(e.target.value)} placeholder="Bairro" />
                   </Field>
                 </Row>
+                <Field label={t('streetField')}>
+                  <input style={inputStyle} type="text" value={street}
+                    onChange={e => setStreet(e.target.value)} placeholder="Rua, número" />
+                </Field>
               </div>
             </div>
 
