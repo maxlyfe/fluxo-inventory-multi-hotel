@@ -10,15 +10,16 @@ import {
   Users, AlertCircle, RotateCcw, History, X, Zap,
   UtensilsCrossed, Wine, Coffee, Star, ChevronDown,
   LayoutGrid, ArrowLeft, MapPin, Clock, Settings, GripVertical,
-  PenLine,
+  PenLine, BookOpen, Save, Edit2, Check,
 } from 'lucide-react';
 
 import {
   getProductsForSector, getSectorDetails, getSectorsForPDV,
-  getSectorTables, createSectorTable, deleteSectorTable, updateTablePosition,
+  getSectorTables, createSectorTable, deleteSectorTable, updateTablePosition, updateSectorTable,
   createSale, retryErbonPosting,
+  saveOpenTab, getOpenTabsForSector, deleteOpenTab,
   PDVProduct, PDVSectorDetails, PdvTable, CartItem,
-  SelectedBooking, SaleResult,
+  SelectedBooking, SaleResult, OpenTab,
 } from '../../lib/pdvService';
 import { erbonService, ErbonGuest } from '../../lib/erbonService';
 import { useHotel } from '../../context/HotelContext';
@@ -138,8 +139,17 @@ const PDV: React.FC = () => {
   const [newTableLabel, setNewTableLabel] = useState('');
   const [newTableCapacity, setNewTableCapacity] = useState(4);
   const [savingTable, setSavingTable] = useState(false);
+  // Table inline edit
+  const [editingTableId, setEditingTableId] = useState<string | null>(null);
+  const [editTableLabel, setEditTableLabel] = useState('');
+  const [editTableCapacity, setEditTableCapacity] = useState(4);
   const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // ── Comandas abertas ──────────────────────────────────────────────────
+  const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
+  const [currentTabId, setCurrentTabId] = useState<string | null>(null);
+  const [savingTab, setSavingTab] = useState(false);
 
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -237,13 +247,16 @@ const PDV: React.FC = () => {
       .finally(() => setProductsLoading(false));
   }, [selectedSectorId, selectedHotel]); // eslint-disable-line
 
-  // 5. Carregar mesas do setor
+  // 5. Carregar mesas + comandas abertas do setor
   useEffect(() => {
-    if (!selectedHotel || !selectedSectorId) { setTables([]); return; }
+    if (!selectedHotel || !selectedSectorId) { setTables([]); setOpenTabs([]); return; }
     setTablesLoading(true);
-    getSectorTables(selectedHotel.id, selectedSectorId)
-      .then(t => setTables(t))
-      .catch(() => setTables([]))
+    Promise.all([
+      getSectorTables(selectedHotel.id, selectedSectorId),
+      getOpenTabsForSector(selectedHotel.id, selectedSectorId),
+    ])
+      .then(([t, tabs]) => { setTables(t); setOpenTabs(tabs); })
+      .catch(() => { setTables([]); setOpenTabs([]); })
       .finally(() => setTablesLoading(false));
   }, [selectedSectorId, selectedHotel]);
 
@@ -314,11 +327,24 @@ const PDV: React.FC = () => {
   }
 
   function selectTable(tableId: string, label: string | null) {
-    // Salvar cart da mesa atual
+    // Salvar cart da mesa atual (in-memory)
     setTableCarts(prev => ({ ...prev, [activeTableId]: cart }));
-    // Restaurar cart da nova mesa
-    const restored = tableCarts[tableId] || [];
-    setCart(restored);
+
+    // Verificar se há comanda aberta persistida para esta mesa
+    const existingTab = tableId !== '__direct__'
+      ? openTabs.find(t => t.table_id === tableId)
+      : null;
+
+    if (existingTab) {
+      // Carregar itens da comanda persistida
+      setCart(existingTab.items);
+      setCurrentTabId(existingTab.id);
+    } else {
+      // Restaurar cart in-memory (se houver)
+      setCart(tableCarts[tableId] || []);
+      setCurrentTabId(null);
+    }
+
     setActiveTableId(tableId);
     setActiveTableLabel(label);
     setShowTableMap(false);
@@ -389,8 +415,18 @@ const PDV: React.FC = () => {
   }
 
   function resetSale() {
-    setCart([]); setSelectedBooking(null); setBookingSearch(''); setReceiptSale(null);
-    setActiveTableId('__direct__'); setActiveTableLabel(null);
+    // Se havia comanda aberta, remover após fechar conta
+    if (currentTabId) {
+      deleteOpenTab(currentTabId).catch(() => {});
+      setOpenTabs(prev => prev.filter(t => t.id !== currentTabId));
+    }
+    setCart([]);
+    setSelectedBooking(null);
+    setBookingSearch('');
+    setReceiptSale(null);
+    setActiveTableId('__direct__');
+    setActiveTableLabel(null);
+    setCurrentTabId(null);
   }
 
   function refreshGuests() {
@@ -400,6 +436,82 @@ const PDV: React.FC = () => {
       .then(g => setInHouseGuests(g))
       .catch(() => {})
       .finally(() => setGuestsLoading(false));
+  }
+
+  // ── Comanda aberta ────────────────────────────────────────────────────
+
+  async function handleSaveComanda() {
+    if (!selectedHotel || !selectedSectorId) return;
+    if (cart.length === 0) { addNotification('error', 'Adicione itens ao carrinho'); return; }
+    setSavingTab(true);
+    try {
+      const tab = await saveOpenTab({
+        id: currentTabId ?? undefined,
+        hotel_id: selectedHotel.id,
+        sector_id: selectedSectorId,
+        table_id: activeTableId !== '__direct__' ? activeTableId : null,
+        table_label: activeTableLabel,
+        items: cart,
+        operator_name: user?.full_name || user?.email || 'Operador',
+      });
+      setCurrentTabId(tab.id);
+      setOpenTabs(prev => {
+        const exists = prev.find(t => t.id === tab.id);
+        if (exists) return prev.map(t => t.id === tab.id ? tab : t);
+        return [tab, ...prev];
+      });
+      addNotification('success', 'Comanda salva!');
+      setCartSheetOpen(false);
+    } catch (err: any) {
+      addNotification('error', `Erro ao salvar comanda: ${err.message}`);
+    } finally {
+      setSavingTab(false);
+    }
+  }
+
+  async function handleLoadStandaloneTab(tab: OpenTab) {
+    // Salvar cart atual e carregar comanda avulsa
+    setTableCarts(prev => ({ ...prev, [activeTableId]: cart }));
+    setCart(tab.items);
+    setCurrentTabId(tab.id);
+    setActiveTableId('__direct__');
+    setActiveTableLabel(null);
+    setShowTableMap(false);
+  }
+
+  async function handleDeleteTab(tabId: string) {
+    try {
+      await deleteOpenTab(tabId);
+      setOpenTabs(prev => prev.filter(t => t.id !== tabId));
+      if (currentTabId === tabId) {
+        setCurrentTabId(null);
+        setCart([]);
+      }
+      addNotification('success', 'Comanda removida');
+    } catch (err: any) {
+      addNotification('error', `Erro: ${err.message}`);
+    }
+  }
+
+  // ── Edição de mesa ────────────────────────────────────────────────────
+
+  function startEditTable(table: PdvTable) {
+    setEditingTableId(table.id);
+    setEditTableLabel(table.label);
+    setEditTableCapacity(table.capacity);
+  }
+
+  async function handleSaveTableEdit() {
+    if (!editingTableId || !editTableLabel.trim()) return;
+    setSavingTable(true);
+    try {
+      await updateSectorTable(editingTableId, editTableLabel.trim(), editTableCapacity);
+      setTables(prev => prev.map(t =>
+        t.id === editingTableId ? { ...t, label: editTableLabel.trim(), capacity: editTableCapacity } : t
+      ));
+      setEditingTableId(null);
+    } catch (e: any) { addNotification('error', e.message); }
+    finally { setSavingTable(false); }
   }
 
   function stockStrip(qty: number): { bg: string; text: string; label: string; urgent: boolean } {
@@ -571,17 +683,38 @@ const PDV: React.FC = () => {
         </div>
         {cart.length > 0 && (
           <div className="text-right">
+            {currentTabId && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold mb-1">
+                <BookOpen className="w-2.5 h-2.5" /> Comanda aberta
+              </span>
+            )}
             <p className="text-xs text-slate-500">{cart.length} produto{cart.length !== 1 ? 's' : ''}</p>
             <p className="text-xs text-slate-400">{cartCount} unidade{cartCount !== 1 ? 's' : ''}</p>
           </div>
         )}
       </div>
-      <button onClick={handleConfirm} disabled={cart.length === 0 || !selectedBooking}
-        className="w-full flex items-center justify-center gap-2.5 px-5 py-4 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-200 active:scale-[0.98]">
-        {!selectedBooking ? <><Search className="w-4 h-4" />Selecione uma UH</> :
-         cart.length === 0 ? <><ShoppingCart className="w-4 h-4" />Adicione itens</> :
-         <>Lançar na UH {selectedBooking.roomDescription}<ChevronRight className="w-4 h-4" /></>}
-      </button>
+      {/* Dois botões: salvar comanda + lançar na UH */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleSaveComanda}
+          disabled={cart.length === 0 || savingTab}
+          className="flex-1 flex items-center justify-center gap-2 px-3 py-3.5 rounded-2xl font-bold text-sm border-2 border-slate-600 text-slate-300 hover:border-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98]">
+          {savingTab
+            ? <RefreshCw className="w-4 h-4 animate-spin" />
+            : <BookOpen className="w-4 h-4" />}
+          {currentTabId ? 'Atualizar' : 'Salvar'}<br className="hidden" /> Comanda
+        </button>
+        <button
+          onClick={handleConfirm}
+          disabled={cart.length === 0 || !selectedBooking}
+          className="flex-[2] flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-200 active:scale-[0.98]">
+          {!selectedBooking
+            ? <><Search className="w-4 h-4 shrink-0" /><span className="truncate">Selecione uma UH</span></>
+            : cart.length === 0
+              ? <><ShoppingCart className="w-4 h-4 shrink-0" /><span>Adicione itens</span></>
+              : <><span className="truncate">Lançar UH {selectedBooking.roomDescription}</span><ChevronRight className="w-4 h-4 shrink-0" /></>}
+        </button>
+      </div>
     </div>
   );
 
@@ -809,66 +942,130 @@ const PDV: React.FC = () => {
                 {/* Tables */}
                 {tablesWithPos.map(table => {
                   const isActive = activeTableId === table.id;
-                  const itemCount = getTableCartCount(table.id);
-                  const total = getTableCartTotal(table.id);
-                  const isOccupied = itemCount > 0;
+                  const inMemCount = getTableCartCount(table.id);
+                  const openTab = openTabs.find(t => t.table_id === table.id);
+                  const hasOpenTab = !!openTab;
+                  const isOccupied = inMemCount > 0 || hasOpenTab;
+                  const total = inMemCount > 0 ? getTableCartTotal(table.id) : (openTab?.total_amount ?? 0);
                   const isDragging = draggingTableId === table.id;
                   const isHolding = holdProgress?.tableId === table.id;
+                  const isEditingThis = editingTableId === table.id;
 
                   return (
-                    <div
-                      key={table.id}
-                      style={{
-                        position: 'absolute',
-                        left: `${table.position_x}%`,
-                        top: `${table.position_y}%`,
-                        transform: `translate(-50%, -50%) ${isDragging ? 'scale(1.1)' : 'scale(1)'}`,
-                        touchAction: 'none',
-                        cursor: tableEditMode ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
-                        userSelect: 'none',
-                        zIndex: isDragging ? 20 : 1,
-                        transition: isDragging ? 'none' : 'transform 0.15s',
-                      }}
-                      onPointerDown={e => handleTablePointerDown(table.id, e)}
-                      onPointerUp={() => handleTablePointerUp(table.id)}
-                      onPointerLeave={() => { if (!tableEditMode) cancelHold(); }}
-                      className={`flex flex-col items-center justify-center gap-0.5 w-16 h-16 rounded-2xl border-2 select-none
-                        ${isActive ? 'border-amber-400 bg-amber-500/20 shadow-lg shadow-amber-500/30'
-                          : isOccupied ? 'border-amber-700/70 bg-amber-900/25'
-                          : 'border-slate-600 bg-slate-700/90'}
-                        ${isDragging ? 'shadow-2xl shadow-black/60' : ''}
-                        ${tableEditMode && !isDragging ? 'hover:border-amber-500/60' : ''}`}
-                    >
-                      {/* Hold progress ring */}
-                      {isHolding && (
-                        <svg className="absolute inset-0 w-full h-full -rotate-90 rounded-2xl" viewBox="0 0 64 64">
-                          <circle cx="32" cy="32" r="28" fill="none" stroke="#f59e0b" strokeWidth="3"
-                            strokeDasharray={`${(holdProgress!.pct / 100) * 175.9} 175.9`}
-                            strokeLinecap="round" />
-                        </svg>
-                      )}
-
-                      <LayoutGrid className={`w-4 h-4 ${isOccupied ? 'text-amber-400' : isActive ? 'text-amber-300' : 'text-slate-400'}`} />
-                      <span className={`text-[10px] font-bold text-center leading-tight w-14 truncate px-1
-                        ${isOccupied ? 'text-amber-200' : isActive ? 'text-amber-200' : 'text-slate-300'}`}>
-                        {table.label}
-                      </span>
-                      {isOccupied ? (
-                        <span className="text-[9px] text-amber-400 font-bold tabular-nums">{fmtBRL(total)}</span>
-                      ) : (
-                        <span className="text-[9px] text-slate-500">Livre</span>
-                      )}
-
-                      {/* Delete button (modo edição) */}
-                      {tableEditMode && !isDragging && (
-                        <button
+                    <div key={table.id}>
+                      {/* Inline edit form (flutuante acima do chip) */}
+                      {isEditingThis && tableEditMode && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: `${table.position_x}%`,
+                            top: `${table.position_y! - 16}%`,
+                            transform: 'translate(-50%, -100%)',
+                            zIndex: 30,
+                          }}
+                          className="bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl p-3 w-52"
                           onPointerDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); if (window.confirm(`Remover "${table.label}"?`)) handleDeleteTable(table.id); }}
-                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-400 transition-colors"
                         >
-                          <X className="w-3 h-3" />
-                        </button>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Editar Mesa</p>
+                          <input
+                            type="text"
+                            value={editTableLabel}
+                            onChange={e => setEditTableLabel(e.target.value)}
+                            placeholder="Nome da mesa"
+                            className="w-full px-2.5 py-1.5 text-sm rounded-lg bg-slate-700 text-white border border-slate-600 focus:border-amber-500 outline-none mb-2"
+                            autoFocus
+                            onKeyDown={e => { if (e.key === 'Enter') handleSaveTableEdit(); if (e.key === 'Escape') setEditingTableId(null); }}
+                          />
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs text-slate-400">Lugares:</span>
+                            <input
+                              type="number"
+                              value={editTableCapacity}
+                              onChange={e => setEditTableCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                              className="w-16 px-2 py-1 text-sm rounded-lg bg-slate-700 text-white border border-slate-600 focus:border-amber-500 outline-none text-center"
+                              min={1} max={30}
+                            />
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button onClick={handleSaveTableEdit} disabled={savingTable}
+                              className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-400 disabled:opacity-40">
+                              {savingTable ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Salvar
+                            </button>
+                            <button onClick={() => setEditingTableId(null)}
+                              className="px-2 py-1.5 text-slate-400 hover:text-white rounded-lg text-xs">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       )}
+
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: `${table.position_x}%`,
+                          top: `${table.position_y}%`,
+                          transform: `translate(-50%, -50%) ${isDragging ? 'scale(1.1)' : 'scale(1)'}`,
+                          touchAction: 'none',
+                          cursor: tableEditMode ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
+                          userSelect: 'none',
+                          zIndex: isDragging ? 20 : 1,
+                          transition: isDragging ? 'none' : 'transform 0.15s',
+                        }}
+                        onPointerDown={e => handleTablePointerDown(table.id, e)}
+                        onPointerUp={() => handleTablePointerUp(table.id)}
+                        onPointerLeave={() => { if (!tableEditMode) cancelHold(); }}
+                        className={`flex flex-col items-center justify-center gap-0.5 w-16 h-16 rounded-2xl border-2 select-none
+                          ${isActive ? 'border-amber-400 bg-amber-500/20 shadow-lg shadow-amber-500/30'
+                            : hasOpenTab ? 'border-emerald-500/70 bg-emerald-900/25'
+                            : isOccupied ? 'border-amber-700/70 bg-amber-900/25'
+                            : 'border-slate-600 bg-slate-700/90'}
+                          ${isDragging ? 'shadow-2xl shadow-black/60' : ''}
+                          ${tableEditMode && !isDragging ? 'hover:border-amber-500/60' : ''}`}
+                      >
+                        {/* Hold progress ring */}
+                        {isHolding && (
+                          <svg className="absolute inset-0 w-full h-full -rotate-90 rounded-2xl" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="28" fill="none" stroke="#f59e0b" strokeWidth="3"
+                              strokeDasharray={`${(holdProgress!.pct / 100) * 175.9} 175.9`}
+                              strokeLinecap="round" />
+                          </svg>
+                        )}
+
+                        {hasOpenTab
+                          ? <BookOpen className="w-4 h-4 text-emerald-400" />
+                          : <LayoutGrid className={`w-4 h-4 ${isOccupied ? 'text-amber-400' : isActive ? 'text-amber-300' : 'text-slate-400'}`} />}
+                        <span className={`text-[10px] font-bold text-center leading-tight w-14 truncate px-1
+                          ${hasOpenTab ? 'text-emerald-200' : isOccupied ? 'text-amber-200' : isActive ? 'text-amber-200' : 'text-slate-300'}`}>
+                          {table.label}
+                        </span>
+                        {isOccupied ? (
+                          <span className={`text-[9px] font-bold tabular-nums ${hasOpenTab ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {fmtBRL(total)}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-slate-500">{table.capacity}p · Livre</span>
+                        )}
+
+                        {/* Edit button (modo edição) */}
+                        {tableEditMode && !isDragging && (
+                          <>
+                            <button
+                              onPointerDown={e => e.stopPropagation()}
+                              onClick={e => { e.stopPropagation(); startEditTable(table); }}
+                              className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md hover:bg-blue-400 transition-colors"
+                            >
+                              <Edit2 className="w-2.5 h-2.5" />
+                            </button>
+                            <button
+                              onPointerDown={e => e.stopPropagation()}
+                              onClick={e => { e.stopPropagation(); if (window.confirm(`Remover "${table.label}"?`)) handleDeleteTable(table.id); }}
+                              className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-400 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -889,11 +1086,57 @@ const PDV: React.FC = () => {
             )}
           </div>
 
+          {/* Comandas sem mesa (standalone) */}
+          {(() => {
+            const standalone = openTabs.filter(t => t.table_id === null);
+            if (standalone.length === 0 && tableEditMode) return null;
+            if (standalone.length === 0) return null;
+            return (
+              <div className="px-5 pb-3 shrink-0">
+                <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">
+                  Comandas sem mesa ({standalone.length})
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {standalone.map(tab => (
+                    <div key={tab.id}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all
+                        ${currentTabId === tab.id
+                          ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                          : 'border-slate-600 bg-slate-800/60 text-slate-300 hover:border-emerald-500/50'}`}
+                    >
+                      <button onClick={() => handleLoadStandaloneTab(tab)} className="flex items-center gap-2">
+                        <BookOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-xs font-semibold">
+                          {tab.custom_label || tab.operator_name || 'Comanda'}
+                        </span>
+                        <span className="text-xs text-emerald-400 font-mono tabular-nums">
+                          {fmtBRL(tab.total_amount)}
+                        </span>
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDeleteTab(tab.id); }}
+                        className="ml-1 w-4 h-4 flex items-center justify-center rounded-full text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {/* Nova comanda sem mesa */}
+                  <button
+                    onClick={() => { selectTable('__direct__', null); }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-600 text-slate-500 hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition-all">
+                    <Plus className="w-3 h-3" /> Nova
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Footer */}
           <div className="px-5 py-3 border-t border-slate-800 shrink-0">
             <p className="text-[11px] text-slate-500 text-center">
               {tableEditMode
-                ? 'Arraste as mesas para organizar o layout. Clique em ✕ para remover.'
+                ? 'Arraste as mesas · ✎ editar · ✕ remover'
                 : 'Toque em uma mesa para selecionar. Segure 3s para editar o layout.'}
             </p>
           </div>

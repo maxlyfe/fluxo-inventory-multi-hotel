@@ -163,6 +163,99 @@ export async function updateTablePosition(tableId: string, x: number, y: number)
   if (error) throw error;
 }
 
+/** Atualiza nome e capacidade de uma mesa. */
+export async function updateSectorTable(tableId: string, label: string, capacity: number): Promise<void> {
+  const { error } = await supabase
+    .from('pdv_tables')
+    .update({ label, capacity })
+    .eq('id', tableId);
+  if (error) throw error;
+}
+
+// ── Comandas abertas ───────────────────────────────────────────────────────
+
+export interface OpenTab {
+  id: string;
+  hotel_id: string;
+  sector_id: string;
+  table_id: string | null;
+  table_label: string | null;
+  custom_label: string | null;
+  items: CartItem[];
+  notes: string | null;
+  total_amount: number;
+  operator_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Cria ou atualiza uma comanda aberta (sem exigir UH). */
+export async function saveOpenTab(tab: {
+  id?: string;
+  hotel_id: string;
+  sector_id: string;
+  table_id?: string | null;
+  table_label?: string | null;
+  custom_label?: string | null;
+  items: CartItem[];
+  notes?: string | null;
+  operator_name?: string | null;
+}): Promise<OpenTab> {
+  const total = tab.items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+  const payload = {
+    hotel_id: tab.hotel_id,
+    sector_id: tab.sector_id,
+    table_id: tab.table_id ?? null,
+    table_label: tab.table_label ?? null,
+    custom_label: tab.custom_label ?? null,
+    items: tab.items as unknown as object,
+    notes: tab.notes ?? null,
+    total_amount: total,
+    operator_name: tab.operator_name ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (tab.id) {
+    const { data, error } = await supabase
+      .from('pdv_open_tabs')
+      .update(payload)
+      .eq('id', tab.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return { ...data, items: (data.items as unknown as CartItem[]) || [] };
+  } else {
+    const { data, error } = await supabase
+      .from('pdv_open_tabs')
+      .insert(payload)
+      .select()
+      .single();
+    if (error) throw error;
+    return { ...data, items: (data.items as unknown as CartItem[]) || [] };
+  }
+}
+
+/** Lista todas as comandas abertas de um setor. */
+export async function getOpenTabsForSector(hotelId: string, sectorId: string): Promise<OpenTab[]> {
+  const { data, error } = await supabase
+    .from('pdv_open_tabs')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .eq('sector_id', sectorId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map((t: any) => ({
+    ...t,
+    items: (t.items as CartItem[]) || [],
+  }));
+}
+
+/** Remove uma comanda aberta (após fechar a conta). */
+export async function deleteOpenTab(tabId: string): Promise<void> {
+  const { error } = await supabase.from('pdv_open_tabs').delete().eq('id', tabId);
+  if (error) throw error;
+}
+
 /**
  * Busca produtos disponíveis no estoque de um setor,
  * enriquecidos com preço de venda e mapeamento Erbon.
