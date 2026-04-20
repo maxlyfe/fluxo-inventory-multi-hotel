@@ -260,38 +260,41 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     ? (data.birthDate.includes('T') ? data.birthDate : `${data.birthDate}T00:00:00`)
     : null;
 
+  const addressObj = data.address
+    ? {
+        country: data.address.country?.trim() || 'BR',
+        ...(data.address.state?.trim()        ? { state:        data.address.state.trim() }        : {}),
+        ...(data.address.city?.trim()         ? { city:         data.address.city.trim() }         : {}),
+        ...(data.address.street?.trim()       ? { street:       data.address.street.trim() }       : {}),
+        ...(data.address.neighborhood?.trim() ? { neighborhood: data.address.neighborhood.trim() } : {}),
+        // CEP: sempre sem hífen (ex: "28950-410" → "28950410")
+        ...(data.address.zipcode?.replace(/\D/g, '') ? { zipcode: data.address.zipcode!.replace(/\D/g, '') } : {}),
+      }
+    : {};
+
   return {
     id: existingId ?? 0,
     name: data.name?.trim() || '',
-    email: data.email?.trim() || null,
-    phone: data.phone?.trim() || null,
-    birthDate: birthDateFormatted,
-    // genderID: omitir completamente quando null/0 (Erbon rejeita null explícito;
-    // o GOV faz a tratativa quando o campo não está presente no payload)
-    ...(data.genderID ? { genderID: data.genderID } : {}),
-    nationality: data.nationality?.trim() || null,
-    // professionID e profession: omitir se ausentes (Erbon rejeita null explícito)
-    ...(data.professionID ? { professionID: data.professionID } : {}),
-    ...(data.profession?.trim() ? { profession: data.profession.trim() } : {}),
-    vehicleRegistration: data.vehicleRegistration?.trim() || null,
+    // Campos opcionais: omitir completamente quando vazios (Erbon rejeita null explícito)
+    ...(data.email?.trim()       ? { email:       data.email.trim() }       : {}),
+    ...(data.phone?.trim()       ? { phone:       data.phone.trim() }       : {}),
+    ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }       : {}),
+    // genderID: omitir quando null/0 — o GOV faz a tratativa quando ausente
+    ...(data.genderID            ? { genderID:    data.genderID }            : {}),
+    ...(data.nationality?.trim() ? { nationality: data.nationality.trim() }  : {}),
+    // professionID e profession: omitir se ausentes
+    ...(data.professionID        ? { professionID: data.professionID }       : {}),
+    ...(data.profession?.trim()  ? { profession:  data.profession.trim() }   : {}),
+    ...(data.vehicleRegistration?.trim() ? { vehicleRegistration: data.vehicleRegistration.trim() } : {}),
     isClient: data.isClient ?? true,
     isProvider: data.isProvider ?? false,
-    address: data.address
-      ? {
-          country: data.address.country?.trim() || 'BR',
-          state: data.address.state?.trim() || null,
-          city: data.address.city?.trim() || null,
-          street: data.address.street?.trim() || null,
-          // CEP: sempre sem hífen (ex: "28950-410" → "28950410")
-          zipcode: data.address.zipcode?.replace(/\D/g, '') || null,
-          neighborhood: data.address.neighborhood?.trim() || null,
-        }
-      : null,
+    address: addressObj,
     documents: (data.documents || []).map(d => ({
       documentType: d.documentType,
       // CPF/RG: remover pontos, traços e espaços ("011.909.259-07" → "01190925907")
       number: d.number?.replace(/[\.\-\/\s]/g, '') || d.number,
-      expirationDate: d.expirationDate || null,
+      // expirationDate: omitir quando vazio (Erbon rejeita null explícito)
+      ...(d.expirationDate ? { expirationDate: d.expirationDate } : {}),
       country: (d.country && d.country.trim()) || docCountryFallback,
     })),
   };
