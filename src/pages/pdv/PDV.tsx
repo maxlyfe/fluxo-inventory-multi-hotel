@@ -440,10 +440,19 @@ const PDV: React.FC = () => {
 
   // ── Comanda aberta ────────────────────────────────────────────────────
 
+  function generateComandaId(): string {
+    // ID curto e legível: #A1B2
+    return '#' + Math.random().toString(36).slice(2, 6).toUpperCase();
+  }
+
   async function handleSaveComanda() {
     if (!selectedHotel || !selectedSectorId) return;
     if (cart.length === 0) { addNotification('error', 'Adicione itens ao carrinho'); return; }
     setSavingTab(true);
+    // Gerar ID de comanda único apenas na primeira vez
+    const newCustomLabel = currentTabId
+      ? undefined          // já tem ID → não sobrescrever
+      : generateComandaId();
     try {
       const tab = await saveOpenTab({
         id: currentTabId ?? undefined,
@@ -451,6 +460,7 @@ const PDV: React.FC = () => {
         sector_id: selectedSectorId,
         table_id: activeTableId !== '__direct__' ? activeTableId : null,
         table_label: activeTableLabel,
+        custom_label: newCustomLabel,
         items: cart,
         operator_name: user?.full_name || user?.email || 'Operador',
       });
@@ -514,12 +524,19 @@ const PDV: React.FC = () => {
     finally { setSavingTable(false); }
   }
 
-  function stockStrip(qty: number): { bg: string; text: string; label: string; urgent: boolean } {
-    if (qty <= 0) return { bg: 'bg-red-600',   text: 'text-white', label: 'ESGOTADO',          urgent: true  };
-    if (qty === 1) return { bg: 'bg-red-500',   text: 'text-white', label: '⚠ última unidade!', urgent: true  };
-    if (qty < 4)  return  { bg: 'bg-red-500/80',text: 'text-white', label: `⚠ ${qty} restantes`,urgent: true  };
-    if (qty < 8)  return  { bg: 'bg-amber-500', text: 'text-white', label: `${qty} disponíveis`, urgent: false };
-    return                 { bg: 'bg-emerald-600/80', text: 'text-white', label: `${qty} disponíveis`, urgent: false };
+  // Pill sutil no canto inferior esquerdo — sólido mas compacto
+  function stockPill(qty: number): string {
+    if (qty <= 0) return 'bg-red-600 text-white';
+    if (qty <= 1) return 'bg-red-500 text-white';
+    if (qty <= 3) return 'bg-red-500/90 text-white';
+    if (qty <= 7) return 'bg-amber-500 text-white';
+    return 'bg-emerald-600 text-white';
+  }
+  function stockLabel(qty: number): string {
+    if (qty <= 0) return 'Esgotado';
+    if (qty === 1) return '⚠ 1 restante';
+    if (qty <= 3) return `⚠ ${qty} rest.`;
+    return `${qty} disp.`;
   }
 
   // ── Erbon not configured ──────────────────────────────────────────────
@@ -800,6 +817,13 @@ const PDV: React.FC = () => {
   }
 
   async function handleDeleteTable(tableId: string) {
+    const hasOpenTab   = openTabs.some(t => t.table_id === tableId);
+    const hasInMemCart = (tableCarts[tableId] || []).length > 0;
+    if (hasOpenTab || hasInMemCart) {
+      addNotification('error', 'Não é possível remover uma mesa com comanda em aberto');
+      return;
+    }
+    if (!window.confirm('Remover esta mesa?')) return;
     setSavingTable(true);
     try {
       await deleteSectorTable(tableId);
@@ -841,29 +865,36 @@ const PDV: React.FC = () => {
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 {tableEditMode
-                  ? 'Arraste as mesas para posicioná-las. Segure 3s em qualquer lugar para sair.'
-                  : `${currentSector?.sector_name ?? 'Setor'} — segure 3s em uma mesa para editar layout`}
+                  ? 'Arraste mesas para reposicionar · ✎ editar · ✕ remover'
+                  : `${currentSector?.sector_name ?? 'Setor'}`}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {tableEditMode && (
-                <button
-                  onClick={() => setShowAddTable(s => !s)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500 text-white rounded-xl hover:bg-amber-400 transition-colors">
-                  <Plus className="w-3.5 h-3.5" /> Nova Mesa
-                </button>
-              )}
               {tableEditMode ? (
-                <button
-                  onClick={() => { setTableEditMode(false); setShowAddTable(false); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-green-600 text-white rounded-xl hover:bg-green-500 transition-colors">
-                  <CheckCircle className="w-3.5 h-3.5" /> Concluído
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowAddTable(s => !s)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500 text-white rounded-xl hover:bg-amber-400 transition-colors">
+                    <Plus className="w-3.5 h-3.5" /> Nova Mesa
+                  </button>
+                  <button
+                    onClick={() => { setTableEditMode(false); setShowAddTable(false); setEditingTableId(null); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 transition-colors">
+                    <CheckCircle className="w-3.5 h-3.5" /> Concluído
+                  </button>
+                </>
               ) : (
-                <button onClick={() => setShowTableMap(false)}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
-                  <X className="w-4 h-4" />
-                </button>
+                <>
+                  <button
+                    onClick={() => setTableEditMode(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-slate-600 text-slate-300 rounded-xl hover:border-amber-500 hover:text-amber-400 transition-colors">
+                    <Edit2 className="w-3.5 h-3.5" /> Editar Layout
+                  </button>
+                  <button onClick={() => setShowTableMap(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+                    <X className="w-4 h-4" />
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1039,9 +1070,14 @@ const PDV: React.FC = () => {
                           {table.label}
                         </span>
                         {isOccupied ? (
-                          <span className={`text-[9px] font-bold tabular-nums ${hasOpenTab ? 'text-emerald-400' : 'text-amber-400'}`}>
-                            {fmtBRL(total)}
-                          </span>
+                          <>
+                            {hasOpenTab && openTab?.custom_label && (
+                              <span className="text-[8px] font-bold text-emerald-300 font-mono tracking-wide leading-none">{openTab.custom_label}</span>
+                            )}
+                            <span className={`text-[9px] font-bold tabular-nums ${hasOpenTab ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              {fmtBRL(total)}
+                            </span>
+                          </>
                         ) : (
                           <span className="text-[9px] text-slate-500">{table.capacity}p · Livre</span>
                         )}
@@ -1056,13 +1092,20 @@ const PDV: React.FC = () => {
                             >
                               <Edit2 className="w-2.5 h-2.5" />
                             </button>
-                            <button
-                              onPointerDown={e => e.stopPropagation()}
-                              onClick={e => { e.stopPropagation(); if (window.confirm(`Remover "${table.label}"?`)) handleDeleteTable(table.id); }}
-                              className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-400 transition-colors"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                            {(() => {
+                              const blocked = openTabs.some(t => t.table_id === table.id) || (tableCarts[table.id]?.length ?? 0) > 0;
+                              return (
+                                <button
+                                  onPointerDown={e => e.stopPropagation()}
+                                  onClick={e => { e.stopPropagation(); handleDeleteTable(table.id); }}
+                                  title={blocked ? 'Mesa com comanda em aberto' : 'Remover mesa'}
+                                  className={`absolute -top-2 -right-2 w-5 h-5 rounded-full text-white flex items-center justify-center shadow-md transition-colors
+                                    ${blocked ? 'bg-slate-500 cursor-not-allowed' : 'bg-red-500 hover:bg-red-400'}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              );
+                            })()}
                           </>
                         )}
                       </div>
@@ -1106,10 +1149,10 @@ const PDV: React.FC = () => {
                     >
                       <button onClick={() => handleLoadStandaloneTab(tab)} className="flex items-center gap-2">
                         <BookOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="text-xs font-semibold">
-                          {tab.custom_label || tab.operator_name || 'Comanda'}
+                        <span className="text-xs font-bold font-mono tracking-wider text-emerald-300">
+                          {tab.custom_label || 'SEM ID'}
                         </span>
-                        <span className="text-xs text-emerald-400 font-mono tabular-nums">
+                        <span className="text-xs text-slate-400 font-mono tabular-nums">
                           {fmtBRL(tab.total_amount)}
                         </span>
                       </button>
@@ -1232,17 +1275,10 @@ const PDV: React.FC = () => {
                       <span className="text-[10px] font-black text-white">{inCart}</span>
                     </div>
                   )}
-                  {/* Stock strip — always visible, full width, prominent */}
-                  {(() => {
-                    const s = stockStrip(product.stock_quantity);
-                    return (
-                      <div className={`absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1.5 py-1.5 ${s.bg} ${s.text} backdrop-blur-sm`}>
-                        <span className={`text-[11px] font-black tracking-wide uppercase ${s.urgent ? 'animate-pulse' : ''}`}>
-                          {s.label}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                  {/* Stock pill — canto inferior esquerdo, sólido e compacto */}
+                  <div className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm ${stockPill(product.stock_quantity)}`}>
+                    {stockLabel(product.stock_quantity)}
+                  </div>
                   {product.erbon_service_id === null && (
                     <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-amber-500/90 flex items-center justify-center"
                       title="Sem mapeamento PMS">
