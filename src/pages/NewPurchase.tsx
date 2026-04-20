@@ -1,12 +1,20 @@
+// src/pages/NewPurchase.tsx
+// Redesenhado — slate design system, layout com seções cards,
+// itens como cards responsivos, sticky footer com total + submit.
+
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
-  ArrowLeft, Search, Plus, Trash2, DollarSign, 
-  Package, AlertTriangle, Image as ImageIcon 
+import {
+  ArrowLeft, Search, Plus, Trash2, DollarSign, Package,
+  AlertTriangle, X, FileText, Building2, Calendar,
+  StickyNote, ChevronDown, Loader2, ShoppingCart,
+  CheckCircle, Info, Minus,
 } from 'lucide-react';
-import { useNotification } from "../context/NotificationContext";
+import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
+
+// ── Tipos ─────────────────────────────────────────────────────────────────────
 
 interface Product {
   id: string;
@@ -21,11 +29,8 @@ interface PurchaseItem {
   product?: Product;
   isNew: boolean;
   newProduct?: {
-    name: string;
-    category: string;
-    description?: string;
-    supplier?: string;
-    image_url?: string;
+    name: string; category: string; description?: string;
+    supplier?: string; image_url?: string;
   };
   quantity: number;
   unit_price: number;
@@ -38,645 +43,575 @@ interface Budget {
   id: string;
   status: 'pending' | 'approved' | 'delivered' | 'canceled';
   budget_items?: Array<{
-    product_id?: string;
-    custom_item_name?: string;
-    supplier?: string;
-    unit_price?: number;
-    quantity?: number;
-    product?: {
-        name?: string;
-        category?: string;
-        description?: string;
-        image_url?: string;
-    };
+    product_id?: string; custom_item_name?: string; supplier?: string;
+    unit_price?: number; quantity?: number;
+    product?: { name?: string; category?: string; description?: string; image_url?: string; };
   }>;
   hotel_id?: string;
   purchase_id?: string | null;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const fieldCls =
+  'w-full rounded-xl border border-slate-200 dark:border-slate-600 ' +
+  'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white ' +
+  'placeholder-slate-400 text-sm px-3 py-2.5 ' +
+  'focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 ' +
+  'transition-colors';
+
+// ── Componente de campo de seção ─────────────────────────────────────────────
+
+const Section: React.FC<{
+  icon: React.ReactNode; title: string; children: React.ReactNode;
+  accent?: string;
+}> = ({ icon, title, children, accent = 'blue' }) => {
+  const ic: Record<string, string> = {
+    blue: 'text-blue-500', emerald: 'text-emerald-500', amber: 'text-amber-500',
+    slate: 'text-slate-400', orange: 'text-orange-500',
+  };
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+      <h2 className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+        <span className={ic[accent] ?? ic.blue}>{icon}</span>
+        {title}
+      </h2>
+      {children}
+    </div>
+  );
+};
+
+// ── Componente principal ──────────────────────────────────────────────────────
+
 const NewPurchase = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { selectedHotel } = useHotel();
+  const location   = useLocation();
+  const navigate   = useNavigate();
+  const { selectedHotel }   = useHotel();
   const { addNotification } = useNotification();
+
   const budgetDataFromState: Budget | undefined = location.state?.budgetData;
   const budgetIdToUpdate = budgetDataFromState?.id;
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitLoading, setSubmitLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [items, setItems] = useState<PurchaseItem[]>([]);
-  const [showNewProductForm, setShowNewProductForm] = useState(false);
+  const [products,          setProducts]          = useState<Product[]>([]);
+  const [filteredProducts,  setFilteredProducts]  = useState<Product[]>([]);
+  const [searchTerm,        setSearchTerm]        = useState('');
+  const [searchOpen,        setSearchOpen]        = useState(false);
+  const [loading,           setLoading]           = useState(true);
+  const [submitLoading,     setSubmitLoading]     = useState(false);
+  const [error,             setError]             = useState<string | null>(null);
+  const [items,             setItems]             = useState<PurchaseItem[]>([]);
+  const [showNewForm,       setShowNewForm]       = useState(false);
+  const [imgErrors,         setImgErrors]         = useState<Record<string, boolean>>({});
+  const [budgetProcessed,   setBudgetProcessed]   = useState(false);
+
   const [newProduct, setNewProduct] = useState({
-    name: '',
-    category: '',
-    description: '',
-    supplier: '',
-    image_url: ''
+    name: '', category: '', description: '', supplier: '', image_url: '',
   });
-  
+
   const [purchaseData, setPurchaseData] = useState({
     invoice_number: '',
     supplier: '',
     purchase_date: new Date().toISOString().split('T')[0],
-    notes: ''
+    notes: '',
   });
 
-  const [budgetProcessed, setBudgetProcessed] = useState(false);
-
+  // ── Reset ao mudar orçamento ────────────────────────────────────────────────
   useEffect(() => {
-    if (location.state?.budgetData) {
-      setBudgetProcessed(false);
-      setItems([]); 
-      setPurchaseData(prev => ({...prev, supplier: ''})); 
-    }
+    if (location.state?.budgetData) { setBudgetProcessed(false); setItems([]); setPurchaseData(p => ({ ...p, supplier: '' })); }
   }, [location.state?.budgetData]);
 
+  // ── Carregar produtos ───────────────────────────────────────────────────────
   useEffect(() => {
     const fetchProducts = async () => {
-      try {
-        if (!selectedHotel?.id) {
-          setProducts([]);
-          setFilteredProducts([]);
-          setLoading(false);
-          return;
-        }
-        setLoading(true);
-        const { data, error: fetchError } = await supabase
-          .from('products')
-          .select('*')
-          .eq('hotel_id', selectedHotel.id)
-          .order('name');
-
-        if (fetchError) throw fetchError;
-        setProducts(data || []);
-        setFilteredProducts(data || []);
-      } catch (err: any) {
-        console.error('Error fetching products:', err);
-        setError('Erro ao carregar produtos: ' + err.message);
-        addNotification('Erro ao carregar produtos: ' + err.message, 'error');
-      } finally {
-        setLoading(false);
-      }
+      if (!selectedHotel?.id) { setProducts([]); setFilteredProducts([]); setLoading(false); return; }
+      setLoading(true);
+      const { data, error: fe } = await supabase.from('products').select('*').eq('hotel_id', selectedHotel.id).order('name');
+      if (fe) { addNotification('Erro ao carregar produtos: ' + fe.message, 'error'); }
+      else { setProducts(data || []); setFilteredProducts(data || []); }
+      setLoading(false);
     };
-
     fetchProducts();
   }, [selectedHotel, addNotification]);
 
+  // ── Pré-preencher com orçamento ─────────────────────────────────────────────
   useEffect(() => {
-    if (budgetDataFromState && products.length > 0 && !budgetProcessed) {
-      const mainSupplier = budgetDataFromState.budget_items?.find((item: any) => item.supplier)?.supplier || 
-                           budgetDataFromState.budget_items?.[0]?.supplier || 
-                           '';
-      
-      setPurchaseData(prev => ({
-         ...prev,
-         supplier: mainSupplier || prev.supplier
-      }));
+    if (!budgetDataFromState || !products.length || budgetProcessed) return;
+    const mainSupplier = budgetDataFromState.budget_items?.find(i => i.supplier)?.supplier || '';
+    setPurchaseData(p => ({ ...p, supplier: mainSupplier || p.supplier }));
+    const preItems = budgetDataFromState.budget_items?.map(bi => {
+      const qty = bi.quantity ?? 1, price = bi.unit_price ?? 0;
+      const prod = products.find(p => p.id === bi.product_id);
+      if (bi.product_id && prod) return { product_id: bi.product_id, product: prod, isNew: false, quantity: qty, unit_price: price, total_price: qty * price };
+      if (bi.custom_item_name) return { isNew: true, newProduct: { name: bi.custom_item_name, category: 'Diversos', description: '', supplier: bi.supplier || mainSupplier, image_url: '' }, quantity: qty, unit_price: price, total_price: qty * price };
+      if (bi.product_id && !prod) return { isNew: true, newProduct: { name: bi.product?.name || `Produto ID ${bi.product_id}`, category: bi.product?.category || 'Diversos', description: bi.product?.description || '', supplier: bi.supplier || mainSupplier, image_url: bi.product?.image_url || '' }, quantity: qty, unit_price: price, total_price: qty * price };
+      return null;
+    }).filter((i): i is PurchaseItem => i !== null);
 
-      const prefilledItems = budgetDataFromState.budget_items?.map((budgetItem: any) => {
-        const unitPrice = budgetItem.unit_price ?? 0;
-        const quantity = budgetItem.quantity ?? 1;
-        const totalPrice = unitPrice * quantity;
-        const correspondingProduct = products.find(p => p.id === budgetItem.product_id);
-
-        if (budgetItem.product_id && correspondingProduct) {
-          return {
-            product_id: budgetItem.product_id,
-            product: correspondingProduct,
-            isNew: false,
-            quantity: quantity,
-            unit_price: unitPrice,
-            total_price: totalPrice
-          };
-        } else if (budgetItem.custom_item_name) {
-          return {
-            isNew: true,
-            newProduct: {
-              name: budgetItem.custom_item_name,
-              category: 'Diversos',
-              description: '',
-              supplier: budgetItem.supplier || mainSupplier,
-              image_url: '',
-            },
-            quantity: quantity,
-            unit_price: unitPrice,
-            total_price: totalPrice
-          };
-        } else if (budgetItem.product_id && !correspondingProduct) {
-           console.warn(`Product with ID ${budgetItem.product_id} from budget not found in inventory. Treating as new.`);
-           return {
-            isNew: true,
-            newProduct: {
-              name: budgetItem.product?.name || `Produto ID ${budgetItem.product_id}`,
-              category: budgetItem.product?.category || 'Diversos',
-              description: budgetItem.product?.description || '',
-              supplier: budgetItem.supplier || mainSupplier,
-              image_url: budgetItem.product?.image_url || '',
-            },
-            quantity: quantity,
-            unit_price: unitPrice,
-            total_price: totalPrice
-          };
-        }
-        return null;
-      }).filter((item: PurchaseItem | null): item is PurchaseItem => item !== null);
-
-      if (prefilledItems && prefilledItems.length > 0) {
-        setItems(prefilledItems);
-        addNotification('Formulário pré-preenchido com dados do orçamento.', 'info');
-      } else {
-        console.warn("[NewPurchase] Could not prefill items from budget data:", budgetDataFromState);
-        addNotification('Não foi possível pré-preencher os itens do orçamento.', 'warning');
-      }
-      setBudgetProcessed(true);
-    }
+    if (preItems?.length) { setItems(preItems); addNotification('Formulário pré-preenchido com dados do orçamento.', 'info'); }
+    setBudgetProcessed(true);
   }, [budgetDataFromState, products, addNotification, budgetProcessed]);
 
+  // ── Filtro de busca ─────────────────────────────────────────────────────────
   useEffect(() => {
-    const filtered = products.filter(product =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (product.description && product.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      product.category.toLowerCase().includes(searchTerm.toLowerCase())
+    const q = searchTerm.toLowerCase();
+    setFilteredProducts(
+      q ? products.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q)
+      ).slice(0, 8) : []
     );
-    setFilteredProducts(filtered);
   }, [searchTerm, products]);
 
+  // ── Handlers de item ────────────────────────────────────────────────────────
   const addItem = (product: Product) => {
-    const existingItem = items.find(item => !item.isNew && item.product_id === product.id);
-    if (existingItem) {
-      setError('Este item já foi adicionado à compra');
-      addNotification('Este item já foi adicionado à compra.', 'warning');
-      setTimeout(() => setError(null), 3000);
-      return;
+    if (items.find(i => !i.isNew && i.product_id === product.id)) {
+      addNotification('Este item já foi adicionado.', 'warning'); return;
     }
-    setItems([...items, {
-      product_id: product.id,
-      product: product,
-      isNew: false,
-      quantity: 1,
-      unit_price: 0,
-      total_price: 0
-    }]);
-    setSearchTerm('');
+    setItems(prev => [...prev, { product_id: product.id, product, isNew: false, quantity: 1, unit_price: 0, total_price: 0 }]);
+    setSearchTerm(''); setSearchOpen(false);
   };
 
   const addNewProduct = () => {
     if (!newProduct.name || !newProduct.category) {
-      setError('Nome e Categoria são obrigatórios para novos produtos.');
-      addNotification('Nome e Categoria são obrigatórios para novos produtos.', 'error');
-      setTimeout(() => setError(null), 3000);
-      return;
+      addNotification('Nome e Categoria são obrigatórios.', 'error'); return;
     }
-    const existingItem = items.find(item => 
-      item.isNew && item.newProduct?.name.toLowerCase() === newProduct.name.toLowerCase()
-    );
-    if (existingItem) {
-      setError('Um produto com este nome já foi adicionado à compra (como novo)');
-      addNotification('Um produto com este nome já foi adicionado à compra (como novo).', 'warning');
-      setTimeout(() => setError(null), 3000);
-      return;
+    if (items.find(i => i.isNew && i.newProduct?.name.toLowerCase() === newProduct.name.toLowerCase())) {
+      addNotification('Produto com este nome já foi adicionado.', 'warning'); return;
     }
-    setItems([...items, {
+    setItems(prev => [...prev, {
       isNew: true,
       newProduct: { ...newProduct, supplier: newProduct.supplier || purchaseData.supplier },
-      quantity: 1,
-      unit_price: 0,
-      total_price: 0
+      quantity: 1, unit_price: 0, total_price: 0,
     }]);
     setNewProduct({ name: '', category: '', description: '', supplier: purchaseData.supplier, image_url: '' });
-    setShowNewProductForm(false);
+    setShowNewForm(false);
   };
 
-  const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
+  const removeItem = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx));
 
-  const updateItem = (index: number, field: 'quantity' | 'unit_price', value: string) => {
-    const numericValue = parseFloat(value.replace(',', '.')) || 0;
-    setItems(items.map((item, i) => {
-      if (i === index) {
-        let updatedItem = { ...item };
-        if (field === 'quantity') {
-          updatedItem.quantity = numericValue;
-          updatedItem.quantity_display = value;
-        } else if (field === 'unit_price') {
-          updatedItem.unit_price = numericValue;
-          updatedItem.unit_price_display = value;
-        }
-        updatedItem.total_price = updatedItem.quantity * updatedItem.unit_price;
-        return updatedItem;
-      }
-      return item;
+  const updateItem = (idx: number, field: 'quantity' | 'unit_price', value: string) => {
+    const num = parseFloat(value.replace(',', '.')) || 0;
+    setItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item;
+      const next = { ...item };
+      if (field === 'quantity') { next.quantity = num; next.quantity_display = value; }
+      else { next.unit_price = num; next.unit_price_display = value; }
+      next.total_price = next.quantity * next.unit_price;
+      return next;
     }));
   };
 
-  const calculateTotal = () => items.reduce((total, item) => total + item.total_price, 0);
-
-  const handlePurchaseDataChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setPurchaseData(prev => ({ ...prev, [name]: value }));
+  const adjustQty = (idx: number, delta: number) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item;
+      const qty = Math.max(0.01, item.quantity + delta);
+      return { ...item, quantity: qty, quantity_display: String(qty), total_price: qty * item.unit_price };
+    }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSubmitLoading(true);
+  const total = items.reduce((s, i) => s + i.total_price, 0);
 
+  // ── Submit ──────────────────────────────────────────────────────────────────
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(null); setSubmitLoading(true);
     try {
       if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
-      if (items.length === 0) throw new Error('Adicione pelo menos um item à compra');
+      if (!items.length)        throw new Error('Adicione pelo menos um item');
       if (!purchaseData.supplier) throw new Error('Fornecedor é obrigatório');
-      if (!purchaseData.purchase_date) throw new Error('Data da compra é obrigatória');
 
-      const { data: purchase, error: purchaseError } = await supabase
-        .from('purchases')
-        .insert({
-          invoice_number: purchaseData.invoice_number || null,
-          supplier: purchaseData.supplier,
-          purchase_date: purchaseData.purchase_date,
-          notes: purchaseData.notes || null,
-          total_amount: calculateTotal(),
-          hotel_id: selectedHotel.id
-        })
-        .select()
-        .single();
-
-      if (purchaseError) throw purchaseError;
+      const { data: purchase, error: pe } = await supabase.from('purchases').insert({
+        invoice_number: purchaseData.invoice_number || null,
+        supplier: purchaseData.supplier,
+        purchase_date: purchaseData.purchase_date,
+        notes: purchaseData.notes || null,
+        total_amount: total,
+        hotel_id: selectedHotel.id,
+      }).select().single();
+      if (pe) throw pe;
 
       for (const item of items) {
         let productId = item.product_id;
-        let productName = item.product?.name || item.newProduct?.name;
-        let wasNewProductDuplicate = false;
-        let productInsertionError: any = null; 
+        let wasNewDuplicate = false;
 
         if (item.isNew && item.newProduct) {
-          const { data: newDbProduct, error: capturedError } = await supabase
-            .from('products')
-            .insert({
-              name: item.newProduct.name,
-              category: item.newProduct.category,
-              description: item.newProduct.description || null,
-              supplier: item.newProduct.supplier || purchaseData.supplier,
-              image_url: item.newProduct.image_url || null,
-              hotel_id: selectedHotel.id,
-              quantity: item.quantity 
-            })
-            .select()
-            .single();
-          
-          productInsertionError = capturedError;
+          const { data: np, error: ne } = await supabase.from('products').insert({
+            name: item.newProduct.name, category: item.newProduct.category,
+            description: item.newProduct.description || null,
+            supplier: item.newProduct.supplier || purchaseData.supplier,
+            image_url: item.newProduct.image_url || null,
+            hotel_id: selectedHotel.id, quantity: item.quantity,
+          }).select().single();
 
-          if (productInsertionError) {
-            if (productInsertionError.code === '23505') { 
-              wasNewProductDuplicate = true;
-              console.warn(`Produto "${item.newProduct.name}" já existe (erro 23505). Buscando ID...`);
-              const { data: existingProduct, error: findError } = await supabase
-                .from('products')
-                .select('id, name')
-                .eq('name', item.newProduct.name)
-                .eq('hotel_id', selectedHotel.id)
-                .single();
-              
-              if (findError || !existingProduct) {
-                console.error('Erro ao buscar produto existente que causou duplicidade:', findError);
-                throw new Error(`Erro ao processar novo produto duplicado "${item.newProduct.name}": ${productInsertionError.message}`);
-              }
-              productId = existingProduct.id;
-              productName = existingProduct.name;
-            } else {
-              throw productInsertionError;
-            }
-          } else {
-            productId = newDbProduct.id;
-            productName = newDbProduct.name;
-          }
+          if (ne) {
+            if (ne.code === '23505') {
+              wasNewDuplicate = true;
+              const { data: ep } = await supabase.from('products').select('id').eq('name', item.newProduct.name).eq('hotel_id', selectedHotel.id).single();
+              if (!ep) throw new Error(`Produto duplicado "${item.newProduct.name}" não encontrado.`);
+              productId = ep.id;
+            } else throw ne;
+          } else { productId = np.id; }
         }
 
         if (productId) {
-          const { error: itemError } = await supabase
-            .from('purchase_items')
-            .insert({
-              purchase_id: purchase.id,
-              product_id: productId,
-              quantity: item.quantity,
-              unit_price: item.unit_price,
-              total_price: item.total_price
-            });
-          if (itemError) throw itemError;
+          const { error: ie } = await supabase.from('purchase_items').insert({
+            purchase_id: purchase.id, product_id: productId,
+            quantity: item.quantity, unit_price: item.unit_price, total_price: item.total_price,
+          });
+          if (ie) throw ie;
 
-          if (!item.isNew || wasNewProductDuplicate) { 
-            // console.log(`Chamando RPC update_product_stock para ${wasNewProductDuplicate ? 'produto duplicado' : 'produto existente'}: ${productName} (ID: ${productId})`);
-            // const { error: stockUpdateError } = await supabase.rpc(
-            //   'update_product_stock',
-            //   { 
-            //     p_product_id: productId,
-            //     p_quantity_change: item.quantity,
-            //     p_movement_type: 'compra',
-            //     p_purchase_id: purchase.id
-            //   }
-            // );
-            // if (stockUpdateError) {
-            //   console.error(`Erro RPC update_product_stock para ${productId} (${productName}):`, JSON.stringify(stockUpdateError));
-            //   addNotification(
-            //     `Erro ao atualizar estoque para ${productName}. Verifique se a função 'update_product_stock' existe e está correta no Supabase (Erro: ${stockUpdateError.message}). Estoque pode precisar de ajuste manual.`,
-            //      'error',
-            //      10000
-            //   );
-            // }
-            console.warn(`[INFO] A chamada para atualização de estoque (update_product_stock) para o produto ${productName} (ID: ${productId}) foi desabilitada temporariamente, pois a função RPC correspondente não foi encontrada ou não está configurada corretamente no backend (Supabase). O estoque precisará ser ajustado manualmente.`);
-            addNotification(`Atualização de estoque para '${productName}' desabilitada (função RPC ausente). Ajuste manual necessário.`, 'warning', 10000);
+          if (!item.isNew || wasNewDuplicate) {
+            addNotification(`Estoque de '${item.product?.name || item.newProduct?.name}' será ajustado manualmente (RPC ausente).`, 'warning', 8000);
           }
-        } else {
-          console.error("ID do produto não definido para o item:", item);
-          addNotification(`Erro crítico: ID do produto não encontrado para ${productName || 'item desconhecido'}.`, 'error');
         }
       }
 
       if (budgetIdToUpdate && selectedHotel?.id) {
-        const { error: budgetUpdateError } = await supabase
-          .from('budgets')
-          .update({ status: 'delivered' })
-          .eq('id', budgetIdToUpdate)
-          .eq('hotel_id', selectedHotel.id);
-
-        if (budgetUpdateError) {
-          console.error('Erro ao atualizar status do orçamento:', budgetUpdateError);
-          addNotification('Compra registrada, mas erro ao atualizar status do orçamento. Verifique o console para detalhes.', 'warning');
-        } else {
-          addNotification('Status do orçamento atualizado para Concluído.', 'info');
-        }
-      } else {
-        console.warn("[NewPurchase] Não foi possível atualizar o status do orçamento: budgetIdToUpdate ou selectedHotel.id está faltando.", { budgetIdToUpdate, selectedHotelId: selectedHotel?.id });
-        if (budgetIdToUpdate) { // Se apenas o budgetIdToUpdate estiver presente, mas não o hotel, ainda é um problema
-            addNotification('Não foi possível atualizar o status do orçamento pois o hotel não está selecionado corretamente.', 'warning');
-        }
+        await supabase.from('budgets').update({ status: 'delivered' }).eq('id', budgetIdToUpdate).eq('hotel_id', selectedHotel.id);
+        addNotification('Status do orçamento atualizado para Concluído.', 'info');
       }
 
       addNotification('Compra registrada com sucesso!', 'success');
       navigate('/inventory');
-
     } catch (err: any) {
-      console.error('Erro ao registrar compra:', err);
-      setError('Erro ao registrar compra: ' + err.message);
-      addNotification('Erro ao registrar compra: ' + err.message, 'error');
-    } finally {
-      setSubmitLoading(false);
-    }
+      setError('Erro: ' + err.message);
+      addNotification('Erro ao registrar: ' + err.message, 'error');
+    } finally { setSubmitLoading(false); }
   };
 
-  return (
-    <div className="container mx-auto p-4 bg-gray-100 dark:bg-gray-900 min-h-screen">
-      <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center">
-            <button 
-              onClick={() => navigate(-1)} 
-              className="mr-4 p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-gray-600 dark:text-gray-300"
-            >
-              <ArrowLeft size={24} />
-            </button>
-            <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Registrar Nova Compra</h1>
-          </div>
+  // ── Loading ─────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-10rem)] gap-4">
+        <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+          <ShoppingCart className="w-6 h-6 text-blue-500 animate-pulse" />
         </div>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Carregando produtos…</p>
+      </div>
+    );
+  }
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-100 dark:bg-red-800 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-100 rounded-md flex items-center">
-            <AlertTriangle size={20} className="mr-2" />
-            <span>{error}</span>
-          </div>
-        )}
+  // ── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-6 pb-36 space-y-5">
 
-        <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <button onClick={() => navigate(-1)}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-500 transition-colors shadow-sm">
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <div>
+          <h1 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <ShoppingCart className="w-5 h-5 text-blue-500" />
+            Registrar Nova Compra
+          </h1>
+          {selectedHotel && <p className="text-xs text-slate-400 mt-0.5 ml-7">{selectedHotel.name}</p>}
+        </div>
+      </div>
+
+      {/* Banner de orçamento pré-preenchido */}
+      {budgetIdToUpdate && (
+        <div className="flex items-center gap-2.5 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300">
+          <Info className="w-4 h-4 shrink-0" />
+          Formulário pré-preenchido com dados do orçamento — confirme os valores antes de registrar.
+        </div>
+      )}
+
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center gap-2.5 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+
+        {/* ── Dados da compra ─────────────────────────────────────────────── */}
+        <Section icon={<FileText className="w-4 h-4" />} title="Dados da Compra" accent="blue">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label htmlFor="invoice_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nº da Nota Fiscal (Opcional)</label>
-              <input 
-                type="text" 
-                id="invoice_number" 
-                name="invoice_number"
-                value={purchaseData.invoice_number}
-                onChange={handlePurchaseDataChange}
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-              />
-            </div>
-            <div>
-              <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fornecedor *</label>
-              <input 
-                type="text" 
-                id="supplier" 
-                name="supplier"
-                value={purchaseData.supplier}
-                onChange={handlePurchaseDataChange}
-                required
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-              />
-            </div>
-            <div>
-              <label htmlFor="purchase_date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data da Compra *</label>
-              <input 
-                type="date" 
-                id="purchase_date" 
-                name="purchase_date"
-                value={purchaseData.purchase_date}
-                onChange={handlePurchaseDataChange}
-                required
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white dark:[color-scheme:dark]"
-              />
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Observações (Opcional)</label>
-            <textarea 
-              id="notes" 
-              name="notes"
-              rows={3}
-              value={purchaseData.notes}
-              onChange={handlePurchaseDataChange}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-            />
-          </div>
-
-          <div className="mb-6 p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-            <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-3">Adicionar Itens à Compra</h2>
-            <div className="mb-4">
-              <label htmlFor="searchProduct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Buscar Produto Existente</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Nº Nota Fiscal
+              </label>
               <div className="relative">
-                <input 
-                  type="text" 
-                  id="searchProduct"
-                  placeholder="Digite para buscar..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full p-2 pl-10 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-                />
-                <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <input type="text" name="invoice_number"
+                  value={purchaseData.invoice_number}
+                  onChange={e => setPurchaseData(p => ({ ...p, invoice_number: e.target.value }))}
+                  placeholder="Opcional"
+                  className={fieldCls + ' pl-9'} />
               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Fornecedor <span className="text-red-400">*</span>
+              </label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <input type="text" name="supplier"
+                  value={purchaseData.supplier}
+                  onChange={e => setPurchaseData(p => ({ ...p, supplier: e.target.value }))}
+                  placeholder="Nome do fornecedor" required
+                  className={fieldCls + ' pl-9'} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Data da Compra <span className="text-red-400">*</span>
+              </label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <input type="date" name="purchase_date"
+                  value={purchaseData.purchase_date}
+                  onChange={e => setPurchaseData(p => ({ ...p, purchase_date: e.target.value }))}
+                  required className={fieldCls + ' pl-9 dark:[color-scheme:dark]'} />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+              <StickyNote className="w-3 h-3 inline mr-1" />Observações
+            </label>
+            <textarea name="notes" rows={2} value={purchaseData.notes}
+              onChange={e => setPurchaseData(p => ({ ...p, notes: e.target.value }))}
+              placeholder="Informações adicionais sobre a compra…"
+              className={fieldCls + ' resize-none'} />
+          </div>
+        </Section>
+
+        {/* ── Adicionar itens ──────────────────────────────────────────────── */}
+        <Section icon={<Search className="w-4 h-4" />} title="Adicionar Itens" accent="emerald">
+
+          {/* Busca de produto existente */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+              Produto Existente
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input type="text" value={searchTerm}
+                onChange={e => { setSearchTerm(e.target.value); setSearchOpen(true); }}
+                onFocus={() => setSearchOpen(true)}
+                placeholder="Digite para buscar produto…"
+                className={fieldCls + ' pl-9 pr-9'} />
               {searchTerm && (
-                <ul className="mt-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-750 max-h-60 overflow-y-auto shadow-lg z-10">
-                  {loading && <li className="p-2 text-gray-500 dark:text-gray-400">Carregando...</li>}
-                  {!loading && filteredProducts.length === 0 && <li className="p-2 text-gray-500 dark:text-gray-400">Nenhum produto encontrado.</li>}
-                  {!loading && filteredProducts.map(product => (
-                    <li 
-                      key={product.id} 
-                      onClick={() => addItem(product)}
-                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer flex items-center justify-between text-gray-800 dark:text-gray-100"
-                    >
-                      <div className="flex items-center">
-                        {product.image_url ? (
-                          <img src={product.image_url} alt={product.name} className="w-8 h-8 rounded-sm object-cover mr-2"/>
-                        ) : (
-                          <ImageIcon size={20} className="w-8 h-8 text-gray-400 dark:text-gray-500 mr-2" />
-                        )}
-                        <span>{product.name} <span className="text-xs text-gray-500 dark:text-gray-400">({product.category})</span></span>
-                      </div>
-                      <Plus size={18} className="text-blue-500" />
-                    </li>
-                  ))}
-                </ul>
+                <button type="button" onClick={() => { setSearchTerm(''); setSearchOpen(false); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Dropdown de resultados */}
+              {searchOpen && searchTerm && (
+                <div className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+                  {filteredProducts.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-slate-400 text-center">Nenhum produto encontrado.</p>
+                  ) : (
+                    filteredProducts.map(p => (
+                      <button key={p.id} type="button" onClick={() => addItem(p)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors text-left group">
+                        <div className="w-9 h-9 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600">
+                          {p.image_url && !imgErrors[p.id]
+                            ? <img src={p.image_url} alt={p.name} className="w-full h-full object-contain"
+                                onError={() => setImgErrors(prev => ({ ...prev, [p.id]: true }))} />
+                            : <Package className="w-4 h-4 text-slate-400" />
+                          }
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400">{p.name}</p>
+                          <p className="text-xs text-slate-400">{p.category}</p>
+                        </div>
+                        <Plus className="w-4 h-4 text-slate-300 group-hover:text-emerald-500 shrink-0" />
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
             </div>
-            <button 
-              type="button"
-              onClick={() => setShowNewProductForm(true)}
-              className="mb-4 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md shadow-sm flex items-center transition-colors"
-            >
-              <Plus size={18} className="mr-2" />
-              Adicionar Novo Produto (Não Cadastrado)
-            </button>
-
-            {showNewProductForm && (
-              <div className="p-4 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 mb-4">
-                <h3 className="text-lg font-medium text-gray-700 dark:text-gray-200 mb-2">Detalhes do Novo Produto</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="newProductName" className="block text-sm font-medium text-gray-600 dark:text-gray-300">Nome *</label>
-                    <input type="text" id="newProductName" value={newProduct.name} onChange={(e) => setNewProduct({...newProduct, name: e.target.value})} className="mt-1 w-full p-2 border rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
-                  </div>
-                  <div>
-                    <label htmlFor="newProductCategory" className="block text-sm font-medium text-gray-600 dark:text-gray-300">Categoria *</label>
-                    <input type="text" id="newProductCategory" value={newProduct.category} onChange={(e) => setNewProduct({...newProduct, category: e.target.value})} className="mt-1 w-full p-2 border rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
-                  </div>
-                  <div>
-                    <label htmlFor="newProductDescription" className="block text-sm font-medium text-gray-600 dark:text-gray-300">Descrição</label>
-                    <input type="text" id="newProductDescription" value={newProduct.description} onChange={(e) => setNewProduct({...newProduct, description: e.target.value})} className="mt-1 w-full p-2 border rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
-                  </div>
-                  <div>
-                    <label htmlFor="newProductSupplier" className="block text-sm font-medium text-gray-600 dark:text-gray-300">Fornecedor (Opcional)</label>
-                    <input type="text" id="newProductSupplier" value={newProduct.supplier} onChange={(e) => setNewProduct({...newProduct, supplier: e.target.value})} className="mt-1 w-full p-2 border rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
-                  </div>
-                  <div>
-                    <label htmlFor="newProductImageUrl" className="block text-sm font-medium text-gray-600 dark:text-gray-300">URL da Imagem (Opcional)</label>
-                    <input type="text" id="newProductImageUrl" value={newProduct.image_url} onChange={(e) => setNewProduct({...newProduct, image_url: e.target.value})} className="mt-1 w-full p-2 border rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
-                  </div>
-                </div>
-                <div className="mt-3 flex justify-end space-x-2">
-                  <button type="button" onClick={() => setShowNewProductForm(false)} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 transition-colors">Cancelar</button>
-                  <button type="button" onClick={addNewProduct} className="px-3 py-1.5 text-sm rounded-md bg-blue-500 hover:bg-blue-600 text-white transition-colors">Adicionar Produto à Lista</button>
-                </div>
-              </div>
-            )}
           </div>
 
-          {items.length > 0 && (
-            <div className="mb-6">
-              <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-3">Itens da Compra</h2>
-              <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className="bg-gray-100 dark:bg-gray-750">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Produto</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Quantidade</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Preço Unit. (R$)</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Total (R$)</th>
-                      <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {items.map((item, index) => (
-                      <tr key={index} className="text-gray-900 dark:text-gray-100">
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {item.isNew ? (
-                            <span className="font-medium">{item.newProduct?.name} <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-800 text-blue-700 dark:text-blue-200 rounded-full">NOVO</span></span>
-                          ) : (
-                            <span className="font-medium">{item.product?.name}</span>
-                          )}
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {item.isNew ? item.newProduct?.category : item.product?.category}
-                          </p>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <input 
-                            type="text"
-                            inputMode="decimal"
-                            value={item.quantity_display ?? String(item.quantity)}
-                            onChange={(e) => updateItem(index, 'quantity', e.target.value)}
-                            className="w-24 p-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500"
-                          />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <input 
-                            type="text"
-                            inputMode="decimal"
-                            value={item.unit_price_display ?? String(item.unit_price)}
-                            onChange={(e) => updateItem(index, 'unit_price', e.target.value)}
-                            className="w-28 p-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm placeholder-gray-400 dark:placeholder-gray-500"
-                          />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm">
-                          R$ {item.total_price.toFixed(2).replace('.', ',')}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-center">
-                          <button 
-                            type="button" 
-                            onClick={() => removeItem(index)}
-                            className="p-1.5 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {/* Separador */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700" />
+            <span className="text-xs font-medium text-slate-400">ou</span>
+            <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700" />
+          </div>
+
+          {/* Botão / form de novo produto */}
+          {!showNewForm ? (
+            <button type="button" onClick={() => setShowNewForm(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 text-sm font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors">
+              <Plus className="w-4 h-4" /> Adicionar Produto Não Cadastrado
+            </button>
+          ) : (
+            <div className="bg-emerald-50/60 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">Novo Produto</p>
+                <button type="button" onClick={() => setShowNewForm(false)}
+                  className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { key: 'name',        label: 'Nome *',       placeholder: 'Nome do produto' },
+                  { key: 'category',    label: 'Categoria *',  placeholder: 'Ex: Bebidas' },
+                  { key: 'description', label: 'Descrição',    placeholder: 'Opcional' },
+                  { key: 'supplier',    label: 'Fornecedor',   placeholder: 'Opcional' },
+                ].map(f => (
+                  <div key={f.key}>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">{f.label}</label>
+                    <input type="text" value={(newProduct as any)[f.key]}
+                      onChange={e => setNewProduct(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder={f.placeholder}
+                      className={fieldCls} />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowNewForm(false)}
+                  className="flex-1 py-2 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  Cancelar
+                </button>
+                <button type="button" onClick={addNewProduct}
+                  className="flex-[2] py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2 shadow-sm shadow-emerald-500/20">
+                  <Plus className="w-4 h-4" /> Adicionar à Lista
+                </button>
               </div>
             </div>
           )}
+        </Section>
 
-          <div className="mt-8 flex flex-col items-end">
-            <div className="text-2xl font-bold text-gray-800 dark:text-white mb-4">
-              Total da Compra: <span className="text-blue-600 dark:text-blue-400">R$ {calculateTotal().toFixed(2).replace('.', ',')}</span>
+        {/* ── Lista de itens ───────────────────────────────────────────────── */}
+        {items.length > 0 && (
+          <Section icon={<ShoppingCart className="w-4 h-4" />} title={`Itens da Compra (${items.length})`} accent="orange">
+            <div className="space-y-3">
+              {/* Header da tabela (desktop) */}
+              <div className="hidden sm:grid sm:grid-cols-[1fr_100px_120px_80px_36px] gap-2 px-1">
+                {['Produto', 'Quantidade', 'Preço Unit.', 'Total', ''].map(h => (
+                  <p key={h} className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{h}</p>
+                ))}
+              </div>
+
+              {items.map((item, idx) => {
+                const name     = item.isNew ? item.newProduct?.name : item.product?.name;
+                const category = item.isNew ? item.newProduct?.category : item.product?.category;
+                const img      = item.isNew ? item.newProduct?.image_url : item.product?.image_url;
+
+                return (
+                  <div key={idx}
+                    className="bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 sm:space-y-0 sm:grid sm:grid-cols-[1fr_100px_120px_80px_36px] sm:gap-2 sm:items-center hover:border-orange-200 dark:hover:border-orange-800 transition-colors">
+
+                    {/* Produto */}
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 shrink-0 rounded-xl bg-white dark:bg-slate-700 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600">
+                        {img && !imgErrors[`new-${idx}`]
+                          ? <img src={img} alt={name} className="w-full h-full object-contain"
+                              onError={() => setImgErrors(prev => ({ ...prev, [`new-${idx}`]: true }))} />
+                          : <Package className="w-4 h-4 text-slate-400" />
+                        }
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{name}</p>
+                          {item.isNew && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">NOVO</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400">{category}</p>
+                      </div>
+                    </div>
+
+                    {/* Quantidade (mobile: label inline) */}
+                    <div className="flex items-center gap-2 sm:block">
+                      <span className="text-xs text-slate-400 sm:hidden w-20 shrink-0">Quantidade</span>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => adjustQty(idx, -1)}
+                          className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-red-500 hover:border-red-300 dark:hover:border-red-700 transition-colors flex items-center justify-center">
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <input type="text" inputMode="decimal"
+                          value={item.quantity_display ?? String(item.quantity)}
+                          onChange={e => updateItem(idx, 'quantity', e.target.value)}
+                          className="w-14 h-7 text-center text-sm font-bold rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 transition-colors" />
+                        <button type="button" onClick={() => adjustQty(idx, 1)}
+                          className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-emerald-500 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors flex items-center justify-center">
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Preço Unit */}
+                    <div className="flex items-center gap-2 sm:block">
+                      <span className="text-xs text-slate-400 sm:hidden w-20 shrink-0">Preço Unit.</span>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">R$</span>
+                        <input type="text" inputMode="decimal"
+                          value={item.unit_price_display ?? String(item.unit_price)}
+                          onChange={e => updateItem(idx, 'unit_price', e.target.value)}
+                          className="w-full pl-7 pr-2 py-1.5 text-sm font-bold rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-400/40 focus:border-orange-400 transition-colors" />
+                      </div>
+                    </div>
+
+                    {/* Total */}
+                    <div className="flex items-center gap-2 sm:block">
+                      <span className="text-xs text-slate-400 sm:hidden w-20 shrink-0">Total</span>
+                      <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{fmtBRL(item.total_price)}</p>
+                    </div>
+
+                    {/* Remover */}
+                    <div className="flex sm:justify-center">
+                      <button type="button" onClick={() => removeItem(idx)}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <button 
-              type="submit" 
-              disabled={submitLoading || items.length === 0}
-              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 ease-in-out flex items-center justify-center"
-            >
-              {submitLoading ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Registrando...
-                </>
-              ) : (
-                <>
-                  <DollarSign size={20} className="mr-2" />
-                  Registrar Compra
-                </>
+          </Section>
+        )}
+      </form>
+
+      {/* ── Sticky Footer ──────────────────────────────────────────────────── */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-safe-bottom">
+        <div className="max-w-3xl mx-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl shadow-black/10 dark:shadow-black/40 px-5 py-4 flex items-center gap-4">
+            {/* Total */}
+            <div className="flex-1">
+              <p className="text-xs text-slate-400 font-medium">Total da compra</p>
+              <p className={`text-2xl font-bold tabular-nums leading-tight transition-colors ${
+                items.length > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600'
+              }`}>
+                {fmtBRL(total)}
+              </p>
+              {items.length > 0 && (
+                <p className="text-xs text-slate-400">{items.length} item{items.length !== 1 ? 's' : ''}</p>
               )}
+            </div>
+
+            {/* Submit */}
+            <button
+              onClick={handleSubmit as any}
+              type="submit"
+              form="purchase-form"
+              disabled={submitLoading || items.length === 0}
+              className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl shadow-sm shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 transition-all">
+              {submitLoading
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Registrando…</>
+                : <><DollarSign className="w-4 h-4" /> Registrar Compra</>
+              }
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
 };
 
 export default NewPurchase;
-
