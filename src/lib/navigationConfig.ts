@@ -17,7 +17,7 @@ import {
   Settings as SettingsIcon, Package, Shield, ShieldAlert,
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
-  MonitorSmartphone,
+  MonitorSmartphone, Store,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -126,6 +126,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'reports',         label: 'Relatórios',    href: '/reports',                   icon: FileText,           color: '#0ea5e9' },
       { module: 'hotel_documents', label: 'Documentos',    href: '/management/documents',      icon: Shield,             color: '#6366f1' },
       { module: 'management',      label: 'Web Check-in',  href: '/management/webcheckin',     icon: MonitorSmartphone,  color: '#0085ae' },
+      { module: 'management',      label: 'Gestão PDV',    href: '/management/pdv',            icon: Store,              color: '#f59e0b' },
     ],
   },
   {

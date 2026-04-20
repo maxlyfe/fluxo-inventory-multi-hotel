@@ -50,6 +50,7 @@ import PublicJobApplication  from './pages/rh/PublicJobApplication';
 import HRAnalytics           from './pages/rh/HRAnalytics';
 import DocumentsLicenses     from './pages/management/DocumentsLicenses';
 import WCIManagement         from './pages/management/WCIManagement';
+import PDVManagement         from './pages/management/PDVManagement';
 
 // ── Pages — Comercial ────────────────────────────────────────────────────────
 import CorporateClients      from './pages/commercial/CorporateClients';
@@ -295,6 +296,11 @@ function App() {
                     <Route path="/management/webcheckin" element={
                       <PrivateRoute module="management">
                         <WCIManagement />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/management/pdv" element={
+                      <PrivateRoute module="management">
+                        <PDVManagement />
                       </PrivateRoute>
                     } />
 

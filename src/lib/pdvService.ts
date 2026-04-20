@@ -733,3 +733,306 @@ export async function getProductsWithPrices(hotelId: string): Promise<{
     erbon_service_description: mappingMap.get(p.id)?.erbon_service_description ?? null,
   }));
 }
+
+// ── PDV Config — Tipos adicionais ──────────────────────────────────────────
+
+export interface PDVSectorConfig {
+  id: string;
+  name: string;
+  pdv_enabled: boolean;
+  erbon_department: string | null;
+  erbon_department_id: number | null;
+  product_count: number;
+}
+
+export interface PDVProductConfig {
+  sector_stock_id: string;
+  product_id: string;
+  product_name: string;
+  category: string;
+  unit_measure: string;
+  stock_quantity: number;
+  is_available: boolean;
+  sale_price: number | null;
+  pdv_price_id: string | null;
+  erbon_service_id: number | null;
+  erbon_service_description: string | null;
+}
+
+export interface PDVMenuItemConfig {
+  id: string;
+  type: 'dish' | 'side';
+  name: string;
+  menu_price_id: string | null;
+  is_available: boolean;
+  sale_price: number | null;
+  erbon_service_id: number | null;
+  erbon_service_description: string | null;
+}
+
+export interface PDVEmployee {
+  id?: string;
+  hotel_id: string;
+  name: string;
+  role: string | null;
+  erbon_booking_internal_id: number | null;
+  erbon_booking_number: string | null;
+  erbon_room_description: string | null;
+  is_active: boolean;
+}
+
+// ── PDV Config — Funções ───────────────────────────────────────────────────
+
+/** Lista todos os setores do hotel com status PDV e mapeamento Erbon */
+export async function getSectorsWithPDVStatus(hotelId: string): Promise<PDVSectorConfig[]> {
+  const [sectorsRes, mappingsRes, stockCountRes] = await Promise.all([
+    supabase
+      .from('sectors')
+      .select('id, name, pdv_enabled')
+      .eq('hotel_id', hotelId)
+      .order('name'),
+    supabase
+      .from('erbon_sector_mappings')
+      .select('sector_id, erbon_department, erbon_department_id')
+      .eq('hotel_id', hotelId),
+    supabase
+      .from('sector_stock')
+      .select('sector_id')
+      .eq('hotel_id', hotelId),
+  ]);
+
+  const mappingMap = new Map<string, { erbon_department: string; erbon_department_id: number | null }>();
+  for (const m of mappingsRes.data || []) {
+    mappingMap.set(m.sector_id, { erbon_department: m.erbon_department, erbon_department_id: m.erbon_department_id ?? null });
+  }
+
+  const countMap = new Map<string, number>();
+  for (const s of stockCountRes.data || []) {
+    countMap.set(s.sector_id, (countMap.get(s.sector_id) ?? 0) + 1);
+  }
+
+  return (sectorsRes.data || []).map((s: any) => ({
+    id: s.id,
+    name: s.name,
+    pdv_enabled: s.pdv_enabled ?? false,
+    erbon_department: mappingMap.get(s.id)?.erbon_department ?? null,
+    erbon_department_id: mappingMap.get(s.id)?.erbon_department_id ?? null,
+    product_count: countMap.get(s.id) ?? 0,
+  }));
+}
+
+/** Liga ou desliga um setor como ponto de venda */
+export async function toggleSectorPDV(sectorId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('sectors')
+    .update({ pdv_enabled: enabled })
+    .eq('id', sectorId);
+  if (error) throw error;
+}
+
+/** Lista produtos de um setor com status PDV (preço + disponibilidade) */
+export async function getProductsForPDVConfig(hotelId: string, sectorId: string): Promise<PDVProductConfig[]> {
+  const [stockRes, pricesRes, mappingsRes] = await Promise.all([
+    supabase
+      .from('sector_stock')
+      .select('id, product_id, quantity, products!inner(id, name, category, unit_measure)')
+      .eq('hotel_id', hotelId)
+      .eq('sector_id', sectorId)
+      .eq('products.is_active', true),
+    supabase
+      .from('pdv_prices')
+      .select('id, product_id, sale_price, is_available')
+      .eq('hotel_id', hotelId)
+      .is('sector_id', null),
+    supabase
+      .from('erbon_product_mappings')
+      .select('product_id, erbon_service_id, erbon_service_description')
+      .eq('hotel_id', hotelId)
+      .not('product_id', 'is', null),
+  ]);
+
+  const priceMap = new Map<string, { id: string; sale_price: number; is_available: boolean }>();
+  for (const p of pricesRes.data || []) {
+    priceMap.set(p.product_id, { id: p.id, sale_price: Number(p.sale_price), is_available: p.is_available ?? true });
+  }
+
+  const erbonMap = new Map<string, { erbon_service_id: number; erbon_service_description: string | null }>();
+  for (const m of mappingsRes.data || []) {
+    if (m.product_id) erbonMap.set(m.product_id, { erbon_service_id: m.erbon_service_id, erbon_service_description: m.erbon_service_description });
+  }
+
+  const rows = (stockRes.data || []) as any[];
+  rows.sort((a, b) => {
+    const ca = a.products?.category || '';
+    const cb = b.products?.category || '';
+    if (ca !== cb) return ca.localeCompare(cb);
+    return (a.products?.name || '').localeCompare(b.products?.name || '');
+  });
+
+  return rows.map((s: any) => {
+    const prod = s.products;
+    const priceRow = priceMap.get(s.product_id);
+    const erbonRow = erbonMap.get(s.product_id);
+    return {
+      sector_stock_id: s.id,
+      product_id: s.product_id,
+      product_name: prod?.name || s.product_id,
+      category: prod?.category || 'Outros',
+      unit_measure: prod?.unit_measure || 'und',
+      stock_quantity: Number(s.quantity ?? 0),
+      is_available: priceRow?.is_available ?? false,
+      sale_price: priceRow?.sale_price ?? null,
+      pdv_price_id: priceRow?.id ?? null,
+      erbon_service_id: erbonRow?.erbon_service_id ?? null,
+      erbon_service_description: erbonRow?.erbon_service_description ?? null,
+    };
+  });
+}
+
+/** Define disponibilidade e preço de um produto no PDV */
+export async function setPDVProductConfig(
+  hotelId: string,
+  productId: string,
+  isAvailable: boolean,
+  salePrice: number | null,
+): Promise<void> {
+  const { data: existing } = await supabase
+    .from('pdv_prices')
+    .select('id')
+    .eq('hotel_id', hotelId)
+    .eq('product_id', productId)
+    .is('sector_id', null)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error } = await supabase
+      .from('pdv_prices')
+      .update({
+        is_available: isAvailable,
+        ...(salePrice !== null ? { sale_price: salePrice } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('pdv_prices')
+      .insert({
+        hotel_id: hotelId,
+        product_id: productId,
+        sector_id: null,
+        is_available: isAvailable,
+        sale_price: salePrice ?? 0,
+        updated_at: new Date().toISOString(),
+      });
+    if (error) throw error;
+  }
+}
+
+/** Lista pratos e acompanhamentos com status PDV */
+export async function getMenuItemsForPDVConfig(hotelId: string): Promise<PDVMenuItemConfig[]> {
+  const [dishesRes, sidesRes, menuPricesRes] = await Promise.all([
+    supabase.from('dishes').select('id, name').eq('hotel_id', hotelId).order('name'),
+    supabase.from('sides').select('id, name').eq('hotel_id', hotelId).order('name'),
+    supabase.from('pdv_menu_prices').select('id, dish_id, side_id, sale_price, is_available, erbon_service_id, erbon_service_description').eq('hotel_id', hotelId),
+  ]);
+
+  type PriceRow = { id: string; sale_price: number; is_available: boolean; erbon_service_id: number | null; erbon_service_description: string | null };
+  const dishPriceMap = new Map<string, PriceRow>();
+  const sidePriceMap = new Map<string, PriceRow>();
+  for (const p of menuPricesRes.data || []) {
+    const row: PriceRow = { id: p.id, sale_price: Number(p.sale_price), is_available: p.is_available, erbon_service_id: p.erbon_service_id ?? null, erbon_service_description: p.erbon_service_description ?? null };
+    if (p.dish_id) dishPriceMap.set(p.dish_id, row);
+    if (p.side_id) sidePriceMap.set(p.side_id, row);
+  }
+
+  const dishes: PDVMenuItemConfig[] = (dishesRes.data || []).map((d: any) => {
+    const row = dishPriceMap.get(d.id);
+    return { id: d.id, type: 'dish' as const, name: d.name, menu_price_id: row?.id ?? null, is_available: row?.is_available ?? false, sale_price: row?.sale_price ?? null, erbon_service_id: row?.erbon_service_id ?? null, erbon_service_description: row?.erbon_service_description ?? null };
+  });
+
+  const sides: PDVMenuItemConfig[] = (sidesRes.data || []).map((s: any) => {
+    const row = sidePriceMap.get(s.id);
+    return { id: s.id, type: 'side' as const, name: s.name, menu_price_id: row?.id ?? null, is_available: row?.is_available ?? false, sale_price: row?.sale_price ?? null, erbon_service_id: row?.erbon_service_id ?? null, erbon_service_description: row?.erbon_service_description ?? null };
+  });
+
+  return [...dishes, ...sides];
+}
+
+/** Salva disponibilidade/preço de prato ou acompanhamento no PDV */
+export async function upsertMenuPrice(
+  hotelId: string,
+  item: { dishId?: string; sideId?: string; isAvailable: boolean; salePrice: number; erbonServiceId?: number | null; erbonServiceDescription?: string | null },
+): Promise<void> {
+  const baseRow = {
+    hotel_id: hotelId,
+    dish_id: item.dishId ?? null,
+    side_id: item.sideId ?? null,
+    is_available: item.isAvailable,
+    sale_price: item.salePrice,
+    erbon_service_id: item.erbonServiceId ?? null,
+    erbon_service_description: item.erbonServiceDescription ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const query = supabase.from('pdv_menu_prices').select('id').eq('hotel_id', hotelId);
+  if (item.dishId) query.eq('dish_id', item.dishId);
+  else query.eq('side_id', item.sideId!);
+  const { data: existing } = await query.maybeSingle();
+
+  if (existing?.id) {
+    const { error } = await supabase.from('pdv_menu_prices').update(baseRow).eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from('pdv_menu_prices').insert(baseRow);
+    if (error) throw error;
+  }
+}
+
+/** Lista funcionários do hotel */
+export async function getPDVEmployees(hotelId: string): Promise<PDVEmployee[]> {
+  const { data, error } = await supabase
+    .from('pdv_employees')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .order('name');
+  if (error) throw error;
+  return (data || []).map((e: any) => ({
+    id: e.id,
+    hotel_id: e.hotel_id,
+    name: e.name,
+    role: e.role ?? null,
+    erbon_booking_internal_id: e.erbon_booking_internal_id ?? null,
+    erbon_booking_number: e.erbon_booking_number ?? null,
+    erbon_room_description: e.erbon_room_description ?? null,
+    is_active: e.is_active ?? true,
+  }));
+}
+
+/** Cria ou atualiza um funcionário */
+export async function upsertPDVEmployee(employee: PDVEmployee): Promise<void> {
+  const payload = {
+    hotel_id: employee.hotel_id,
+    name: employee.name,
+    role: employee.role ?? null,
+    erbon_booking_internal_id: employee.erbon_booking_internal_id ?? null,
+    erbon_booking_number: employee.erbon_booking_number ?? null,
+    erbon_room_description: employee.erbon_room_description ?? null,
+    is_active: employee.is_active,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (employee.id) {
+    const { error } = await supabase.from('pdv_employees').update(payload).eq('id', employee.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from('pdv_employees').insert(payload);
+    if (error) throw error;
+  }
+}
+
+/** Remove um funcionário */
+export async function deletePDVEmployee(id: string): Promise<void> {
+  const { error } = await supabase.from('pdv_employees').delete().eq('id', id);
+  if (error) throw error;
+}
