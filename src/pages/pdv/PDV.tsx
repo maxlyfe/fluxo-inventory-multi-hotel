@@ -402,11 +402,12 @@ const PDV: React.FC = () => {
       .finally(() => setGuestsLoading(false));
   }
 
-  function stockBadge(qty: number) {
-    if (qty <= 0) return 'bg-red-500/10 text-red-500 border border-red-500/20';
-    if (qty < 3)  return 'bg-red-500/10 text-red-400 border border-red-500/20';
-    if (qty < 6)  return 'bg-amber-500/10 text-amber-500 border border-amber-500/20';
-    return 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20';
+  function stockStrip(qty: number): { bg: string; text: string; label: string; urgent: boolean } {
+    if (qty <= 0) return { bg: 'bg-red-600',   text: 'text-white', label: 'ESGOTADO',          urgent: true  };
+    if (qty === 1) return { bg: 'bg-red-500',   text: 'text-white', label: '⚠ última unidade!', urgent: true  };
+    if (qty < 4)  return  { bg: 'bg-red-500/80',text: 'text-white', label: `⚠ ${qty} restantes`,urgent: true  };
+    if (qty < 8)  return  { bg: 'bg-amber-500', text: 'text-white', label: `${qty} disponíveis`, urgent: false };
+    return                 { bg: 'bg-emerald-600/80', text: 'text-white', label: `${qty} disponíveis`, urgent: false };
   }
 
   // ── Erbon not configured ──────────────────────────────────────────────
@@ -988,10 +989,17 @@ const PDV: React.FC = () => {
                       <span className="text-[10px] font-black text-white">{inCart}</span>
                     </div>
                   )}
-                  <div className={`absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-black backdrop-blur-sm shadow-sm ${stockBadge(product.stock_quantity)}`}>
-                    <span className="opacity-70">▪</span>
-                    <span>{product.stock_quantity} disp.</span>
-                  </div>
+                  {/* Stock strip — always visible, full width, prominent */}
+                  {(() => {
+                    const s = stockStrip(product.stock_quantity);
+                    return (
+                      <div className={`absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1.5 py-1.5 ${s.bg} ${s.text} backdrop-blur-sm`}>
+                        <span className={`text-[11px] font-black tracking-wide uppercase ${s.urgent ? 'animate-pulse' : ''}`}>
+                          {s.label}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   {product.erbon_service_id === null && (
                     <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-amber-500/90 flex items-center justify-center"
                       title="Sem mapeamento PMS">
