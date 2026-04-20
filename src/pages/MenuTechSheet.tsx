@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink, UtensilsCrossed, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
@@ -21,14 +21,8 @@ async function calculateSideCost(sideId: string): Promise<number> {
 
 async function calculateDishCost(dishId: string): Promise<number> {
   const [ingredientsRes, sidesRes] = await Promise.all([
-    supabase
-      .from('dish_ingredients')
-      .select('quantity, ingredient:ingredients(price_per_unit)')
-      .eq('dish_id', dishId),
-    supabase
-      .from('dish_sides')
-      .select('quantity, side_id')
-      .eq('dish_id', dishId),
+    supabase.from('dish_ingredients').select('quantity, ingredient:ingredients(price_per_unit)').eq('dish_id', dishId),
+    supabase.from('dish_sides').select('quantity, side_id').eq('dish_id', dishId),
   ]);
   let totalCost = 0;
   if (ingredientsRes.data) {
@@ -49,11 +43,16 @@ async function calculateDishCost(dishId: string): Promise<number> {
 
 type TabKey = 'ingredients' | 'sides' | 'dishes';
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'ingredients', label: 'Ingredientes' },
-  { key: 'sides', label: 'Acompanhamentos' },
-  { key: 'dishes', label: 'Pratos' },
+const TABS: { key: TabKey; label: string; color: string; activeColor: string }[] = [
+  { key: 'ingredients', label: 'Ingredientes',     color: 'text-emerald-600 dark:text-emerald-400', activeColor: 'bg-emerald-600' },
+  { key: 'sides',       label: 'Acompanhamentos',  color: 'text-blue-600 dark:text-blue-400',       activeColor: 'bg-blue-600' },
+  { key: 'dishes',      label: 'Pratos',           color: 'text-orange-600 dark:text-orange-400',   activeColor: 'bg-orange-600' },
 ];
+
+// ─── Shared input style ───────────────────────────────────────────────────────
+const inputCls = 'w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors';
+const selectCls = inputCls;
+const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
@@ -66,31 +65,38 @@ export default function MenuTechSheet() {
 
   if (!selectedHotel) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-gray-500 dark:text-gray-400 text-lg">Selecione um hotel para gerenciar fichas técnicas.</p>
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+          <UtensilsCrossed className="w-7 h-7 text-slate-400" />
+        </div>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Selecione um hotel para gerenciar fichas técnicas.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          Fichas Técnicas
-        </h1>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+          <UtensilsCrossed className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white leading-tight">Fichas Técnicas</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{selectedHotel.name}</p>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg overflow-x-auto">
+      {/* Pill tabs */}
+      <div className="flex gap-2 flex-wrap">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 min-w-[120px] px-4 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
               activeTab === tab.key
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                ? `${tab.activeColor} text-white shadow-sm scale-105`
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
             }`}
           >
             {tab.label}
@@ -198,43 +204,46 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
       {/* Actions bar */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             placeholder="Buscar ingrediente..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-colors"
           />
         </div>
         <button
           onClick={() => { showForm ? resetForm() : setShowForm(true); }}
-          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
         >
-          {showForm ? <X size={18} /> : <Plus size={18} />}
+          {showForm ? <X size={16} /> : <Plus size={16} />}
           {showForm ? 'Cancelar' : 'Novo Ingrediente'}
         </button>
       </div>
 
       {/* Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+            {editingId ? 'Editar Ingrediente' : 'Novo Ingrediente'}
+          </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome</label>
+              <label className={labelCls}>Nome</label>
               <input
                 type="text" required value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                className={inputCls}
                 placeholder="Ex: Mel"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unidade</label>
+              <label className={labelCls}>Unidade</label>
               <select
                 value={formData.unit}
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value as UnitType })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                className={selectCls}
               >
                 <option value="g">Gramas (g)</option>
                 <option value="ml">Mililitros (ml)</option>
@@ -242,21 +251,21 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Preço por Unidade (R$)</label>
+              <label className={labelCls}>Preço por Unidade (R$)</label>
               <input
                 type="number" step="0.00000001" required value={formData.price_per_unit}
                 onChange={(e) => setFormData({ ...formData, price_per_unit: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                className={inputCls}
                 placeholder="0.00"
               />
             </div>
           </div>
-          <div className="mt-4 flex gap-2">
-            <button type="submit" className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm">
+          <div className="flex gap-2">
+            <button type="submit" className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
               <Check size={16} /> {editingId ? 'Atualizar' : 'Salvar'}
             </button>
             {editingId && (
-              <button type="button" onClick={resetForm} className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors text-sm">
+              <button type="button" onClick={resetForm} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold transition-colors">
                 <X size={16} /> Cancelar
               </button>
             )}
@@ -265,47 +274,56 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
       )}
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-700">
+            <thead className="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Nome</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Unidade</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Preço por Unidade</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vínculo</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ações</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Nome</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Unidade</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Preço/Unidade</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Vínculo</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    {search ? 'Nenhum ingrediente encontrado' : 'Nenhum ingrediente cadastrado'}
+                  <td colSpan={5} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Search className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {search ? 'Nenhum ingrediente encontrado' : 'Nenhum ingrediente cadastrado'}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
                 filtered.map((ing) => (
-                  <tr key={ing.id} className="hover:bg-gray-100 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{ing.name}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{ing.unit}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 font-mono">
+                  <tr key={ing.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                    <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100">{ing.name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+                      <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-xs font-mono">{ing.unit}</span>
+                    </td>
+                    <td className="px-4 py-3 text-sm font-mono text-slate-700 dark:text-slate-300">
                       R$ {Number(ing.price_per_unit).toFixed(8)}
-                      {(ing as any).product_id && <span className="ml-1 text-xs text-green-600 dark:text-green-400">(auto)</span>}
+                      {(ing as any).product_id && (
+                        <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">auto</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm relative">
                       {(ing as any).product_id ? (
                         <div className="flex items-center gap-1">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                            <Link2 size={12} />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                            <Link2 size={11} />
                             {products.find((p) => p.id === (ing as any).product_id)?.name || 'Produto'}
                           </span>
                           <button
                             onClick={() => handleUnlinkProduct(ing.id)}
-                            className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 p-0.5"
+                            className="p-1 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                             title="Remover vínculo"
                           >
-                            <Unlink size={14} />
+                            <Unlink size={13} />
                           </button>
                         </div>
                       ) : (
@@ -322,35 +340,35 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
                                 setProductSearch('');
                               }
                             }}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
                           >
-                            <Link2 size={12} /> Vincular
+                            <Link2 size={11} /> Vincular
                           </button>
                           {showProductSearch && linkingIngredientId === ing.id && (
-                            <div className="absolute z-20 top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
-                              <div className="p-2">
+                            <div className="absolute z-20 top-full left-0 mt-1 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
+                              <div className="p-2 border-b border-slate-100 dark:border-slate-700">
                                 <input
                                   type="text"
                                   placeholder="Buscar produto..."
                                   value={productSearch}
                                   onChange={(e) => setProductSearch(e.target.value)}
-                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-1 focus:ring-green-500 focus:border-transparent"
+                                  className="w-full px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                   autoFocus
                                 />
                               </div>
                               <div className="max-h-40 overflow-y-auto">
                                 {filteredProducts.length === 0 ? (
-                                  <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Nenhum produto encontrado</p>
+                                  <p className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 text-center">Nenhum produto encontrado</p>
                                 ) : (
                                   filteredProducts.map((p) => (
                                     <button
                                       key={p.id}
                                       onClick={() => handleLinkProduct(ing.id, p)}
-                                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 flex justify-between items-center"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 flex justify-between items-center transition-colors"
                                     >
                                       <span>{p.name}</span>
                                       {p.average_price != null && (
-                                        <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">R$ {Number(p.average_price).toFixed(4)}</span>
+                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">R$ {Number(p.average_price).toFixed(4)}</span>
                                       )}
                                     </button>
                                   ))
@@ -362,11 +380,17 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => handleEdit(ing)} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mr-2 p-1">
-                        <Edit2 size={16} />
+                      <button
+                        onClick={() => handleEdit(ing)}
+                        className="p-1.5 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors mr-1"
+                      >
+                        <Edit2 size={15} />
                       </button>
-                      <button onClick={() => handleDelete(ing.id)} className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-1">
-                        <Trash2 size={16} />
+                      <button
+                        onClick={() => handleDelete(ing.id)}
+                        className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      >
+                        <Trash2 size={15} />
                       </button>
                     </td>
                   </tr>
@@ -376,7 +400,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
           </table>
         </div>
         {filtered.length > 0 && (
-          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+          <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 text-xs text-slate-400 dark:text-slate-500">
             {filtered.length} ingrediente{filtered.length !== 1 ? 's' : ''}
           </div>
         )}
@@ -467,40 +491,44 @@ function SidesTab({ hotelId }: { hotelId: string }) {
       {/* Actions bar */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text" placeholder="Buscar acompanhamento..."
             value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
           />
         </div>
         <button
           onClick={() => { showForm ? resetForm() : setShowForm(true); }}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
         >
-          {showForm ? <X size={18} /> : <Plus size={18} />}
+          {showForm ? <X size={16} /> : <Plus size={16} />}
           {showForm ? 'Cancelar' : 'Novo Acompanhamento'}
         </button>
       </div>
 
       {/* Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 space-y-4">
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+            {editingId ? 'Editar Acompanhamento' : 'Novo Acompanhamento'}
+          </h3>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Acompanhamento</label>
+            <label className={labelCls}>Nome do Acompanhamento</label>
             <input
               type="text" required value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className={inputCls}
               placeholder="Ex: Molho Caesar"
             />
           </div>
           <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Ingredientes</label>
-              <button type="button"
+              <label className={labelCls}>Ingredientes</label>
+              <button
+                type="button"
                 onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '' }] })}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
               >
                 + Adicionar Ingrediente
               </button>
@@ -508,31 +536,37 @@ function SidesTab({ hotelId }: { hotelId: string }) {
             <div className="space-y-2">
               {formData.ingredients.map((ing, idx) => (
                 <div key={idx} className="flex gap-2">
-                  <select value={ing.ingredient_id}
+                  <select
+                    value={ing.ingredient_id}
                     onChange={(e) => { const n = [...formData.ingredients]; n[idx].ingredient_id = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm" required
+                    className={`flex-1 ${selectCls}`}
+                    required
                   >
                     <option value="">Selecione...</option>
                     {ingredients.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
                   </select>
-                  <input type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
+                  <input
+                    type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
                     onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className="w-24 sm:w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    className="w-24 sm:w-28 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                   />
-                  <button type="button" onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                    className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-2">
-                    <Trash2 size={16} />
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
+                    className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <Trash2 size={15} />
                   </button>
                 </div>
               ))}
             </div>
           </div>
           <div className="flex gap-2">
-            <button type="submit" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm">
+            <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
               <Check size={16} /> {editingId ? 'Atualizar' : 'Salvar'}
             </button>
             {editingId && (
-              <button type="button" onClick={resetForm} className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors text-sm">
+              <button type="button" onClick={resetForm} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold transition-colors">
                 <X size={16} /> Cancelar
               </button>
             )}
@@ -543,8 +577,10 @@ function SidesTab({ hotelId }: { hotelId: string }) {
       {/* Cards */}
       <div className="space-y-3">
         {filteredSides.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 text-center text-gray-500 dark:text-gray-400">
-            {search ? 'Nenhum acompanhamento encontrado' : 'Nenhum acompanhamento cadastrado'}
+          <div className="bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {search ? 'Nenhum acompanhamento encontrado' : 'Nenhum acompanhamento cadastrado'}
+            </p>
           </div>
         ) : (
           filteredSides.map((side) => (
@@ -580,51 +616,66 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
   const totalCost = items.reduce((t, si) => t + (si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0), 0);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50" onClick={onToggle}>
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+      <div
+        className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+        onClick={onToggle}
+      >
         <div className="flex items-center gap-3">
-          {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+          {isExpanded
+            ? <ChevronUp size={17} className="text-slate-400 flex-shrink-0" />
+            : <ChevronDown size={17} className="text-slate-400 flex-shrink-0" />
+          }
           <div>
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-white">{side.name}</h3>
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-white">{side.name}</h3>
             {isExpanded && !loading && items.length > 0 && (
-              <p className="text-xs text-green-600 dark:text-green-400 font-medium mt-0.5">Total: R$ {totalCost.toFixed(2)}</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                Total: R$ {totalCost.toFixed(2)}
+              </p>
             )}
           </div>
         </div>
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <button onClick={onEdit} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 p-2"><Edit2 size={16} /></button>
-          <button onClick={onDelete} className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-2"><Trash2 size={16} /></button>
+          <button onClick={onEdit} className="p-1.5 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+            <Edit2 size={15} />
+          </button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+            <Trash2 size={15} />
+          </button>
         </div>
       </div>
       {isExpanded && (
-        <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
+        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/60">
           {loading ? (
-            <p className="text-gray-500 dark:text-gray-400 text-center text-sm">Carregando...</p>
+            <div className="flex items-center justify-center gap-2 py-4">
+              <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+              <p className="text-xs text-slate-500">Carregando...</p>
+            </div>
           ) : items.length === 0 ? (
-            <p className="text-gray-500 dark:text-gray-400 text-center text-sm">Nenhum ingrediente adicionado</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-3">Nenhum ingrediente adicionado</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-600 dark:text-gray-400">
-                    <th className="pb-2 font-medium">Ingrediente</th>
-                    <th className="pb-2 text-right font-medium">Quantidade</th>
-                    <th className="pb-2 text-right font-medium">Preço Unit.</th>
-                    <th className="pb-2 text-right font-medium">Subtotal</th>
+                <thead className="bg-slate-100 dark:bg-slate-700/60">
+                  <tr className="text-left">
+                    <th className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Ingrediente</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Quantidade</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Preço Unit.</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Subtotal</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                   {items.map((si) => (
-                    <tr key={si.id} className="border-t border-gray-200 dark:border-gray-700">
-                      <td className="py-2 text-gray-900 dark:text-gray-100">{si.ingredient?.name}</td>
-                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">{si.quantity} {si.ingredient?.unit}</td>
-                      <td className="py-2 text-right text-gray-600 dark:text-gray-400 font-mono">R$ {Number(si.ingredient?.price_per_unit ?? 0).toFixed(6)}</td>
-                      <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">R$ {((si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0)).toFixed(2)}</td>
+                    <tr key={si.id} className="bg-white dark:bg-slate-800">
+                      <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{si.ingredient?.name}</td>
+                      <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{si.quantity} {si.ingredient?.unit}</td>
+                      <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 font-mono text-xs">R$ {Number(si.ingredient?.price_per_unit ?? 0).toFixed(6)}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-300">R$ {((si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0)).toFixed(2)}</td>
                     </tr>
                   ))}
-                  <tr className="border-t-2 border-gray-300 dark:border-gray-600 font-bold">
-                    <td colSpan={3} className="py-2 text-right text-gray-700 dark:text-gray-300">Total:</td>
-                    <td className="py-2 text-right text-green-600 dark:text-green-400">R$ {totalCost.toFixed(2)}</td>
+                  <tr className="bg-slate-50 dark:bg-slate-700/30">
+                    <td colSpan={3} className="px-3 py-2 text-right text-xs font-bold text-slate-600 dark:text-slate-300">Total:</td>
+                    <td className="px-3 py-2 text-right font-bold text-emerald-600 dark:text-emerald-400">R$ {totalCost.toFixed(2)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -768,20 +819,25 @@ function DishesTab({ hotelId }: { hotelId: string }) {
       {/* Actions bar */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input type="text" placeholder="Buscar prato..."
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text" placeholder="Buscar prato..."
             value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500 transition-colors"
           />
         </div>
         <div className="flex gap-2">
-          <button onClick={handlePrint}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
-            <Printer size={18} /> Imprimir
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold"
+          >
+            <Printer size={16} /> Imprimir
           </button>
-          <button onClick={() => { showForm ? resetForm() : setShowForm(true); }}
-            className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium">
-            {showForm ? <X size={18} /> : <Plus size={18} />}
+          <button
+            onClick={() => { showForm ? resetForm() : setShowForm(true); }}
+            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
+          >
+            {showForm ? <X size={16} /> : <Plus size={16} />}
             {showForm ? 'Cancelar' : 'Novo Prato'}
           </button>
         </div>
@@ -789,12 +845,16 @@ function DishesTab({ hotelId }: { hotelId: string }) {
 
       {/* Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 space-y-4">
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+            {editingId ? 'Editar Prato' : 'Novo Prato'}
+          </h3>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Prato</label>
-            <input type="text" required value={formData.name}
+            <label className={labelCls}>Nome do Prato</label>
+            <input
+              type="text" required value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+              className={inputCls}
               placeholder="Ex: Salada Caesar de Frango"
             />
           </div>
@@ -802,29 +862,38 @@ function DishesTab({ hotelId }: { hotelId: string }) {
           {/* Ingredients */}
           <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Ingredientes Diretos</label>
-              <button type="button"
+              <label className={labelCls}>Ingredientes Diretos</label>
+              <button
+                type="button"
                 onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '' }] })}
-                className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-300">
+                className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-300"
+              >
                 + Adicionar Ingrediente
               </button>
             </div>
             <div className="space-y-2">
               {formData.ingredients.map((ing, idx) => (
                 <div key={idx} className="flex gap-2">
-                  <select value={ing.ingredient_id}
+                  <select
+                    value={ing.ingredient_id}
                     onChange={(e) => { const n = [...formData.ingredients]; n[idx].ingredient_id = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                    className={`flex-1 ${selectCls}`}
                   >
                     <option value="">Selecione...</option>
                     {ingredients.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
                   </select>
-                  <input type="number" step="0.001" value={ing.quantity} placeholder="Qtd"
+                  <input
+                    type="number" step="0.001" value={ing.quantity} placeholder="Qtd"
                     onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className="w-24 sm:w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                    className="w-24 sm:w-28 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500"
                   />
-                  <button type="button" onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                    className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-2"><Trash2 size={16} /></button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
+                    className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -833,36 +902,47 @@ function DishesTab({ hotelId }: { hotelId: string }) {
           {/* Sides */}
           <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Acompanhamentos</label>
-              <button type="button"
+              <label className={labelCls}>Acompanhamentos</label>
+              <button
+                type="button"
                 onClick={() => setFormData({ ...formData, sides: [...formData.sides, { side_id: '', quantity: '1' }] })}
-                className="text-sm text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-300">
+                className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-300"
+              >
                 + Adicionar Acompanhamento
               </button>
             </div>
             <div className="space-y-2">
               {formData.sides.map((side, idx) => (
                 <div key={idx} className="flex gap-2">
-                  <select value={side.side_id}
+                  <select
+                    value={side.side_id}
                     onChange={(e) => { const n = [...formData.sides]; n[idx].side_id = e.target.value; setFormData({ ...formData, sides: n }); }}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                    className={`flex-1 ${selectCls}`}
                   >
                     <option value="">Selecione...</option>
                     {sides.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  <input type="number" step="1" value={side.quantity} placeholder="Qtd"
+                  <input
+                    type="number" step="1" value={side.quantity} placeholder="Qtd"
                     onChange={(e) => { const n = [...formData.sides]; n[idx].quantity = e.target.value; setFormData({ ...formData, sides: n }); }}
-                    className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                    className="w-20 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500"
                   />
-                  <button type="button" onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
-                    className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-2"><Trash2 size={16} /></button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
+                    className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               ))}
             </div>
           </div>
 
-          <button type="submit"
-            className="w-full flex justify-center items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium">
+          <button
+            type="submit"
+            className="w-full flex justify-center items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+          >
             {editingId ? <><Check size={16} /> Salvar Alterações</> : <><Plus size={16} /> Criar Prato</>}
           </button>
         </form>
@@ -871,8 +951,10 @@ function DishesTab({ hotelId }: { hotelId: string }) {
       {/* Cards */}
       <div className="space-y-3">
         {filteredDishes.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 text-center text-gray-500 dark:text-gray-400">
-            {search ? 'Nenhum prato encontrado' : 'Nenhum prato cadastrado'}
+          <div className="bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {search ? 'Nenhum prato encontrado' : 'Nenhum prato cadastrado'}
+            </p>
           </div>
         ) : (
           filteredDishes.map((dish) => (
@@ -922,49 +1004,62 @@ function DishCard({ dish, isExpanded, onToggle, onEdit, onDelete }: {
   const totalCost = ingCost + sCost;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50" onClick={onToggle}>
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+      <div
+        className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+        onClick={onToggle}
+      >
         <div className="flex items-center gap-3">
-          {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+          {isExpanded
+            ? <ChevronUp size={17} className="text-slate-400 flex-shrink-0" />
+            : <ChevronDown size={17} className="text-slate-400 flex-shrink-0" />
+          }
           <div>
-            <span className="text-sm font-semibold text-gray-800 dark:text-white">{dish.name}</span>
-            <span className="ml-3 text-xs font-medium text-green-600 dark:text-green-400">
-              Custo: R$ {dish.cost.toFixed(2)}
+            <span className="text-sm font-semibold text-slate-800 dark:text-white">{dish.name}</span>
+            <span className="ml-2.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+              R$ {dish.cost.toFixed(2)}
             </span>
           </div>
         </div>
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <button onClick={onEdit} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 p-2"><Edit2 size={16} /></button>
-          <button onClick={onDelete} className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-2"><Trash2 size={16} /></button>
+          <button onClick={onEdit} className="p-1.5 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+            <Edit2 size={15} />
+          </button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+            <Trash2 size={15} />
+          </button>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900 space-y-4">
+        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/60 space-y-4">
           {loading ? (
-            <p className="text-gray-500 dark:text-gray-400 text-center text-sm">Carregando...</p>
+            <div className="flex items-center justify-center gap-2 py-4">
+              <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+              <p className="text-xs text-slate-500">Carregando...</p>
+            </div>
           ) : (
             <>
               {details?.ingredients && details.ingredients.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 text-sm">Ingredientes Diretos</h4>
-                  <div className="overflow-x-auto">
+                  <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Ingredientes Diretos</h4>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                     <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-gray-600 dark:text-gray-400">
-                          <th className="pb-2 font-medium">Ingrediente</th>
-                          <th className="pb-2 text-right font-medium">Quantidade</th>
-                          <th className="pb-2 text-right font-medium">Preço Unit.</th>
-                          <th className="pb-2 text-right font-medium">Subtotal</th>
+                      <thead className="bg-slate-100 dark:bg-slate-700/60">
+                        <tr className="text-left">
+                          <th className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Ingrediente</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Quantidade</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Preço Unit.</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Subtotal</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                         {details.ingredients.map((di) => (
-                          <tr key={di.id} className="border-t border-gray-200 dark:border-gray-700">
-                            <td className="py-2 text-gray-900 dark:text-gray-100">{di.ingredient?.name}</td>
-                            <td className="py-2 text-right text-gray-600 dark:text-gray-400">{di.quantity} {di.ingredient?.unit}</td>
-                            <td className="py-2 text-right text-gray-600 dark:text-gray-400 font-mono">R$ {Number(di.ingredient?.price_per_unit ?? 0).toFixed(6)}</td>
-                            <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">R$ {((di.quantity ?? 0) * (di.ingredient?.price_per_unit ?? 0)).toFixed(2)}</td>
+                          <tr key={di.id} className="bg-white dark:bg-slate-800">
+                            <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{di.ingredient?.name}</td>
+                            <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{di.quantity} {di.ingredient?.unit}</td>
+                            <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 font-mono text-xs">R$ {Number(di.ingredient?.price_per_unit ?? 0).toFixed(6)}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-300">R$ {((di.quantity ?? 0) * (di.ingredient?.price_per_unit ?? 0)).toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -975,26 +1070,26 @@ function DishCard({ dish, isExpanded, onToggle, onEdit, onDelete }: {
 
               {details?.sides && details.sides.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2 text-sm">Acompanhamentos</h4>
-                  <div className="overflow-x-auto">
+                  <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Acompanhamentos</h4>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                     <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-gray-600 dark:text-gray-400">
-                          <th className="pb-2 font-medium">Acompanhamento</th>
-                          <th className="pb-2 text-right font-medium">Porções</th>
-                          <th className="pb-2 text-right font-medium">Preço/Porção</th>
-                          <th className="pb-2 text-right font-medium">Subtotal</th>
+                      <thead className="bg-slate-100 dark:bg-slate-700/60">
+                        <tr className="text-left">
+                          <th className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Acompanhamento</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Porções</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Preço/Porção</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Subtotal</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                         {details.sides.map((ds) => {
                           const sc = sideCosts.get(ds.side_id) || 0;
                           return (
-                            <tr key={ds.id} className="border-t border-gray-200 dark:border-gray-700">
-                              <td className="py-2 text-gray-900 dark:text-gray-100">{ds.side?.name}</td>
-                              <td className="py-2 text-right text-gray-600 dark:text-gray-400">{ds.quantity}x</td>
-                              <td className="py-2 text-right text-gray-600 dark:text-gray-400">R$ {sc.toFixed(2)}</td>
-                              <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">R$ {(sc * (ds.quantity ?? 0)).toFixed(2)}</td>
+                            <tr key={ds.id} className="bg-white dark:bg-slate-800">
+                              <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{ds.side?.name}</td>
+                              <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{ds.quantity}x</td>
+                              <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">R$ {sc.toFixed(2)}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-300">R$ {(sc * (ds.quantity ?? 0)).toFixed(2)}</td>
                             </tr>
                           );
                         })}
@@ -1004,10 +1099,10 @@ function DishCard({ dish, isExpanded, onToggle, onEdit, onDelete }: {
                 </div>
               )}
 
-              <div className="pt-3 border-t-2 border-gray-300 dark:border-gray-600">
-                <div className="flex justify-between items-center text-sm font-bold">
-                  <span className="text-gray-700 dark:text-gray-300">Custo Total:</span>
-                  <span className="text-green-600 dark:text-green-400 text-base">R$ {totalCost.toFixed(2)}</span>
+              <div className="pt-3 border-t-2 border-slate-200 dark:border-slate-600">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Custo Total:</span>
+                  <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">R$ {totalCost.toFixed(2)}</span>
                 </div>
               </div>
             </>

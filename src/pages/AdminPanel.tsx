@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
-  Package, ArrowLeft, Plus, Search, Grid, List, AlertTriangle, 
+import {
+  Package, ArrowLeft, Plus, Search, Grid, List, AlertTriangle,
   ShoppingCart, X, Check, Clock, ChevronDown, ChevronUp, ImageIcon,
   ArrowLeftRight,
   Zap, Loader2,
@@ -12,7 +12,7 @@ import { startOfWeek, endOfWeek, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import SubstituteProductModal from '../components/SubstituteProductModal';
 import { useNotification } from '../context/NotificationContext';
-import RequestItem from '../components/RequestItem'; 
+import RequestItem from '../components/RequestItem';
 import Modal from '../components/Modal';
 import { notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
 import DirectDeliveryModal from '../components/DirectDeliveryModal';
@@ -92,10 +92,10 @@ const AdminPanel = () => {
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification();
-  
+
   const [pendingRequestsData, setPendingRequestsData] = useState<Request[]>([]);
   const [historyRequestsData, setHistoryRequestsData] = useState<Request[]>([]);
-  
+
   const [loadingPending, setLoadingPending] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
@@ -105,10 +105,10 @@ const AdminPanel = () => {
   const [error, setError] = useState('');
   const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
   const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
-  
+
   const [selectedHistorySector, setSelectedHistorySector] = useState<string | null>(null);
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
-  
+
   const [showSubstituteModal, setShowSubstituteModal] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -242,7 +242,7 @@ const AdminPanel = () => {
         .order('name');
       if (error) throw error;
       setAvailableProducts(data || []);
-      
+
       // Atualiza o mapa global de estoques
       const stocks: Record<string, number> = {};
       data?.forEach(p => { stocks[p.id] = p.quantity; });
@@ -270,7 +270,7 @@ const AdminPanel = () => {
       addNotification('Erro ao carregar a lista de setores.', 'error');
     }
   }, [selectedHotel, addNotification]);
-  
+
   useEffect(() => {
     if (!selectedHotel?.id) {
       setLoadingPending(false);
@@ -280,7 +280,7 @@ const AdminPanel = () => {
       setAvailableProducts([]);
       setAllSectors([]);
       setError('');
-      return; 
+      return;
     }
 
     fetchPendingRequestsInternal(true);
@@ -310,7 +310,7 @@ const AdminPanel = () => {
         }
       )
       .subscribe();
-      
+
     return () => {
       supabase.removeChannel(requisitionsChannel);
     };
@@ -328,7 +328,7 @@ const AdminPanel = () => {
 
       let unitValue = 0;
       let productNameForReason = requestForBalance.item_name || 'Produto desconhecido';
-      
+
       if (productDetails) {
           unitValue = productDetails.average_price || productDetails.last_purchase_price || 0;
       } else if (productIdForBalance) {
@@ -365,7 +365,7 @@ const AdminPanel = () => {
     } catch (err: any) {
       console.error('Erro ao atualizar saldo financeiro:', err);
       addNotification(`Erro ao atualizar saldo financeiro: ${err.message}`, 'error');
-      return false; 
+      return false;
     }
   };
 
@@ -389,17 +389,17 @@ const AdminPanel = () => {
     setSelectedRequest(request);
     setShowSubstituteModal(true);
   };
-  
+
   const handleConfirmDelivery = async () => {
     if (!selectedRequest) return;
-    const deliveredQuantity = typeof deliveryQuantityInput === 'string' 
-                              ? parseFloat(deliveryQuantityInput.replace(',', '.')) 
+    const deliveredQuantity = typeof deliveryQuantityInput === 'string'
+                              ? parseFloat(deliveryQuantityInput.replace(',', '.'))
                               : deliveryQuantityInput;
     if (isNaN(deliveredQuantity) || deliveredQuantity <= 0) {
       addNotification('Quantidade entregue inválida.', 'error');
       return;
     }
-    
+
     const requestToProcess = { ...selectedRequest };
     const originalPendingList = [...pendingRequestsData];
 
@@ -409,7 +409,7 @@ const AdminPanel = () => {
         delivered_quantity: deliveredQuantity,
         updated_at: new Date().toISOString()
     } as Request;
-    
+
     setPendingRequestsData(prev => prev.filter(r => r.id !== requestToProcess.id));
     setHistoryRequestsData(prev => [updatedRequest, ...prev].sort((a, b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime()));
     setShowDeliveryModal(false);
@@ -437,8 +437,8 @@ const AdminPanel = () => {
 
       const { error: updateError } = await supabase.from('requisitions').update({ status: 'delivered', delivered_quantity: deliveredQuantity, updated_at: new Date().toISOString() }).eq('id', requestToProcess.id);
       if (updateError) throw updateError;
-      
-      // NOTA: O desconto do estoque principal agora é feito via TRIGGER no banco de dados 
+
+      // NOTA: O desconto do estoque principal agora é feito via TRIGGER no banco de dados
       // para evitar descontos duplicados e garantir integridade.
       // Apenas notificamos a UI para atualizar o valor visualmente.
       if (!requestToProcess.is_custom && productId) {
@@ -480,7 +480,7 @@ const AdminPanel = () => {
         }
       }
       // Nota: sector_stock é atualizado automaticamente pelo trigger handle_sector_requisition_delivery
-      
+
       await notifyItemDelivered({ hotel_id: selectedHotel!.id, sector_id: requestToProcess.sector.id, product_name: requestToProcess.item_name, quantity: deliveredQuantity, sector_name: requestToProcess.sector.name, delivered_by: 'Administrador' });
       if (!requestToProcess.is_custom && productId) {
           await updateFinancialBalance(requestToProcess, deliveredQuantity, isSubstitution);
@@ -498,7 +498,7 @@ const AdminPanel = () => {
       addNotification('Motivo da rejeição é obrigatório.', 'error');
       return;
     }
-    
+
     const requestToProcess = { ...selectedRequest };
     const originalPendingList = [...pendingRequestsData];
 
@@ -514,7 +514,7 @@ const AdminPanel = () => {
     setShowRejectModal(false);
     setSelectedRequest(null);
     setRejectReasonInput('');
-    
+
     try {
       const { error } = await supabase
         .from('requisitions')
@@ -542,16 +542,16 @@ const AdminPanel = () => {
       setHistoryRequestsData(prev => prev.filter(r => r.id !== requestToProcess.id));
     }
   };
-  
+
   const handleConfirmSubstitution = async (substitutedProductId: string, deliveredQuantity: number, substitutionReason: string) => {
     if (!selectedRequest || !substitutedProductId) {
       addNotification('Produto substituto é obrigatório.', 'error');
       return;
     }
-    
+
     const requestToProcess = { ...selectedRequest };
     const originalPendingList = [...pendingRequestsData];
-    
+
     const substituteProductInfo = availableProducts.find(p => p.id === substitutedProductId);
     const updatedRequest = {
         ...requestToProcess,
@@ -567,7 +567,7 @@ const AdminPanel = () => {
     setHistoryRequestsData(prev => [updatedRequest, ...prev].sort((a, b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime()));
     setShowSubstituteModal(false);
     setSelectedRequest(null);
-    
+
     try {
       const { data: substituteProduct, error: fetchError } = await supabase
         .from('products')
@@ -578,7 +578,7 @@ const AdminPanel = () => {
 
       if (fetchError || !substituteProduct) throw new Error('Produto substituto não encontrado.');
       if (deliveredQuantity > substituteProduct.quantity) throw new Error(`Quantidade insuficiente em estoque do produto substituto. Disponível: ${substituteProduct.quantity}`);
-      
+
       const { error: updateRequisitionError } = await supabase.from('requisitions').update({
           substituted_product_id: substitutedProductId,
           substitution_reason: substitutionReason,
@@ -641,12 +641,12 @@ const AdminPanel = () => {
           unit_cost: unitCost,
           total_cost: unitCost * deliveredQuantity
       });
-      
+
       const requestWithSubstitute = { ...updatedRequest, products: substituteProduct };
       await updateFinancialBalance(requestWithSubstitute, deliveredQuantity, true);
-      
+
       addNotification(`Produto substituído e entregue com sucesso!`, "success");
-      
+
     } catch (err: any) {
       addNotification(`Erro ao substituir produto: ${err.message}`, 'error');
       setPendingRequestsData(originalPendingList);
@@ -666,7 +666,7 @@ const AdminPanel = () => {
 
       if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
       if (quantity > product.quantity) throw new Error(`Quantidade insuficiente no inventário. Disponível: ${product.quantity}`);
-      
+
       // 1. Cria uma requisição com status 'delivered' para manter o histórico
       const { data: newRequisition, error: requisitionError } = await supabase
         .from('requisitions')
@@ -685,7 +685,7 @@ const AdminPanel = () => {
         })
         .select('id')
         .single();
-        
+
       if (requisitionError) throw requisitionError;
 
       // 2. Atualiza a UI com a nova requisição no histórico
@@ -701,8 +701,8 @@ const AdminPanel = () => {
         sector: sector,
       };
 
-      setHistoryRequestsData(prev => 
-        [fullNewRequestObject, ...prev].sort((a, b) => 
+      setHistoryRequestsData(prev =>
+        [fullNewRequestObject, ...prev].sort((a, b) =>
           new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime()
         )
       );
@@ -788,7 +788,7 @@ const AdminPanel = () => {
         total_cost: unitCost * quantity,
         reference_id: newRequisition.id
       });
-      
+
       await updateFinancialBalance(fullNewRequestObject, quantity, false);
 
       // 6. Notifica o setor
@@ -800,7 +800,7 @@ const AdminPanel = () => {
           sector_name: sector.name,
           delivered_by: 'Administrador (Entrega Direta)'
       });
-      
+
       addNotification('Item entregue diretamente com sucesso!', 'success');
       fetchAvailableProducts();
 
@@ -823,17 +823,17 @@ const AdminPanel = () => {
   };
 
   const groupSelectedSectorByWeek = (requests: Request[], sectorName: string) => {
-    const sectorRequests = requests.filter(req => 
+    const sectorRequests = requests.filter(req =>
       (req.sector?.name || 'Setor Desconhecido') === sectorName
     );
-    
+
     return sectorRequests.reduce((weekAcc, req) => {
       const reqDate = parseISO(req.updated_at || req.created_at);
       const weekStart = startOfWeek(reqDate, { weekStartsOn: 1 });
       const weekEnd = endOfWeek(reqDate, { weekStartsOn: 1 });
       const weekKey = format(weekStart, 'yyyy-MM-dd');
       const weekLabel = `${format(weekStart, "dd/MM")} a ${format(weekEnd, "dd/MM/yyyy", { locale: ptBR })}`;
-      
+
       if (!weekAcc[weekKey]) weekAcc[weekKey] = [];
       weekAcc[weekKey].push(req);
       (weekAcc[weekKey] as any).weekLabel = weekLabel;
@@ -863,7 +863,7 @@ const AdminPanel = () => {
     if (!selectedHistorySector || !historySearchTerm) {
         return null;
     }
-    
+
     return historyRequestsData
         .filter(req => (req.sector?.name || 'Setor Desconhecido') === selectedHistorySector)
         .filter(req => searchMatch(historySearchTerm, req.item_name));
@@ -872,12 +872,14 @@ const AdminPanel = () => {
   if (!selectedHotel) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-150px)] p-4 text-center">
-        <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
-        <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Nenhum Hotel Selecionado</h2>
-        <p className="text-gray-500 dark:text-gray-400">Por favor, selecione um hotel para ver as requisições.</p>
-        <button 
-          onClick={() => navigate('/')} 
-          className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        <div className="w-16 h-16 bg-yellow-100 dark:bg-yellow-900/30 rounded-2xl flex items-center justify-center mb-4">
+          <AlertTriangle className="w-8 h-8 text-yellow-500" />
+        </div>
+        <h2 className="text-2xl font-semibold text-slate-700 dark:text-slate-300 mb-2">Nenhum Hotel Selecionado</h2>
+        <p className="text-slate-500 dark:text-slate-400">Por favor, selecione um hotel para ver as requisições.</p>
+        <button
+          onClick={() => navigate('/')}
+          className="mt-6 px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium"
         >
           Voltar para Seleção de Hotel
         </button>
@@ -887,20 +889,35 @@ const AdminPanel = () => {
 
   const groupedPendingRequests = groupRequestsBySector(pendingRequestsData);
   const groupedHistoryRequests = groupRequestsBySector(historyRequestsData);
-  const selectedSectorWeeks = selectedHistorySector 
+  const selectedSectorWeeks = selectedHistorySector
     ? groupSelectedSectorByWeek(historyRequestsData, selectedHistorySector)
     : {};
 
   return (
-    <div className="container mx-auto p-4 md:p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
-      <div className="flex items-center justify-between mb-6 gap-4">
-        <button onClick={() => navigate(-1)} className="flex items-center text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white">
-          <ArrowLeft className="w-5 h-5 mr-2" />
-          Voltar
+    <div className="container mx-auto p-4 md:p-6 bg-slate-50 dark:bg-slate-900 min-h-screen">
+
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between mb-8 gap-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 px-3 py-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span className="text-sm font-medium">Voltar</span>
         </button>
-        <h1 className="text-xl md:text-3xl font-bold text-gray-800 dark:text-white text-center flex-1">
-          Painel de Requisições - {selectedHotel.name}
-        </h1>
+
+        <div className="flex items-center gap-3 flex-1 justify-center">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Package className="w-5 h-5 text-white" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight">
+              Painel Administrativo
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{selectedHotel.name}</p>
+          </div>
+        </div>
+
         <div className="flex gap-2">
           <button
             onClick={async () => {
@@ -918,147 +935,222 @@ const AdminPanel = () => {
                 setAutoReqLoading(false);
               }
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg shadow-md hover:bg-amber-700 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl shadow-sm hover:bg-amber-600 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500/40 font-medium text-sm"
           >
-            <Zap className="w-5 h-5" />
-            <span className="hidden sm:inline">Auto Requisicoes</span>
+            <Zap className="w-4 h-4" />
+            <span className="hidden sm:inline">Auto Requisições</span>
           </button>
           <button
             onClick={() => setShowDirectDeliveryModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl shadow-sm hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/40 font-medium text-sm"
           >
-            <Package className="w-5 h-5" />
+            <Package className="w-4 h-4" />
             <span className="hidden sm:inline">Entrega Direta</span>
           </button>
         </div>
       </div>
 
+      {/* ── Error banner ── */}
       {error && (
-        <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-200 rounded-lg flex items-center">
-          <AlertTriangle className="w-5 h-5 inline mr-3 flex-shrink-0" />
-          {error}
+        <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-2xl flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+          <span className="text-sm">{error}</span>
         </div>
       )}
 
+      {/* ── Stat strip ── */}
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 flex items-center gap-4">
+          <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Clock className="w-5 h-5 text-orange-500" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{pendingRequestsData.length}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Pendentes</p>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 flex items-center gap-4">
+          <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Check className="w-5 h-5 text-green-500" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{historyRequestsData.length}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Histórico</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Pending section ── */}
       <section className="mb-10">
-        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-4 pb-2 border-b border-gray-300 dark:border-gray-700">
-          Requisições Pendentes ({pendingRequestsData.length})
-        </h2>
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-200 dark:border-slate-700">
+          <div className="w-7 h-7 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
+            <Clock className="w-4 h-4 text-orange-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-200">
+            Requisições Pendentes
+            <span className="ml-2 text-sm font-normal text-slate-400 dark:text-slate-500">({pendingRequestsData.length})</span>
+          </h2>
+        </div>
+
         {loadingPending ? (
-          <div className="flex justify-center items-center py-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="ml-3 text-gray-600 dark:text-gray-400">Carregando pendentes...</p>
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-blue-600"></div>
+            <p className="ml-3 text-slate-500 dark:text-slate-400 text-sm">Carregando pendentes...</p>
           </div>
         ) : Object.keys(groupedPendingRequests).length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-400 text-center py-6">Nenhuma requisição pendente no momento.</p>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-10 text-center">
+            <div className="w-14 h-14 bg-slate-100 dark:bg-slate-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Check className="w-7 h-7 text-slate-400" />
+            </div>
+            <p className="text-slate-700 dark:text-slate-300 font-medium">Tudo em dia!</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Nenhuma requisição pendente no momento.</p>
+          </div>
         ) : (
-          <div className="space-y-6">
-            {Object.entries(groupedPendingRequests).sort(([sectorA], [sectorB]) => sectorA.localeCompare(sectorB)).map(([sectorName, requests]) => (
-              <div key={sectorName} className="bg-white dark:bg-gray-800 shadow-lg rounded-lg overflow-hidden">
-                <button 
-                  onClick={() => toggleSectorExpansion(sectorName)} 
-                  className="w-full flex justify-between items-center p-4 bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors focus:outline-none"
-                >
-                  <h3 className="text-lg font-semibold text-purple-700 dark:text-purple-300">{sectorName} ({requests.length})</h3>
-                  {expandedSectors[sectorName] ? 
-                    <ChevronUp className="h-6 w-6 text-gray-600 dark:text-gray-400" /> : 
-                    <ChevronDown className="h-6 w-6 text-gray-600 dark:text-gray-400" />
-                  }
-                </button>
-                {expandedSectors[sectorName] && (
-                  <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-700/50">
-	                    {requests.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map(request => (
-	                      <RequestItem 
-	                        key={request.id} 
-	                        request={request}
-	                        currentStock={request.product_id ? productStocks[request.product_id] : (request.products?.id ? productStocks[request.products.id] : null)}
-	                        onTriggerDeliver={() => triggerDeliveryModal(request)}
-	                        onTriggerReject={() => triggerRejectModal(request)}
-	                        onTriggerSubstitute={() => triggerSubstituteModal(request)}
-	                        isHistoryView={false}
-	                      />
-	                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="space-y-4">
+            {Object.entries(groupedPendingRequests)
+              .sort(([sectorA], [sectorB]) => sectorA.localeCompare(sectorB))
+              .map(([sectorName, requests]) => (
+                <div key={sectorName} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => toggleSectorExpansion(sectorName)}
+                    className="w-full flex justify-between items-center px-5 py-4 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors focus:outline-none"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
+                        <ShoppingCart className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                        {sectorName}
+                        <span className="ml-2 text-xs font-normal text-slate-400">({requests.length})</span>
+                      </h3>
+                    </div>
+                    {expandedSectors[sectorName] ?
+                      <ChevronUp className="h-5 w-5 text-slate-400" /> :
+                      <ChevronDown className="h-5 w-5 text-slate-400" />
+                    }
+                  </button>
+                  {expandedSectors[sectorName] && (
+                    <div className="p-4 space-y-3 divide-y divide-slate-100 dark:divide-slate-700/50">
+                      {requests
+                        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                        .map(request => (
+                          <RequestItem
+                            key={request.id}
+                            request={request}
+                            currentStock={request.product_id ? productStocks[request.product_id] : (request.products?.id ? productStocks[request.products.id] : null)}
+                            onTriggerDeliver={() => triggerDeliveryModal(request)}
+                            onTriggerReject={() => triggerRejectModal(request)}
+                            onTriggerSubstitute={() => triggerSubstituteModal(request)}
+                            isHistoryView={false}
+                          />
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ))}
           </div>
         )}
       </section>
 
+      {/* ── History section ── */}
       <section>
-        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-4 pb-2 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center">
-          <span>Histórico de Requisições ({historyRequestsData.length})</span>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+              <Clock className="w-4 h-4 text-blue-500" />
+            </div>
+            <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-200">
+              Histórico de Requisições
+              <span className="ml-2 text-sm font-normal text-slate-400 dark:text-slate-500">({historyRequestsData.length})</span>
+            </h2>
+          </div>
           <button
             onClick={() => setShowHistorySearch(prev => !prev)}
-            className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
             title="Buscar no histórico do setor"
           >
-            <Search className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            <Search className="h-4 w-4 text-slate-500 dark:text-slate-400" />
           </button>
-        </h2>
-        
+        </div>
+
         {loadingHistory ? (
-          <div className="flex justify-center items-center py-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600"></div>
-            <p className="ml-3 text-gray-600 dark:text-gray-400">Carregando histórico...</p>
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-blue-600"></div>
+            <p className="ml-3 text-slate-500 dark:text-slate-400 text-sm">Carregando histórico...</p>
           </div>
         ) : Object.keys(groupedHistoryRequests).length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-400 text-center py-6">Nenhum histórico de requisições encontrado.</p>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-10 text-center">
+            <div className="w-14 h-14 bg-slate-100 dark:bg-slate-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Clock className="w-7 h-7 text-slate-400" />
+            </div>
+            <p className="text-slate-700 dark:text-slate-300 font-medium">Sem histórico</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Nenhum histórico de requisições encontrado.</p>
+          </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex flex-wrap gap-3 mb-6">
-              {Object.entries(groupedHistoryRequests).sort(([sectorA], [sectorB]) => sectorA.localeCompare(sectorB)).map(([sectorName, requests]) => (
-                <button
-                  key={`sector-btn-${sectorName}`}
-                  onClick={() => handleSectorSelection(sectorName)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                    selectedHistorySector === sectorName
-                      ? 'bg-blue-600 text-white shadow-lg transform scale-105'
-                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-gray-700 hover:border-blue-300 dark:hover:border-blue-500'
-                  }`}
-                >
-                  📋 {sectorName} ({requests.length})
-                </button>
-              ))}
+            {/* Sector pill buttons */}
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(groupedHistoryRequests)
+                .sort(([sectorA], [sectorB]) => sectorA.localeCompare(sectorB))
+                .map(([sectorName, requests]) => (
+                  <button
+                    key={`sector-btn-${sectorName}`}
+                    onClick={() => handleSectorSelection(sectorName)}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                      selectedHistorySector === sectorName
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-blue-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-500'
+                    }`}
+                  >
+                    {sectorName} ({requests.length})
+                  </button>
+                ))}
             </div>
 
             {selectedHistorySector && (
-              <div className="bg-white dark:bg-gray-800 shadow-lg rounded-lg overflow-hidden">
-                <div className="p-4 bg-blue-100 dark:bg-blue-900/30 border-b border-blue-200 dark:border-blue-800 flex justify-between items-center">
-                  <h3 className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-                    📋 {selectedHistorySector} - Histórico
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                {/* Sector header */}
+                <div className="px-5 py-4 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800/50 flex justify-between items-center gap-4">
+                  <h3 className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                    {selectedHistorySector} — Histórico
                   </h3>
                   {showHistorySearch && (
                     <div className="relative">
+                      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         type="text"
                         placeholder={`Buscar em ${selectedHistorySector}...`}
                         value={historySearchTerm}
                         onChange={(e) => setHistorySearchTerm(e.target.value)}
-                        className="w-full sm:w-64 p-2 pl-8 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-gray-200"
+                        className="w-full sm:w-64 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                       />
-                      <Search size={18} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400"/>
                     </div>
                   )}
                 </div>
-                
+
                 {filteredHistoryItems ? (
-                  <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-600/50">
+                  <div className="p-4 space-y-3 divide-y divide-slate-100 dark:divide-slate-700/50">
                     {filteredHistoryItems.length > 0 ? (
                       filteredHistoryItems.map(request => (
                         <RequestItem key={request.id} request={request} isHistoryView={true} />
                       ))
                     ) : (
-                      <p className="text-gray-500 dark:text-gray-400 text-center py-6">Nenhum item encontrado para "{historySearchTerm}".</p>
+                      <div className="text-center py-8">
+                        <Search className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">
+                          Nenhum item encontrado para "{historySearchTerm}".
+                        </p>
+                      </div>
                     )}
                   </div>
                 ) : (
-                  <div className="p-4 space-y-4">
+                  <div className="p-4 space-y-3">
                     {Object.keys(selectedSectorWeeks).length === 0 ? (
-                      <p className="text-gray-500 dark:text-gray-400 text-center py-6">
-                        Nenhuma requisição encontrada para este setor.
-                      </p>
+                      <div className="text-center py-8">
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">
+                          Nenhuma requisição encontrada para este setor.
+                        </p>
+                      </div>
                     ) : (
                       Object.entries(selectedSectorWeeks)
                         .sort(([keyA], [keyB]) => keyB.localeCompare(keyA))
@@ -1067,29 +1159,32 @@ const AdminPanel = () => {
                           const weekLabel = (weekRequests as any).weekLabel || `Semana de ${weekKey}`;
 
                           return (
-                            <div key={weekKey} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg overflow-hidden">
+                            <div key={weekKey} className="bg-slate-50 dark:bg-slate-700/30 rounded-xl overflow-hidden border border-slate-100 dark:border-slate-700/50">
                               <button
                                 onClick={() => toggleWeekExpansion(weekKey)}
-                                className="w-full flex justify-between items-center px-4 py-3 bg-gray-100 dark:bg-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors focus:outline-none"
+                                className="w-full flex justify-between items-center px-4 py-3 bg-slate-100/70 dark:bg-slate-700/50 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition-colors focus:outline-none"
                               >
-                                <h4 className="text-md font-medium text-gray-700 dark:text-gray-200">
-                                  📅 {weekLabel} ({weekRequests.length})
+                                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                  {weekLabel}
+                                  <span className="ml-2 text-xs font-normal text-slate-400">({weekRequests.length})</span>
                                 </h4>
                                 {isExpanded ? (
-                                  <ChevronUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                                  <ChevronUp className="h-4 w-4 text-slate-400" />
                                 ) : (
-                                  <ChevronDown className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                                  <ChevronDown className="h-4 w-4 text-slate-400" />
                                 )}
                               </button>
                               {isExpanded && (
-                                <div className="p-4 space-y-3 divide-y divide-gray-200 dark:divide-gray-600/50">
-                                  {weekRequests.sort((a,b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime()).map((request) => (
-                                    <RequestItem
-                                      key={request.id}
-                                      request={request}
-                                      isHistoryView={true}
-                                    />
-                                  ))}
+                                <div className="p-4 space-y-3 divide-y divide-slate-100 dark:divide-slate-600/50">
+                                  {weekRequests
+                                    .sort((a, b) => new Date(b.updated_at!).getTime() - new Date(a.updated_at!).getTime())
+                                    .map((request) => (
+                                      <RequestItem
+                                        key={request.id}
+                                        request={request}
+                                        isHistoryView={true}
+                                      />
+                                    ))}
                                 </div>
                               )}
                             </div>
@@ -1103,58 +1198,159 @@ const AdminPanel = () => {
           </div>
         )}
 
-        {/* Botão carregar mais */}
+        {/* Load more */}
         {!loadingHistory && historyHasMore && (
-          <div className="flex flex-col items-center gap-2 pt-4">
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+          <div className="flex flex-col items-center gap-2 pt-6">
+            <p className="text-xs text-slate-400 dark:text-slate-500">
               {historyRequestsData.length} registos carregados
             </p>
             <button
               onClick={loadMoreHistory}
               disabled={loadingMoreHistory}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50 shadow-sm"
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50 shadow-sm"
             >
-              {loadingMoreHistory ? <span className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" /> : "↓"}
-              {loadingMoreHistory ? "Carregando..." : "Carregar mais histórico"}
+              {loadingMoreHistory
+                ? <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                : <ChevronDown className="w-4 h-4" />
+              }
+              {loadingMoreHistory ? 'Carregando...' : 'Carregar mais histórico'}
             </button>
           </div>
         )}
         {!loadingHistory && !historyHasMore && historyRequestsData.length > 0 && (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-4">
+          <p className="text-center text-xs text-slate-400 dark:text-slate-500 pt-6">
             Todo o histórico carregado · {historyRequestsData.length} registos
           </p>
         )}
       </section>
 
-      {/* Modais */}
-      {showSubstituteModal && selectedRequest && ( <SubstituteProductModal isOpen={showSubstituteModal} onClose={() => { setShowSubstituteModal(false); setSelectedRequest(null); }} request={selectedRequest} products={availableProducts} onConfirm={handleConfirmSubstitution} /> )}
-      {showDeliveryModal && selectedRequest && ( <Modal isOpen={showDeliveryModal} onClose={() => { setShowDeliveryModal(false); setSelectedRequest(null); setDeliveryQuantityInput(''); }} title="Entregar Item" > <div className="space-y-4"> <p className="text-gray-700 dark:text-gray-300">Entregar: <strong>{selectedRequest.item_name}</strong></p> <div> <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Quantidade a entregar (original: {selectedRequest.quantity})</label> <input type="number" min="0.1" step="0.01" value={deliveryQuantityInput} onChange={(e) => setDeliveryQuantityInput(e.target.value)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" /> </div> <div className="flex space-x-3"> <button onClick={() => { setShowDeliveryModal(false); setSelectedRequest(null); setDeliveryQuantityInput(''); }} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" > Cancelar </button> <button onClick={handleConfirmDelivery} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"> Entregar </button> </div> </div> </Modal> )}
-      {showRejectModal && selectedRequest && ( <Modal isOpen={showRejectModal} onClose={() => { setShowRejectModal(false); setSelectedRequest(null); setRejectReasonInput(''); }} title="Rejeitar Item" > <div className="space-y-4"> <p className="text-gray-700 dark:text-gray-300">Rejeitar: <strong>{selectedRequest.item_name}</strong></p> <div> <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Motivo da rejeição</label> <textarea value={rejectReasonInput} onChange={(e) => setRejectReasonInput(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="Digite o motivo da rejeição..." /> </div> <div className="flex space-x-3"> <button onClick={() => { setShowRejectModal(false); setSelectedRequest(null); setRejectReasonInput(''); }} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" > Cancelar </button> <button onClick={handleConfirmRejection} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"> Rejeitar </button> </div> </div> </Modal> )}
-      {showDirectDeliveryModal && ( <DirectDeliveryModal isOpen={showDirectDeliveryModal} onClose={() => setShowDirectDeliveryModal(false)} products={availableProducts} sectors={allSectors} onConfirm={handleConfirmDirectDelivery} /> )}
+      {/* ── Modals ── */}
+      {showSubstituteModal && selectedRequest && (
+        <SubstituteProductModal
+          isOpen={showSubstituteModal}
+          onClose={() => { setShowSubstituteModal(false); setSelectedRequest(null); }}
+          request={selectedRequest}
+          products={availableProducts}
+          onConfirm={handleConfirmSubstitution}
+        />
+      )}
 
-      {/* Modal de Auto Requisicoes */}
-      <Modal isOpen={showAutoReqModal} onClose={() => setShowAutoReqModal(false)} title="Auto Requisicoes">
+      {showDeliveryModal && selectedRequest && (
+        <Modal
+          isOpen={showDeliveryModal}
+          onClose={() => { setShowDeliveryModal(false); setSelectedRequest(null); setDeliveryQuantityInput(''); }}
+          title="Entregar Item"
+        >
+          <div className="space-y-5">
+            <p className="text-slate-700 dark:text-slate-300 text-sm">
+              Entregar: <strong className="text-slate-900 dark:text-white">{selectedRequest.item_name}</strong>
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Quantidade a entregar <span className="text-slate-400">(original: {selectedRequest.quantity})</span>
+              </label>
+              <input
+                type="number"
+                min="0.1"
+                step="0.01"
+                value={deliveryQuantityInput}
+                onChange={(e) => setDeliveryQuantityInput(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowDeliveryModal(false); setSelectedRequest(null); setDeliveryQuantityInput(''); }}
+                className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDelivery}
+                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors text-sm font-medium"
+              >
+                Entregar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showRejectModal && selectedRequest && (
+        <Modal
+          isOpen={showRejectModal}
+          onClose={() => { setShowRejectModal(false); setSelectedRequest(null); setRejectReasonInput(''); }}
+          title="Rejeitar Item"
+        >
+          <div className="space-y-5">
+            <p className="text-slate-700 dark:text-slate-300 text-sm">
+              Rejeitar: <strong className="text-slate-900 dark:text-white">{selectedRequest.item_name}</strong>
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Motivo da rejeição
+              </label>
+              <textarea
+                value={rejectReasonInput}
+                onChange={(e) => setRejectReasonInput(e.target.value)}
+                rows={3}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 resize-none"
+                placeholder="Digite o motivo da rejeição..."
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowRejectModal(false); setSelectedRequest(null); setRejectReasonInput(''); }}
+                className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmRejection}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors text-sm font-medium"
+              >
+                Rejeitar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showDirectDeliveryModal && (
+        <DirectDeliveryModal
+          isOpen={showDirectDeliveryModal}
+          onClose={() => setShowDirectDeliveryModal(false)}
+          products={availableProducts}
+          sectors={allSectors}
+          onConfirm={handleConfirmDirectDelivery}
+        />
+      )}
+
+      {/* ── Auto Requisições Modal ── */}
+      <Modal isOpen={showAutoReqModal} onClose={() => setShowAutoReqModal(false)} title="Auto Requisições">
         <div className="space-y-4">
           {autoReqLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="animate-spin w-8 h-8 text-amber-600" />
-              <span className="ml-3 text-gray-600 dark:text-gray-300">Analisando estoques...</span>
+            <div className="flex flex-col items-center justify-center py-14 gap-3">
+              <Loader2 className="animate-spin w-8 h-8 text-amber-500" />
+              <span className="text-slate-500 dark:text-slate-400 text-sm">Analisando estoques...</span>
             </div>
           ) : autoReqPreview.length === 0 ? (
-            <div className="text-center py-8">
-              <Check className="mx-auto w-12 h-12 text-green-500" />
-              <p className="mt-3 text-gray-700 dark:text-gray-300 font-medium">Todos os itens estao acima do minimo!</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Nenhuma requisicao necessaria no momento.</p>
+            <div className="text-center py-10">
+              <div className="w-14 h-14 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Check className="w-7 h-7 text-green-500" />
+              </div>
+              <p className="text-slate-700 dark:text-slate-300 font-medium">Todos os itens estão acima do mínimo!</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Nenhuma requisição necessária no momento.</p>
             </div>
           ) : (
             <>
-              {/* Filtro por setor */}
+              {/* Sector filter */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filtrar por setor</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Filtrar por setor</label>
                 <select
                   value={autoReqSectorFilter}
                   onChange={(e) => setAutoReqSectorFilter(e.target.value)}
-                  className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                 >
                   <option value="">Todos os setores</option>
                   {[...new Set(autoReqPreview.map(i => i.sector_id))].map(sid => {
@@ -1164,12 +1360,12 @@ const AdminPanel = () => {
                 </select>
               </div>
 
-              {/* Tabela */}
-              <div className="max-h-96 overflow-y-auto">
+              {/* Table */}
+              <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                  <thead className="bg-slate-50 dark:bg-slate-700/50 sticky top-0">
                     <tr>
-                      <th className="p-2 text-left">
+                      <th className="p-2.5 text-left">
                         <input
                           type="checkbox"
                           checked={autoReqPreview
@@ -1186,19 +1382,19 @@ const AdminPanel = () => {
                           className="rounded"
                         />
                       </th>
-                      <th className="p-2 text-left text-gray-600 dark:text-gray-300">Setor</th>
-                      <th className="p-2 text-left text-gray-600 dark:text-gray-300">Produto</th>
-                      <th className="p-2 text-right text-gray-600 dark:text-gray-300">Atual</th>
-                      <th className="p-2 text-right text-gray-600 dark:text-gray-300">Min</th>
-                      <th className="p-2 text-right text-gray-600 dark:text-gray-300">Sugestao</th>
+                      <th className="p-2.5 text-left text-slate-600 dark:text-slate-300 font-medium">Setor</th>
+                      <th className="p-2.5 text-left text-slate-600 dark:text-slate-300 font-medium">Produto</th>
+                      <th className="p-2.5 text-right text-slate-600 dark:text-slate-300 font-medium">Atual</th>
+                      <th className="p-2.5 text-right text-slate-600 dark:text-slate-300 font-medium">Mín</th>
+                      <th className="p-2.5 text-right text-slate-600 dark:text-slate-300 font-medium">Sugestão</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                     {autoReqPreview
                       .filter(i => !autoReqSectorFilter || i.sector_id === autoReqSectorFilter)
-                      .map((item, idx) => (
-                        <tr key={`${item.sector_id}-${item.product_id}`} className={item.included ? '' : 'opacity-50'}>
-                          <td className="p-2">
+                      .map((item) => (
+                        <tr key={`${item.sector_id}-${item.product_id}`} className={item.included ? '' : 'opacity-40'}>
+                          <td className="p-2.5">
                             <input
                               type="checkbox"
                               checked={item.included}
@@ -1212,11 +1408,11 @@ const AdminPanel = () => {
                               className="rounded"
                             />
                           </td>
-                          <td className="p-2 text-gray-800 dark:text-gray-200">{item.sector_name}</td>
-                          <td className="p-2 text-gray-800 dark:text-gray-200">{item.product_name}</td>
-                          <td className="p-2 text-right text-gray-600 dark:text-gray-400">{item.current_quantity}</td>
-                          <td className="p-2 text-right text-gray-600 dark:text-gray-400">{item.applicable_min}</td>
-                          <td className="p-2 text-right">
+                          <td className="p-2.5 text-slate-800 dark:text-slate-200">{item.sector_name}</td>
+                          <td className="p-2.5 text-slate-800 dark:text-slate-200">{item.product_name}</td>
+                          <td className="p-2.5 text-right text-slate-500 dark:text-slate-400">{item.current_quantity}</td>
+                          <td className="p-2.5 text-right text-slate-500 dark:text-slate-400">{item.applicable_min}</td>
+                          <td className="p-2.5 text-right">
                             <input
                               type="number"
                               min={0}
@@ -1229,7 +1425,7 @@ const AdminPanel = () => {
                                     : i
                                 ));
                               }}
-                              className="w-20 p-1 border rounded-md text-right dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                              className="w-20 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-1 text-right text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                             />
                           </td>
                         </tr>
@@ -1238,27 +1434,27 @@ const AdminPanel = () => {
                 </table>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex justify-end pt-1">
                 <button
                   onClick={async () => {
                     if (!selectedHotel?.id) return;
                     setAutoReqCommitting(true);
                     try {
                       const count = await commitRequisitions(selectedHotel.id, autoReqPreview);
-                      addNotification(`${count} requisicao(oes) gerada(s) com sucesso!`, 'success');
+                      addNotification(`${count} requisição(ões) gerada(s) com sucesso!`, 'success');
                       setShowAutoReqModal(false);
                       fetchPendingRequestsInternal();
                     } catch (err: any) {
-                      addNotification('Erro ao gerar requisicoes: ' + err.message, 'error');
+                      addNotification('Erro ao gerar requisições: ' + err.message, 'error');
                     } finally {
                       setAutoReqCommitting(false);
                     }
                   }}
                   disabled={autoReqCommitting || !autoReqPreview.some(i => i.included && i.suggested_quantity > 0)}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-sm font-medium flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {autoReqCommitting && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
-                  Gerar Requisicoes
+                  {autoReqCommitting && <Loader2 className="animate-spin w-4 h-4" />}
+                  Gerar Requisições
                 </button>
               </div>
             </>

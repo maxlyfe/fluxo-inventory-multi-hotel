@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import {
   ShoppingCart, Search, Filter, ChevronDown, ChevronUp,
   Package, ArrowRight, History, Globe, BarChart2,
-  Link as LinkIcon, Archive, ArchiveRestore, Loader2, Building2
+  Link as LinkIcon, Archive, ArchiveRestore, Loader2, Building2, AlertTriangle,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
@@ -54,285 +54,223 @@ const PurchaseOrders = () => {
   const [updatingBudgetId, setUpdatingBudgetId] = useState<string | null>(null);
 
   const fetchAllData = async () => {
-    if (!selectedHotel?.id) {
-        setLoading(false);
-        setLoadingBudgets(false);
-        return;
-    };
+    if (!selectedHotel?.id) { setLoading(false); setLoadingBudgets(false); return; }
     try {
-        setLoading(true);
-        setLoadingBudgets(true);
-        setError(null);
-
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
-          .select('*')
-          .eq('hotel_id', selectedHotel.id)
-          .order('name');
-
-        if (productsError) throw productsError;
-
-        const lowStockProducts = (productsData || []).filter(product => 
-          product.quantity <= product.min_quantity
-        );
-        setProducts(lowStockProducts);
-        
-        const uniqueSuppliers = [...new Set(lowStockProducts.map(p => p.supplier).filter(Boolean))].sort();
-        setSuppliers(uniqueSuppliers);
-
-        const { data: budgetsData, error: budgetsError } = await supabase
-            .from('dynamic_budgets')
-            .select(`
-                id,
-                name,
-                created_at,
-                status,
-                is_unified,
-                group_id,
-                supplier_quotes(count)
-            `)
-            .eq('hotel_id', selectedHotel.id)
-            .in('status', ['open', 'closed'])
-            .or('is_unified.is.null,is_unified.eq.false')
-            .order('created_at', { ascending: false });
-
-        if (budgetsError) throw budgetsError;
-        setDynamicBudgets(budgetsData as DynamicBudget[]);
-
-    } catch (err: any) {
-        console.error('Error fetching data:', err);
-        setError('Erro ao carregar dados');
-    } finally {
-        setLoading(false);
-        setLoadingBudgets(false);
-    }
+      setLoading(true); setLoadingBudgets(true); setError(null);
+      const { data: productsData, error: productsError } = await supabase.from('products').select('*').eq('hotel_id', selectedHotel.id).order('name');
+      if (productsError) throw productsError;
+      const lowStockProducts = (productsData || []).filter(p => p.quantity <= p.min_quantity);
+      setProducts(lowStockProducts);
+      setSuppliers([...new Set(lowStockProducts.map(p => p.supplier).filter(Boolean))].sort());
+      const { data: budgetsData, error: budgetsError } = await supabase
+        .from('dynamic_budgets').select(`id,name,created_at,status,is_unified,group_id,supplier_quotes(count)`)
+        .eq('hotel_id', selectedHotel.id).in('status', ['open', 'closed']).or('is_unified.is.null,is_unified.eq.false').order('created_at', { ascending: false });
+      if (budgetsError) throw budgetsError;
+      setDynamicBudgets(budgetsData as DynamicBudget[]);
+    } catch (err: any) { setError('Erro ao carregar dados'); }
+    finally { setLoading(false); setLoadingBudgets(false); }
   };
 
-  useEffect(() => {
-    fetchAllData();
-  }, [selectedHotel]);
+  useEffect(() => { fetchAllData(); }, [selectedHotel]);
 
   const handleCreateOrder = () => {
-    if (selectedProducts.size > 0) {
-      const selectedProductDetails = products.filter(p => selectedProducts.has(p.id));
-      navigate('/purchases/list', { 
-        state: { selectedProductDetails }
-      });
-    } else {
-      navigate('/purchases/list');
-    }
+    if (selectedProducts.size > 0) navigate('/purchases/list', { state: { selectedProductDetails: products.filter(p => selectedProducts.has(p.id)) } });
+    else navigate('/purchases/list');
   };
-  
-  // --- ALTERAÇÃO: Nova função para navegar para a criação de orçamento dinâmico com dados ---
+
   const handleCreateDynamicBudget = () => {
-    if (selectedProducts.size > 0) {
-      const selectedProductDetails = products.filter(p => selectedProducts.has(p.id));
-      navigate('/purchases/dynamic-budget/new', { 
-        state: { selectedProductDetails }
-      });
-    } else {
-      navigate('/purchases/dynamic-budget/new');
-    }
+    if (selectedProducts.size > 0) navigate('/purchases/dynamic-budget/new', { state: { selectedProductDetails: products.filter(p => selectedProducts.has(p.id)) } });
+    else navigate('/purchases/dynamic-budget/new');
   };
 
   const toggleProductSelection = (productId: string) => {
-    setSelectedProducts(prev => {
-      const newSelected = new Set(prev);
-      if (newSelected.has(productId)) {
-        newSelected.delete(productId);
-      } else {
-        newSelected.add(productId);
-      }
-      return newSelected;
-    });
+    setSelectedProducts(prev => { const n = new Set(prev); n.has(productId) ? n.delete(productId) : n.add(productId); return n; });
   };
 
   const handleCopyLink = (budgetId: string) => {
     const link = `${window.location.origin}/quote/${budgetId}`;
-    navigator.clipboard.writeText(link).then(() => {
-      addNotification('Link copiado para a área de transferência!', 'success');
-    }).catch(() => {
-      addNotification('Falha ao copiar o link.', 'error');
-    });
+    navigator.clipboard.writeText(link).then(() => addNotification('Link copiado!', 'success')).catch(() => addNotification('Falha ao copiar o link.', 'error'));
   };
 
   const handleToggleBudgetStatus = async (budgetId: string, currentStatus: 'open' | 'closed') => {
     const newStatus = currentStatus === 'open' ? 'closed' : 'open';
-    const actionText = newStatus === 'closed' ? 'arquivar' : 'reativar';
-
     setUpdatingBudgetId(budgetId);
     try {
-        const { error } = await supabase
-            .from('dynamic_budgets')
-            .update({ status: newStatus })
-            .eq('id', budgetId);
-        
-        if (error) throw error;
-
-        addNotification(`Orçamento ${actionText === 'arquivar' ? 'arquivado' : 'reativado'} com sucesso!`, 'success');
-        setDynamicBudgets(prev => prev.map(b => b.id === budgetId ? {...b, status: newStatus} : b));
-
-    } catch (err: any) {
-        addNotification(`Erro ao ${actionText} o orçamento.`, 'error');
-    } finally {
-        setUpdatingBudgetId(null);
-    }
+      const { error } = await supabase.from('dynamic_budgets').update({ status: newStatus }).eq('id', budgetId);
+      if (error) throw error;
+      addNotification(`Orçamento ${newStatus === 'closed' ? 'arquivado' : 'reativado'}!`, 'success');
+      setDynamicBudgets(prev => prev.map(b => b.id === budgetId ? { ...b, status: newStatus } : b));
+    } catch { addNotification('Erro ao atualizar orçamento.', 'error'); }
+    finally { setUpdatingBudgetId(null); }
   };
 
-  const filteredProducts = products.filter(product => {
-    const matchesSupplier = !selectedSupplier || product.supplier === selectedSupplier;
-    const matchesSearch = searchTerm === '' || 
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (product.supplier || '').toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSupplier && matchesSearch;
+  const filteredProducts = products.filter(p => {
+    const ms = !selectedSupplier || p.supplier === selectedSupplier;
+    const mt = searchTerm === '' || p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.supplier || '').toLowerCase().includes(searchTerm.toLowerCase());
+    return ms && mt;
   });
 
-  if (loading || loadingBudgets) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  if (loading || loadingBudgets) return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <div className="text-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-2" /><p className="text-sm text-slate-500 dark:text-slate-400">Carregando...</p></div>
+    </div>
+  );
+
+  const visibleBudgets = dynamicBudgets.filter(b => b.status === budgetView);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white flex items-center">
-          <ShoppingCart className="h-8 w-8 text-blue-600 dark:text-blue-400 mr-3" />
-          Compras
-        </h1>
-        <div className="flex items-center space-x-2 sm:space-x-4 mt-4 md:mt-0 flex-wrap">
-          <button onClick={() => navigate("/purchases/multi-hotel")} className="flex items-center px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm sm:text-base">
-            <Building2 className="w-5 h-5 mr-2" />
-            Multi-Hotel
+    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+            <ShoppingCart className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-white leading-tight">Compras</h1>
+            <p className="text-xs text-slate-400">{products.length} ite{products.length !== 1 ? 'ns' : 'm'} com estoque baixo</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => navigate('/purchases/multi-hotel')} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm">
+            <Building2 className="w-4 h-4" />Multi-Hotel
           </button>
-          {/* --- ALTERAÇÃO: Botão agora usa a nova função --- */}
-          <button onClick={handleCreateDynamicBudget} className="flex items-center px-3 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors text-sm sm:text-base">
-            <Globe className="w-5 h-5 mr-2" />
-            Orçamento Dinâmico
+          <button onClick={handleCreateDynamicBudget} className="flex items-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm">
+            <Globe className="w-4 h-4" />Orçamento Dinâmico
           </button>
-          <button onClick={() => navigate("/purchases/online")} className="flex items-center px-3 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition-colors text-sm sm:text-base">
-            <ShoppingCart className="w-5 h-5 mr-2" />
-            Orçamento Online
+          <button onClick={() => navigate('/purchases/online')} className="flex items-center gap-1.5 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm">
+            <ShoppingCart className="w-4 h-4" />Orçamento Online
           </button>
-          <button onClick={() => navigate("/budget-history")} className="flex items-center px-3 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 transition-colors text-sm sm:text-base">
-            <History className="w-5 h-5 mr-2" />
-            Histórico
+          <button onClick={() => navigate('/budget-history')} className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm">
+            <History className="w-4 h-4" />Histórico
           </button>
-          <button onClick={handleCreateOrder} className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm sm:text-base">
-            <ArrowRight className="w-5 h-5 mr-2" />
-            Criar Orçamento Físico
+          <button onClick={handleCreateOrder} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm">
+            <ArrowRight className="w-4 h-4" />Criar Orçamento Físico
           </button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">Orçamentos Dinâmicos</h2>
-        <div className="border-b border-gray-200 dark:border-gray-700 mb-4">
-            <nav className="-mb-px flex space-x-6" aria-label="Tabs">
-                <button onClick={() => setBudgetView('open')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${budgetView === 'open' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'}`}>
-                    Em Aberto
-                </button>
-                <button onClick={() => setBudgetView('closed')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${budgetView === 'closed' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'}`}>
-                    Arquivados
-                </button>
-            </nav>
+      {/* ── Orçamentos Dinâmicos ── */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="px-5 pt-5 pb-0">
+          <h2 className="text-base font-bold text-slate-800 dark:text-white mb-4">Orçamentos Dinâmicos</h2>
+          <div className="flex gap-6 border-b border-slate-200 dark:border-slate-700">
+            {(['open', 'closed'] as const).map(v => (
+              <button key={v} onClick={() => setBudgetView(v)}
+                className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${budgetView === v ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                {v === 'open' ? 'Em Aberto' : 'Arquivados'}
+                {dynamicBudgets.filter(b => b.status === v).length > 0 && (
+                  <span className="ml-1.5 text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full px-1.5 py-0.5">{dynamicBudgets.filter(b => b.status === v).length}</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
-        
-        {loadingBudgets ? (
-            <p>Carregando...</p>
-        ) : dynamicBudgets.filter(b => b.status === budgetView).length === 0 ? (
-            <p className="text-gray-600 dark:text-gray-400 py-4">Nenhum orçamento {budgetView === 'open' ? 'em aberto' : 'arquivado'}.</p>
-        ) : (
-            <div className="space-y-3">
-                {dynamicBudgets.filter(b => b.status === budgetView).map(budget => (
-                    <div key={budget.id} className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-md">
-                        <div className="flex flex-wrap justify-between items-center gap-4">
-                            <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-blue-600 dark:text-blue-400 truncate">{budget.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">Criado em: {new Date(budget.created_at).toLocaleDateString('pt-BR')}</p>
-                            </div>
-                            <div className="text-center">
-                                <p className="font-bold text-lg text-gray-800 dark:text-white">{budget.supplier_quotes[0].count}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">Respostas</p>
-                            </div>
-                            <div className="flex items-center space-x-2 flex-wrap">
-                                <button onClick={() => handleCopyLink(budget.id)} title="Copiar Link" className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><LinkIcon className="h-5 w-5 text-gray-500 dark:text-gray-400"/></button>
-                                <Link to={`/purchases/dynamic-budget/analysis/${budget.id}`} title="Analisar" className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><BarChart2 className="h-5 w-5 text-gray-500 dark:text-gray-400"/></Link>
-                                <button onClick={() => handleToggleBudgetStatus(budget.id, budget.status)} title={budget.status === 'open' ? 'Arquivar' : 'Reativar'} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600" disabled={updatingBudgetId === budget.id}>
-                                    {updatingBudgetId === budget.id ? <Loader2 className="h-5 w-5 animate-spin"/> : (budget.status === 'open' ? <Archive className="h-5 w-5 text-red-500 dark:text-red-400"/> : <ArchiveRestore className="h-5 w-5 text-green-500 dark:text-green-400"/>)}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        )}
-      </div>
-      
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-        <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-blue-800 dark:text-blue-200">
-              Itens com Estoque Baixo
-            </h2>
-            <button onClick={() => setShowFilters(!showFilters)} className="flex items-center text-sm text-gray-600 dark:text-gray-300">
-                <Filter className="w-4 h-4 mr-2" />
-                {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
-                {showFilters ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
-            </button>
-        </div>
-        
-        {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 pb-4 border-b dark:border-gray-700">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Buscar</label>
-                    <div className="relative">
-                        <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por nome ou fornecedor..." className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-                    </div>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fornecedor</label>
-                    <select value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)} className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
-                        <option value="">Todos os Fornecedores</option>
-                        {suppliers.map((supplier) => (<option key={supplier} value={supplier}>{supplier}</option>))}
-                    </select>
-                </div>
-            </div>
-        )}
-
-        <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {filteredProducts.length === 0 ? (
+        <div className="p-5">
+          {visibleBudgets.length === 0 ? (
             <div className="text-center py-8">
-                <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-800 dark:text-white">Nenhum item encontrado</h3>
-                <p className="text-gray-600 dark:text-gray-400">Não há itens com estoque baixo que correspondam aos filtros selecionados.</p>
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center mx-auto mb-3">
+                <Globe className="w-6 h-6 text-slate-400" />
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum orçamento {budgetView === 'open' ? 'em aberto' : 'arquivado'}.</p>
             </div>
           ) : (
-            filteredProducts.map((product) => {
+            <div className="space-y-2">
+              {visibleBudgets.map(budget => (
+                <div key={budget.id} className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 truncate">{budget.name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Criado em: {new Date(budget.created_at).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white dark:bg-slate-700 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-slate-600">
+                    <span className="text-base font-bold text-slate-800 dark:text-white">{budget.supplier_quotes[0].count}</span>
+                    <span className="text-xs text-slate-400 ml-1">respostas</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleCopyLink(budget.id)} title="Copiar Link" className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"><LinkIcon className="w-4 h-4 text-slate-500 dark:text-slate-400" /></button>
+                    <Link to={`/purchases/dynamic-budget/analysis/${budget.id}`} title="Analisar" className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"><BarChart2 className="w-4 h-4 text-slate-500 dark:text-slate-400" /></Link>
+                    <button onClick={() => handleToggleBudgetStatus(budget.id, budget.status)} title={budget.status === 'open' ? 'Arquivar' : 'Reativar'} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors" disabled={updatingBudgetId === budget.id}>
+                      {updatingBudgetId === budget.id ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : budget.status === 'open' ? <Archive className="w-4 h-4 text-red-500" /> : <ArchiveRestore className="w-4 h-4 text-emerald-500" />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Itens com Estoque Baixo ── */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div className="p-5 flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-800 dark:text-white leading-tight">Itens com Estoque Baixo</h2>
+              {selectedProducts.size > 0 && <p className="text-xs text-blue-500">{selectedProducts.size} selecionado{selectedProducts.size !== 1 ? 's' : ''}</p>}
+            </div>
+          </div>
+          <button onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+            <Filter className="w-4 h-4" />{showFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showFilters && (
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar por nome ou fornecedor..."
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors" />
+            </div>
+            <select value={selectedSupplier} onChange={e => setSelectedSupplier(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors">
+              <option value="">Todos os Fornecedores</option>
+              {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+          {filteredProducts.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center mx-auto mb-3">
+                <Package className="w-7 h-7 text-slate-400" />
+              </div>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Nenhum item encontrado</p>
+              <p className="text-xs text-slate-400 mt-1">{searchTerm || selectedSupplier ? 'Tente ajustar os filtros.' : 'Todos os itens estão com estoque adequado.'}</p>
+            </div>
+          ) : (
+            filteredProducts.map(product => {
               const isSelected = selectedProducts.has(product.id);
               const quantityToBuy = product.max_quantity - product.quantity;
+              const pct = product.max_quantity > 0 ? Math.min(100, (product.quantity / product.max_quantity) * 100) : 0;
               return (
-                <div key={product.id} className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`} onClick={() => toggleProductSelection(product.id)}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="h-12 w-12 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
-                        {product.image_url ? (<img src={product.image_url} alt={product.name} className="h-full w-full object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; e.currentTarget.parentElement?.querySelector('.img-fallback')?.classList.remove('hidden'); }} />) : null}
-                        <Package className={`h-6 w-6 text-gray-400 img-fallback ${product.image_url ? 'hidden' : ''}`} />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-200">{product.name}</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Fornecedor: {product.supplier || 'N/A'}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          Estoque: <span className="font-bold text-red-500">{product.quantity}</span> | Comprar: <span className="font-bold text-green-500">{quantityToBuy}</span>
-                        </p>
+                <div key={product.id}
+                  className={`p-4 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 dark:bg-blue-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'}`}
+                  onClick={() => toggleProductSelection(product.id)}>
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0 overflow-hidden border border-slate-200 dark:border-slate-600">
+                      {product.image_url
+                        ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        : <Package className="w-5 h-5 text-slate-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{product.name}</p>
+                      <p className="text-xs text-slate-400">{product.supplier || 'Sem fornecedor'}</p>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden max-w-[100px]">
+                          <div className="h-full bg-red-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs text-red-500 font-semibold">{product.quantity}</span>
+                        <span className="text-xs text-slate-400">min {product.min_quantity}</span>
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">+{quantityToBuy}</span>
                       </div>
                     </div>
-                    <div className="flex items-center">
-                      <div className={`w-6 h-6 rounded-full border-2 ${isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-600'}`}>
-                        {isSelected && (<svg className="w-5 h-5 text-white" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>)}
-                      </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-blue-500 bg-blue-500' : 'border-slate-300 dark:border-slate-600'}`}>
+                      {isSelected && <svg className="w-3 h-3 text-white" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                     </div>
                   </div>
                 </div>
