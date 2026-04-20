@@ -116,13 +116,30 @@ export default function WCIFNRHForm() {
     }
   }, [bookingId, guestId]);
 
+  // Brasil = true para controlar campos obrigatórios/condicionais
+  const isBrazil = country === 'BR';
+
+  // Limpar UF e CEP ao trocar para país estrangeiro
+  const handleCountryChange = (value: string) => {
+    setCountry(value);
+    if (value !== 'BR') {
+      setState('');
+      setZipcode('');
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!hotelId || !bookingId) return;
 
     if (!name.trim()) { setError('Nome completo é obrigatório.'); return; }
     if (!email.trim()) { setError('E-mail é obrigatório.'); return; }
+    if (!genderID) { setError('Gênero é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
+
+    // Remove máscaras antes de enviar à Erbon
+    const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
+    const cleanZipcode = zipcode.replace(/\D/g, '');
 
     setSaving(true);
     setError('');
@@ -137,17 +154,19 @@ export default function WCIFNRHForm() {
         nationality: nationality || 'BR',
         profession: profession || undefined,
         vehicleRegistration: vehicleRegistration || undefined,
-        documents: documentNumber.trim() ? [{
+        documents: cleanDocNumber ? [{
           documentType,
-          number: documentNumber.trim(),
+          number: cleanDocNumber,
           country: country || 'BR',
         }] : [],
         address: {
           country: country || 'BR',
-          state: state || undefined,
+          // UF e CEP: apenas para Brasil
+          state: isBrazil ? (state || undefined) : undefined,
+          zipcode: isBrazil ? (cleanZipcode || undefined) : undefined,
+          // Demais campos: sempre enviados se preenchidos
           city: city || undefined,
           street: street || undefined,
-          zipcode: zipcode || undefined,
           neighborhood: neighborhood || undefined,
         },
       };
@@ -253,10 +272,10 @@ export default function WCIFNRHForm() {
                     <input style={inputStyle} type="date" value={birthDate}
                       onChange={e => setBirthDate(e.target.value)} />
                   </Field>
-                  <Field label={t('genderField')}>
+                  <Field label={`${t('genderField')} *`}>
                     <select style={{ ...inputStyle, cursor: 'pointer' }}
                       value={genderID} onChange={e => setGenderID(Number(e.target.value))}>
-                      <option value={0} style={{ color: '#000' }}>—</option>
+                      <option value={0} style={{ color: '#000' }}>Selecione *</option>
                       <option value={1} style={{ color: '#000' }}>{t('male')}</option>
                       <option value={2} style={{ color: '#000' }}>{t('female')}</option>
                       <option value={3} style={{ color: '#000' }}>{t('other')}</option>
@@ -326,7 +345,7 @@ export default function WCIFNRHForm() {
                 <Row>
                   <Field label={t('countryField')}>
                     <select style={{ ...inputStyle, cursor: 'pointer' }}
-                      value={country} onChange={e => setCountry(e.target.value)}>
+                      value={country} onChange={e => handleCountryChange(e.target.value)}>
                       <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
                       <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
                       <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
@@ -346,16 +365,20 @@ export default function WCIFNRHForm() {
                       <option value="OTHER" style={{ color: '#000' }}>Outro</option>
                     </select>
                   </Field>
-                  <Field label={t('zipcodeField')}>
-                    <input style={inputStyle} type="text" value={zipcode}
-                      onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
-                  </Field>
+                  {isBrazil && (
+                    <Field label={t('zipcodeField')}>
+                      <input style={inputStyle} type="text" value={zipcode}
+                        onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
+                    </Field>
+                  )}
                 </Row>
                 <Row>
-                  <Field label={t('stateField')}>
-                    <input style={inputStyle} type="text" value={state}
-                      onChange={e => setState(e.target.value)} placeholder="SP" />
-                  </Field>
+                  {isBrazil && (
+                    <Field label={t('stateField')}>
+                      <input style={inputStyle} type="text" value={state}
+                        onChange={e => setState(e.target.value)} placeholder="SP" maxLength={2} />
+                    </Field>
+                  )}
                   <Field label={t('cityField')}>
                     <input style={inputStyle} type="text" value={city}
                       onChange={e => setCity(e.target.value)} placeholder="São Paulo" />

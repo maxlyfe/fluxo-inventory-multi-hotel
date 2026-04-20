@@ -280,13 +280,15 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
           state: data.address.state?.trim() || null,
           city: data.address.city?.trim() || null,
           street: data.address.street?.trim() || null,
-          zipcode: data.address.zipcode?.trim() || null,
+          // CEP: sempre sem hífen (ex: "28950-410" → "28950410")
+          zipcode: data.address.zipcode?.replace(/\D/g, '') || null,
           neighborhood: data.address.neighborhood?.trim() || null,
         }
       : null,
     documents: (data.documents || []).map(d => ({
       documentType: d.documentType,
-      number: d.number,
+      // CPF/RG: remover pontos, traços e espaços ("011.909.259-07" → "01190925907")
+      number: d.number?.replace(/[\.\-\/\s]/g, '') || d.number,
       expirationDate: d.expirationDate || null,
       country: (d.country && d.country.trim()) || docCountryFallback,
     })),
