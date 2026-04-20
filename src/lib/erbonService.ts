@@ -228,38 +228,50 @@ export interface ErbonGuestAddress {
 }
 
 export interface ErbonGuestPayload {
-  name: string;                        // Nome completo (campo único na API)
+  // Swagger v1 /definitions/Guest — campos confirmados:
+  name: string;                        // Nome completo; buildGuestBody divide em firstName + lastName
   email?: string | null;
   phone?: string | null;
-  birthDate?: string | null;           // ISO 8601 date-time
-  genderID?: number | null;            // ID de gênero (inteiro)
+  birthDate?: string | null;           // ISO 8601 date-time "YYYY-MM-DDTHH:mm:ss"
+  gender?: string | null;              // "M" | "F" — string, não número (conforme swagger)
   nationality?: string | null;
-  professionID?: number | null;
   profession?: string | null;          // Descrição textual
-  vehicleRegistration?: string | null;
-  isClient?: boolean;
-  isProvider?: boolean;
   address?: ErbonGuestAddress | null;
   documents?: ErbonGuestDocument[];
 }
 
 /**
- * Monta o body exato que a API Erbon espera em POST /guest/new e PUT /guests/update.
- * Garante campos obrigatórios e tipos corretos. Valores ausentes viram null/[]
- * para evitar 400 Bad Request por campo faltando.
+ * Monta o body exato que a API Erbon espera em:
+ *   POST /hotel/{id}/booking/{bid}/guest/new
+ *   PUT  /hotel/{id}/guests/update
+ *
+ * Schema confirmado via swagger v1 /definitions/Guest:
+ *   { id, firstName, lastName, email, phone, birthDate, gender,
+ *     nationality, profession, address, documents, company, hotelID }
+ *
+ * REGRAS:
+ * - Campos opcionais OMITIDOS (não null) quando vazios — Erbon rejeita null explícito
+ * - `name` é campo único no formulário; aqui dividimos em firstName + lastName
+ * - `gender` é string: "M" para Masculino, "F" para Feminino; omitir quando ausente
+ * - Body enviado DIRETAMENTE (sem wrapper { guest: ... })
  */
 function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Record<string, any> {
-  // Fallback chain para country em documentos (campo obrigatório pela API):
-  // doc.country → address.country → nationality → 'BR'
-  const docCountryFallback =
-    data.address?.country?.trim() || data.nationality?.trim() || 'BR';
+  // ── Dividir nome completo em firstName + lastName ──────────────────────────
+  const fullName  = data.name?.trim() || '';
+  const spaceIdx  = fullName.indexOf(' ');
+  const firstName = spaceIdx > -1 ? fullName.slice(0, spaceIdx).trim() : fullName;
+  const lastName  = spaceIdx > -1 ? fullName.slice(spaceIdx + 1).trim() : '';
 
-  // birthDate: Erbon exige ISO datetime completo. O input HTML date retorna
-  // "YYYY-MM-DD"; precisamos garantir "YYYY-MM-DDTHH:mm:ss".
+  // ── birthDate: garantir formato ISO datetime completo ─────────────────────
   const birthDateFormatted = data.birthDate
     ? (data.birthDate.includes('T') ? data.birthDate : `${data.birthDate}T00:00:00`)
     : null;
 
+  // ── Fallback country para documentos ──────────────────────────────────────
+  const docCountryFallback =
+    data.address?.country?.trim() || data.nationality?.trim() || 'BR';
+
+  // ── Address: omitir sub-campos vazios ─────────────────────────────────────
   const addressObj = data.address
     ? {
         country: data.address.country?.trim() || 'BR',
@@ -273,27 +285,24 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     : {};
 
   return {
+    // id: 0 para novo hóspede, guestId real para update
     id: existingId ?? 0,
-    name: data.name?.trim() || '',
-    // Campos opcionais: omitir completamente quando vazios (Erbon rejeita null explícito)
-    ...(data.email?.trim()       ? { email:       data.email.trim() }       : {}),
-    ...(data.phone?.trim()       ? { phone:       data.phone.trim() }       : {}),
-    ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }       : {}),
-    // genderID: omitir quando null/0 — o GOV faz a tratativa quando ausente
-    ...(data.genderID            ? { genderID:    data.genderID }            : {}),
-    ...(data.nationality?.trim() ? { nationality: data.nationality.trim() }  : {}),
-    // professionID e profession: omitir se ausentes
-    ...(data.professionID        ? { professionID: data.professionID }       : {}),
-    ...(data.profession?.trim()  ? { profession:  data.profession.trim() }   : {}),
-    ...(data.vehicleRegistration?.trim() ? { vehicleRegistration: data.vehicleRegistration.trim() } : {}),
-    isClient: data.isClient ?? true,
-    isProvider: data.isProvider ?? false,
+    firstName,
+    ...(lastName ? { lastName } : {}),
+    // Campos opcionais: omitidos quando vazios
+    ...(data.email?.trim()       ? { email:       data.email.trim() }      : {}),
+    ...(data.phone?.trim()       ? { phone:       data.phone.trim() }      : {}),
+    ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }     : {}),
+    // gender: string "M" ou "F" — omitir quando ausente
+    ...(data.gender              ? { gender:      data.gender }            : {}),
+    ...(data.nationality?.trim() ? { nationality: data.nationality.trim() } : {}),
+    ...(data.profession?.trim()  ? { profession:  data.profession.trim() } : {}),
     address: addressObj,
     documents: (data.documents || []).map(d => ({
       documentType: d.documentType,
       // CPF/RG: remover pontos, traços e espaços ("011.909.259-07" → "01190925907")
       number: d.number?.replace(/[\.\-\/\s]/g, '') || d.number,
-      // expirationDate: omitir quando vazio (Erbon rejeita null explícito)
+      // expirationDate: omitir quando vazio
       ...(d.expirationDate ? { expirationDate: d.expirationDate } : {}),
       country: (d.country && d.country.trim()) || docCountryFallback,
     })),
@@ -891,9 +900,8 @@ export const erbonService = {
     const token = await this.getToken(hotelId);
     const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
-    const guestBody = buildGuestBody(guestData, null);
-    // POST /guest/new espera o objeto dentro da chave "guest": { guest: {...} }
-    const body = { guest: guestBody };
+    // Swagger: body é o objeto Guest direto, sem wrapper { guest: ... }
+    const body = buildGuestBody(guestData, null);
     console.log('[Erbon] addGuest payload:', JSON.stringify(body));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {

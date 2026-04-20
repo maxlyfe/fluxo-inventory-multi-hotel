@@ -84,7 +84,6 @@ export default function WCIFNRHForm() {
   const [genderID, setGenderID] = useState<number>(0);
   const [nationality, setNationality] = useState('BR');
   const [profession, setProfession] = useState('');
-  const [vehicleRegistration, setVehicleRegistration] = useState('');
 
   // Document
   const [documentType, setDocumentType] = useState('CPF');
@@ -140,14 +139,13 @@ export default function WCIFNRHForm() {
     const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
     const cleanZipcode = zipcode.replace(/\D/g, '');
 
-    // Gênero: só envia 1 (Masc) ou 2 (Fem) para a Erbon.
-    // "Outro", "Prefiro não informar" e não preenchido → omitir (null).
-    // A Erbon faz a tratativa com o GOV quando o campo vem vazio.
-    const erbonGenderID = (genderID === 1 || genderID === 2) ? genderID : null;
+    // Gênero: API Erbon espera string "M" ou "F".
+    // "Outro", "Prefiro não informar" e não preenchido → omitir.
+    const erbonGender = genderID === 1 ? 'M' : genderID === 2 ? 'F' : undefined;
 
-    // Garantir que o código do país é sempre o valor atual do select
-    const addressCountry = country && country !== 'OTHER' ? country : 'OTHER';
-    // Estrangeiros: CEP e UF nunca enviados, independente de valores residuais no state
+    // País do endereço (valor atual do select; sempre string não-vazia)
+    const addressCountry = (country && country !== 'OTHER') ? country : 'OTHER';
+    // CEP e UF: APENAS para Brasil — nunca enviados para estrangeiros
     const isBR = addressCountry === 'BR';
 
     setSaving(true);
@@ -159,10 +157,9 @@ export default function WCIFNRHForm() {
         email: email.trim(),
         phone: phone.trim(),
         birthDate: birthDate || undefined,
-        genderID: erbonGenderID ?? undefined,
+        gender: erbonGender,
         nationality: nationality || 'BR',
         profession: profession || undefined,
-        vehicleRegistration: vehicleRegistration || undefined,
         documents: cleanDocNumber ? [{
           documentType,
           number: cleanDocNumber,
@@ -170,10 +167,8 @@ export default function WCIFNRHForm() {
         }] : [],
         address: {
           country: addressCountry,
-          // UF e CEP: APENAS para Brasil — nunca enviados para estrangeiros
-          state:   isBR ? (state.trim()     || undefined) : undefined,
-          zipcode: isBR ? (cleanZipcode     || undefined) : undefined,
-          // Demais campos: sempre enviados se preenchidos
+          state:   isBR ? (state.trim()  || undefined) : undefined,
+          zipcode: isBR ? (cleanZipcode  || undefined) : undefined,
           city:         city.trim()         || undefined,
           street:       street.trim()       || undefined,
           neighborhood: neighborhood.trim() || undefined,
@@ -320,11 +315,6 @@ export default function WCIFNRHForm() {
                       onChange={e => setProfession(e.target.value)} placeholder="Opcional" />
                   </Field>
                 </Row>
-                <Field label={t('vehicleField')}>
-                  <input style={inputStyle} type="text" value={vehicleRegistration}
-                    onChange={e => setVehicleRegistration(e.target.value.toUpperCase())}
-                    placeholder="ABC-1234 (opcional)" />
-                </Field>
               </div>
             </div>
 
