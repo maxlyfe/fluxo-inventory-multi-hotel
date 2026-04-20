@@ -126,7 +126,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'reports',         label: 'Relatórios',    href: '/reports',                   icon: FileText,           color: '#0ea5e9' },
       { module: 'hotel_documents', label: 'Documentos',    href: '/management/documents',      icon: Shield,             color: '#6366f1' },
       { module: 'management',      label: 'Web Check-in',  href: '/management/webcheckin',     icon: MonitorSmartphone,  color: '#0085ae' },
-      { module: 'management',      label: 'Gestão PDV',    href: '/management/pdv',            icon: Store,              color: '#f59e0b' },
+      // PDV oculto — integração Erbon POST /currentaccount indisponível na API pública
     ],
   },
   {
@@ -177,17 +177,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'reception', label: 'In House',      href: '/reception/inhouse',  icon: Users,     color: '#3b82f6' },
     ],
   },
-  {
-    key: 'pdv',
-    label: 'PDV',
-    icon: ShoppingCart,
-    module: 'pdv',
-    activePrefixes: ['/pdv'],
-    items: [
-      { module: 'pdv', label: 'Ponto de Venda', href: '/pdv',         icon: ShoppingCart, color: '#f59e0b' },
-      { module: 'pdv', label: 'Histórico PDV',  href: '/pdv/history', icon: History,      color: '#8b5cf6' },
-    ],
-  },
+  // PDV oculto — aguardando endpoint POST /currentaccount na API Erbon
+  // {
+  //   key: 'pdv', label: 'PDV', icon: ShoppingCart, module: 'pdv',
+  //   activePrefixes: ['/pdv'],
+  //   items: [
+  //     { module: 'pdv', label: 'Ponto de Venda', href: '/pdv',         icon: ShoppingCart, color: '#f59e0b' },
+  //     { module: 'pdv', label: 'Histórico PDV',  href: '/pdv/history', icon: History,      color: '#8b5cf6' },
+  //   ],
+  // },
   {
     key: 'reservas',
     label: 'Reservas',
