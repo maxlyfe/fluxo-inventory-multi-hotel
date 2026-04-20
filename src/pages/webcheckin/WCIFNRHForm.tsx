@@ -134,15 +134,16 @@ export default function WCIFNRHForm() {
 
     if (!name.trim()) { setError('Nome completo é obrigatório.'); return; }
     if (!email.trim()) { setError('E-mail é obrigatório.'); return; }
-    if (!genderID) { setError('Gênero é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
 
     // Remove máscaras antes de enviar à Erbon
     const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
     const cleanZipcode = zipcode.replace(/\D/g, '');
 
-    // Erbon não aceita genderID=3 (Outro) → usar 1 (Masculino) como fallback
-    const erbonGenderID = genderID === 3 ? 1 : genderID;
+    // Gênero: só envia 1 (Masc) ou 2 (Fem) para a Erbon.
+    // "Outro", "Prefiro não informar" e não preenchido → omitir (null).
+    // A Erbon faz a tratativa com o GOV quando o campo vem vazio.
+    const erbonGenderID = (genderID === 1 || genderID === 2) ? genderID : null;
 
     setSaving(true);
     setError('');
@@ -153,7 +154,7 @@ export default function WCIFNRHForm() {
         email: email.trim(),
         phone: phone.trim(),
         birthDate: birthDate || undefined,
-        genderID: erbonGenderID || undefined,
+        genderID: erbonGenderID ?? undefined,
         nationality: nationality || 'BR',
         profession: profession || undefined,
         vehicleRegistration: vehicleRegistration || undefined,
@@ -275,13 +276,14 @@ export default function WCIFNRHForm() {
                     <input style={inputStyle} type="date" value={birthDate}
                       onChange={e => setBirthDate(e.target.value)} />
                   </Field>
-                  <Field label={`${t('genderField')} *`}>
+                  <Field label={t('genderField')}>
                     <select style={{ ...inputStyle, cursor: 'pointer' }}
                       value={genderID} onChange={e => setGenderID(Number(e.target.value))}>
-                      <option value={0} style={{ color: '#000' }}>Selecione *</option>
+                      <option value={0} style={{ color: '#000' }}>— Selecione</option>
                       <option value={1} style={{ color: '#000' }}>{t('male')}</option>
                       <option value={2} style={{ color: '#000' }}>{t('female')}</option>
-                      <option value={3} style={{ color: '#000' }}>{t('other')} *</option>
+                      <option value={3} style={{ color: '#000' }}>{t('other')}</option>
+                      <option value={99} style={{ color: '#000' }}>Prefiro não informar</option>
                     </select>
                   </Field>
                 </Row>
