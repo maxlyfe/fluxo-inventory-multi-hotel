@@ -141,6 +141,9 @@ export default function WCIFNRHForm() {
     const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
     const cleanZipcode = zipcode.replace(/\D/g, '');
 
+    // Erbon não aceita genderID=3 (Outro) → usar 1 (Masculino) como fallback
+    const erbonGenderID = genderID === 3 ? 1 : genderID;
+
     setSaving(true);
     setError('');
 
@@ -150,7 +153,7 @@ export default function WCIFNRHForm() {
         email: email.trim(),
         phone: phone.trim(),
         birthDate: birthDate || undefined,
-        genderID: genderID || undefined,
+        genderID: erbonGenderID || undefined,
         nationality: nationality || 'BR',
         profession: profession || undefined,
         vehicleRegistration: vehicleRegistration || undefined,
@@ -278,7 +281,7 @@ export default function WCIFNRHForm() {
                       <option value={0} style={{ color: '#000' }}>Selecione *</option>
                       <option value={1} style={{ color: '#000' }}>{t('male')}</option>
                       <option value={2} style={{ color: '#000' }}>{t('female')}</option>
-                      <option value={3} style={{ color: '#000' }}>{t('other')}</option>
+                      <option value={3} style={{ color: '#000' }}>{t('other')} *</option>
                     </select>
                   </Field>
                 </Row>
