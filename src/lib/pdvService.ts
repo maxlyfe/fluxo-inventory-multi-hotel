@@ -50,6 +50,8 @@ export interface PdvTable {
   label: string;
   capacity: number;
   display_order: number;
+  position_x: number | null;
+  position_y: number | null;
 }
 
 export interface CreateSaleInput {
@@ -118,14 +120,47 @@ export interface SalesHistoryFilters {
 export async function getSectorTables(hotelId: string, sectorId: string): Promise<PdvTable[]> {
   const { data, error } = await supabase
     .from('pdv_tables')
-    .select('id, label, capacity, display_order')
+    .select('id, label, capacity, display_order, position_x, position_y')
     .eq('hotel_id', hotelId)
     .eq('sector_id', sectorId)
     .eq('is_active', true)
     .order('display_order')
     .order('label');
   if (error) throw error;
-  return (data || []) as PdvTable[];
+  return (data || []).map((t: any) => ({
+    id: t.id, label: t.label, capacity: t.capacity ?? 4,
+    display_order: t.display_order ?? 0,
+    position_x: t.position_x ?? null, position_y: t.position_y ?? null,
+  }));
+}
+
+/** Cria uma nova mesa em um setor. */
+export async function createSectorTable(
+  hotelId: string, sectorId: string, label: string, capacity: number
+): Promise<PdvTable> {
+  const { data, error } = await supabase
+    .from('pdv_tables')
+    .insert({ hotel_id: hotelId, sector_id: sectorId, label, capacity, is_active: true })
+    .select('id, label, capacity, display_order, position_x, position_y')
+    .single();
+  if (error) throw error;
+  return { id: data.id, label: data.label, capacity: data.capacity ?? capacity,
+    display_order: data.display_order ?? 0, position_x: null, position_y: null };
+}
+
+/** Remove uma mesa. */
+export async function deleteSectorTable(tableId: string): Promise<void> {
+  const { error } = await supabase.from('pdv_tables').delete().eq('id', tableId);
+  if (error) throw error;
+}
+
+/** Atualiza a posição de uma mesa no layout. */
+export async function updateTablePosition(tableId: string, x: number, y: number): Promise<void> {
+  const { error } = await supabase
+    .from('pdv_tables')
+    .update({ position_x: x, position_y: y })
+    .eq('id', tableId);
+  if (error) throw error;
 }
 
 /**
@@ -761,6 +796,7 @@ export interface PDVProductConfig {
   stock_quantity: number;
   is_available: boolean;
   sale_price: number | null;
+  price_locked: boolean;
   pdv_price_id: string | null;
   erbon_service_id: number | null;
   erbon_service_description: string | null;
@@ -848,7 +884,7 @@ export async function getProductsForPDVConfig(hotelId: string, sectorId: string)
       .eq('products.is_active', true),
     supabase
       .from('pdv_prices')
-      .select('id, product_id, sale_price, is_available')
+      .select('id, product_id, sale_price, is_available, price_locked')
       .eq('hotel_id', hotelId)
       .is('sector_id', null),
     supabase
@@ -858,9 +894,9 @@ export async function getProductsForPDVConfig(hotelId: string, sectorId: string)
       .not('product_id', 'is', null),
   ]);
 
-  const priceMap = new Map<string, { id: string; sale_price: number; is_available: boolean }>();
+  const priceMap = new Map<string, { id: string; sale_price: number; is_available: boolean; price_locked: boolean }>();
   for (const p of pricesRes.data || []) {
-    priceMap.set(p.product_id, { id: p.id, sale_price: Number(p.sale_price), is_available: p.is_available ?? true });
+    priceMap.set(p.product_id, { id: p.id, sale_price: Number(p.sale_price), is_available: p.is_available ?? true, price_locked: p.price_locked ?? false });
   }
 
   const erbonMap = new Map<string, { erbon_service_id: number; erbon_service_description: string | null }>();
@@ -889,6 +925,7 @@ export async function getProductsForPDVConfig(hotelId: string, sectorId: string)
       stock_quantity: Number(s.quantity ?? 0),
       is_available: priceRow?.is_available ?? false,
       sale_price: priceRow?.sale_price ?? null,
+      price_locked: priceRow?.price_locked ?? false,
       pdv_price_id: priceRow?.id ?? null,
       erbon_service_id: erbonRow?.erbon_service_id ?? null,
       erbon_service_description: erbonRow?.erbon_service_description ?? null,

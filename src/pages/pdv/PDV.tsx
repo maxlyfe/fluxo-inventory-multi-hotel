@@ -2,19 +2,21 @@
 // Mobile-first PDV: Setor → Mapa de Mesas → Produtos + carrinho bottom sheet
 // Desktop: split-screen preservado com overlay de mesas
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, Search, Trash2, Plus, Minus, Package,
   RefreshCw, AlertTriangle, CheckCircle, XCircle, ChevronRight,
   Users, AlertCircle, RotateCcw, History, X, Zap,
   UtensilsCrossed, Wine, Coffee, Star, ChevronDown,
-  LayoutGrid, ArrowLeft, MapPin, Clock,
+  LayoutGrid, ArrowLeft, MapPin, Clock, Settings, GripVertical,
+  PenLine,
 } from 'lucide-react';
 
 import {
   getProductsForSector, getSectorDetails, getSectorsForPDV,
-  getSectorTables, createSale, retryErbonPosting,
+  getSectorTables, createSectorTable, deleteSectorTable, updateTablePosition,
+  createSale, retryErbonPosting,
   PDVProduct, PDVSectorDetails, PdvTable, CartItem,
   SelectedBooking, SaleResult,
 } from '../../lib/pdvService';
@@ -126,6 +128,18 @@ const PDV: React.FC = () => {
   const [activeTableLabel, setActiveTableLabel] = useState<string | null>(null);
   // Flag: setor acabou de ser trocado → abrir mapa de mesas se houver
   const [justChangedSector, setJustChangedSector] = useState(false);
+
+  // ── Table layout editor state ─────────────────────────────────────────
+  const [tableEditMode, setTableEditMode] = useState(false);
+  const [holdProgress, setHoldProgress] = useState<{ tableId: string; pct: number } | null>(null);
+  const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [showAddTable, setShowAddTable] = useState(false);
+  const [newTableLabel, setNewTableLabel] = useState('');
+  const [newTableCapacity, setNewTableCapacity] = useState(4);
+  const [savingTable, setSavingTable] = useState(false);
+  const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -570,97 +584,322 @@ const PDV: React.FC = () => {
     </div>
   );
 
+  // ── Table Layout Editor helpers ────────────────────────────────────────
+
+  function startHold(tableId: string) {
+    if (tableEditMode) return;
+    let pct = 0;
+    setHoldProgress({ tableId, pct: 0 });
+    holdIntervalRef.current = setInterval(() => {
+      pct += 100 / 30; // 30 ticks × 100ms = 3s
+      if (pct >= 100) {
+        clearInterval(holdIntervalRef.current!);
+        holdIntervalRef.current = null;
+        setHoldProgress(null);
+        setTableEditMode(true);
+      } else {
+        setHoldProgress({ tableId, pct });
+      }
+    }, 100);
+  }
+
+  function cancelHold() {
+    if (holdIntervalRef.current) { clearInterval(holdIntervalRef.current); holdIntervalRef.current = null; }
+    setHoldProgress(null);
+  }
+
+  function handleTablePointerDown(tableId: string, e: React.PointerEvent) {
+    e.stopPropagation();
+    if (tableEditMode) {
+      // Em modo edição: começar drag imediatamente
+      const el = e.currentTarget as HTMLElement;
+      const rect = el.getBoundingClientRect();
+      setDragOffset({ x: e.clientX - rect.left - rect.width / 2, y: e.clientY - rect.top - rect.height / 2 });
+      setDraggingTableId(tableId);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } else {
+      startHold(tableId);
+    }
+  }
+
+  function handleTablePointerUp(tableId: string) {
+    if (draggingTableId) {
+      // Salvar posição ao soltar
+      const t = tables.find(x => x.id === draggingTableId);
+      if (t && t.position_x != null && t.position_y != null) {
+        updateTablePosition(t.id, t.position_x, t.position_y).catch(() => {});
+      }
+      setDraggingTableId(null);
+    } else if (!tableEditMode) {
+      cancelHold();
+      // Clique normal = selecionar
+      const t = tables.find(x => x.id === tableId);
+      if (t) selectTable(t.id, t.label);
+    }
+  }
+
+  function handleCanvasPointerMove(e: React.PointerEvent) {
+    if (!draggingTableId || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const rawX = (e.clientX - rect.left - dragOffset.x) / rect.width * 100;
+    const rawY = (e.clientY - rect.top - dragOffset.y) / rect.height * 100;
+    const x = Math.max(5, Math.min(93, rawX));
+    const y = Math.max(5, Math.min(90, rawY));
+    setTables(prev => prev.map(t => t.id === draggingTableId ? { ...t, position_x: x, position_y: y } : t));
+  }
+
+  async function handleAddTable() {
+    if (!selectedSectorId || !selectedHotel || !newTableLabel.trim()) return;
+    setSavingTable(true);
+    try {
+      // Posiciona no centro-ish com leve offset para não empilhar
+      const offsetX = 20 + Math.random() * 60;
+      const offsetY = 20 + Math.random() * 60;
+      const t = await createSectorTable(selectedHotel.id, selectedSectorId, newTableLabel.trim(), newTableCapacity);
+      await updateTablePosition(t.id, offsetX, offsetY);
+      setTables(prev => [...prev, { ...t, position_x: offsetX, position_y: offsetY }]);
+      setNewTableLabel('');
+      setNewTableCapacity(4);
+      setShowAddTable(false);
+    } catch (e: any) { addNotification('error', e.message); }
+    finally { setSavingTable(false); }
+  }
+
+  async function handleDeleteTable(tableId: string) {
+    setSavingTable(true);
+    try {
+      await deleteSectorTable(tableId);
+      setTables(prev => prev.filter(t => t.id !== tableId));
+      if (activeTableId === tableId) setActiveTableId('__direct__');
+    } catch (e: any) { addNotification('error', e.message); }
+    finally { setSavingTable(false); }
+  }
+
   // ── Table Map (overlay — mobile + desktop) ────────────────────────────
 
-  const renderTableMap = () => (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowTableMap(false)} />
+  // Assign positions to tables that don't have them (grid fallback)
+  function getTableWithPos(table: PdvTable, idx: number) {
+    if (table.position_x != null && table.position_y != null) return table;
+    const cols = 4;
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    return { ...table, position_x: 8 + col * 24, position_y: 12 + row * 30 };
+  }
 
-      {/* Panel */}
-      <div className="relative w-full lg:max-w-2xl lg:mx-4 bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl shadow-black/50 flex flex-col max-h-[85vh]">
-        {/* Handle */}
-        <div className="w-10 h-1 rounded-full bg-slate-700 mx-auto mt-3 lg:hidden" />
+  const renderTableMap = () => {
+    const tablesWithPos = tables.map((t, i) => getTableWithPos(t, i));
+    const hasAnyPos = tables.some(t => t.position_x != null);
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <div>
-            <h2 className="font-bold text-white text-base">Mapa de Mesas</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{currentSector?.sector_name ?? 'Setor'}</p>
-          </div>
-          <button onClick={() => setShowTableMap(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    return (
+      <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          onClick={() => { if (!tableEditMode) setShowTableMap(false); }} />
 
-        {/* Tables grid */}
-        <div className="overflow-y-auto p-4">
-          {tablesLoading ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-20 rounded-2xl bg-slate-800 animate-pulse" />
-              ))}
+        <div className="relative w-full lg:max-w-3xl lg:mx-4 bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl shadow-black/50 flex flex-col max-h-[90vh]">
+          <div className="w-10 h-1 rounded-full bg-slate-700 mx-auto mt-3 lg:hidden" />
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
+            <div>
+              <h2 className="font-bold text-white text-base flex items-center gap-2">
+                {tableEditMode && <GripVertical className="w-4 h-4 text-amber-400 animate-pulse" />}
+                {tableEditMode ? 'Editar Layout' : 'Mapa de Mesas'}
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {tableEditMode
+                  ? 'Arraste as mesas para posicioná-las. Segure 3s em qualquer lugar para sair.'
+                  : `${currentSector?.sector_name ?? 'Setor'} — segure 3s em uma mesa para editar layout`}
+              </p>
             </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-              {/* Opção sem mesa */}
-              <button
-                onClick={() => selectTable('__direct__', null)}
-                className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 transition-all duration-200 active:scale-95 min-h-[76px]
-                  ${activeTableId === '__direct__'
-                    ? 'border-amber-500 bg-amber-500/10'
-                    : 'border-slate-700 bg-slate-800 hover:border-slate-600'}`}
-              >
-                <ArrowLeft className="w-5 h-5 text-slate-400" />
-                <span className="text-[11px] font-bold text-slate-300 text-center leading-tight">Sem Mesa</span>
-                {tableCarts['__direct__']?.length > 0 && (
-                  <span className="text-[10px] text-amber-400 font-bold tabular-nums">
-                    {fmtBRL(getTableCartTotal('__direct__'))}
-                  </span>
-                )}
-              </button>
+            <div className="flex items-center gap-2">
+              {tableEditMode && (
+                <button
+                  onClick={() => setShowAddTable(s => !s)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500 text-white rounded-xl hover:bg-amber-400 transition-colors">
+                  <Plus className="w-3.5 h-3.5" /> Nova Mesa
+                </button>
+              )}
+              {tableEditMode ? (
+                <button
+                  onClick={() => { setTableEditMode(false); setShowAddTable(false); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-green-600 text-white rounded-xl hover:bg-green-500 transition-colors">
+                  <CheckCircle className="w-3.5 h-3.5" /> Concluído
+                </button>
+              ) : (
+                <button onClick={() => setShowTableMap(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
 
-              {tables.map(table => {
-                const isActive = activeTableId === table.id;
-                const itemCount = getTableCartCount(table.id);
-                const total = getTableCartTotal(table.id);
-                const isOccupied = itemCount > 0;
-                return (
-                  <button key={table.id}
-                    onClick={() => selectTable(table.id, table.label)}
-                    className={`flex flex-col items-center justify-center gap-1 p-3 rounded-2xl border-2 transition-all duration-200 active:scale-95 min-h-[76px]
-                      ${isActive
-                        ? 'border-amber-500 bg-amber-500/10'
-                        : isOccupied
-                        ? 'border-amber-800/60 bg-amber-900/20 hover:border-amber-600'
-                        : 'border-slate-700 bg-slate-800 hover:border-slate-600'}`}
-                  >
-                    <LayoutGrid className={`w-5 h-5 ${isOccupied ? 'text-amber-400' : 'text-slate-500'}`} />
-                    <span className={`text-[11px] font-bold text-center leading-tight ${isOccupied ? 'text-amber-300' : 'text-slate-300'}`}>
-                      {table.label}
-                    </span>
-                    {isOccupied ? (
-                      <span className="text-[10px] text-amber-400 font-bold tabular-nums">{fmtBRL(total)}</span>
-                    ) : (
-                      <span className="text-[10px] text-slate-600 font-medium">Livre</span>
-                    )}
-                  </button>
-                );
-              })}
+          {/* Add table form */}
+          {showAddTable && tableEditMode && (
+            <div className="px-5 py-3 bg-slate-800/60 border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newTableLabel}
+                  onChange={e => setNewTableLabel(e.target.value)}
+                  placeholder="Nome da mesa (ex: Mesa 1, Varanda 3)"
+                  className="flex-1 px-3 py-2 text-sm rounded-xl bg-slate-700 text-white border border-slate-600 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
+                  onKeyDown={e => e.key === 'Enter' && handleAddTable()}
+                  autoFocus
+                />
+                <input
+                  type="number"
+                  value={newTableCapacity}
+                  onChange={e => setNewTableCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 px-2 py-2 text-sm rounded-xl bg-slate-700 text-white border border-slate-600 focus:border-amber-500 outline-none text-center"
+                  title="Capacidade"
+                  min={1} max={30}
+                />
+                <button onClick={handleAddTable} disabled={savingTable || !newTableLabel.trim()}
+                  className="px-3 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold hover:bg-amber-400 disabled:opacity-40 transition-colors">
+                  {savingTable ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Add'}
+                </button>
+                <button onClick={() => setShowAddTable(false)} className="p-2 text-slate-400 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Footer info */}
-        <div className="px-5 py-3 border-t border-slate-800">
-          <p className="text-[11px] text-slate-500 text-center">
-            Mesas com valores = pedidos em aberto. Selecione para continuar.
-          </p>
+          {/* Canvas */}
+          <div className="flex-1 overflow-hidden p-3 sm:p-4">
+            {tablesLoading ? (
+              <div className="flex items-center justify-center h-48">
+                <RefreshCw className="w-6 h-6 animate-spin text-amber-500" />
+              </div>
+            ) : (
+              <div
+                ref={canvasRef}
+                className="relative w-full bg-slate-800/60 rounded-2xl border border-slate-700"
+                style={{ height: Math.max(300, Math.min(500, window.innerHeight * 0.45)) }}
+                onPointerMove={handleCanvasPointerMove}
+                onPointerUp={() => { if (draggingTableId) { const t = tables.find(x => x.id === draggingTableId); if (t && t.position_x != null && t.position_y != null) updateTablePosition(t.id, t.position_x, t.position_y).catch(() => {}); setDraggingTableId(null); } }}
+                onPointerLeave={() => { cancelHold(); }}
+              >
+                {/* Grid lines de fundo (modo edição) */}
+                {tableEditMode && (
+                  <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none opacity-10">
+                    {Array.from({ length: 10 }).map((_, i) => (
+                      <div key={i} className="absolute inset-y-0 border-l border-white" style={{ left: `${i * 10}%` }} />
+                    ))}
+                    {Array.from({ length: 10 }).map((_, i) => (
+                      <div key={i} className="absolute inset-x-0 border-t border-white" style={{ top: `${i * 10}%` }} />
+                    ))}
+                  </div>
+                )}
+
+                {/* "Sem Mesa" chip (sempre visível no canto) */}
+                <button
+                  onClick={() => { selectTable('__direct__', null); if (!tableEditMode) setShowTableMap(false); }}
+                  className={`absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all z-10
+                    ${activeTableId === '__direct__' ? 'border-amber-500 bg-amber-500/20 text-amber-300' : 'border-slate-600 bg-slate-700/80 text-slate-400 hover:border-slate-500'}`}
+                >
+                  <ArrowLeft className="w-3 h-3" /> Sem Mesa
+                  {tableCarts['__direct__']?.length > 0 && (
+                    <span className="text-amber-400 font-mono tabular-nums">{fmtBRL(getTableCartTotal('__direct__'))}</span>
+                  )}
+                </button>
+
+                {/* Tables */}
+                {tablesWithPos.map(table => {
+                  const isActive = activeTableId === table.id;
+                  const itemCount = getTableCartCount(table.id);
+                  const total = getTableCartTotal(table.id);
+                  const isOccupied = itemCount > 0;
+                  const isDragging = draggingTableId === table.id;
+                  const isHolding = holdProgress?.tableId === table.id;
+
+                  return (
+                    <div
+                      key={table.id}
+                      style={{
+                        position: 'absolute',
+                        left: `${table.position_x}%`,
+                        top: `${table.position_y}%`,
+                        transform: `translate(-50%, -50%) ${isDragging ? 'scale(1.1)' : 'scale(1)'}`,
+                        touchAction: 'none',
+                        cursor: tableEditMode ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
+                        userSelect: 'none',
+                        zIndex: isDragging ? 20 : 1,
+                        transition: isDragging ? 'none' : 'transform 0.15s',
+                      }}
+                      onPointerDown={e => handleTablePointerDown(table.id, e)}
+                      onPointerUp={() => handleTablePointerUp(table.id)}
+                      onPointerLeave={() => { if (!tableEditMode) cancelHold(); }}
+                      className={`flex flex-col items-center justify-center gap-0.5 w-16 h-16 rounded-2xl border-2 select-none
+                        ${isActive ? 'border-amber-400 bg-amber-500/20 shadow-lg shadow-amber-500/30'
+                          : isOccupied ? 'border-amber-700/70 bg-amber-900/25'
+                          : 'border-slate-600 bg-slate-700/90'}
+                        ${isDragging ? 'shadow-2xl shadow-black/60' : ''}
+                        ${tableEditMode && !isDragging ? 'hover:border-amber-500/60' : ''}`}
+                    >
+                      {/* Hold progress ring */}
+                      {isHolding && (
+                        <svg className="absolute inset-0 w-full h-full -rotate-90 rounded-2xl" viewBox="0 0 64 64">
+                          <circle cx="32" cy="32" r="28" fill="none" stroke="#f59e0b" strokeWidth="3"
+                            strokeDasharray={`${(holdProgress!.pct / 100) * 175.9} 175.9`}
+                            strokeLinecap="round" />
+                        </svg>
+                      )}
+
+                      <LayoutGrid className={`w-4 h-4 ${isOccupied ? 'text-amber-400' : isActive ? 'text-amber-300' : 'text-slate-400'}`} />
+                      <span className={`text-[10px] font-bold text-center leading-tight w-14 truncate px-1
+                        ${isOccupied ? 'text-amber-200' : isActive ? 'text-amber-200' : 'text-slate-300'}`}>
+                        {table.label}
+                      </span>
+                      {isOccupied ? (
+                        <span className="text-[9px] text-amber-400 font-bold tabular-nums">{fmtBRL(total)}</span>
+                      ) : (
+                        <span className="text-[9px] text-slate-500">Livre</span>
+                      )}
+
+                      {/* Delete button (modo edição) */}
+                      {tableEditMode && !isDragging && (
+                        <button
+                          onPointerDown={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); if (window.confirm(`Remover "${table.label}"?`)) handleDeleteTable(table.id); }}
+                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-400 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Empty state */}
+                {tables.length === 0 && !tablesLoading && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-500">
+                    <LayoutGrid className="w-10 h-10 opacity-30" />
+                    <p className="text-sm text-center">
+                      Nenhuma mesa cadastrada.<br />
+                      {tableEditMode
+                        ? <span className="text-amber-400">Clique em "Nova Mesa" para adicionar.</span>
+                        : <span>Segure 3s para entrar no modo de edição.</span>}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-3 border-t border-slate-800 shrink-0">
+            <p className="text-[11px] text-slate-500 text-center">
+              {tableEditMode
+                ? 'Arraste as mesas para organizar o layout. Clique em ✕ para remover.'
+                : 'Toque em uma mesa para selecionar. Segure 3s para editar o layout.'}
+            </p>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ── Mobile: Cart Bottom Sheet ─────────────────────────────────────────
 
@@ -703,7 +942,7 @@ const PDV: React.FC = () => {
   // ── Product grid ──────────────────────────────────────────────────────
 
   const renderProductGrid = () => (
-    <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+    <div className={`flex-1 overflow-y-auto p-3 sm:p-4 ${cart.length > 0 ? 'pb-20 lg:pb-4' : ''}`}>
       {productsLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
@@ -749,8 +988,9 @@ const PDV: React.FC = () => {
                       <span className="text-[10px] font-black text-white">{inCart}</span>
                     </div>
                   )}
-                  <div className={`absolute bottom-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${stockBadge(product.stock_quantity)}`}>
-                    {product.stock_quantity}
+                  <div className={`absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-black backdrop-blur-sm shadow-sm ${stockBadge(product.stock_quantity)}`}>
+                    <span className="opacity-70">▪</span>
+                    <span>{product.stock_quantity} disp.</span>
                   </div>
                   {product.erbon_service_id === null && (
                     <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-amber-500/90 flex items-center justify-center"
@@ -982,27 +1222,28 @@ const PDV: React.FC = () => {
           {/* Product grid */}
           {renderProductGrid()}
 
-          {/* Mobile: floating cart bar */}
-          {cart.length > 0 && (
-            <div className="lg:hidden shrink-0 px-3 py-2 bg-slate-950/95 backdrop-blur border-t border-slate-800">
-              <button onClick={() => setCartSheetOpen(true)}
-                className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 shadow-lg shadow-amber-500/30 active:scale-[0.98] transition-transform duration-150">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-                    <span className="text-[11px] font-black text-white">{cartCount}</span>
-                  </div>
-                  <span className="text-sm font-semibold text-white">{cartCount === 1 ? 'item' : 'itens'}</span>
-                </div>
-                <span className="text-base font-black text-white tabular-nums font-mono">{fmtBRL(cartTotal)}</span>
-                <div className="flex items-center gap-1 text-white/80">
-                  <span className="text-xs font-semibold">Ver carrinho</span>
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-            </div>
-          )}
         </main>
       </div>
+
+      {/* ══ MOBILE: Cart bar — FIXED ao viewport, sempre visível ════════════ */}
+      {cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 px-3 py-2.5 bg-slate-950/97 backdrop-blur-md border-t border-slate-800/80 safe-area-inset-bottom">
+          <button onClick={() => setCartSheetOpen(true)}
+            className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 shadow-xl shadow-amber-500/40 active:scale-[0.98] transition-transform duration-150">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-white/25 flex items-center justify-center shadow-inner">
+                <span className="text-xs font-black text-white">{cartCount}</span>
+              </div>
+              <span className="text-sm font-bold text-white">{cartCount === 1 ? '1 item' : `${cartCount} itens`}</span>
+            </div>
+            <span className="text-base font-black text-white tabular-nums">{fmtBRL(cartTotal)}</span>
+            <div className="flex items-center gap-1.5 text-white/90 bg-white/10 px-3 py-1.5 rounded-xl">
+              <span className="text-xs font-bold">Ver carrinho</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* ══ MOBILE: Cart Bottom Sheet ════════════════════════════════════════ */}
       {cartSheetOpen && renderCartSheet()}
