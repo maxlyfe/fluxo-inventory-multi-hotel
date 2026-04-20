@@ -270,7 +270,16 @@ const PDV: React.FC = () => {
     // Se não tem mesas, activeTableId já foi setado para '__direct__'
   }, [tables, tablesLoading, justChangedSector]);
 
-  // 7. Fechar dropdown ao clicar fora
+  // 7. Quando o carrinho fica vazio → limpar comanda aberta da mesa
+  useEffect(() => {
+    if (cart.length === 0 && currentTabId) {
+      deleteOpenTab(currentTabId).catch(() => {});
+      setOpenTabs(prev => prev.filter(t => t.id !== currentTabId));
+      setCurrentTabId(null);
+    }
+  }, [cart.length]); // eslint-disable-line
+
+  // 8. Fechar dropdown ao clicar fora
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node))
