@@ -145,6 +145,11 @@ export default function WCIFNRHForm() {
     // A Erbon faz a tratativa com o GOV quando o campo vem vazio.
     const erbonGenderID = (genderID === 1 || genderID === 2) ? genderID : null;
 
+    // Garantir que o código do país é sempre o valor atual do select
+    const addressCountry = country && country !== 'OTHER' ? country : 'OTHER';
+    // Estrangeiros: CEP e UF nunca enviados, independente de valores residuais no state
+    const isBR = addressCountry === 'BR';
+
     setSaving(true);
     setError('');
 
@@ -161,17 +166,17 @@ export default function WCIFNRHForm() {
         documents: cleanDocNumber ? [{
           documentType,
           number: cleanDocNumber,
-          country: country || 'BR',
+          country: addressCountry,
         }] : [],
         address: {
-          country: country || 'BR',
-          // UF e CEP: apenas para Brasil
-          state: isBrazil ? (state || undefined) : undefined,
-          zipcode: isBrazil ? (cleanZipcode || undefined) : undefined,
+          country: addressCountry,
+          // UF e CEP: APENAS para Brasil — nunca enviados para estrangeiros
+          state:   isBR ? (state.trim()     || undefined) : undefined,
+          zipcode: isBR ? (cleanZipcode     || undefined) : undefined,
           // Demais campos: sempre enviados se preenchidos
-          city: city || undefined,
-          street: street || undefined,
-          neighborhood: neighborhood || undefined,
+          city:         city.trim()         || undefined,
+          street:       street.trim()       || undefined,
+          neighborhood: neighborhood.trim() || undefined,
         },
       };
 
@@ -371,21 +376,19 @@ export default function WCIFNRHForm() {
                   </select>
                 </Field>
 
-                {/* CEP e Estado/UF — apenas Brasil */}
-                <Row>
-                  <div style={{ display: isBrazil ? undefined : 'none' }}>
+                {/* CEP e Estado/UF — APENAS para Brasil */}
+                {isBrazil && (
+                  <Row>
                     <Field label={t('zipcodeField')}>
                       <input style={inputStyle} type="text" value={zipcode}
                         onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
                     </Field>
-                  </div>
-                  <div style={{ display: isBrazil ? undefined : 'none' }}>
                     <Field label={t('stateField')}>
                       <input style={inputStyle} type="text" value={state}
                         onChange={e => setState(e.target.value)} placeholder="RJ" maxLength={2} />
                     </Field>
-                  </div>
-                </Row>
+                  </Row>
+                )}
 
                 {/* Cidade, Bairro, Rua — todos os países */}
                 <Row>
