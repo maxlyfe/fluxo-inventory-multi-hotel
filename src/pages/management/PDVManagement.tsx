@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
+import { supabase } from '../../lib/supabase';
 import {
   getSectorsWithPDVStatus,
   toggleSectorPDV,
@@ -30,7 +31,8 @@ import {
   type PDVMenuItemConfig,
   type PDVEmployee,
 } from '../../lib/pdvService';
-import { erbonService, type ErbonGuest } from '../../lib/erbonService';
+import { erbonService } from '../../lib/erbonService';
+import type { ErbonGuest } from '../../lib/erbonService';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -142,16 +144,95 @@ const SetoresTab: React.FC<{ hotelId: string }> = ({ hotelId }) => {
   const { addNotification } = useNotification();
   const [sectors, setSectors] = useState<PDVSectorConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  /** Busca setores e, se houver mapeamentos sem ID numérico, sincroniza automaticamente */
+  const load = useCallback(async (autoSync = false) => {
     setLoading(true);
-    try { setSectors(await getSectorsWithPDVStatus(hotelId)); }
-    catch (e: any) { addNotification('error', e.message); }
+    try {
+      const data = await getSectorsWithPDVStatus(hotelId);
+      setSectors(data);
+      // Auto-sync: se algum setor mapeado ainda não tem erbon_department_id, tenta puxar da Erbon
+      const needsSync = data.some(s => s.erbon_department && !s.erbon_department_id);
+      if (needsSync || autoSync) {
+        await syncDeptIdsInner(data);
+        // Recarrega após sincronização
+        setSectors(await getSectorsWithPDVStatus(hotelId));
+      }
+    } catch (e: any) { addNotification('error', e.message); }
     finally { setLoading(false); }
   }, [hotelId]);
 
-  useEffect(() => { load(); }, [load]);
+  /** Sincroniza erbon_department_id buscando transações recentes da Erbon */
+  const syncDeptIdsInner = async (currentSectors: PDVSectorConfig[]) => {
+    setSyncing(true);
+    try {
+      const depts = await erbonService.fetchErbonDepartments(hotelId);
+      const deptMap = new Map(depts.filter(d => d.id > 0).map(d => [d.name, d.id]));
+
+      // Pega todos os mapeamentos sem erbon_department_id
+      const { data: mappings } = await supabase
+        .from('erbon_sector_mappings')
+        .select('id, sector_id, erbon_department, erbon_department_id')
+        .eq('hotel_id', hotelId)
+        .is('erbon_department_id', null);
+
+      const toUpdate = (mappings || []).filter(m => deptMap.has(m.erbon_department));
+      if (toUpdate.length === 0) return;
+
+      for (const m of toUpdate) {
+        const deptId = deptMap.get(m.erbon_department)!;
+        await supabase
+          .from('erbon_sector_mappings')
+          .update({ erbon_department_id: deptId })
+          .eq('id', m.id);
+      }
+      addNotification('success', `${toUpdate.length} ID(s) Erbon sincronizados automaticamente`);
+    } catch {
+      // Silencioso — Erbon pode estar offline, não bloqueia o carregamento
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncManual = async () => {
+    setSyncing(true);
+    try {
+      const depts = await erbonService.fetchErbonDepartments(hotelId);
+      const deptMap = new Map(depts.filter(d => d.id > 0).map(d => [d.name, d.id]));
+
+      const { data: mappings } = await supabase
+        .from('erbon_sector_mappings')
+        .select('id, erbon_department, erbon_department_id')
+        .eq('hotel_id', hotelId)
+        .is('erbon_department_id', null);
+
+      const toUpdate = (mappings || []).filter(m => deptMap.has(m.erbon_department));
+
+      if (toUpdate.length === 0) {
+        addNotification('success', 'Todos os IDs já estão sincronizados!');
+        setSyncing(false);
+        return;
+      }
+
+      for (const m of toUpdate) {
+        await supabase
+          .from('erbon_sector_mappings')
+          .update({ erbon_department_id: deptMap.get(m.erbon_department)! })
+          .eq('id', m.id);
+      }
+
+      addNotification('success', `${toUpdate.length} ID(s) Erbon atualizados`);
+      setSectors(await getSectorsWithPDVStatus(hotelId));
+    } catch (e: any) {
+      addNotification('error', 'Erro ao sincronizar: ' + e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  useEffect(() => { load(false); }, [load]);
 
   const handleToggle = async (sector: PDVSectorConfig) => {
     setToggling(sector.id);
@@ -164,22 +245,47 @@ const SetoresTab: React.FC<{ hotelId: string }> = ({ hotelId }) => {
     } finally { setToggling(null); }
   };
 
-  if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-amber-500" /></div>;
+  const missingIds = sectors.filter(s => s.erbon_department && !s.erbon_department_id).length;
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-16 gap-3">
+      <Loader2 className="w-7 h-7 animate-spin text-amber-500" />
+      {syncing && <p className="text-sm text-gray-400 animate-pulse">Sincronizando IDs Erbon…</p>}
+    </div>
+  );
 
   const enabled = sectors.filter(s => s.pdv_enabled);
   const disabled = sectors.filter(s => !s.pdv_enabled);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="space-y-1">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {enabled.length} de {sectors.length} setores ativos como PDV
           </p>
+          {missingIds > 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              {missingIds} setor(es) sem ID Erbon — necessário para lançar débitos no PMS
+            </p>
+          )}
         </div>
-        <button onClick={load} className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
-          <RefreshCw className="w-3.5 h-3.5" /> Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          {missingIds > 0 && (
+            <button
+              onClick={handleSyncManual}
+              disabled={syncing}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 rounded-lg transition-colors"
+            >
+              {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              Sincronizar IDs Erbon
+            </button>
+          )}
+          <button onClick={() => load(false)} disabled={loading} className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+          </button>
+        </div>
       </div>
 
       {sectors.length === 0 && (
