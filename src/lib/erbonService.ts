@@ -228,50 +228,38 @@ export interface ErbonGuestAddress {
 }
 
 export interface ErbonGuestPayload {
-  // Swagger v1 /definitions/Guest — campos confirmados:
-  name: string;                        // Nome completo; buildGuestBody divide em firstName + lastName
-  email?: string | null;
-  phone?: string | null;
-  birthDate?: string | null;           // ISO 8601 date-time "YYYY-MM-DDTHH:mm:ss"
-  gender?: string | null;              // "M" | "F" — string, não número (conforme swagger)
-  nationality?: string | null;
-  profession?: string | null;          // Descrição textual
-  address?: ErbonGuestAddress | null;
-  documents?: ErbonGuestDocument[];
+  // Schema EXATO confirmado via swagger raw JSON /components/schemas/Guest
+  // com additionalProperties: false — qualquer campo extra causa 400!
+  name: string;                        // string nullable
+  email?: string | null;               // string nullable
+  telephone?: string | null;           // string nullable  ← "telephone", NÃO "phone"!
+  gender?: number | null;              // integer int64 (1=Masc, 2=Fem, 0=outro; omitir se não informado)
+  birthDate?: string | null;           // string date-time nullable
+  address?: ErbonGuestAddress | null;  // Address object
+  documents?: ErbonGuestDocument[];    // array nullable
+  // NÃO EXISTEM no schema: nationality, profession, firstName, lastName, phone,
+  //   isClient, isProvider, vehicleRegistration, professionID
 }
 
 /**
- * Monta o body exato que a API Erbon espera em:
- *   POST /hotel/{id}/booking/{bid}/guest/new
- *   PUT  /hotel/{id}/guests/update
+ * Monta o body EXATO que a API Erbon espera.
  *
- * Schema confirmado via swagger v1 /definitions/Guest:
- *   { id, firstName, lastName, email, phone, birthDate, gender,
- *     nationality, profession, address, documents, company, hotelID }
+ * Schema raw confirmado: /components/schemas/Guest com additionalProperties: false
+ * Campos permitidos: id, name, email, telephone, gender, birthDate, address, documents
+ * Qualquer campo FORA desta lista → 400 imediato!
  *
- * REGRAS:
- * - Campos opcionais OMITIDOS (não null) quando vazios — Erbon rejeita null explícito
- * - `name` é campo único no formulário; aqui dividimos em firstName + lastName
- * - `gender` é string: "M" para Masculino, "F" para Feminino; omitir quando ausente
- * - Body enviado DIRETAMENTE (sem wrapper { guest: ... })
+ * Body enviado DIRETAMENTE (sem wrapper { guest: ... })
  */
 function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Record<string, any> {
-  // ── Dividir nome completo em firstName + lastName ──────────────────────────
-  const fullName  = data.name?.trim() || '';
-  const spaceIdx  = fullName.indexOf(' ');
-  const firstName = spaceIdx > -1 ? fullName.slice(0, spaceIdx).trim() : fullName;
-  const lastName  = spaceIdx > -1 ? fullName.slice(spaceIdx + 1).trim() : '';
-
   // ── birthDate: garantir formato ISO datetime completo ─────────────────────
   const birthDateFormatted = data.birthDate
     ? (data.birthDate.includes('T') ? data.birthDate : `${data.birthDate}T00:00:00`)
     : null;
 
   // ── Fallback country para documentos ──────────────────────────────────────
-  const docCountryFallback =
-    data.address?.country?.trim() || data.nationality?.trim() || 'BR';
+  const docCountryFallback = data.address?.country?.trim() || 'BR';
 
-  // ── Address: omitir sub-campos vazios ─────────────────────────────────────
+  // ── Address: omitir sub-campos vazios (Address não tem additionalProperties:false) ──
   const addressObj = data.address
     ? {
         country: data.address.country?.trim() || 'BR',
@@ -285,18 +273,17 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     : {};
 
   return {
-    // id: 0 para novo hóspede, guestId real para update
+    // id: nullable; 0 para novo, ID real para update
     id: existingId ?? 0,
-    firstName,
-    ...(lastName ? { lastName } : {}),
-    // Campos opcionais: omitidos quando vazios
-    ...(data.email?.trim()       ? { email:       data.email.trim() }      : {}),
-    ...(data.phone?.trim()       ? { phone:       data.phone.trim() }      : {}),
-    ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }     : {}),
-    // gender: string "M" ou "F" — omitir quando ausente
-    ...(data.gender              ? { gender:      data.gender }            : {}),
-    ...(data.nationality?.trim() ? { nationality: data.nationality.trim() } : {}),
-    ...(data.profession?.trim()  ? { profession:  data.profession.trim() } : {}),
+    // name: campo único (a API NÃO tem firstName/lastName)
+    name: data.name?.trim() || '',
+    // Campos opcionais — omitidos quando vazios (não enviar null explícito)
+    ...(data.email?.trim()     ? { email:     data.email.trim() }     : {}),
+    // telephone — NÃO é "phone"! Nome exato do campo no schema Erbon
+    ...(data.telephone?.trim() ? { telephone: data.telephone.trim() } : {}),
+    // gender: integer (1=Masc, 2=Fem) — omitir quando 0 ou ausente
+    ...(data.gender != null && data.gender !== 0 ? { gender: data.gender } : {}),
+    ...(birthDateFormatted     ? { birthDate: birthDateFormatted }    : {}),
     address: addressObj,
     documents: (data.documents || []).map(d => ({
       documentType: d.documentType,

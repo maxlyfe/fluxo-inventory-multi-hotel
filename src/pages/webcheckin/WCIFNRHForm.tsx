@@ -1,6 +1,6 @@
 // src/pages/webcheckin/WCIFNRHForm.tsx
 // Formulário FNRH completo — campos do ErbonGuestPayload
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ClipboardList, Loader2, CheckCircle } from 'lucide-react';
 import { useWCI } from './WebCheckinLayout';
@@ -115,15 +115,18 @@ export default function WCIFNRHForm() {
     }
   }, [bookingId, guestId]);
 
-  // Brasil = true para controlar campos obrigatórios/condicionais
-  const isBrazil = country === 'BR';
+  // Ref para controlar visibilidade do bloco CEP+UF diretamente no DOM
+  // (garante ocultação imediata sem depender do ciclo de render do React)
+  const cepUfRef = useRef<HTMLDivElement>(null);
 
-  // Limpar UF e CEP ao trocar para país estrangeiro
   const handleCountryChange = (value: string) => {
     setCountry(value);
     if (value !== 'BR') {
       setState('');
       setZipcode('');
+      if (cepUfRef.current) cepUfRef.current.style.display = 'none';
+    } else {
+      if (cepUfRef.current) cepUfRef.current.style.display = 'grid';
     }
   };
 
@@ -139,9 +142,9 @@ export default function WCIFNRHForm() {
     const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
     const cleanZipcode = zipcode.replace(/\D/g, '');
 
-    // Gênero: API Erbon espera string "M" ou "F".
-    // "Outro", "Prefiro não informar" e não preenchido → omitir.
-    const erbonGender = genderID === 1 ? 'M' : genderID === 2 ? 'F' : undefined;
+    // Gênero: API Erbon espera INTEGER (1=Masc, 2=Fem).
+    // 0, 3, 99 → omitir (API trata ausência como "não informado")
+    const erbonGender = (genderID === 1 || genderID === 2) ? genderID : undefined;
 
     // País do endereço (valor atual do select; sempre string não-vazia)
     const addressCountry = (country && country !== 'OTHER') ? country : 'OTHER';
@@ -152,14 +155,14 @@ export default function WCIFNRHForm() {
     setError('');
 
     try {
+      // Schema Erbon: { id, name, email, telephone, gender, birthDate, address, documents }
+      // additionalProperties: false → campos extras causam 400!
       const payload: ErbonGuestPayload = {
         name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
+        email: email.trim() || undefined,
+        telephone: phone.trim() || undefined,   // campo se chama "telephone" na API, não "phone"
         birthDate: birthDate || undefined,
-        gender: erbonGender,
-        nationality: nationality || 'BR',
-        profession: profession || undefined,
+        gender: erbonGender,                    // integer, omitido quando não informado
         documents: cleanDocNumber ? [{
           documentType,
           number: cleanDocNumber,
@@ -366,19 +369,26 @@ export default function WCIFNRHForm() {
                   </select>
                 </Field>
 
-                {/* CEP e Estado/UF — APENAS para Brasil */}
-                {isBrazil && (
-                  <Row>
-                    <Field label={t('zipcodeField')}>
-                      <input style={inputStyle} type="text" value={zipcode}
-                        onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
-                    </Field>
-                    <Field label={t('stateField')}>
-                      <input style={inputStyle} type="text" value={state}
-                        onChange={e => setState(e.target.value)} placeholder="RJ" maxLength={2} />
-                    </Field>
-                  </Row>
-                )}
+                {/* CEP e Estado/UF — APENAS para Brasil
+                    Controlado por ref DOM para garantir ocultação imediata
+                    independente do ciclo de render do React */}
+                <div
+                  ref={cepUfRef}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                    gap: '1rem',
+                  }}
+                >
+                  <Field label={t('zipcodeField')}>
+                    <input style={inputStyle} type="text" value={zipcode}
+                      onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
+                  </Field>
+                  <Field label={t('stateField')}>
+                    <input style={inputStyle} type="text" value={state}
+                      onChange={e => setState(e.target.value)} placeholder="RJ" maxLength={2} />
+                  </Field>
+                </div>
 
                 {/* Cidade, Bairro, Rua — todos os países */}
                 <Row>
