@@ -177,15 +177,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'reception', label: 'In House',      href: '/reception/inhouse',  icon: Users,     color: '#3b82f6' },
     ],
   },
-  // PDV oculto — aguardando endpoint POST /currentaccount na API Erbon
-  // {
-  //   key: 'pdv', label: 'PDV', icon: ShoppingCart, module: 'pdv',
-  //   activePrefixes: ['/pdv'],
-  //   items: [
-  //     { module: 'pdv', label: 'Ponto de Venda', href: '/pdv',         icon: ShoppingCart, color: '#f59e0b' },
-  //     { module: 'pdv', label: 'Histórico PDV',  href: '/pdv/history', icon: History,      color: '#8b5cf6' },
-  //   ],
-  // },
+  {
+    key: 'pdv', label: 'PDV', icon: ShoppingCart, module: 'pdv',
+    activePrefixes: ['/pdv'],
+    items: [
+      { module: 'pdv', label: 'Ponto de Venda', href: '/pdv',         icon: ShoppingCart, color: '#f59e0b' },
+      { module: 'pdv', label: 'Histórico PDV',  href: '/pdv/history', icon: History,      color: '#8b5cf6' },
+    ],
+  },
   {
     key: 'reservas',
     label: 'Reservas',

@@ -1,19 +1,25 @@
 // src/components/NewProductModal.tsx
+// Redesenhado — design system slate-2xl, seções com cards coloridos,
+// campos com foco ring, tipo de produto como card toggle, imagem preview.
+
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { X, Loader2, Check, Barcode, Plus, Camera, Phone, Search, ChevronDown, ChevronUp, Building2, MessageSquare } from 'lucide-react';
+import {
+  X, Loader2, Check, Barcode, Plus, Camera, Phone, Search,
+  ChevronDown, ChevronUp, Building2, MessageSquare, Package,
+  ImageIcon, Tag, Scale, FileText, Hash, Percent, Layers,
+  Eye, Scissors, ArrowRight,
+} from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { whatsappService, SupplierContact } from '../lib/whatsappService';
-
 import { Product, UNIT_MEASURE_OPTIONS, PRODUCT_TYPE_OPTIONS } from '../types/product';
 
-interface Sector {
-  id: string;
-  name: string;
-}
+// ── tipos ─────────────────────────────────────────────────────────────────────
+
+interface Sector { id: string; name: string; }
 
 interface NewProductModalProps {
   isOpen: boolean;
@@ -24,146 +30,151 @@ interface NewProductModalProps {
   createAsHidden?: boolean;
 }
 
-const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, createAsHidden = false }: NewProductModalProps) => {
-  const { selectedHotel } = useHotel();
+// ── helper: campo de texto estilizado ─────────────────────────────────────────
+
+const fieldCls =
+  'w-full rounded-xl border border-slate-200 dark:border-slate-600 ' +
+  'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white ' +
+  'placeholder-slate-400 text-sm px-3 py-2.5 ' +
+  'focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 ' +
+  'transition-colors';
+
+const selectCls = fieldCls + ' cursor-pointer';
+
+// ── seção card ────────────────────────────────────────────────────────────────
+
+const Section: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  badge?: string;
+  accent?: string;       // ex: 'indigo' | 'green' | 'amber' | 'blue' | 'slate'
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ icon, title, badge, accent = 'slate', action, children }) => {
+  const bg: Record<string, string> = {
+    indigo: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-900/50',
+    green:  'bg-green-50  dark:bg-green-900/20  border-green-100  dark:border-green-900/50',
+    amber:  'bg-amber-50  dark:bg-amber-900/20  border-amber-100  dark:border-amber-900/50',
+    blue:   'bg-blue-50   dark:bg-blue-900/20   border-blue-100   dark:border-blue-900/50',
+    slate:  'bg-slate-50  dark:bg-slate-800/60  border-slate-200  dark:border-slate-700',
+    purple: 'bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-900/50',
+  };
+  const ic: Record<string, string> = {
+    indigo: 'text-indigo-500', green: 'text-green-500', amber: 'text-amber-500',
+    blue: 'text-blue-500', slate: 'text-slate-400', purple: 'text-purple-500',
+  };
+  return (
+    <div className={`rounded-2xl border p-4 space-y-3 ${bg[accent] ?? bg.slate}`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <span className={ic[accent] ?? ic.slate}>{icon}</span>
+          {title}
+          {badge !== undefined && (
+            <span className="ml-1 text-xs font-normal text-slate-400">({badge})</span>
+          )}
+        </h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+};
+
+// ── componente principal ──────────────────────────────────────────────────────
+
+const NewProductModal = ({
+  isOpen, onClose, onSave, editingProduct, categories, createAsHidden = false,
+}: NewProductModalProps) => {
+  const { selectedHotel }   = useHotel();
   const { addNotification } = useNotification();
 
-  const [error,       setError]       = useState('');
-  const [isSaving,    setIsSaving]    = useState(false);
-  const [formData,    setFormData]    = useState({
-    name: '', quantity: '0' as string | number, min_quantity: '0' as string | number, max_quantity: '100' as string | number,
-    category: 'Outros', supplier: '', image_url: '', description: '',
+  const [error,    setError]    = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '', quantity: '0' as string | number, min_quantity: '0' as string | number,
+    max_quantity: '100' as string | number, category: 'Outros', supplier: '',
+    image_url: '', description: '',
     is_portionable: false, is_portion: false,
     auto_portion_product_id: null as string | null,
     auto_portion_multiplier: null as number | null,
-    unit_measure: 'und',
-    product_type: 'consumo',
-    mcu_code: '',
-    tax_percentage: '0',
+    unit_measure: 'und', product_type: 'consumo',
+    mcu_code: '', tax_percentage: '0',
   });
 
-  // Produtos porção disponíveis para auto-porcionamento
   const [portionProducts, setPortionProducts] = useState<Product[]>([]);
-  const [portionSearch, setPortionSearch] = useState('');
+  const [portionSearch,   setPortionSearch]   = useState('');
+  const [sectors,          setSectors]         = useState<Sector[]>([]);
+  const [selectedSectors,  setSelectedSectors] = useState<Set<string>>(new Set());
+  const [loadingSectors,   setLoadingSectors]  = useState(true);
 
-  const [sectors,         setSectors]         = useState<Sector[]>([]);
-  const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set());
-  const [loadingSectors,  setLoadingSectors]  = useState(true);
-
-  // ── Códigos de barra ─────────────────────────────────────────────
   const [barcodes,     setBarcodes]     = useState<string[]>([]);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showScanner,  setShowScanner]  = useState(false);
 
-  // ── Fornecedores (contatos WhatsApp + manuais) ─────────────────────
-  const [supplierContacts,    setSupplierContacts]    = useState<SupplierContact[]>([]);
-  const [selectedContactIds,  setSelectedContactIds]  = useState<Set<string>>(new Set());
-  const [manualSuppliers,     setManualSuppliers]     = useState<string[]>([]);
-  const [supplierSearch,      setSupplierSearch]      = useState('');
-  const [manualInput,         setManualInput]         = useState('');
-  const [showContactList,     setShowContactList]     = useState(false);
+  const [supplierContacts,   setSupplierContacts]   = useState<SupplierContact[]>([]);
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [manualSuppliers,    setManualSuppliers]    = useState<string[]>([]);
+  const [supplierSearch,     setSupplierSearch]     = useState('');
+  const [manualInput,        setManualInput]        = useState('');
+  const [showContactList,    setShowContactList]    = useState(false);
 
-  // ── Carregar dados ao abrir ──────────────────────────────────────
+  const [imgError, setImgError] = useState(false);
+
+  // ── load ───────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!isOpen || !selectedHotel) return;
-
+    setImgError(false);
     const load = async () => {
       setLoadingSectors(true);
+      try { setSupplierContacts(await whatsappService.getContacts()); }
+      catch { setSupplierContacts([]); }
 
-      // Contatos de fornecedores (compartilhados entre hotéis)
-      try {
-        const contacts = await whatsappService.getContacts();
-        setSupplierContacts(contacts);
-      } catch {
-        setSupplierContacts([]);
-      }
+      const { data: sectorsData } = await supabase
+        .from('sectors').select('id, name').eq('hotel_id', selectedHotel.id).order('name');
+      setSectors(sectorsData || []);
 
-      // Setores do hotel
-      const { data: sectorsData, error: sectorsError } = await supabase
-        .from('sectors')
-        .select('id, name')
-        .eq('hotel_id', selectedHotel.id)
-        .order('name');
-
-      if (sectorsError) {
-        addNotification('Erro ao carregar setores.', 'error');
-        setSectors([]);
-      } else {
-        setSectors(sectorsData || []);
-      }
-
-      // Produtos porção para auto-porcionamento
       const { data: portionData } = await supabase
-        .from('products')
-        .select('id, name, category')
-        .eq('hotel_id', selectedHotel.id)
-        .eq('is_portion', true)
-        .eq('is_active', true)
-        .order('name');
+        .from('products').select('id, name, category')
+        .eq('hotel_id', selectedHotel.id).eq('is_portion', true).eq('is_active', true).order('name');
       setPortionProducts((portionData as Product[]) || []);
 
       if (editingProduct) {
-        // Visibilidade por setor
-        const { data: visibilityData, error: visErr } = await supabase
-          .from('product_sector_visibility')
-          .select('sector_id')
-          .eq('product_id', editingProduct.id);
+        const { data: visData } = await supabase
+          .from('product_sector_visibility').select('sector_id').eq('product_id', editingProduct.id);
+        setSelectedSectors(new Set(visData?.map(v => v.sector_id) ?? []));
 
-        if (visErr) {
-          addNotification('Erro ao carregar visibilidade do produto.', 'error');
-          setSelectedSectors(new Set());
-        } else {
-          setSelectedSectors(new Set(visibilityData.map(v => v.sector_id)));
-        }
-
-        // Códigos de barra cadastrados
         const { data: bcData } = await supabase
-          .from('product_barcodes')
-          .select('barcode')
-          .eq('product_id', editingProduct.id)
-          .order('created_at');
+          .from('product_barcodes').select('barcode').eq('product_id', editingProduct.id).order('created_at');
         setBarcodes((bcData || []).map((b: any) => b.barcode));
 
-        // Fornecedores vinculados
-        try {
-          const linkedIds = await whatsappService.getProductContacts(editingProduct.id);
-          setSelectedContactIds(new Set(linkedIds));
-        } catch {
-          setSelectedContactIds(new Set());
-        }
+        try { setSelectedContactIds(new Set(await whatsappService.getProductContacts(editingProduct.id))); }
+        catch { setSelectedContactIds(new Set()); }
 
-        // Fornecedores manuais (campo texto antigo, separados por vírgula)
-        const existingSupplier = editingProduct.supplier || '';
-        if (existingSupplier.trim()) {
-          setManualSuppliers(existingSupplier.split(',').map(s => s.trim()).filter(Boolean));
-        } else {
-          setManualSuppliers([]);
-        }
+        const existing = editingProduct.supplier || '';
+        setManualSuppliers(existing.trim() ? existing.split(',').map(s => s.trim()).filter(Boolean) : []);
 
-        // Dados do produto
         setFormData({
-          name:           editingProduct.name,
-          quantity:       String(editingProduct.quantity),
-          min_quantity:   String(editingProduct.min_quantity),
-          max_quantity:   String(editingProduct.max_quantity),
-          category:       editingProduct.category,
-          supplier:       editingProduct.supplier    || '',
-          image_url:      editingProduct.image_url   || '',
-          description:    editingProduct.description || '',
+          name:        editingProduct.name,
+          quantity:    String(editingProduct.quantity),
+          min_quantity: String(editingProduct.min_quantity),
+          max_quantity: String(editingProduct.max_quantity),
+          category:    editingProduct.category,
+          supplier:    editingProduct.supplier    || '',
+          image_url:   editingProduct.image_url   || '',
+          description: editingProduct.description || '',
           is_portionable: editingProduct.is_portionable || false,
           is_portion:     editingProduct.is_portion     || false,
           auto_portion_product_id: (editingProduct as any).auto_portion_product_id || null,
           auto_portion_multiplier: (editingProduct as any).auto_portion_multiplier || null,
-          unit_measure: editingProduct.unit_measure || 'und',
-          product_type: editingProduct.product_type || 'consumo',
-          mcu_code: editingProduct.mcu_code || '',
+          unit_measure: editingProduct.unit_measure  || 'und',
+          product_type: editingProduct.product_type  || 'consumo',
+          mcu_code:     editingProduct.mcu_code      || '',
           tax_percentage: editingProduct.tax_percentage?.toString() || '0',
         });
       } else {
         if (sectorsData) setSelectedSectors(new Set(sectorsData.map(s => s.id)));
-        setBarcodes([]);
-        setSelectedContactIds(new Set());
-        setManualSuppliers([]);
+        setBarcodes([]); setSelectedContactIds(new Set()); setManualSuppliers([]);
         setFormData({
           name: '', quantity: '0', min_quantity: '0', max_quantity: '100',
           category: 'Outros', supplier: '', image_url: '', description: '',
@@ -172,14 +183,13 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
           unit_measure: 'und', product_type: 'consumo', mcu_code: '', tax_percentage: '0',
         });
       }
-
       setLoadingSectors(false);
     };
-
     load();
-  }, [editingProduct, isOpen, selectedHotel, createAsHidden, addNotification]);
+  }, [editingProduct, isOpen, selectedHotel, addNotification]);
 
-  // ── Handlers do form ────────────────────────────────────────────
+  // ── handlers ───────────────────────────────────────────────────────────────
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
@@ -187,53 +197,47 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
       setFormData(prev => {
         const next = { ...prev, [name]: checked };
         if (checked && name === 'is_portionable') next.is_portion = false;
-        if (checked && name === 'is_portion')     { next.is_portionable = false; next.auto_portion_product_id = null; next.auto_portion_multiplier = null; }
-        if (!checked && name === 'is_portionable') { next.auto_portion_product_id = null; next.auto_portion_multiplier = null; }
+        if (checked && name === 'is_portion') {
+          next.is_portionable = false;
+          next.auto_portion_product_id = null;
+          next.auto_portion_multiplier = null;
+        }
+        if (!checked && name === 'is_portionable') {
+          next.auto_portion_product_id = null;
+          next.auto_portion_multiplier = null;
+        }
         return next;
       });
       return;
     }
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
+    if (name === 'image_url') setImgError(false);
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSectorToggle = (sectorId: string) => {
-    setSelectedSectors(prev => {
-      const next = new Set(prev);
-      next.has(sectorId) ? next.delete(sectorId) : next.add(sectorId);
-      return next;
-    });
-  };
+  const handleSectorToggle = (id: string) =>
+    setSelectedSectors(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  // ── Handlers de barcode ─────────────────────────────────────────
   const addBarcode = (code: string) => {
-    const trimmed = code.trim();
-    if (!trimmed) return;
-    setBarcodes(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+    const t = code.trim();
+    if (!t) return;
+    setBarcodes(prev => prev.includes(t) ? prev : [...prev, t]);
     setBarcodeInput('');
   };
+  const removeBarcode = (code: string) => setBarcodes(prev => prev.filter(b => b !== code));
 
-  const removeBarcode = (code: string) =>
-    setBarcodes(prev => prev.filter(b => b !== code));
+  useBarcodeScanner({ onScan: addBarcode, enabled: isOpen && !showScanner });
+  const handleBarcodeScan = (code: string) => { addBarcode(code); setShowScanner(false); };
 
-  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); addBarcode(barcodeInput); }
+  const addManualSupplier = () => {
+    const val = manualInput.trim();
+    if (val && !manualSuppliers.includes(val)) {
+      setManualSuppliers(prev => [...prev, val]);
+      setManualInput('');
+    }
   };
 
-  // Leitor USB de código de barras
-  useBarcodeScanner({
-    onScan: addBarcode,
-    enabled: isOpen && !showScanner,
-  });
+  // ── submit ─────────────────────────────────────────────────────────────────
 
-  const handleBarcodeScan = (code: string) => {
-    addBarcode(code);
-    setShowScanner(false);
-  };
-
-  // ── Submit ──────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -241,89 +245,54 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
     try {
       if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
 
-      const qty = parseFloat(String(formData.quantity).replace(',', '.')) || 0;
+      const qty    = parseFloat(String(formData.quantity).replace(',', '.'))    || 0;
       const minQty = parseFloat(String(formData.min_quantity).replace(',', '.')) || 0;
       const maxQty = parseFloat(String(formData.max_quantity).replace(',', '.')) || 100;
+      if (minQty > maxQty) throw new Error('Quantidade mínima não pode ser maior que a máxima.');
 
-      if (minQty > maxQty)
-        throw new Error('Quantidade mínima não pode ser maior que a máxima.');
+      const contactNames  = supplierContacts.filter(c => selectedContactIds.has(c.id)).map(c => c.company_name);
+      const supplierField = [...new Set([...manualSuppliers, ...contactNames])].join(', ');
 
-      // Consolidar fornecedores manuais + nomes dos contatos selecionados no campo supplier
-      const contactNames = supplierContacts
-        .filter(c => selectedContactIds.has(c.id))
-        .map(c => c.company_name);
-      const allSupplierNames = [...new Set([...manualSuppliers, ...contactNames])];
-      const supplierField = allSupplierNames.join(', ');
       const dataToSave = {
-        ...formData,
-        supplier: supplierField,
-        quantity: qty,
-        min_quantity: minQty,
-        max_quantity: maxQty,
-        unit_measure: formData.unit_measure,
-        product_type: formData.product_type,
+        ...formData, supplier: supplierField, quantity: qty, min_quantity: minQty, max_quantity: maxQty,
         mcu_code: formData.mcu_code || null,
         tax_percentage: parseFloat(String(formData.tax_percentage).replace(',', '.')) || 0,
       };
 
       let savedProduct: Product | null = null;
-
       if (editingProduct) {
-        const { data, error: updateError } = await supabase
-          .from('products').update(dataToSave)
-          .eq('id', editingProduct.id).select().single();
-        if (updateError) throw updateError;
+        const { data, error: e } = await supabase.from('products').update(dataToSave).eq('id', editingProduct.id).select().single();
+        if (e) throw e;
         savedProduct = data;
       } else {
-        const { data, error: insertError } = await supabase
-          .from('products')
+        const { data, error: e } = await supabase.from('products')
           .insert([{ ...dataToSave, hotel_id: selectedHotel.id, is_active: !createAsHidden }])
           .select().single();
-        if (insertError) throw insertError;
+        if (e) throw e;
         savedProduct = data;
       }
 
       if (savedProduct) {
-        // Visibilidade
-        const { error: delVis } = await supabase
-          .from('product_sector_visibility').delete().eq('product_id', savedProduct.id);
-        if (delVis) throw new Error(`Erro ao limpar visibilidade: ${delVis.message}`);
-
+        await supabase.from('product_sector_visibility').delete().eq('product_id', savedProduct.id);
         if (selectedSectors.size > 0) {
-          const { error: insVis } = await supabase.from('product_sector_visibility')
-            .insert(Array.from(selectedSectors).map(sid => ({
-              product_id: savedProduct!.id, sector_id: sid,
-            })));
-          if (insVis) throw new Error(`Erro ao salvar visibilidade: ${insVis.message}`);
+          await supabase.from('product_sector_visibility')
+            .insert(Array.from(selectedSectors).map(sid => ({ product_id: savedProduct!.id, sector_id: sid })));
         }
-
-        // Barcodes — sincroniza (apaga e reinsere)
         await supabase.from('product_barcodes').delete().eq('product_id', savedProduct.id);
         const unique = [...new Set(barcodes.filter(b => b.trim()))];
-        if (unique.length > 0) {
-          const { error: bcErr } = await supabase.from('product_barcodes')
-            .insert(unique.map(barcode => ({ product_id: savedProduct!.id, barcode })));
-          if (bcErr) console.error('Erro ao salvar barcodes:', bcErr);
-        }
-
-        // Fornecedores — sincroniza vínculos produto-contato
-        try {
-          await whatsappService.syncProductContacts(savedProduct.id, Array.from(selectedContactIds));
-        } catch (err) {
-          console.error('Erro ao salvar fornecedores:', err);
-        }
+        if (unique.length > 0)
+          await supabase.from('product_barcodes').insert(unique.map(barcode => ({ product_id: savedProduct!.id, barcode })));
+        try { await whatsappService.syncProductContacts(savedProduct.id, Array.from(selectedContactIds)); }
+        catch (err) { console.error('Erro ao salvar fornecedores:', err); }
       }
 
-      addNotification(
-        editingProduct ? 'Produto atualizado com sucesso!' : 'Produto criado com sucesso!',
-        'success'
-      );
+      addNotification(editingProduct ? 'Produto atualizado com sucesso!' : 'Produto criado com sucesso!', 'success');
       onSave(savedProduct || undefined);
       onClose();
     } catch (err: any) {
-      const message = err.message || 'Erro desconhecido ao salvar produto.';
-      setError(message);
-      addNotification(`Erro ao salvar produto: ${message}`, 'error');
+      const msg = err.message || 'Erro desconhecido ao salvar produto.';
+      setError(msg);
+      addNotification(`Erro ao salvar produto: ${msg}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -331,344 +300,348 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
 
   if (!isOpen) return null;
 
+  // ── render ─────────────────────────────────────────────────────────────────
+
+  const hasImage = formData.image_url && !imgError;
+  const portionFiltered = portionProducts
+    .filter(p => p.name.toLowerCase().includes(portionSearch.toLowerCase()) && p.id !== editingProduct?.id);
+
   return (
     <>
-      <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+      {/* overlay */}
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+        {/* modal */}
+        <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-2xl max-h-[96vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
 
-          {/* ── Header ─────────────────────────────────────────── */}
-          <div className="flex-shrink-0 flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              {editingProduct ? 'Editar Produto' : 'Novo Produto'}
-            </h2>
+          {/* ── Header ─────────────────────────────────────────────────────── */}
+          <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700/80">
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${
+                editingProduct
+                  ? 'bg-blue-600 shadow-blue-500/20'
+                  : 'bg-emerald-600 shadow-emerald-500/20'
+              }`}>
+                {editingProduct ? <Package className="w-4.5 h-4.5 text-white w-5 h-5" /> : <Plus className="w-5 h-5 text-white" />}
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-800 dark:text-white leading-tight">
+                  {editingProduct ? 'Editar Produto' : 'Novo Produto'}
+                </h2>
+                {editingProduct && (
+                  <p className="text-xs text-slate-400 leading-tight truncate max-w-[220px]">{editingProduct.name}</p>
+                )}
+              </div>
+            </div>
             <button type="button" onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-              <X className="h-5 w-5" />
+              className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* ── Body (scrollável) ───────────────────────────────── */}
-          <form onSubmit={handleSubmit} className="flex-grow overflow-y-auto">
-            <div className="p-6 space-y-6">
+          {/* ── Body ───────────────────────────────────────────────────────── */}
+          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+            <div className="p-5 space-y-4">
 
+              {/* Error banner */}
               {error && (
-                <div className="p-3 bg-red-50 dark:bg-red-900/50 text-red-800 dark:text-red-200 rounded-md text-sm">
+                <div className="flex items-start gap-2.5 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">
+                  <X className="w-4 h-4 mt-0.5 shrink-0" />
                   {error}
                 </div>
               )}
 
-              {/* Campos principais */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Produto</label>
-                  <input name="name" type="text" value={formData.name} onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Categoria</label>
-                  <input name="category" type="text" value={formData.category} onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    required list="category-suggestions" />
-                  <datalist id="category-suggestions">
-                    {categories.map(cat => <option key={cat} value={cat} />)}
-                  </datalist>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qtd. Atual</label>
-                    <input name="quantity" type="text" inputMode="decimal" value={formData.quantity} onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      required min="0" disabled={createAsHidden} />
+              {/* ── Informações Básicas ──────────────────────────────────── */}
+              <Section icon={<Tag className="w-4 h-4" />} title="Informações Básicas" accent="blue">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Nome */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Nome do Produto *</label>
+                    <input name="name" type="text" value={formData.name} onChange={handleInputChange}
+                      placeholder="Ex: Cerveja Heineken 600ml" className={fieldCls} required />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qtd. Mínima</label>
-                    <input name="min_quantity" type="text" inputMode="decimal" value={formData.min_quantity} onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      required min="0" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qtd. Máxima</label>
-                    <input name="max_quantity" type="text" inputMode="decimal" value={formData.max_quantity} onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      required min="1" />
-                  </div>
-                </div>
-                <div>{/* placeholder — fornecedores movidos para seção dedicada abaixo */}</div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL da Imagem</label>
-                  <input name="image_url" type="url" value={formData.image_url} onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    placeholder="https://..." />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Descrição</label>
-                  <textarea name="description" value={formData.description} onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" rows={2} />
-                </div>
-              </div>
 
-              {/* ── CÓDIGOS DE BARRA ─────────────────────────────── */}
-              <div className="rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-900/10 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                    <Barcode className="w-4 h-4 text-indigo-500" />
-                    Códigos de Barra
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowScanner(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:scale-95 transition-all shadow-sm"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    Escanear câmera
+                  {/* Categoria */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Categoria *</label>
+                    <input name="category" type="text" value={formData.category} onChange={handleInputChange}
+                      list="category-suggestions" placeholder="Ex: Bebidas" className={fieldCls} required />
+                    <datalist id="category-suggestions">
+                      {categories.map(c => <option key={c} value={c} />)}
+                    </datalist>
+                  </div>
+
+                  {/* Descrição */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Descrição</label>
+                    <input name="description" type="text" value={formData.description} onChange={handleInputChange}
+                      placeholder="Detalhes adicionais…" className={fieldCls} />
+                  </div>
+                </div>
+
+                {/* Quantidades */}
+                <div className="grid grid-cols-3 gap-3 mt-1">
+                  {[
+                    { name: 'quantity',     label: 'Qtd. Atual', disabled: createAsHidden },
+                    { name: 'min_quantity', label: 'Mínimo',     disabled: false },
+                    { name: 'max_quantity', label: 'Máximo',     disabled: false },
+                  ].map(field => (
+                    <div key={field.name}>
+                      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">{field.label}</label>
+                      <input
+                        name={field.name} type="text" inputMode="decimal"
+                        value={(formData as any)[field.name]} onChange={handleInputChange}
+                        disabled={field.disabled} required min="0"
+                        className={fieldCls + (field.disabled ? ' opacity-50 cursor-not-allowed' : '')}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Section>
+
+              {/* ── Imagem ──────────────────────────────────────────────── */}
+              <Section icon={<ImageIcon className="w-4 h-4" />} title="Imagem" accent="slate">
+                <div className="flex items-start gap-3">
+                  {/* preview */}
+                  <div className="w-14 h-14 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden">
+                    {hasImage
+                      ? <img src={formData.image_url} alt="preview" className="w-full h-full object-contain"
+                          onError={() => setImgError(true)} />
+                      : <Package className="w-6 h-6 text-slate-300 dark:text-slate-600" />
+                    }
+                  </div>
+                  <div className="flex-1">
+                    <input name="image_url" type="url" value={formData.image_url} onChange={handleInputChange}
+                      placeholder="https://... URL da imagem do produto"
+                      className={fieldCls} />
+                    <p className="mt-1 text-xs text-slate-400">Cole a URL de uma imagem (JPEG, PNG, WebP)</p>
+                  </div>
+                </div>
+              </Section>
+
+              {/* ── Códigos de Barras ────────────────────────────────────── */}
+              <Section
+                icon={<Barcode className="w-4 h-4" />}
+                title="Códigos de Barras"
+                badge={String(barcodes.length)}
+                accent="indigo"
+                action={
+                  <button type="button" onClick={() => setShowScanner(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:scale-95 transition-all shadow-sm">
+                    <Camera className="w-3.5 h-3.5" /> Câmera
                   </button>
-                </div>
-
+                }
+              >
                 {barcodes.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  <div className="flex flex-wrap gap-1.5">
                     {barcodes.map(bc => (
-                      <div key={bc} className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 shadow-sm">
-                        <Barcode className="w-3 h-3 text-indigo-400 flex-shrink-0" />
+                      <span key={bc}
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 shadow-sm">
+                        <Barcode className="w-3 h-3 text-indigo-400 shrink-0" />
                         <span className="text-xs font-mono text-indigo-700 dark:text-indigo-300">{bc}</span>
                         <button type="button" onClick={() => removeBarcode(bc)}
-                          className="ml-1 w-5 h-5 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={barcodeInput}
-                    onChange={e => setBarcodeInput(e.target.value)}
-                    onKeyDown={handleBarcodeKeyDown}
-                    placeholder="Cole ou digite o código → pressione Enter"
-                    className="flex-1 rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => addBarcode(barcodeInput)}
-                    disabled={!barcodeInput.trim()}
-                    className="flex items-center gap-1 px-3 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" /> Add
-                  </button>
-                </div>
-                <p className="text-xs text-indigo-400 mt-1.5">
-                  EAN-13, QR Code, Code128, etc. — cadastre múltiplos por produto.
-                </p>
-              </div>
-
-              {/* ── Porcionamento ────────────────────────────────── */}
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-3">
-                <label className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 ${formData.is_portion ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  <input id="is_portionable" name="is_portionable" type="checkbox"
-                    checked={formData.is_portionable} onChange={handleInputChange} disabled={formData.is_portion}
-                    className="h-4 w-4 rounded text-blue-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-blue-500" />
-                  <div>
-                    <span className="font-medium text-gray-800 dark:text-gray-200">Produto Porcionável</span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Marque se este item precisa ser processado pelo setor (ex: peça de carne, caixa de cereal).</p>
-                  </div>
-                </label>
-                {/* Auto-porcionamento (só aparece quando is_portionable) */}
-                {formData.is_portionable && (
-                  <div className="ml-7 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 space-y-3">
-                    <label className="flex items-center space-x-3 cursor-pointer">
-                      <input type="checkbox"
-                        checked={!!formData.auto_portion_product_id}
-                        onChange={(e) => {
-                          if (!e.target.checked) {
-                            setFormData(prev => ({ ...prev, auto_portion_product_id: null, auto_portion_multiplier: null }));
-                          }
-                        }}
-                        className="h-4 w-4 rounded text-blue-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-blue-500"
-                        readOnly={!!formData.auto_portion_product_id}
-                      />
-                      <div>
-                        <span className="font-medium text-sm text-blue-800 dark:text-blue-200">Auto-porcionamento</span>
-                        <p className="text-xs text-blue-600 dark:text-blue-400">Converter automaticamente ao enviar para setor (ex: 1 kg → 1000 g)</p>
-                      </div>
-                    </label>
-
-                    {/* Seleção de produto porção */}
-                    <div className="space-y-2">
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">Produto porção resultante</label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="Buscar produto porção..."
-                          value={portionSearch}
-                          onChange={e => setPortionSearch(e.target.value)}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                        {portionSearch && (
-                          <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                            {portionProducts
-                              .filter(p => p.name.toLowerCase().includes(portionSearch.toLowerCase()) && p.id !== editingProduct?.id)
-                              .map(p => (
-                                <button key={p.id} type="button"
-                                  onClick={() => {
-                                    setFormData(prev => ({ ...prev, auto_portion_product_id: p.id, auto_portion_multiplier: prev.auto_portion_multiplier || 1 }));
-                                    setPortionSearch('');
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-800 dark:text-gray-200">
-                                  {p.name} <span className="text-xs text-gray-400">({p.category})</span>
-                                </button>
-                              ))}
-                            {portionProducts.filter(p => p.name.toLowerCase().includes(portionSearch.toLowerCase()) && p.id !== editingProduct?.id).length === 0 && (
-                              <p className="px-3 py-2 text-xs text-gray-400">Nenhum produto porção encontrado</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Produto selecionado */}
-                      {formData.auto_portion_product_id && (
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-sm">
-                          <Check className="w-4 h-4 text-blue-600" />
-                          <span className="font-medium text-blue-800 dark:text-blue-200">
-                            {portionProducts.find(p => p.id === formData.auto_portion_product_id)?.name || 'Produto selecionado'}
-                          </span>
-                          <button type="button" onClick={() => setFormData(prev => ({ ...prev, auto_portion_product_id: null, auto_portion_multiplier: null }))}
-                            className="ml-auto text-blue-500 hover:text-red-500">
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Multiplicador */}
-                      {formData.auto_portion_product_id && (
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Fator de conversão (multiplicador)
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-500">1 un →</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={formData.auto_portion_multiplier || ''}
-                              onChange={e => setFormData(prev => ({ ...prev, auto_portion_multiplier: parseFloat(e.target.value.replace(',', '.')) || null }))}
-                              className="w-28 px-3 py-2 text-sm text-center font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                              placeholder="1000"
-                            />
-                            <span className="text-sm text-gray-500">un porção</span>
-                          </div>
-                          <p className="text-xs text-gray-400 mt-1">Ex: 1 kg = 1000 g → multiplicador = 1000</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <label className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 ${formData.is_portionable ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  <input id="is_portion" name="is_portion" type="checkbox"
-                    checked={formData.is_portion} onChange={handleInputChange} disabled={formData.is_portionable}
-                    className="h-4 w-4 rounded text-green-600 border-gray-300 dark:bg-gray-600 dark:border-gray-500 focus:ring-green-500" />
-                  <div>
-                    <span className="font-medium text-gray-800 dark:text-gray-200">É uma Porção</span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Marque se este item é o resultado do porcionamento de outro item (ex: bife, dose de bebida).</p>
-                  </div>
-                </label>
-              </div>
-
-              {/* ── Fornecedores ────────────────────────────────── */}
-              <div className="rounded-xl border border-green-100 dark:border-green-900/50 bg-green-50/50 dark:bg-green-900/10 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-green-500" />
-                    Fornecedores
-                    <span className="text-xs font-normal text-gray-400">
-                      ({selectedContactIds.size + manualSuppliers.length})
-                    </span>
-                  </h3>
-                  {supplierContacts.length > 0 && (
-                    <button type="button" onClick={() => setShowContactList(!showContactList)}
-                      className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline font-medium">
-                      {showContactList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      {showContactList ? 'Ocultar lista' : 'Ver lista de contatos'}
-                    </button>
-                  )}
-                </div>
-
-                {/* Tags dos fornecedores selecionados */}
-                {(selectedContactIds.size > 0 || manualSuppliers.length > 0) && (
-                  <div className="flex flex-wrap gap-2">
-                    {/* Contatos da lista */}
-                    {supplierContacts.filter(c => selectedContactIds.has(c.id)).map(contact => (
-                      <span key={contact.id}
-                        className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-green-600 text-white text-xs font-medium shadow-sm">
-                        <MessageSquare className="w-3 h-3" />
-                        {contact.company_name}
-                        <button type="button" onClick={() => setSelectedContactIds(prev => {
-                          const next = new Set(prev); next.delete(contact.id); return next;
-                        })} className="ml-0.5 w-5 h-5 flex items-center justify-center rounded-md hover:bg-green-700 transition-colors">
-                          <X className="w-3 h-3" />
+                          className="w-4 h-4 flex items-center justify-center rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                          <X className="w-2.5 h-2.5" />
                         </button>
                       </span>
                     ))}
-                    {/* Fornecedores manuais */}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input type="text" value={barcodeInput}
+                    onChange={e => setBarcodeInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBarcode(barcodeInput); } }}
+                    placeholder="Cole ou digite o código → Enter"
+                    className={fieldCls} />
+                  <button type="button" onClick={() => addBarcode(barcodeInput)} disabled={!barcodeInput.trim()}
+                    className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-indigo-400/80">EAN-13, QR Code, Code128 — múltiplos por produto</p>
+              </Section>
+
+              {/* ── Porcionamento ────────────────────────────────────────── */}
+              <Section icon={<Scissors className="w-4 h-4" />} title="Porcionamento" accent="amber">
+                <div className="space-y-2">
+                  {/* Porcionável */}
+                  <label className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
+                    formData.is_portion ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-100/60 dark:hover:bg-amber-900/20'
+                  }`}>
+                    <div className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      formData.is_portionable
+                        ? 'bg-amber-500 border-amber-500 text-white'
+                        : 'border-slate-300 dark:border-slate-600'
+                    }`}>
+                      {formData.is_portionable && <Check className="w-3 h-3" />}
+                    </div>
+                    <input id="is_portionable" name="is_portionable" type="checkbox"
+                      checked={formData.is_portionable} onChange={handleInputChange}
+                      disabled={formData.is_portion} className="sr-only" />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Produto Porcionável</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Item precisa ser processado antes de ir para setores (ex: peça de carne, caixa de cereal).</p>
+                    </div>
+                  </label>
+
+                  {/* Auto-porcionamento (expansível) */}
+                  {formData.is_portionable && (
+                    <div className="ml-8 p-3 rounded-xl bg-amber-100/70 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-3">
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wider">Auto-porcionamento</p>
+
+                      {/* Busca produto porção */}
+                      <div>
+                        <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Produto porção resultante</label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                          <input type="text" placeholder="Buscar produto porção..." value={portionSearch}
+                            onChange={e => setPortionSearch(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-400/40 focus:border-amber-400 transition-colors" />
+                          {portionSearch && (
+                            <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg max-h-40 overflow-y-auto">
+                              {portionFiltered.length === 0
+                                ? <p className="px-3 py-2 text-xs text-slate-400">Nenhum produto porção encontrado</p>
+                                : portionFiltered.map(p => (
+                                  <button key={p.id} type="button"
+                                    onClick={() => { setFormData(prev => ({ ...prev, auto_portion_product_id: p.id, auto_portion_multiplier: prev.auto_portion_multiplier || 1 })); setPortionSearch(''); }}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/30 text-slate-800 dark:text-slate-200">
+                                    {p.name} <span className="text-xs text-slate-400">({p.category})</span>
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {formData.auto_portion_product_id && (
+                        <>
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-200/60 dark:bg-amber-900/40">
+                            <Check className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                            <span className="flex-1 text-sm font-medium text-amber-800 dark:text-amber-200 truncate">
+                              {portionProducts.find(p => p.id === formData.auto_portion_product_id)?.name || 'Selecionado'}
+                            </span>
+                            <button type="button" onClick={() => setFormData(prev => ({ ...prev, auto_portion_product_id: null, auto_portion_multiplier: null }))}
+                              className="text-amber-600 hover:text-red-500 transition-colors"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Fator de conversão</label>
+                            <div className="flex items-center gap-2 text-sm text-slate-500">
+                              <span>1 un</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                              <input type="text" inputMode="decimal"
+                                value={formData.auto_portion_multiplier || ''}
+                                onChange={e => setFormData(prev => ({ ...prev, auto_portion_multiplier: parseFloat(e.target.value.replace(',', '.')) || null }))}
+                                className="w-24 text-center font-bold text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400/40 focus:border-amber-400"
+                                placeholder="1000" />
+                              <span>un porção</span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">Ex: 1 kg = 1000 g → 1000</p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* É uma Porção */}
+                  <label className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
+                    formData.is_portionable ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-100/60 dark:hover:bg-amber-900/20'
+                  }`}>
+                    <div className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      formData.is_portion
+                        ? 'bg-emerald-500 border-emerald-500 text-white'
+                        : 'border-slate-300 dark:border-slate-600'
+                    }`}>
+                      {formData.is_portion && <Check className="w-3 h-3" />}
+                    </div>
+                    <input id="is_portion" name="is_portion" type="checkbox"
+                      checked={formData.is_portion} onChange={handleInputChange}
+                      disabled={formData.is_portionable} className="sr-only" />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">É uma Porção</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Este item é o resultado do porcionamento de outro (ex: bife, dose de bebida).</p>
+                    </div>
+                  </label>
+                </div>
+              </Section>
+
+              {/* ── Fornecedores ─────────────────────────────────────────── */}
+              <Section
+                icon={<Phone className="w-4 h-4" />}
+                title="Fornecedores"
+                badge={String(selectedContactIds.size + manualSuppliers.length)}
+                accent="green"
+                action={supplierContacts.length > 0 ? (
+                  <button type="button" onClick={() => setShowContactList(!showContactList)}
+                    className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline font-medium">
+                    {showContactList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    {showContactList ? 'Ocultar lista' : 'Ver contatos'}
+                  </button>
+                ) : undefined}
+              >
+                {/* Tags selecionados */}
+                {(selectedContactIds.size > 0 || manualSuppliers.length > 0) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {supplierContacts.filter(c => selectedContactIds.has(c.id)).map(c => (
+                      <span key={c.id}
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-green-600 text-white text-xs font-medium shadow-sm">
+                        <MessageSquare className="w-3 h-3" />
+                        {c.company_name}
+                        <button type="button" onClick={() => setSelectedContactIds(prev => { const n = new Set(prev); n.delete(c.id); return n; })}
+                          className="w-4 h-4 flex items-center justify-center rounded hover:bg-green-700 transition-colors">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
                     {manualSuppliers.map((name, idx) => (
-                      <span key={`manual-${idx}`}
-                        className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-gray-500 text-white text-xs font-medium shadow-sm">
+                      <span key={`m-${idx}`}
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-slate-500 text-white text-xs font-medium shadow-sm">
                         <Building2 className="w-3 h-3" />
                         {name}
                         <button type="button" onClick={() => setManualSuppliers(prev => prev.filter((_, i) => i !== idx))}
-                          className="ml-0.5 w-5 h-5 flex items-center justify-center rounded-md hover:bg-gray-600 transition-colors">
-                          <X className="w-3 h-3" />
+                          className="w-4 h-4 flex items-center justify-center rounded hover:bg-slate-600 transition-colors">
+                          <X className="w-2.5 h-2.5" />
                         </button>
                       </span>
                     ))}
                   </div>
                 )}
 
-                {/* Busca na lista de contatos */}
+                {/* Lista de contatos */}
                 {showContactList && supplierContacts.length > 0 && (
                   <div className="space-y-2">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        value={supplierSearch}
-                        onChange={e => setSupplierSearch(e.target.value)}
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                      <input type="text" value={supplierSearch} onChange={e => setSupplierSearch(e.target.value)}
                         placeholder="Buscar por nome ou telefone..."
-                        className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
-                      />
+                        className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-400/40 focus:border-green-400 transition-colors" />
                     </div>
-                    <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
+                    <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
                       {supplierContacts
                         .filter(c => {
                           if (!supplierSearch) return true;
                           const q = supplierSearch.toLowerCase();
-                          return c.company_name.toLowerCase().includes(q)
-                            || (c.contact_name || '').toLowerCase().includes(q)
-                            || c.whatsapp_number.includes(q);
+                          return c.company_name.toLowerCase().includes(q) ||
+                            (c.contact_name || '').toLowerCase().includes(q) ||
+                            c.whatsapp_number.includes(q);
                         })
-                        .map(contact => (
-                          <button type="button" key={contact.id}
-                            onClick={() => setSelectedContactIds(prev => {
-                              const next = new Set(prev);
-                              next.has(contact.id) ? next.delete(contact.id) : next.add(contact.id);
-                              return next;
-                            })}
-                            className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                              selectedContactIds.has(contact.id) ? 'bg-green-50 dark:bg-green-900/20' : ''
+                        .map(c => (
+                          <button type="button" key={c.id}
+                            onClick={() => setSelectedContactIds(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })}
+                            className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                              selectedContactIds.has(c.id)
+                                ? 'bg-green-50 dark:bg-green-900/20'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
                             }`}>
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                              selectedContactIds.has(contact.id)
+                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                              selectedContactIds.has(c.id)
                                 ? 'bg-green-600 border-green-600 text-white'
-                                : 'border-gray-300 dark:border-gray-500'
+                                : 'border-slate-300 dark:border-slate-500'
                             }`}>
-                              {selectedContactIds.has(contact.id) && <Check className="w-3 h-3" />}
+                              {selectedContactIds.has(c.id) && <Check className="w-3 h-3" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{contact.company_name}</p>
-                              <p className="text-xs text-gray-400 truncate">
-                                {contact.whatsapp_number}
-                                {contact.contact_name && ` — ${contact.contact_name}`}
+                              <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{c.company_name}</p>
+                              <p className="text-xs text-slate-400 truncate">
+                                {c.whatsapp_number}{c.contact_name && ` — ${c.contact_name}`}
                               </p>
                             </div>
                           </button>
@@ -677,156 +650,142 @@ const NewProductModal = ({ isOpen, onClose, onSave, editingProduct, categories, 
                   </div>
                 )}
 
-                {/* Adicionar fornecedor manualmente */}
+                {/* Input manual */}
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={manualInput}
-                    onChange={e => setManualInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const val = manualInput.trim();
-                        if (val && !manualSuppliers.includes(val)) {
-                          setManualSuppliers(prev => [...prev, val]);
-                          setManualInput('');
-                        }
-                      }
-                    }}
+                  <input type="text" value={manualInput} onChange={e => setManualInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManualSupplier(); } }}
                     placeholder="Digitar fornecedor manualmente → Enter"
-                    className="flex-1 rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
-                  />
-                  <button type="button"
-                    onClick={() => {
-                      const val = manualInput.trim();
-                      if (val && !manualSuppliers.includes(val)) {
-                        setManualSuppliers(prev => [...prev, val]);
-                        setManualInput('');
-                      }
-                    }}
-                    disabled={!manualInput.trim()}
-                    className="flex items-center gap-1 px-3 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors">
-                    <Plus className="w-4 h-4" /> Add
+                    className={fieldCls} />
+                  <button type="button" onClick={addManualSupplier} disabled={!manualInput.trim()}
+                    className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors">
+                    <Plus className="w-4 h-4" />
                   </button>
                 </div>
+                <p className="text-xs text-green-500/70">Selecione da lista de contatos (WhatsApp) ou adicione manualmente.</p>
+              </Section>
 
-                <p className="text-xs text-green-500/70">
-                  Selecione da lista de contatos (com WhatsApp) ou adicione manualmente.
-                </p>
-              </div>
-
-              {/* ── Visibilidade por Setor ───────────────────────── */}
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                <h3 className="text-md font-medium text-gray-800 dark:text-gray-200 mb-3">Visibilidade por Setor</h3>
+              {/* ── Visibilidade por Setor ───────────────────────────────── */}
+              <Section icon={<Eye className="w-4 h-4" />} title="Visibilidade por Setor" accent="purple">
                 {loadingSectors ? (
-                  <div className="flex justify-center items-center h-16">
-                    <Loader2 className="animate-spin text-gray-400" />
+                  <div className="flex justify-center items-center h-12">
+                    <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                   </div>
+                ) : sectors.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-2">Nenhum setor cadastrado.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {sectors.map(sector => (
-                      <button type="button" key={sector.id} onClick={() => handleSectorToggle(sector.id)}
-                        className={`px-3 py-1.5 rounded-full border text-sm font-medium flex items-center gap-2 transition-colors duration-150 ${
-                          selectedSectors.has(sector.id)
-                            ? 'bg-blue-600 border-blue-600 text-white'
-                            : 'bg-gray-100 border-gray-300 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-500 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200'
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-slate-400">{selectedSectors.size} de {sectors.length} setores selecionados</p>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setSelectedSectors(new Set(sectors.map(s => s.id)))}
+                          className="text-xs text-purple-600 dark:text-purple-400 hover:underline">Todos</button>
+                        <span className="text-slate-300 dark:text-slate-600">|</span>
+                        <button type="button" onClick={() => setSelectedSectors(new Set())}
+                          className="text-xs text-slate-400 hover:underline">Nenhum</button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {sectors.map(sector => (
+                        <button type="button" key={sector.id} onClick={() => handleSectorToggle(sector.id)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all active:scale-95 ${
+                            selectedSectors.has(sector.id)
+                              ? 'bg-purple-600 border-purple-600 text-white shadow-sm shadow-purple-500/20'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-purple-300 dark:hover:border-purple-700'
+                          }`}>
+                          {selectedSectors.has(sector.id) && <Check className="w-3 h-3" />}
+                          {sector.name}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </Section>
+
+              {/* ── Classificação Fiscal ─────────────────────────────────── */}
+              <Section icon={<FileText className="w-4 h-4" />} title="Classificação Fiscal" accent="slate">
+                {/* Tipo do Produto — card toggle */}
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Tipo do Produto</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PRODUCT_TYPE_OPTIONS.map(opt => (
+                      <button key={opt.value} type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, product_type: opt.value }))}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                          formData.product_type === opt.value
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-500'
                         }`}>
-                        {selectedSectors.has(sector.id) && <Check size={16} />}
-                        {sector.name}
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                          formData.product_type === opt.value
+                            ? 'border-blue-500 bg-blue-500'
+                            : 'border-slate-300 dark:border-slate-500'
+                        }`}>
+                          {formData.product_type === opt.value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        {opt.label}
                       </button>
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
 
-              {/* ── Classificação Fiscal ─────────────────────────── */}
-              <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-4">
-                <h3 className="text-md font-medium text-gray-800 dark:text-gray-200">Classificação Fiscal</h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
                   {/* Unidade de Medida */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unidade de Medida</label>
-                    <select
-                      name="unit_measure"
-                      value={formData.unit_measure}
-                      onChange={handleInputChange}
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    >
-                      {UNIT_MEASURE_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Scale className="w-3 h-3 inline mr-1" />Unidade de Medida
+                    </label>
+                    <select name="unit_measure" value={formData.unit_measure} onChange={handleInputChange} className={selectCls}>
+                      {UNIT_MEASURE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                   </div>
 
-                  {/* Código NCM */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Código NCM</label>
-                    <input
-                      name="mcu_code"
-                      type="text"
-                      value={formData.mcu_code}
-                      onChange={handleInputChange}
-                      placeholder="Código NCM"
-                      className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
+                  {/* NCM */}
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Hash className="w-3 h-3 inline mr-1" />Código NCM
+                    </label>
+                    <input name="mcu_code" type="text" value={formData.mcu_code} onChange={handleInputChange}
+                      placeholder="00000000" className={fieldCls} />
+                  </div>
+
+                  {/* Imposto */}
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Percent className="w-3 h-3 inline mr-1" />Imposto (%)
+                    </label>
+                    <input name="tax_percentage" type="text" inputMode="decimal" value={formData.tax_percentage}
+                      onChange={handleInputChange} placeholder="0" className={fieldCls} />
                   </div>
                 </div>
-
-                {/* Tipo do Produto (radio) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipo do Produto</label>
-                  <div className="flex items-center gap-4">
-                    {PRODUCT_TYPE_OPTIONS.map(opt => (
-                      <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="product_type"
-                          value={opt.value}
-                          checked={formData.product_type === opt.value}
-                          onChange={handleInputChange}
-                          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-500 dark:bg-gray-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-800 dark:text-gray-200">{opt.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Percentual de Imposto */}
-                <div className="max-w-xs">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Imposto (%)</label>
-                  <input
-                    name="tax_percentage"
-                    type="text"
-                    inputMode="decimal"
-                    value={formData.tax_percentage}
-                    onChange={handleInputChange}
-                    placeholder="0"
-                    className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  />
-                </div>
-              </div>
+              </Section>
 
             </div>
 
-            {/* ── Footer ─────────────────────────────────────────── */}
-            <div className="flex-shrink-0 flex justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
+            {/* ── Footer ─────────────────────────────────────────────────── */}
+            <div className="sticky bottom-0 flex-shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-t border-slate-100 dark:border-slate-700/80 bg-white dark:bg-slate-900">
               <button type="button" onClick={onClose}
-                className="px-4 py-2 border dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 Cancelar
               </button>
               <button type="submit" disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm flex items-center justify-center disabled:opacity-50">
-                {isSaving && <Loader2 className="animate-spin w-4 h-4 mr-2" />}
-                {editingProduct ? 'Salvar Alterações' : 'Criar Produto'}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-semibold transition-colors shadow-sm disabled:opacity-60 ${
+                  editingProduct
+                    ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
+                    : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                }`}>
+                {isSaving
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Salvando…</>
+                  : editingProduct
+                    ? <><Check className="w-4 h-4" /> Salvar Alterações</>
+                    : <><Plus className="w-4 h-4" /> Criar Produto</>
+                }
               </button>
             </div>
           </form>
         </div>
       </div>
 
-      {/* ── Scanner de câmera (fullscreen, z acima do modal) ───────── */}
+      {/* Scanner câmera (acima do modal) */}
       {showScanner && (
         <BarcodeScanner
           onDetected={handleBarcodeScan}
