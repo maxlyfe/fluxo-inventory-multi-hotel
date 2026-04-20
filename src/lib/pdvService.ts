@@ -160,25 +160,32 @@ export async function getProductsForSector(
 
   const productIds = stockRows.map((r: any) => r.products.id);
 
-  // 2. Preços de venda (padrão hotel — sector_id IS NULL)
+  // 2. Preços de venda — apenas produtos ATIVOS pela gerência (is_available=true)
   const { data: priceRows } = await supabase
     .from('pdv_prices')
     .select('product_id, sale_price')
     .eq('hotel_id', hotelId)
     .in('product_id', productIds)
-    .is('sector_id', null);
+    .is('sector_id', null)
+    .eq('is_available', true);        // ← apenas ativados pela gerência
+
+  // Produtos sem registro em pdv_prices ou com is_available=false são excluídos
+  const availableProductIds = new Set((priceRows || []).map(p => p.product_id));
+  const availableStockRows = stockRows.filter((r: any) => availableProductIds.has(r.products.id));
+
+  if (availableStockRows.length === 0) return [];
 
   const priceMap = new Map<string, number>();
   for (const p of priceRows || []) {
     priceMap.set(p.product_id, Number(p.sale_price));
   }
 
-  // 3. Mapeamentos Erbon
+  // 3. Mapeamentos Erbon (apenas para os produtos disponíveis)
   const { data: mappingRows } = await supabase
     .from('erbon_product_mappings')
     .select('product_id, erbon_service_id, erbon_service_description')
     .eq('hotel_id', hotelId)
-    .in('product_id', productIds)
+    .in('product_id', [...availableProductIds])
     .not('product_id', 'is', null);
 
   const mappingMap = new Map<string, { erbon_service_id: number; erbon_service_description: string | null }>();
@@ -192,7 +199,7 @@ export async function getProductsForSector(
   }
 
   // 4. Merge e retorno
-  const result: PDVProduct[] = stockRows.map((r: any) => {
+  const result: PDVProduct[] = availableStockRows.map((r: any) => {
     const p = r.products;
     const mapping = mappingMap.get(p.id);
     return {
@@ -244,15 +251,15 @@ export async function getSectorDetails(
 }
 
 /**
- * Retorna todos os setores do hotel que possuem mapeamento Erbon.
- * Setores sem mapeamento são retornados também mas com erbon_department=null
- * (para informar o operador no UI).
+ * Retorna apenas os setores marcados como PDV ativo pela gerência (pdv_enabled=true).
+ * Setores sem mapeamento Erbon são incluídos mas com erbon_department=null.
  */
 export async function getSectorsForPDV(hotelId: string): Promise<PDVSectorDetails[]> {
   const { data: sectors } = await supabase
     .from('sectors')
     .select('id, name')
     .eq('hotel_id', hotelId)
+    .eq('pdv_enabled', true)          // ← apenas setores ativados pela gerência
     .order('name');
 
   if (!sectors || sectors.length === 0) return [];
