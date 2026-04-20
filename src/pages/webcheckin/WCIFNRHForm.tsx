@@ -118,6 +118,9 @@ export default function WCIFNRHForm() {
   // Ref para controlar visibilidade do bloco CEP+UF diretamente no DOM
   // (garante ocultação imediata sem depender do ciclo de render do React)
   const cepUfRef = useRef<HTMLDivElement>(null);
+  // Ref no select de País — lemos o valor real do DOM no submit para
+  // garantir o país correto independente de qualquer problema de state
+  const countrySelectRef = useRef<HTMLSelectElement>(null);
 
   const handleCountryChange = (value: string) => {
     setCountry(value);
@@ -146,8 +149,10 @@ export default function WCIFNRHForm() {
     // 0, 3, 99 → omitir (API trata ausência como "não informado")
     const erbonGender = (genderID === 1 || genderID === 2) ? genderID : undefined;
 
-    // País do endereço (valor atual do select; sempre string não-vazia)
-    const addressCountry = (country && country !== 'OTHER') ? country : 'OTHER';
+    // País do endereço: lemos DIRETAMENTE do DOM para garantir o valor
+    // real mesmo que o React state não tenha atualizado a tempo
+    const domCountry = countrySelectRef.current?.value || country || 'BR';
+    const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'OTHER';
     // CEP e UF: APENAS para Brasil — nunca enviados para estrangeiros
     const isBR = addressCountry === 'BR';
 
@@ -347,7 +352,9 @@ export default function WCIFNRHForm() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {/* País — sempre visível */}
                 <Field label={t('countryField')}>
-                  <select style={{ ...inputStyle, cursor: 'pointer' }}
+                  <select
+                    ref={countrySelectRef}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
                     value={country} onChange={e => handleCountryChange(e.target.value)}>
                     <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
                     <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
