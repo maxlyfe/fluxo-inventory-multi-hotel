@@ -894,6 +894,8 @@ export const erbonService = {
     const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
     // Swagger: body é o objeto Guest direto, sem wrapper { guest: ... }
+    console.log('[Erbon] addGuest path:', path);
+    console.log('[Erbon] addGuest hotelId(erbon):', config.erbon_hotel_id, '| bookingInternalId:', bookingInternalId);
     console.log('[Erbon] addGuest guestData:', JSON.stringify(guestData));
     const body = buildGuestBody(guestData, null);
     console.log('[Erbon] addGuest body:', JSON.stringify(body));
