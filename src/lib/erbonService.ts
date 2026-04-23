@@ -228,43 +228,34 @@ export interface ErbonGuestAddress {
 }
 
 export interface ErbonGuestPayload {
-  // Schema confirmado via swagger v1: /components/schemas/Guest
-  // additionalProperties: false → qualquer campo extra causa 400!
-  // Campos aceitos pela API:
-  firstName?: string | null;      // string nullable
-  lastName?: string | null;       // string nullable
-  email?: string | null;          // string nullable
-  phone?: string | null;          // string nullable  ← "phone", NÃO "telephone"!
-  birthDate?: string | null;      // string date-time nullable
-  gender?: string | null;         // string nullable: "M" | "F" | null (outros/não informar → omitir)
-  // nationality OMITIDO — não confirmado como campo de escrita aceito pela Erbon
-  profession?: string | null;     // string nullable
+  // Schema real conforme swagger UI: https://api.erbonsoftware.com/swagger/index.html
+  id?: number;                    // 0 para novo hóspede
+  name?: string;                  // nome completo
+  email?: string;
+  phone?: string;
+  birthDate?: string;             // ISO datetime
+  genderID?: number;              // 1=Masculino, 2=Feminino, 3=Outros, 0=Não informado
+  nationality?: string;           // código de país, ex: "BR"
+  professionID?: number;
+  profession?: string;
+  vehicleRegistration?: string;
+  isClient?: boolean;
+  isProvider?: boolean;
   address?: ErbonGuestAddress | null;
   documents?: ErbonGuestDocument[];
-  // NÃO EXISTEM no schema: name, telephone, genderID, isClient, isProvider,
-  //   vehicleRegistration, professionID
 }
 
 /**
- * Monta o body EXATO que a API Erbon espera.
- *
- * Schema confirmado via swagger v1: /components/schemas/Guest
- * additionalProperties: false → qualquer campo fora da lista → 400!
- * Campos: id, firstName, lastName, email, phone, birthDate, gender (string),
- *         nationality, profession, address, documents
- *
- * Body enviado DIRETAMENTE (sem wrapper { guest: ... })
+ * Monta o body exato que a API Erbon espera para POST/PUT de hóspede.
+ * Schema real conforme swagger UI da Erbon.
  */
 function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Record<string, any> {
-  // ── birthDate: garantir formato ISO datetime completo ─────────────────────
   const birthDateFormatted = data.birthDate
     ? (data.birthDate.includes('T') ? data.birthDate : `${data.birthDate}T00:00:00`)
     : null;
 
-  // ── Fallback country para documentos ──────────────────────────────────────
   const docCountryFallback = data.address?.country?.trim() || 'BR';
 
-  // ── Address: omitir sub-campos vazios ─────────────────────────────────────
   const addressObj = data.address
     ? {
         country: data.address.country?.trim() || 'BR',
@@ -272,29 +263,26 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
         ...(data.address.city?.trim()         ? { city:         data.address.city.trim() }         : {}),
         ...(data.address.street?.trim()       ? { street:       data.address.street.trim() }       : {}),
         ...(data.address.neighborhood?.trim() ? { neighborhood: data.address.neighborhood.trim() } : {}),
-        // CEP: sempre sem hífen ("28950-410" → "28950410")
         ...(data.address.zipcode?.replace(/\D/g, '') ? { zipcode: data.address.zipcode!.replace(/\D/g, '') } : {}),
       }
     : {};
 
   return {
-    // Omitir 'id' para novos hóspedes — Erbon rejeita id:0 (erro #1#)
-    // Incluir apenas para PUT /guests/update (existingId não-nulo)
-    ...(existingId ? { id: existingId } : {}),
-    // Campos opcionais — omitidos quando vazios (nunca enviar null explícito)
-    ...(data.firstName?.trim()   ? { firstName:   data.firstName.trim() }   : {}),
-    ...(data.lastName?.trim()    ? { lastName:    data.lastName.trim() }    : {}),
-    ...(data.email?.trim()       ? { email:       data.email.trim() }       : {}),
-    // phone — NÃO é "telephone"! Nome exato do campo no schema Erbon v1
-    ...(data.phone?.trim()       ? { phone:       data.phone.trim() }       : {}),
-    // gender: string "M" ou "F" — omitir quando Outros / Prefiro não informar
-    ...(data.gender?.trim()     ? { gender:     data.gender.trim() }     : {}),
-    ...(data.profession?.trim() ? { profession: data.profession.trim() } : {}),
-    ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }      : {}),
+    id: existingId ?? 0,
+    ...(data.name?.trim()                  ? { name:                data.name.trim() }                : {}),
+    ...(data.email?.trim()                 ? { email:               data.email.trim() }               : {}),
+    ...(data.phone?.trim()                 ? { phone:               data.phone.trim() }               : {}),
+    ...(data.genderID                      ? { genderID:            data.genderID }                   : {}),
+    ...(data.nationality?.trim()           ? { nationality:         data.nationality.trim() }         : {}),
+    ...(data.profession?.trim()            ? { profession:          data.profession.trim() }          : {}),
+    ...(data.professionID                  ? { professionID:        data.professionID }               : {}),
+    ...(data.vehicleRegistration?.trim()   ? { vehicleRegistration: data.vehicleRegistration.trim() } : {}),
+    ...(birthDateFormatted                 ? { birthDate:           birthDateFormatted }              : {}),
+    isClient:   data.isClient   ?? false,
+    isProvider: data.isProvider ?? false,
     address: addressObj,
     documents: (data.documents || []).map(d => ({
       documentType: d.documentType,
-      // CPF/RG: remover pontos, traços e espaços
       number: d.number?.replace(/[\.\-\/\s]/g, '') || d.number,
       ...(d.expirationDate ? { expirationDate: d.expirationDate } : {}),
       country: (d.country && d.country.trim()) || docCountryFallback,
@@ -892,13 +880,10 @@ export const erbonService = {
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
 
-    // Estratégia: POST /hotel/{hotelID}/guest/new (sem booking no path — mais permissivo)
-    // Em seguida PUT /attach para vincular à reserva.
-    // O endpoint /booking/{id}/guest/new retornava erro #1# consistentemente.
-    const path = `/hotel/${config.erbon_hotel_id}/guest/new`;
+    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
     const body = buildGuestBody(guestData, null);
-    console.log('[Erbon] addGuest path:', path, '| bookingInternalId:', bookingInternalId);
+    console.log('[Erbon] addGuest path:', path);
     console.log('[Erbon] addGuest body:', JSON.stringify(body));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {

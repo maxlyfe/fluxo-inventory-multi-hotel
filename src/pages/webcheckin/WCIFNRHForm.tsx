@@ -80,13 +80,14 @@ export default function WCIFNRHForm() {
   const [error,  setError]  = useState('');
 
   // Estado React — usado apenas para pré-preenchimento e controle de CEP/UF
-  const [firstName,     setFirstName]     = useState('');
-  const [lastName,      setLastName]      = useState('');
+  const [name,          setName]          = useState('');
   const [email,         setEmail]         = useState('');
   const [phone,         setPhone]         = useState('');
   const [birthDate,     setBirthDate]     = useState('');
-  const [gender,        setGender]        = useState('');
+  const [genderID,      setGenderID]      = useState(0);
+  const [nationality,   setNationality]   = useState('BR');
   const [profession,    setProfession]    = useState('');
+  const [vehicleRegistration, setVehicleRegistration] = useState('');
   const [documentType,  setDocumentType]  = useState('CPF');
   const [documentNumber,setDocumentNumber]= useState('');
   const [country,       setCountry]       = useState('BR');
@@ -107,11 +108,11 @@ export default function WCIFNRHForm() {
     const guest = stored.find(g => g.id === guestId);
     if (!guest) return;
 
-    const nameParts = (guest.name || '').trim().split(/\s+/);
-    setFirstName(nameParts[0] || '');
-    setLastName(nameParts.slice(1).join(' ') || '');
+    setName(guest.name || '');
     setEmail(guest.email || '');
     setPhone(guest.phone || '');
+    if (guest.genderID) setGenderID(guest.genderID);
+    if (guest.nationality) setNationality(guest.nationality);
 
     if (guest.documents?.length) {
       setDocumentType(guest.documents[0].documentType || 'CPF');
@@ -139,13 +140,14 @@ export default function WCIFNRHForm() {
     // Lê TODOS os valores direto do formulário HTML
     const data = new FormData(e.currentTarget);
 
-    const domFirstName    = fd(data, 'firstName');
-    const domLastName     = fd(data, 'lastName');
+    const domName         = fd(data, 'name');
     const domEmail        = fd(data, 'email');
     const domPhone        = fd(data, 'phone');
     const domBirthDate    = fd(data, 'birthDate');
-    const domGender       = fd(data, 'gender');
+    const domGenderID     = Number(fd(data, 'genderID') || '0');
+    const domNationality  = fd(data, 'nationality') || 'BR';
     const domProfession   = fd(data, 'profession');
+    const domVehicle      = fd(data, 'vehicleRegistration');
     const domDocType      = fd(data, 'documentType')  || 'CPF';
     const domDocNumber    = fd(data, 'documentNumber').replace(/[\.\-\/\s]/g, '');
     const domCountry      = fd(data, 'country')       || 'BR';
@@ -155,31 +157,28 @@ export default function WCIFNRHForm() {
     const domZipcode      = fd(data, 'zipcode').replace(/\D/g, '');
     const domNeighborhood = fd(data, 'neighborhood');
 
-    console.log('[FNRH] FormData names:', domFirstName, domLastName);
-
     // Validação
-    if (!domFirstName)  { setError('Nome é obrigatório.');              return; }
-    if (!domLastName)   { setError('Sobrenome é obrigatório.');         return; }
-    if (!domEmail)      { setError('E-mail é obrigatório.');            return; }
-    if (!domDocNumber)  { setError('Número do documento é obrigatório.'); return; }
+    if (!domName)       { setError('Nome completo é obrigatório.');        return; }
+    if (!domEmail)      { setError('E-mail é obrigatório.');               return; }
+    if (!domDocNumber)  { setError('Número do documento é obrigatório.');  return; }
 
-    const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'OTHER';
+    const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'BR';
     const isBR           = addressCountry === 'BR';
-    // gender: "M" | "F" → enviado; qualquer outro → omitido
-    const erbonGender    = (domGender === 'M' || domGender === 'F') ? domGender : undefined;
 
     setSaving(true);
     setError('');
 
     try {
       const payload: ErbonGuestPayload = {
-        firstName:  domFirstName,
-        lastName:   domLastName,
-        email:      domEmail      || undefined,
-        phone:      domPhone      || undefined,
-        birthDate:  domBirthDate  || undefined,
-        gender:     erbonGender,
-        profession: domProfession || undefined,
+        id:                  guestId ?? 0,
+        name:                domName,
+        email:               domEmail      || undefined,
+        phone:               domPhone      || undefined,
+        birthDate:           domBirthDate  || undefined,
+        genderID:            domGenderID   || undefined,
+        nationality:         domNationality || undefined,
+        profession:          domProfession || undefined,
+        vehicleRegistration: domVehicle    || undefined,
         documents: domDocNumber ? [{
           documentType: domDocType,
           number:       domDocNumber,
@@ -204,7 +203,7 @@ export default function WCIFNRHForm() {
         payload
       );
 
-      const fullName = [domFirstName, domLastName].filter(Boolean).join(' ');
+      const fullName = domName;
       const stored   = loadGuestsFromStorage(bookingId) || [];
 
       if (isNew) {
@@ -269,27 +268,16 @@ export default function WCIFNRHForm() {
               <p style={sectionTitle}>Dados Pessoais</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-                <Row>
-                  <Field label="Nome *">
-                    <input
-                      name="firstName"
-                      style={inputStyle} type="text"
-                      value={firstName} onChange={e => setFirstName(e.target.value)}
-                      placeholder="Nome como no documento"
-                      autoComplete="given-name"
-                      autoFocus
-                    />
-                  </Field>
-                  <Field label="Sobrenome *">
-                    <input
-                      name="lastName"
-                      style={inputStyle} type="text"
-                      value={lastName} onChange={e => setLastName(e.target.value)}
-                      placeholder="Sobrenome como no documento"
-                      autoComplete="family-name"
-                    />
-                  </Field>
-                </Row>
+                <Field label={`${t('nameField')} *`}>
+                  <input
+                    name="name"
+                    style={inputStyle} type="text"
+                    value={name} onChange={e => setName(e.target.value)}
+                    placeholder="Nome completo como no documento"
+                    autoComplete="name"
+                    autoFocus
+                  />
+                </Field>
 
                 <Row>
                   <Field label={t('emailField')}>
@@ -322,15 +310,14 @@ export default function WCIFNRHForm() {
                   </Field>
                   <Field label={t('genderField')}>
                     <select
-                      name="gender"
+                      name="genderID"
                       style={{ ...inputStyle, cursor: 'pointer' }}
-                      value={gender} onChange={e => setGender(e.target.value)}
+                      value={genderID} onChange={e => setGenderID(Number(e.target.value))}
                     >
-                      <option value=""   style={{ color: '#000' }}>— Selecione</option>
-                      <option value="M"  style={{ color: '#000' }}>{t('male')}</option>
-                      <option value="F"  style={{ color: '#000' }}>{t('female')}</option>
-                      <option value="O"  style={{ color: '#000' }}>{t('other')}</option>
-                      <option value="NI" style={{ color: '#000' }}>Prefiro não informar</option>
+                      <option value={0} style={{ color: '#000' }}>— Selecione</option>
+                      <option value={1} style={{ color: '#000' }}>{t('male')}</option>
+                      <option value={2} style={{ color: '#000' }}>{t('female')}</option>
+                      <option value={3} style={{ color: '#000' }}>{t('other')}</option>
                     </select>
                   </Field>
                 </Row>
