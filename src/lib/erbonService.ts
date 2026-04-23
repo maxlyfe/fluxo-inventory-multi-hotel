@@ -237,7 +237,7 @@ export interface ErbonGuestPayload {
   phone?: string | null;          // string nullable  ← "phone", NÃO "telephone"!
   birthDate?: string | null;      // string date-time nullable
   gender?: string | null;         // string nullable: "M" | "F" | null (outros/não informar → omitir)
-  nationality?: string | null;    // string nullable (código ISO ex: "BR", "AR")
+  // nationality OMITIDO — não confirmado como campo de escrita aceito pela Erbon
   profession?: string | null;     // string nullable
   address?: ErbonGuestAddress | null;
   documents?: ErbonGuestDocument[];
@@ -287,9 +287,8 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     // phone — NÃO é "telephone"! Nome exato do campo no schema Erbon v1
     ...(data.phone?.trim()       ? { phone:       data.phone.trim() }       : {}),
     // gender: string "M" ou "F" — omitir quando Outros / Prefiro não informar
-    ...(data.gender?.trim()      ? { gender:      data.gender.trim() }      : {}),
-    ...(data.nationality?.trim() ? { nationality: data.nationality.trim() } : {}),
-    ...(data.profession?.trim()  ? { profession:  data.profession.trim() }  : {}),
+    ...(data.gender?.trim()     ? { gender:     data.gender.trim() }     : {}),
+    ...(data.profession?.trim() ? { profession: data.profession.trim() } : {}),
     ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }      : {}),
     address: addressObj,
     documents: (data.documents || []).map(d => ({

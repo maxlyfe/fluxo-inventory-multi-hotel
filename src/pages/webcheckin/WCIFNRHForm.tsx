@@ -120,11 +120,11 @@ export default function WCIFNRHForm() {
     }
   }, [bookingId, guestId]);
 
-  // Ref para controlar visibilidade do bloco CEP+UF diretamente no DOM
-  // (garante ocultação imediata sem depender do ciclo de render do React)
-  const cepUfRef = useRef<HTMLDivElement>(null);
-  // Ref no select de País — lemos o valor real do DOM no submit para
-  // garantir o país correto independente de qualquer problema de state
+  // Refs DOM — lemos DIRETAMENTE no submit para garantir valores reais
+  // independente de qualquer atraso no ciclo de render do React
+  const firstNameRef     = useRef<HTMLInputElement>(null);
+  const lastNameRef      = useRef<HTMLInputElement>(null);
+  const cepUfRef         = useRef<HTMLDivElement>(null);
   const countrySelectRef = useRef<HTMLSelectElement>(null);
 
   const handleCountryChange = (value: string) => {
@@ -142,9 +142,14 @@ export default function WCIFNRHForm() {
     e.preventDefault();
     if (!hotelId || !bookingId) return;
 
-    if (!firstName.trim()) { setError('Nome é obrigatório.'); return; }
-    if (!lastName.trim())  { setError('Sobrenome é obrigatório.'); return; }
-    if (!email.trim())     { setError('E-mail é obrigatório.'); return; }
+    // Lê nome DIRETO do DOM para garantir valor real independente de
+    // qualquer atraso no ciclo de render do React (mesmo padrão do countrySelect)
+    const domFirstName = (firstNameRef.current?.value || firstName).trim();
+    const domLastName  = (lastNameRef.current?.value  || lastName).trim();
+
+    if (!domFirstName)  { setError('Nome é obrigatório.'); return; }
+    if (!domLastName)   { setError('Sobrenome é obrigatório.'); return; }
+    if (!email.trim())  { setError('E-mail é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
 
     // Remove máscaras antes de enviar à Erbon
@@ -154,28 +159,26 @@ export default function WCIFNRHForm() {
     // Gênero: string "M" ou "F" enviado; '' | 'O' | 'NI' → omitir (Erbon deixa em branco)
     const erbonGender = (gender === 'M' || gender === 'F') ? gender : undefined;
 
-    // País do endereço: lemos DIRETAMENTE do DOM para garantir o valor
-    // real mesmo que o React state não tenha atualizado a tempo
-    const domCountry   = countrySelectRef.current?.value || country || 'BR';
+    // País: lido do DOM para garantir valor correto
+    const domCountry     = countrySelectRef.current?.value || country || 'BR';
     const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'OTHER';
-    // CEP e UF: APENAS para Brasil — nunca enviados para estrangeiros
-    const isBR = addressCountry === 'BR';
+    const isBR           = addressCountry === 'BR';
 
     setSaving(true);
     setError('');
 
     try {
       // Schema Erbon v1 — additionalProperties: false → campos extras causam 400!
-      // Campos: firstName, lastName, email, phone, gender (string), nationality,
-      //         profession, birthDate, address, documents
+      // Campos confirmados: firstName, lastName, email, phone, gender (string),
+      //                     profession, birthDate, address, documents
+      // nationality OMITIDO — não confirmado como campo de escrita aceito
       const payload: ErbonGuestPayload = {
-        firstName:   firstName.trim(),
-        lastName:    lastName.trim(),
+        firstName:   domFirstName,
+        lastName:    domLastName,
         email:       email.trim()      || undefined,
-        phone:       phone.trim()      || undefined,   // "phone", NÃO "telephone"
+        phone:       phone.trim()      || undefined,
         birthDate:   birthDate         || undefined,
-        gender:      erbonGender,                      // "M" | "F" | undefined
-        nationality: nationality       || undefined,
+        gender:      erbonGender,
         profession:  profession.trim() || undefined,
         documents: cleanDocNumber ? [{
           documentType,
@@ -199,8 +202,8 @@ export default function WCIFNRHForm() {
         payload
       );
 
-      // Atualizar localStorage — "name" concatena firstName + lastName
-      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ');
+      // Atualizar localStorage — "name" concatena firstName + lastName (valores DOM)
+      const fullName = [domFirstName, domLastName].filter(Boolean).join(' ');
       const stored = loadGuestsFromStorage(bookingId) || [];
       if (isNew) {
         const newGuest: WebCheckinGuest = {
@@ -273,6 +276,7 @@ export default function WCIFNRHForm() {
                 <Row>
                   <Field label="Nome *">
                     <input
+                      ref={firstNameRef}
                       style={inputStyle} type="text"
                       value={firstName} onChange={e => setFirstName(e.target.value)}
                       placeholder="Nome como no documento"
@@ -281,6 +285,7 @@ export default function WCIFNRHForm() {
                   </Field>
                   <Field label="Sobrenome *">
                     <input
+                      ref={lastNameRef}
                       style={inputStyle} type="text"
                       value={lastName} onChange={e => setLastName(e.target.value)}
                       placeholder="Sobrenome como no documento"
