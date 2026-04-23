@@ -2,7 +2,7 @@
 // Mobile-first redesign — touch targets ≥44px, 2-row product cards,
 // stepper largo, chevrons grandes, sub-modais polidos para mobile.
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   X, Search, CheckCircle2, Save, ListChecks, AlertCircle,
   Camera, Barcode, Plus, ZapOff, Package, ChevronLeft, ChevronRight,
@@ -31,16 +31,26 @@ interface StockConferenceModalProps {
 }
 
 // ── Stepper de quantidade — mobile-first (touch targets ≥44px) ───────────────
+// onNext: chamado ao pressionar Enter — foca o próximo campo da lista
 const QtyInput: React.FC<{
   value: number | undefined;
   onChange: (v: string) => void;
   current: number;
-}> = ({ value, onChange }) => {
+  inputRef?: React.RefCallback<HTMLInputElement>;
+  onNext?: () => void;
+}> = ({ value, onChange, inputRef, onNext }) => {
   const [raw, setRaw] = useState(value !== undefined ? String(value) : '');
 
   useEffect(() => {
     setRaw(value !== undefined ? String(value) : '');
   }, [value]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === 'Next') {
+      e.preventDefault();
+      onNext?.();
+    }
+  };
 
   return (
     <div className="flex items-center gap-2">
@@ -56,12 +66,15 @@ const QtyInput: React.FC<{
         −
       </button>
 
-      {/* Input central: altura 44px, texto maior */}
+      {/* Input central: altura 44px, texto maior, Enter navega para o próximo */}
       <input
+        ref={inputRef}
         type="text"
         inputMode="decimal"
+        enterKeyHint="next"
         value={raw}
         onChange={e => { setRaw(e.target.value); onChange(e.target.value); }}
+        onKeyDown={handleKeyDown}
         placeholder="—"
         className="w-16 h-11 text-center text-base font-bold rounded-xl border border-slate-200 dark:border-slate-600
           bg-white dark:bg-slate-800 text-slate-800 dark:text-white
@@ -89,6 +102,9 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   isOpen, onClose, products, hotelId, sectorId, onFinished,
 }) => {
   const { addNotification } = useNotification();
+  // Mapa de refs dos inputs de quantidade para navegação por Enter
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+
   const [searchTerm, setSearchTerm]       = useState('');
   const [counts, setCounts]               = useState<Record<string, number>>({});
   const [currentCatIdx, setCurrentCatIdx] = useState(0);
@@ -317,86 +333,78 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
         <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-2xl overflow-hidden flex flex-col"
           style={{ maxHeight: '96dvh' }}>
 
-          {/* ── Header ─────────────────────────────────────────────────────── */}
-          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-indigo-600 dark:bg-indigo-700">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                <ListChecks className="w-5 h-5 text-white" />
+          {/* ── Header compacto — título + ações + progresso inline ──────── */}
+          <div className="flex-shrink-0 bg-indigo-600 dark:bg-indigo-700">
+            {/* Linha 1: título + botões de ação */}
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <ListChecks className="w-4 h-4 text-white/80 shrink-0" />
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-white leading-tight truncate">Conferência de Estoque</h2>
+                  <p className="text-[10px] text-indigo-200 leading-tight">{sectorId ? 'Setor Selecionado' : 'Inventário Principal'}</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-bold text-white leading-tight">Conferência de Estoque</h2>
-                <p className="text-xs text-indigo-200">{sectorId ? 'Setor Selecionado' : 'Inventário Principal'}</p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Preencher com 0 — touch target 44px */}
-              <button
-                onClick={fillRemainingWithZero}
-                disabled={countedProducts === totalProducts}
-                style={{ touchAction: 'manipulation' }}
-                title="Preencher não contados com 0"
-                className="h-10 flex items-center gap-1.5 px-3 rounded-xl bg-amber-500 text-white text-xs font-semibold
-                  hover:bg-amber-600 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ZapOff className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden xs:inline">Preencher 0</span>
-              </button>
-
-              {/* Escanear — touch target 44px */}
-              <button
-                onClick={() => { setScanNotFound(null); setShowScanner(true); }}
-                style={{ touchAction: 'manipulation' }}
-                className="h-10 flex items-center gap-1.5 px-3 rounded-xl bg-white/20 text-white text-xs font-semibold
-                  hover:bg-white/30 active:scale-95 transition-all"
-              >
-                <Camera className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden xs:inline">Escanear</span>
-              </button>
-
-              {/* Fechar — touch target 44×44px */}
-              <button
-                onClick={onClose}
-                style={{ touchAction: 'manipulation' }}
-                className="w-10 h-10 flex items-center justify-center rounded-xl text-white/70
-                  hover:text-white hover:bg-white/20 active:scale-95 transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* ── Barra de progresso ─────────────────────────────────────────── */}
-          <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Progresso</span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
-                  {countedProducts}/{totalProducts} · {progressPct}%
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* Progresso compacto inline */}
+                <span className="text-xs font-bold text-white/90 tabular-nums mr-1">
+                  {countedProducts}/{totalProducts}
+                  {progressPct === 100 && <span className="ml-1 text-emerald-300">✓</span>}
                 </span>
-                {progressPct === 100 && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">
-                    <Check className="w-2.5 h-2.5" /> Completo
-                  </span>
-                )}
+
+                {/* Preencher com 0 */}
+                <button
+                  onClick={fillRemainingWithZero}
+                  disabled={countedProducts === totalProducts}
+                  style={{ touchAction: 'manipulation' }}
+                  title="Preencher não contados com 0"
+                  className="h-8 flex items-center gap-1 px-2 rounded-lg bg-amber-500 text-white text-xs font-semibold
+                    hover:bg-amber-600 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ZapOff className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Preencher 0</span>
+                </button>
+
+                {/* Escanear */}
+                <button
+                  onClick={() => { setScanNotFound(null); setShowScanner(true); }}
+                  style={{ touchAction: 'manipulation' }}
+                  className="h-8 flex items-center gap-1 px-2 rounded-lg bg-white/20 text-white text-xs font-semibold
+                    hover:bg-white/30 active:scale-95 transition-all"
+                >
+                  <Camera className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Escanear</span>
+                </button>
+
+                {/* Fechar */}
+                <button
+                  onClick={onClose}
+                  style={{ touchAction: 'manipulation' }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-white/70
+                    hover:text-white hover:bg-white/20 active:scale-95 transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
-            <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${progressPct}%`,
-                  background: progressPct === 100
-                    ? 'linear-gradient(90deg,#22c55e,#16a34a)'
-                    : 'linear-gradient(90deg,#6366f1,#8b5cf6)',
-                }}
-              />
+
+            {/* Linha 2: barra de progresso slim */}
+            <div className="px-3 pb-2">
+              <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${progressPct}%`,
+                    background: progressPct === 100 ? '#4ade80' : 'rgba(255,255,255,0.9)',
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          {/* ── Search + Category pills ──────────────────────────────────── */}
-          <div className="flex-shrink-0 px-4 pt-3 pb-2 space-y-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
-            {/* Busca — altura 44px */}
+          {/* ── Search + Category pills compactos ───────────────────────── */}
+          <div className="flex-shrink-0 px-3 pt-2 pb-2 space-y-2 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
+            {/* Busca — altura 40px no mobile, mais compacto */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <input
@@ -404,7 +412,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 placeholder="Buscar produto…"
-                className="w-full h-11 pl-9 pr-9 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200
+                className="w-full h-10 pl-9 pr-9 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200
                   dark:border-slate-600 text-slate-800 dark:text-white placeholder-slate-400 text-sm
                   focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 transition-colors"
               />
@@ -420,23 +428,23 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
               )}
             </div>
 
-            {/* Category pills — chevrons com touch target 44×44px */}
+            {/* Category pills — scroll horizontal, pills menores no mobile */}
             {!searchTerm && categories.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                {/* Chevron esquerda — 44×44px */}
+              <div className="flex items-center gap-1">
+                {/* Chevron esquerda */}
                 <button
                   onClick={() => setCurrentCatIdx(i => Math.max(0, i - 1))}
                   disabled={currentCatIdx === 0}
                   style={{ touchAction: 'manipulation' }}
-                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400
+                  className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400
                     hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30
                     disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all shrink-0"
                 >
-                  <ChevronLeft className="w-5 h-5" />
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
 
                 {/* Pills com scroll horizontal */}
-                <div className="flex-1 overflow-x-auto scrollbar-hide flex gap-2 pb-0.5">
+                <div className="flex-1 overflow-x-auto scrollbar-hide flex gap-1.5">
                   {categories.map((cat, idx) => {
                     const catCounted = products
                       .filter(p => (p.category || 'Sem Categoria') === cat)
@@ -448,18 +456,18 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                         key={cat}
                         onClick={() => setCurrentCatIdx(idx)}
                         style={{ touchAction: 'manipulation' }}
-                        className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold
+                        className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
                           transition-all active:scale-95 ${
                           idx === currentCatIdx
                             ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
                             : done
                               ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                         }`}
                       >
-                        {done && <Check className="w-3 h-3 shrink-0" />}
-                        <span className="truncate max-w-[100px]">{cat}</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                        {done && <Check className="w-2.5 h-2.5 shrink-0" />}
+                        <span className="truncate max-w-[90px]">{cat}</span>
+                        <span className={`text-[9px] font-bold px-1 py-0.5 rounded shrink-0 ${
                           idx === currentCatIdx ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
                         }`}>{catCounted}/{catTotal}</span>
                       </button>
@@ -467,16 +475,16 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                   })}
                 </div>
 
-                {/* Chevron direita — 44×44px */}
+                {/* Chevron direita */}
                 <button
                   onClick={() => setCurrentCatIdx(i => Math.min(categories.length - 1, i + 1))}
                   disabled={currentCatIdx === categories.length - 1}
                   style={{ touchAction: 'manipulation' }}
-                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400
+                  className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400
                     hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30
                     disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all shrink-0"
                 >
-                  <ChevronRight className="w-5 h-5" />
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             )}
@@ -497,10 +505,20 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 <p className="text-sm">{searchTerm ? 'Nenhum produto encontrado.' : 'Nenhum produto nesta categoria.'}</p>
               </div>
             ) : (
-              filteredProducts.map(product => {
+              filteredProducts.map((product, idx) => {
                 const counted  = counts[product.id] !== undefined;
                 const diff     = counted ? counts[product.id] - product.quantity : null;
                 const hasCodes = (productBarcodes[product.id]?.length || 0) > 0;
+
+                // Navega para o próximo input ao pressionar Enter
+                const handleNext = () => {
+                  const nextProduct = filteredProducts[idx + 1];
+                  if (nextProduct) {
+                    const nextInput = inputRefs.current.get(nextProduct.id);
+                    nextInput?.focus();
+                    nextInput?.select();
+                  }
+                };
 
                 return (
                   <div
@@ -581,6 +599,11 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                         value={counts[product.id]}
                         onChange={v => handleCountChange(product.id, v)}
                         current={product.quantity}
+                        inputRef={el => {
+                          if (el) inputRefs.current.set(product.id, el);
+                          else inputRefs.current.delete(product.id);
+                        }}
+                        onNext={handleNext}
                       />
                     </div>
                   </div>
