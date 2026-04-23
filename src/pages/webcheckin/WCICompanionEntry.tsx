@@ -309,11 +309,12 @@ export default function WCICompanionEntry() {
   const [lgpdAccepted, setLgpdAccepted]   = useState(false);
 
   // FNRH fields
-  const [name, setName]                     = useState('');
+  const [firstName, setFirstName]           = useState('');
+  const [lastName, setLastName]             = useState('');
   const [email, setEmail]                   = useState('');
   const [phone, setPhone]                   = useState('');
   const [birthDate, setBirthDate]           = useState('');
-  const [genderID, setGenderID]             = useState(0);
+  const [gender, setGender]                 = useState(''); // 'M' | 'F' | 'O' | 'NI' | ''
   const [nationality, setNationality]       = useState('BR');
   const [profession, setProfession]         = useState('');
   const [vehicleRegistration, setVehicleRegistration] = useState('');
@@ -421,7 +422,15 @@ export default function WCICompanionEntry() {
           }
 
           if (g) {
-            setName(g.name || '');
+            // Suporte a dados novos (firstName/lastName) e legados (name combinado)
+            if ((g as any).firstName || (g as any).lastName) {
+              setFirstName((g as any).firstName || '');
+              setLastName((g as any).lastName || '');
+            } else if (g.name) {
+              const parts = g.name.trim().split(/\s+/);
+              setFirstName(parts[0] || '');
+              setLastName(parts.slice(1).join(' '));
+            }
             setEmail(g.email || '');
             setPhone(g.phone || '');
 
@@ -434,7 +443,13 @@ export default function WCICompanionEntry() {
             // Perfil completo (da Erbon in-house ou payload raw)
             if (g.nationality) setNationality(g.nationality);
             if (g.birthDate)   { setBirthDate(g.birthDate); setBirthDateDisplay(isoToDisplay(g.birthDate)); }
-            if (g.genderID)    setGenderID(g.genderID);
+            // Converter genderID legado → string, ou usar gender string já salvo
+            if ((g as any).gender) {
+              setGender((g as any).gender);
+            } else if ((g as any).genderID) {
+              const gMap: Record<number, string> = { 1: 'M', 2: 'F', 3: 'O' };
+              setGender(gMap[(g as any).genderID] || '');
+            }
 
             // Endereço
             if (g.address) {
@@ -476,27 +491,34 @@ export default function WCICompanionEntry() {
   const handleSaveFNRH = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!realHotelId || !realBookingId) return;
-    if (!name.trim())           { setError('Nome completo é obrigatório.'); return; }
+    const fd = new FormData(e.currentTarget as HTMLFormElement);
+    const domFirstName = ((fd.get('firstName') as string) || firstName).trim();
+    const domLastName  = ((fd.get('lastName')  as string) || lastName).trim();
+    const fullName = [domFirstName, domLastName].filter(Boolean).join(' ');
+    if (!domFirstName)          { setError('Nome é obrigatório.'); return; }
     if (!email.trim())          { setError('E-mail é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
 
     setSaving(true);
     setError('');
     try {
+      // Erbon aceita apenas estes campos — qualquer campo extra causa 400 (additionalProperties: false)
+      const erbonGender = (gender === 'M' || gender === 'F') ? gender : undefined;
       const payload: ErbonGuestPayload = {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim() || undefined,
-        birthDate: birthDate || undefined,
-        genderID: genderID || undefined,
-        nationality: nationality || 'BR',
-        profession: profession || undefined,
-        vehicleRegistration: vehicleRegistration || undefined,
+        firstName: domFirstName || undefined,
+        lastName:  domLastName  || undefined,
+        email:     email.trim() || undefined,
+        phone:     phone.trim() || undefined,
+        birthDate: birthDate    || undefined,
+        gender:    erbonGender,
+        profession: profession.trim() || undefined,
         documents: documentNumber.trim() ? [{ documentType, number: documentNumber.trim(), country: country || 'BR' }] : [],
         address: {
           country: country || 'BR',
-          state: state || undefined, city: city || undefined,
-          street: street || undefined, zipcode: zipcode || undefined,
+          state:        state        || undefined,
+          city:         city         || undefined,
+          street:       street       || undefined,
+          zipcode:      zipcode      || undefined,
           neighborhood: neighborhood || undefined,
         },
       };
@@ -507,7 +529,7 @@ export default function WCICompanionEntry() {
       const stored = (await loadGuestsFromServer(realBookingId)) || loadGuestsFromStorage(realBookingId) || [];
       if (isNew) {
         const newGuest: WebCheckinGuest = {
-          id: newId, name: name.trim(), email: email.trim(), phone: phone.trim(),
+          id: newId, name: fullName, email: email.trim(), phone: phone.trim(),
           documents: payload.documents, fnrhCompleted: true, isMainGuest: false,
         };
         await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId);
@@ -515,7 +537,7 @@ export default function WCICompanionEntry() {
         // Atualiza o ID caso o hóspede tenha sido recriado na Erbon (newId ≠ existingGuestId)
         await saveGuestsToStorage(realBookingId, stored.map(g =>
           g.id === existingGuestId
-            ? { ...g, id: newId, name: name.trim(), email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
+            ? { ...g, id: newId, name: fullName, email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
             : g
         ), realHotelId);
       }
@@ -562,7 +584,8 @@ export default function WCICompanionEntry() {
       const guestDoc  = guest?.documents?.[0]
         ? `${guest.documents[0].documentType} — ${guest.documents[0].number}`
         : undefined;
-      const guestName = name || guest?.name || 'Hóspede';
+      const computedFullName = [firstName, lastName].filter(Boolean).join(' ');
+      const guestName = computedFullName || guest?.name || 'Hóspede';
       const safeName  = guestName.replace(/[^a-zA-Z0-9]/g, '_');
       const ts        = Date.now();
 
@@ -698,9 +721,15 @@ export default function WCICompanionEntry() {
               <p style={{ margin: 0, fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.12)', paddingBottom: '0.4rem' }}>
                 Dados Pessoais
               </p>
-              <div>
-                <label style={labelStyle}>{t('nameField')}</label>
-                <input style={inputStyle} type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nome completo" required autoFocus />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={labelStyle}>Nome *</label>
+                  <input style={inputStyle} type="text" name="firstName" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Nome" required autoFocus />
+                </div>
+                <div>
+                  <label style={labelStyle}>Sobrenome</label>
+                  <input style={inputStyle} type="text" name="lastName" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Sobrenome" />
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
@@ -725,11 +754,12 @@ export default function WCICompanionEntry() {
                 </div>
                 <div>
                   <label style={labelStyle}>{t('genderField')}</label>
-                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={genderID} onChange={e => setGenderID(Number(e.target.value))}>
-                    <option value={0} style={{ color: '#000' }}>—</option>
-                    <option value={1} style={{ color: '#000' }}>{t('male')}</option>
-                    <option value={2} style={{ color: '#000' }}>{t('female')}</option>
-                    <option value={3} style={{ color: '#000' }}>{t('other')}</option>
+                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={gender} onChange={e => setGender(e.target.value)}>
+                    <option value=""   style={{ color: '#000' }}>—</option>
+                    <option value="M"  style={{ color: '#000' }}>{t('male')}</option>
+                    <option value="F"  style={{ color: '#000' }}>{t('female')}</option>
+                    <option value="O"  style={{ color: '#000' }}>{t('other')}</option>
+                    <option value="NI" style={{ color: '#000' }}>Prefiro não informar</option>
                   </select>
                 </div>
                 <div>
@@ -1004,7 +1034,7 @@ export default function WCICompanionEntry() {
             {t('signatureTitle')}
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.83rem', margin: '0.4rem 0 0' }}>
-            {name && <strong style={{ color: 'rgba(255,255,255,0.8)' }}>{name} — </strong>}
+            {(firstName || lastName) && <strong style={{ color: 'rgba(255,255,255,0.8)' }}>{[firstName, lastName].filter(Boolean).join(' ')} — </strong>}
             {t('signatureDesc')}
           </p>
         </div>
