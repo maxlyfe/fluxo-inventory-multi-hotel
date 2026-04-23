@@ -105,6 +105,26 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   // Mapa de refs dos inputs de quantidade para navegação por Enter
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
+  // Long-press tooltip (1s) — exibe nome completo do produto truncado
+  const [pressTooltip, setPressTooltip] = useState<string | null>(null);
+  const pressTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showNameTooltip = (name: string) => {
+    setPressTooltip(name);
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    dismissTimerRef.current = setTimeout(() => setPressTooltip(null), 3000);
+  };
+
+  const startPressTimer = (name: string) => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => showNameTooltip(name), 900);
+  };
+
+  const cancelPressTimer = () => {
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+  };
+
   const [searchTerm, setSearchTerm]       = useState('');
   const [counts, setCounts]               = useState<Record<string, number>>({});
   const [currentCatIdx, setCurrentCatIdx] = useState(0);
@@ -543,7 +563,15 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                       {/* Nome + info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate leading-tight">
+                          <p
+                            className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate leading-tight select-none cursor-default"
+                            onTouchStart={() => startPressTimer(product.name)}
+                            onTouchEnd={cancelPressTimer}
+                            onTouchMove={cancelPressTimer}
+                            onMouseDown={() => startPressTimer(product.name)}
+                            onMouseUp={cancelPressTimer}
+                            onMouseLeave={cancelPressTimer}
+                          >
                             {product.name}
                           </p>
                           {/* Botão barcode — 36×36px area com padding */}
@@ -746,6 +774,25 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tooltip de nome completo (long-press) ────────────────────── */}
+      {pressTooltip && (
+        <div
+          className="fixed inset-x-4 bottom-28 z-[80] flex justify-center pointer-events-none"
+          aria-live="polite"
+        >
+          <div
+            className="max-w-sm w-full mx-auto px-5 py-3.5 rounded-2xl shadow-2xl
+              bg-slate-900/95 dark:bg-slate-700/95 backdrop-blur-sm
+              border border-white/10 pointer-events-auto"
+            onClick={() => setPressTooltip(null)}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Produto</p>
+            <p className="text-sm font-semibold text-white leading-snug">{pressTooltip}</p>
           </div>
         </div>
       )}
