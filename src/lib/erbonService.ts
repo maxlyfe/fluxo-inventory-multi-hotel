@@ -228,25 +228,30 @@ export interface ErbonGuestAddress {
 }
 
 export interface ErbonGuestPayload {
-  // Schema EXATO confirmado via swagger raw JSON /components/schemas/Guest
-  // com additionalProperties: false — qualquer campo extra causa 400!
-  name: string;                        // string nullable
-  email?: string | null;               // string nullable
-  telephone?: string | null;           // string nullable  ← "telephone", NÃO "phone"!
-  gender?: number | null;              // integer int64 (1=Masc, 2=Fem, 0=outro; omitir se não informado)
-  birthDate?: string | null;           // string date-time nullable
-  address?: ErbonGuestAddress | null;  // Address object
-  documents?: ErbonGuestDocument[];    // array nullable
-  // NÃO EXISTEM no schema: nationality, profession, firstName, lastName, phone,
-  //   isClient, isProvider, vehicleRegistration, professionID
+  // Schema confirmado via swagger v1: /components/schemas/Guest
+  // additionalProperties: false → qualquer campo extra causa 400!
+  // Campos aceitos pela API:
+  firstName?: string | null;      // string nullable
+  lastName?: string | null;       // string nullable
+  email?: string | null;          // string nullable
+  phone?: string | null;          // string nullable  ← "phone", NÃO "telephone"!
+  birthDate?: string | null;      // string date-time nullable
+  gender?: string | null;         // string nullable: "M" | "F" | null (outros/não informar → omitir)
+  nationality?: string | null;    // string nullable (código ISO ex: "BR", "AR")
+  profession?: string | null;     // string nullable
+  address?: ErbonGuestAddress | null;
+  documents?: ErbonGuestDocument[];
+  // NÃO EXISTEM no schema: name, telephone, genderID, isClient, isProvider,
+  //   vehicleRegistration, professionID
 }
 
 /**
  * Monta o body EXATO que a API Erbon espera.
  *
- * Schema raw confirmado: /components/schemas/Guest com additionalProperties: false
- * Campos permitidos: id, name, email, telephone, gender, birthDate, address, documents
- * Qualquer campo FORA desta lista → 400 imediato!
+ * Schema confirmado via swagger v1: /components/schemas/Guest
+ * additionalProperties: false → qualquer campo fora da lista → 400!
+ * Campos: id, firstName, lastName, email, phone, birthDate, gender (string),
+ *         nationality, profession, address, documents
  *
  * Body enviado DIRETAMENTE (sem wrapper { guest: ... })
  */
@@ -259,7 +264,7 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
   // ── Fallback country para documentos ──────────────────────────────────────
   const docCountryFallback = data.address?.country?.trim() || 'BR';
 
-  // ── Address: omitir sub-campos vazios (Address não tem additionalProperties:false) ──
+  // ── Address: omitir sub-campos vazios ─────────────────────────────────────
   const addressObj = data.address
     ? {
         country: data.address.country?.trim() || 'BR',
@@ -267,29 +272,30 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
         ...(data.address.city?.trim()         ? { city:         data.address.city.trim() }         : {}),
         ...(data.address.street?.trim()       ? { street:       data.address.street.trim() }       : {}),
         ...(data.address.neighborhood?.trim() ? { neighborhood: data.address.neighborhood.trim() } : {}),
-        // CEP: sempre sem hífen (ex: "28950-410" → "28950410")
+        // CEP: sempre sem hífen ("28950-410" → "28950410")
         ...(data.address.zipcode?.replace(/\D/g, '') ? { zipcode: data.address.zipcode!.replace(/\D/g, '') } : {}),
       }
     : {};
 
   return {
-    // id: nullable; 0 para novo, ID real para update
+    // id: 0 para novo hóspede, ID real para update
     id: existingId ?? 0,
-    // name: campo único (a API NÃO tem firstName/lastName)
-    name: data.name?.trim() || '',
-    // Campos opcionais — omitidos quando vazios (não enviar null explícito)
-    ...(data.email?.trim()     ? { email:     data.email.trim() }     : {}),
-    // telephone — NÃO é "phone"! Nome exato do campo no schema Erbon
-    ...(data.telephone?.trim() ? { telephone: data.telephone.trim() } : {}),
-    // gender: integer (1=Masc, 2=Fem) — omitir quando 0 ou ausente
-    ...(data.gender != null && data.gender !== 0 ? { gender: data.gender } : {}),
-    ...(birthDateFormatted     ? { birthDate: birthDateFormatted }    : {}),
+    // Campos opcionais — omitidos quando vazios (nunca enviar null explícito)
+    ...(data.firstName?.trim()   ? { firstName:   data.firstName.trim() }   : {}),
+    ...(data.lastName?.trim()    ? { lastName:    data.lastName.trim() }    : {}),
+    ...(data.email?.trim()       ? { email:       data.email.trim() }       : {}),
+    // phone — NÃO é "telephone"! Nome exato do campo no schema Erbon v1
+    ...(data.phone?.trim()       ? { phone:       data.phone.trim() }       : {}),
+    // gender: string "M" ou "F" — omitir quando Outros / Prefiro não informar
+    ...(data.gender?.trim()      ? { gender:      data.gender.trim() }      : {}),
+    ...(data.nationality?.trim() ? { nationality: data.nationality.trim() } : {}),
+    ...(data.profession?.trim()  ? { profession:  data.profession.trim() }  : {}),
+    ...(birthDateFormatted       ? { birthDate:   birthDateFormatted }      : {}),
     address: addressObj,
     documents: (data.documents || []).map(d => ({
       documentType: d.documentType,
-      // CPF/RG: remover pontos, traços e espaços ("011.909.259-07" → "01190925907")
+      // CPF/RG: remover pontos, traços e espaços
       number: d.number?.replace(/[\.\-\/\s]/g, '') || d.number,
-      // expirationDate: omitir quando vazio
       ...(d.expirationDate ? { expirationDate: d.expirationDate } : {}),
       country: (d.country && d.country.trim()) || docCountryFallback,
     })),

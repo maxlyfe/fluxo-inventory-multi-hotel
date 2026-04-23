@@ -76,14 +76,16 @@ export default function WCIFNRHForm() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
-  // Form state
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  // Form state — alinhado com schema Erbon v1 (firstName/lastName/phone/gender string)
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName]   = useState('');
+  const [email, setEmail]         = useState('');
+  const [phone, setPhone]         = useState('');
   const [birthDate, setBirthDate] = useState('');
-  const [genderID, setGenderID] = useState<number>(0);
+  // gender: 'M' | 'F' → enviado; '' | 'O' | 'NI' → omitido (Erbon deixa em branco)
+  const [gender, setGender]       = useState('');
   const [nationality, setNationality] = useState('BR');
-  const [profession, setProfession] = useState('');
+  const [profession, setProfession]   = useState('');
 
   // Document
   const [documentType, setDocumentType] = useState('CPF');
@@ -105,7 +107,10 @@ export default function WCIFNRHForm() {
     const guest = stored.find(g => g.id === guestId);
     if (!guest) return;
 
-    setName(guest.name || '');
+    // Pré-preencher nome: split no primeiro espaço → firstName / lastName
+    const nameParts = (guest.name || '').trim().split(/\s+/);
+    setFirstName(nameParts[0] || '');
+    setLastName(nameParts.slice(1).join(' ') || '');
     setEmail(guest.email || '');
     setPhone(guest.phone || '');
 
@@ -137,21 +142,21 @@ export default function WCIFNRHForm() {
     e.preventDefault();
     if (!hotelId || !bookingId) return;
 
-    if (!name.trim()) { setError('Nome completo é obrigatório.'); return; }
-    if (!email.trim()) { setError('E-mail é obrigatório.'); return; }
+    if (!firstName.trim()) { setError('Nome é obrigatório.'); return; }
+    if (!lastName.trim())  { setError('Sobrenome é obrigatório.'); return; }
+    if (!email.trim())     { setError('E-mail é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
 
     // Remove máscaras antes de enviar à Erbon
     const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
-    const cleanZipcode = zipcode.replace(/\D/g, '');
+    const cleanZipcode   = zipcode.replace(/\D/g, '');
 
-    // Gênero: API Erbon espera INTEGER (1=Masc, 2=Fem).
-    // 0, 3, 99 → omitir (API trata ausência como "não informado")
-    const erbonGender = (genderID === 1 || genderID === 2) ? genderID : undefined;
+    // Gênero: string "M" ou "F" enviado; '' | 'O' | 'NI' → omitir (Erbon deixa em branco)
+    const erbonGender = (gender === 'M' || gender === 'F') ? gender : undefined;
 
     // País do endereço: lemos DIRETAMENTE do DOM para garantir o valor
     // real mesmo que o React state não tenha atualizado a tempo
-    const domCountry = countrySelectRef.current?.value || country || 'BR';
+    const domCountry   = countrySelectRef.current?.value || country || 'BR';
     const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'OTHER';
     // CEP e UF: APENAS para Brasil — nunca enviados para estrangeiros
     const isBR = addressCountry === 'BR';
@@ -160,14 +165,18 @@ export default function WCIFNRHForm() {
     setError('');
 
     try {
-      // Schema Erbon: { id, name, email, telephone, gender, birthDate, address, documents }
-      // additionalProperties: false → campos extras causam 400!
+      // Schema Erbon v1 — additionalProperties: false → campos extras causam 400!
+      // Campos: firstName, lastName, email, phone, gender (string), nationality,
+      //         profession, birthDate, address, documents
       const payload: ErbonGuestPayload = {
-        name: name.trim(),
-        email: email.trim() || undefined,
-        telephone: phone.trim() || undefined,   // campo se chama "telephone" na API, não "phone"
-        birthDate: birthDate || undefined,
-        gender: erbonGender,                    // integer, omitido quando não informado
+        firstName:   firstName.trim(),
+        lastName:    lastName.trim(),
+        email:       email.trim()      || undefined,
+        phone:       phone.trim()      || undefined,   // "phone", NÃO "telephone"
+        birthDate:   birthDate         || undefined,
+        gender:      erbonGender,                      // "M" | "F" | undefined
+        nationality: nationality       || undefined,
+        profession:  profession.trim() || undefined,
         documents: cleanDocNumber ? [{
           documentType,
           number: cleanDocNumber,
@@ -190,13 +199,13 @@ export default function WCIFNRHForm() {
         payload
       );
 
-      // Atualizar localStorage
+      // Atualizar localStorage — "name" concatena firstName + lastName
+      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ');
       const stored = loadGuestsFromStorage(bookingId) || [];
       if (isNew) {
-        // Adicionar novo hóspede
         const newGuest: WebCheckinGuest = {
           id: savedId,
-          name: name.trim(),
+          name: fullName,
           email: email.trim(),
           phone: phone.trim(),
           documents: payload.documents,
@@ -205,10 +214,9 @@ export default function WCIFNRHForm() {
         };
         saveGuestsToStorage(bookingId, [...stored, newGuest]);
       } else {
-        // Atualizar hóspede existente
         const updated = stored.map(g =>
           g.id === guestId
-            ? { ...g, name: name.trim(), email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
+            ? { ...g, name: fullName, email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
             : g
         );
         saveGuestsToStorage(bookingId, updated);
@@ -261,14 +269,25 @@ export default function WCIFNRHForm() {
             <div>
               <p style={sectionTitle}>Dados Pessoais</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <Field label={t('nameField')}>
-                  <input
-                    style={inputStyle} type="text"
-                    value={name} onChange={e => setName(e.target.value)}
-                    placeholder="Nome completo como no documento"
-                    required autoFocus
-                  />
-                </Field>
+                {/* Nome e Sobrenome — campos separados conforme schema Erbon (firstName/lastName) */}
+                <Row>
+                  <Field label="Nome *">
+                    <input
+                      style={inputStyle} type="text"
+                      value={firstName} onChange={e => setFirstName(e.target.value)}
+                      placeholder="Nome como no documento"
+                      required autoFocus
+                    />
+                  </Field>
+                  <Field label="Sobrenome *">
+                    <input
+                      style={inputStyle} type="text"
+                      value={lastName} onChange={e => setLastName(e.target.value)}
+                      placeholder="Sobrenome como no documento"
+                      required
+                    />
+                  </Field>
+                </Row>
                 <Row>
                   <Field label={t('emailField')}>
                     <input style={inputStyle} type="email" value={email}
@@ -285,13 +304,15 @@ export default function WCIFNRHForm() {
                       onChange={e => setBirthDate(e.target.value)} />
                   </Field>
                   <Field label={t('genderField')}>
+                    {/* Erbon aceita string: "M" ou "F".
+                        "Outros" e "Prefiro não informar" → campo omitido (Erbon fica em branco) */}
                     <select style={{ ...inputStyle, cursor: 'pointer' }}
-                      value={genderID} onChange={e => setGenderID(Number(e.target.value))}>
-                      <option value={0} style={{ color: '#000' }}>— Selecione</option>
-                      <option value={1} style={{ color: '#000' }}>{t('male')}</option>
-                      <option value={2} style={{ color: '#000' }}>{t('female')}</option>
-                      <option value={3} style={{ color: '#000' }}>{t('other')}</option>
-                      <option value={99} style={{ color: '#000' }}>Prefiro não informar</option>
+                      value={gender} onChange={e => setGender(e.target.value)}>
+                      <option value=""   style={{ color: '#000' }}>— Selecione</option>
+                      <option value="M"  style={{ color: '#000' }}>{t('male')}</option>
+                      <option value="F"  style={{ color: '#000' }}>{t('female')}</option>
+                      <option value="O"  style={{ color: '#000' }}>{t('other')}</option>
+                      <option value="NI" style={{ color: '#000' }}>Prefiro não informar</option>
                     </select>
                   </Field>
                 </Row>
