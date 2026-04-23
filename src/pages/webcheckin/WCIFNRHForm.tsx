@@ -1,5 +1,5 @@
 // src/pages/webcheckin/WCIFNRHForm.tsx
-// Formulário FNRH completo — campos do ErbonGuestPayload
+// Formulário FNRH — leitura via FormData (bulletproof contra autofill e timing React)
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ClipboardList, Loader2, CheckCircle } from 'lucide-react';
@@ -62,6 +62,9 @@ function Row({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Helper: lê string de FormData
+const fd = (data: FormData, key: string) => ((data.get(key) as string) || '').trim();
+
 export default function WCIFNRHForm() {
   const { hotelId, bookingId, guestId: guestIdParam } = useParams<{
     hotelId: string; bookingId: string; guestId: string;
@@ -73,33 +76,30 @@ export default function WCIFNRHForm() {
   const guestId = isNew ? null : Number(guestIdParam);
 
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState('');
+  const [saved,  setSaved]  = useState(false);
+  const [error,  setError]  = useState('');
 
-  // Form state — alinhado com schema Erbon v1 (firstName/lastName/phone/gender string)
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName]   = useState('');
-  const [email, setEmail]         = useState('');
-  const [phone, setPhone]         = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  // gender: 'M' | 'F' → enviado; '' | 'O' | 'NI' → omitido (Erbon deixa em branco)
-  const [gender, setGender]       = useState('');
-  const [nationality, setNationality] = useState('BR');
-  const [profession, setProfession]   = useState('');
+  // Estado React — usado apenas para pré-preenchimento e controle de CEP/UF
+  const [firstName,     setFirstName]     = useState('');
+  const [lastName,      setLastName]      = useState('');
+  const [email,         setEmail]         = useState('');
+  const [phone,         setPhone]         = useState('');
+  const [birthDate,     setBirthDate]     = useState('');
+  const [gender,        setGender]        = useState('');
+  const [profession,    setProfession]    = useState('');
+  const [documentType,  setDocumentType]  = useState('CPF');
+  const [documentNumber,setDocumentNumber]= useState('');
+  const [country,       setCountry]       = useState('BR');
+  const [state,         setState]         = useState('');
+  const [city,          setCity]          = useState('');
+  const [street,        setStreet]        = useState('');
+  const [zipcode,       setZipcode]       = useState('');
+  const [neighborhood,  setNeighborhood]  = useState('');
 
-  // Document
-  const [documentType, setDocumentType] = useState('CPF');
-  const [documentNumber, setDocumentNumber] = useState('');
+  // Ref para controle DOM do bloco CEP/UF
+  const cepUfRef = useRef<HTMLDivElement>(null);
 
-  // Address
-  const [country, setCountry] = useState('BR');
-  const [state, setState] = useState('');
-  const [city, setCity] = useState('');
-  const [street, setStreet] = useState('');
-  const [zipcode, setZipcode] = useState('');
-  const [neighborhood, setNeighborhood] = useState('');
-
-  // Pre-fill from localStorage if editing existing guest
+  // Pré-preencher de localStorage se estiver editando hóspede existente
   useEffect(() => {
     if (!bookingId) return;
     const stored = loadGuestsFromStorage(bookingId);
@@ -107,7 +107,6 @@ export default function WCIFNRHForm() {
     const guest = stored.find(g => g.id === guestId);
     if (!guest) return;
 
-    // Pré-preencher nome: split no primeiro espaço → firstName / lastName
     const nameParts = (guest.name || '').trim().split(/\s+/);
     setFirstName(nameParts[0] || '');
     setLastName(nameParts.slice(1).join(' ') || '');
@@ -120,80 +119,83 @@ export default function WCIFNRHForm() {
     }
   }, [bookingId, guestId]);
 
-  // Refs DOM — lemos DIRETAMENTE no submit para garantir valores reais
-  // independente de qualquer atraso no ciclo de render do React
-  const firstNameRef     = useRef<HTMLInputElement>(null);
-  const lastNameRef      = useRef<HTMLInputElement>(null);
-  const cepUfRef         = useRef<HTMLDivElement>(null);
-  const countrySelectRef = useRef<HTMLSelectElement>(null);
-
   const handleCountryChange = (value: string) => {
     setCountry(value);
     if (value !== 'BR') {
-      setState('');
-      setZipcode('');
+      setState(''); setZipcode('');
       if (cepUfRef.current) cepUfRef.current.style.display = 'none';
     } else {
       if (cepUfRef.current) cepUfRef.current.style.display = 'grid';
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  // ── Submit via FormData ─────────────────────────────────────────────────────
+  // FormData lê os valores REAIS do DOM (name= attribute) no momento do submit.
+  // Isso é imune a: autofill sem onChange, timing do React state, refs nulos.
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!hotelId || !bookingId) return;
 
-    // Lê nome DIRETO do DOM para garantir valor real independente de
-    // qualquer atraso no ciclo de render do React (mesmo padrão do countrySelect)
-    const domFirstName = (firstNameRef.current?.value || firstName).trim();
-    const domLastName  = (lastNameRef.current?.value  || lastName).trim();
+    // Lê TODOS os valores direto do formulário HTML
+    const data = new FormData(e.currentTarget);
 
-    if (!domFirstName)  { setError('Nome é obrigatório.'); return; }
-    if (!domLastName)   { setError('Sobrenome é obrigatório.'); return; }
-    if (!email.trim())  { setError('E-mail é obrigatório.'); return; }
-    if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
+    const domFirstName    = fd(data, 'firstName');
+    const domLastName     = fd(data, 'lastName');
+    const domEmail        = fd(data, 'email');
+    const domPhone        = fd(data, 'phone');
+    const domBirthDate    = fd(data, 'birthDate');
+    const domGender       = fd(data, 'gender');
+    const domProfession   = fd(data, 'profession');
+    const domDocType      = fd(data, 'documentType')  || 'CPF';
+    const domDocNumber    = fd(data, 'documentNumber').replace(/[\.\-\/\s]/g, '');
+    const domCountry      = fd(data, 'country')       || 'BR';
+    const domState        = fd(data, 'state');
+    const domCity         = fd(data, 'city');
+    const domStreet       = fd(data, 'street');
+    const domZipcode      = fd(data, 'zipcode').replace(/\D/g, '');
+    const domNeighborhood = fd(data, 'neighborhood');
 
-    // Remove máscaras antes de enviar à Erbon
-    const cleanDocNumber = documentNumber.trim().replace(/[\.\-\/\s]/g, '');
-    const cleanZipcode   = zipcode.replace(/\D/g, '');
+    console.log('[FNRH] FormData names:', domFirstName, domLastName);
 
-    // Gênero: string "M" ou "F" enviado; '' | 'O' | 'NI' → omitir (Erbon deixa em branco)
-    const erbonGender = (gender === 'M' || gender === 'F') ? gender : undefined;
+    // Validação
+    if (!domFirstName)  { setError('Nome é obrigatório.');              return; }
+    if (!domLastName)   { setError('Sobrenome é obrigatório.');         return; }
+    if (!domEmail)      { setError('E-mail é obrigatório.');            return; }
+    if (!domDocNumber)  { setError('Número do documento é obrigatório.'); return; }
 
-    // País: lido do DOM para garantir valor correto
-    const domCountry     = countrySelectRef.current?.value || country || 'BR';
     const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'OTHER';
     const isBR           = addressCountry === 'BR';
+    // gender: "M" | "F" → enviado; qualquer outro → omitido
+    const erbonGender    = (domGender === 'M' || domGender === 'F') ? domGender : undefined;
 
     setSaving(true);
     setError('');
 
     try {
-      // Schema Erbon v1 — additionalProperties: false → campos extras causam 400!
-      // Campos confirmados: firstName, lastName, email, phone, gender (string),
-      //                     profession, birthDate, address, documents
-      // nationality OMITIDO — não confirmado como campo de escrita aceito
       const payload: ErbonGuestPayload = {
-        firstName:   domFirstName,
-        lastName:    domLastName,
-        email:       email.trim()      || undefined,
-        phone:       phone.trim()      || undefined,
-        birthDate:   birthDate         || undefined,
-        gender:      erbonGender,
-        profession:  profession.trim() || undefined,
-        documents: cleanDocNumber ? [{
-          documentType,
-          number: cleanDocNumber,
-          country: addressCountry,
+        firstName:  domFirstName,
+        lastName:   domLastName,
+        email:      domEmail      || undefined,
+        phone:      domPhone      || undefined,
+        birthDate:  domBirthDate  || undefined,
+        gender:     erbonGender,
+        profession: domProfession || undefined,
+        documents: domDocNumber ? [{
+          documentType: domDocType,
+          number:       domDocNumber,
+          country:      addressCountry,
         }] : [],
         address: {
-          country: addressCountry,
-          state:   isBR ? (state.trim()  || undefined) : undefined,
-          zipcode: isBR ? (cleanZipcode  || undefined) : undefined,
-          city:         city.trim()         || undefined,
-          street:       street.trim()       || undefined,
-          neighborhood: neighborhood.trim() || undefined,
+          country:      addressCountry,
+          state:        isBR ? (domState        || undefined) : undefined,
+          zipcode:      isBR ? (domZipcode      || undefined) : undefined,
+          city:         domCity         || undefined,
+          street:       domStreet       || undefined,
+          neighborhood: domNeighborhood || undefined,
         },
       };
+
+      console.log('[FNRH] payload enviado:', JSON.stringify(payload));
 
       const savedId = await saveGuestFNRH(
         hotelId,
@@ -202,31 +204,30 @@ export default function WCIFNRHForm() {
         payload
       );
 
-      // Atualizar localStorage — "name" concatena firstName + lastName (valores DOM)
       const fullName = [domFirstName, domLastName].filter(Boolean).join(' ');
-      const stored = loadGuestsFromStorage(bookingId) || [];
+      const stored   = loadGuestsFromStorage(bookingId) || [];
+
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: savedId,
-          name: fullName,
-          email: email.trim(),
-          phone: phone.trim(),
+          name:  fullName,
+          email: domEmail,
+          phone: domPhone,
           documents: payload.documents,
           fnrhCompleted: true,
-          isMainGuest: false,
+          isMainGuest:  false,
         };
         saveGuestsToStorage(bookingId, [...stored, newGuest]);
       } else {
         const updated = stored.map(g =>
           g.id === guestId
-            ? { ...g, name: fullName, email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
+            ? { ...g, name: fullName, email: domEmail, phone: domPhone, fnrhCompleted: true }
             : g
         );
         saveGuestsToStorage(bookingId, updated);
       }
 
       setSaved(true);
-      // Voltar para lista após 1.5s
       setTimeout(() => navigate(`/web-checkin/${hotelId}/guests/${bookingId}`), 1500);
 
     } catch (err: any) {
@@ -241,20 +242,14 @@ export default function WCIFNRHForm() {
       <div style={{ minHeight: 'calc(100vh - 70px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
         <div style={{ textAlign: 'center' }}>
           <CheckCircle size={64} color="#22c55e" style={{ marginBottom: '1rem' }} />
-          <h2 style={{ color: '#fff', fontWeight: 800, fontSize: '1.5rem' }}>
-            {t('fnrhDone')}
-          </h2>
+          <h2 style={{ color: '#fff', fontWeight: 800, fontSize: '1.5rem' }}>{t('fnrhDone')}</h2>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{
-      minHeight: 'calc(100vh - 70px)',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', padding: '2rem',
-    }}>
+    <div style={{ minHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem' }}>
       <div style={{ width: '100%', maxWidth: 720 }}>
 
         {/* Header */}
@@ -266,53 +261,71 @@ export default function WCIFNRHForm() {
         </div>
 
         <div style={glassCard}>
+          {/* name= em TODOS os inputs — obrigatório para FormData funcionar */}
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-            {/* Dados Pessoais */}
+            {/* ── Dados Pessoais ── */}
             <div>
               <p style={sectionTitle}>Dados Pessoais</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* Nome e Sobrenome — campos separados conforme schema Erbon (firstName/lastName) */}
+
                 <Row>
                   <Field label="Nome *">
                     <input
-                      ref={firstNameRef}
+                      name="firstName"
                       style={inputStyle} type="text"
                       value={firstName} onChange={e => setFirstName(e.target.value)}
                       placeholder="Nome como no documento"
-                      required autoFocus
+                      autoComplete="given-name"
+                      autoFocus
                     />
                   </Field>
                   <Field label="Sobrenome *">
                     <input
-                      ref={lastNameRef}
+                      name="lastName"
                       style={inputStyle} type="text"
                       value={lastName} onChange={e => setLastName(e.target.value)}
                       placeholder="Sobrenome como no documento"
-                      required
+                      autoComplete="family-name"
                     />
                   </Field>
                 </Row>
+
                 <Row>
                   <Field label={t('emailField')}>
-                    <input style={inputStyle} type="email" value={email}
-                      onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" required />
+                    <input
+                      name="email"
+                      style={inputStyle} type="email"
+                      value={email} onChange={e => setEmail(e.target.value)}
+                      placeholder="email@exemplo.com"
+                      autoComplete="email"
+                    />
                   </Field>
                   <Field label={t('phoneField')}>
-                    <input style={inputStyle} type="tel" value={phone}
-                      onChange={e => setPhone(e.target.value)} placeholder="+55 (11) 9 0000-0000" />
+                    <input
+                      name="phone"
+                      style={inputStyle} type="tel"
+                      value={phone} onChange={e => setPhone(e.target.value)}
+                      placeholder="+55 (11) 9 0000-0000"
+                      autoComplete="tel"
+                    />
                   </Field>
                 </Row>
+
                 <Row>
                   <Field label={t('birthField')}>
-                    <input style={inputStyle} type="date" value={birthDate}
-                      onChange={e => setBirthDate(e.target.value)} />
+                    <input
+                      name="birthDate"
+                      style={inputStyle} type="date"
+                      value={birthDate} onChange={e => setBirthDate(e.target.value)}
+                    />
                   </Field>
                   <Field label={t('genderField')}>
-                    {/* Erbon aceita string: "M" ou "F".
-                        "Outros" e "Prefiro não informar" → campo omitido (Erbon fica em branco) */}
-                    <select style={{ ...inputStyle, cursor: 'pointer' }}
-                      value={gender} onChange={e => setGender(e.target.value)}>
+                    <select
+                      name="gender"
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                      value={gender} onChange={e => setGender(e.target.value)}
+                    >
                       <option value=""   style={{ color: '#000' }}>— Selecione</option>
                       <option value="M"  style={{ color: '#000' }}>{t('male')}</option>
                       <option value="F"  style={{ color: '#000' }}>{t('female')}</option>
@@ -321,127 +334,132 @@ export default function WCIFNRHForm() {
                     </select>
                   </Field>
                 </Row>
-                <Row>
-                  <Field label={t('nationalityField')}>
-                    <select style={{ ...inputStyle, cursor: 'pointer' }}
-                      value={nationality} onChange={e => setNationality(e.target.value)}>
-                      <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasileiro(a)</option>
-                      <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentino(a)</option>
-                      <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguaio(a)</option>
-                      <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguaio(a)</option>
-                      <option value="CL" style={{ color: '#000' }}>🇨🇱 Chileno(a)</option>
-                      <option value="BO" style={{ color: '#000' }}>🇧🇴 Boliviano(a)</option>
-                      <option value="PE" style={{ color: '#000' }}>🇵🇪 Peruano(a)</option>
-                      <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombiano(a)</option>
-                      <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuelano(a)</option>
-                      <option value="US" style={{ color: '#000' }}>🇺🇸 Americano(a)</option>
-                      <option value="DE" style={{ color: '#000' }}>🇩🇪 Alemão/ã</option>
-                      <option value="FR" style={{ color: '#000' }}>🇫🇷 Francês/esa</option>
-                      <option value="IT" style={{ color: '#000' }}>🇮🇹 Italiano(a)</option>
-                      <option value="ES" style={{ color: '#000' }}>🇪🇸 Espanhol(a)</option>
-                      <option value="PT" style={{ color: '#000' }}>🇵🇹 Português(a)</option>
-                      <option value="GB" style={{ color: '#000' }}>🇬🇧 Britânico(a)</option>
-                      <option value="OTHER" style={{ color: '#000' }}>Outro</option>
-                    </select>
-                  </Field>
-                  <Field label={t('professionField')}>
-                    <input style={inputStyle} type="text" value={profession}
-                      onChange={e => setProfession(e.target.value)} placeholder="Opcional" />
-                  </Field>
-                </Row>
+
+                <Field label={t('professionField')}>
+                  <input
+                    name="profession"
+                    style={inputStyle} type="text"
+                    value={profession} onChange={e => setProfession(e.target.value)}
+                    placeholder="Opcional"
+                  />
+                </Field>
+
               </div>
             </div>
 
-            {/* Documento */}
+            {/* ── Documento ── */}
             <div>
               <p style={sectionTitle}>Documento de Identidade</p>
               <Row>
                 <Field label={t('documentTypeField')}>
-                  <select style={{ ...inputStyle, cursor: 'pointer' }}
-                    value={documentType} onChange={e => setDocumentType(e.target.value)}>
-                    <option value="CPF" style={{ color: '#000' }}>{t('cpf')}</option>
-                    <option value="RG" style={{ color: '#000' }}>{t('rg')}</option>
+                  <select
+                    name="documentType"
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                    value={documentType} onChange={e => setDocumentType(e.target.value)}
+                  >
+                    <option value="CPF"      style={{ color: '#000' }}>{t('cpf')}</option>
+                    <option value="RG"       style={{ color: '#000' }}>{t('rg')}</option>
                     <option value="PASSPORT" style={{ color: '#000' }}>{t('passport')}</option>
-                    <option value="CNH" style={{ color: '#000' }}>{t('cnh')}</option>
+                    <option value="CNH"      style={{ color: '#000' }}>{t('cnh')}</option>
                   </select>
                 </Field>
                 <Field label={t('documentField')}>
-                  <input style={inputStyle} type="text" value={documentNumber}
-                    onChange={e => setDocumentNumber(e.target.value)} placeholder="000.000.000-00" required />
+                  <input
+                    name="documentNumber"
+                    style={inputStyle} type="text"
+                    value={documentNumber} onChange={e => setDocumentNumber(e.target.value)}
+                    placeholder="000.000.000-00"
+                  />
                 </Field>
               </Row>
             </div>
 
-            {/* Endereço */}
+            {/* ── Endereço ── */}
             <div>
               <p style={sectionTitle}>{t('addressSection')}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* País — sempre visível */}
+
                 <Field label={t('countryField')}>
                   <select
-                    ref={countrySelectRef}
+                    name="country"
                     style={{ ...inputStyle, cursor: 'pointer' }}
-                    value={country} onChange={e => handleCountryChange(e.target.value)}>
-                    <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
-                    <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
-                    <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
-                    <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
-                    <option value="CL" style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
-                    <option value="BO" style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
-                    <option value="PE" style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
-                    <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
-                    <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
-                    <option value="US" style={{ color: '#000' }}>🇺🇸 United States (US)</option>
-                    <option value="DE" style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
-                    <option value="FR" style={{ color: '#000' }}>🇫🇷 France (FR)</option>
-                    <option value="IT" style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
-                    <option value="ES" style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
-                    <option value="PT" style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
-                    <option value="GB" style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
+                    value={country} onChange={e => handleCountryChange(e.target.value)}
+                  >
+                    <option value="BR"    style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
+                    <option value="AR"    style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
+                    <option value="UY"    style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
+                    <option value="PY"    style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
+                    <option value="CL"    style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
+                    <option value="BO"    style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
+                    <option value="PE"    style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
+                    <option value="CO"    style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
+                    <option value="VE"    style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
+                    <option value="US"    style={{ color: '#000' }}>🇺🇸 United States (US)</option>
+                    <option value="DE"    style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
+                    <option value="FR"    style={{ color: '#000' }}>🇫🇷 France (FR)</option>
+                    <option value="IT"    style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
+                    <option value="ES"    style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
+                    <option value="PT"    style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
+                    <option value="GB"    style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
                     <option value="OTHER" style={{ color: '#000' }}>Outro</option>
                   </select>
                 </Field>
 
-                {/* CEP e Estado/UF — APENAS para Brasil
-                    Controlado por ref DOM para garantir ocultação imediata
-                    independente do ciclo de render do React */}
+                {/* CEP e UF — visível apenas para BR (controlado via DOM ref) */}
                 <div
                   ref={cepUfRef}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                    gap: '1rem',
-                  }}
+                  style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}
                 >
                   <Field label={t('zipcodeField')}>
-                    <input style={inputStyle} type="text" value={zipcode}
-                      onChange={e => setZipcode(e.target.value)} placeholder="00000-000" />
+                    <input
+                      name="zipcode"
+                      style={inputStyle} type="text"
+                      value={zipcode} onChange={e => setZipcode(e.target.value)}
+                      placeholder="00000-000"
+                    />
                   </Field>
                   <Field label={t('stateField')}>
-                    <input style={inputStyle} type="text" value={state}
-                      onChange={e => setState(e.target.value)} placeholder="RJ" maxLength={2} />
+                    <input
+                      name="state"
+                      style={inputStyle} type="text"
+                      value={state} onChange={e => setState(e.target.value)}
+                      placeholder="RJ" maxLength={2}
+                    />
                   </Field>
                 </div>
 
-                {/* Cidade, Bairro, Rua — todos os países */}
                 <Row>
                   <Field label={t('cityField')}>
-                    <input style={inputStyle} type="text" value={city}
-                      onChange={e => setCity(e.target.value)} placeholder="Cidade" />
+                    <input
+                      name="city"
+                      style={inputStyle} type="text"
+                      value={city} onChange={e => setCity(e.target.value)}
+                      placeholder="Cidade"
+                    />
                   </Field>
                   <Field label={t('neighborhoodField')}>
-                    <input style={inputStyle} type="text" value={neighborhood}
-                      onChange={e => setNeighborhood(e.target.value)} placeholder="Bairro" />
+                    <input
+                      name="neighborhood"
+                      style={inputStyle} type="text"
+                      value={neighborhood} onChange={e => setNeighborhood(e.target.value)}
+                      placeholder="Bairro"
+                    />
                   </Field>
                 </Row>
+
                 <Field label={t('streetField')}>
-                  <input style={inputStyle} type="text" value={street}
-                    onChange={e => setStreet(e.target.value)} placeholder="Rua, número" />
+                  <input
+                    name="street"
+                    style={inputStyle} type="text"
+                    value={street} onChange={e => setStreet(e.target.value)}
+                    placeholder="Rua, número"
+                  />
                 </Field>
+
               </div>
             </div>
 
-            {/* Error */}
+            {/* Erro */}
             {error && (
               <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10, padding: '0.75rem 1rem' }}>
                 <span style={{ color: '#fca5a5', fontSize: '0.9rem' }}>{error}</span>
@@ -468,7 +486,6 @@ export default function WCIFNRHForm() {
           </form>
         </div>
 
-        {/* Back */}
         <button
           onClick={() => navigate(`/web-checkin/${hotelId}/guests/${bookingId}`)}
           style={{ display: 'block', margin: '1.25rem auto 0', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '0.9rem', textDecoration: 'underline' }}
