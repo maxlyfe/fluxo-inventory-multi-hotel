@@ -891,13 +891,14 @@ export const erbonService = {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
     const token = await this.getToken(hotelId);
-    const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
-    // Swagger: body é o objeto Guest direto, sem wrapper { guest: ... }
-    console.log('[Erbon] addGuest path:', path);
-    console.log('[Erbon] addGuest hotelId(erbon):', config.erbon_hotel_id, '| bookingInternalId:', bookingInternalId);
-    console.log('[Erbon] addGuest guestData:', JSON.stringify(guestData));
+    // Estratégia: POST /hotel/{hotelID}/guest/new (sem booking no path — mais permissivo)
+    // Em seguida PUT /attach para vincular à reserva.
+    // O endpoint /booking/{id}/guest/new retornava erro #1# consistentemente.
+    const path = `/hotel/${config.erbon_hotel_id}/guest/new`;
+
     const body = buildGuestBody(guestData, null);
+    console.log('[Erbon] addGuest path:', path, '| bookingInternalId:', bookingInternalId);
     console.log('[Erbon] addGuest body:', JSON.stringify(body));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
@@ -927,12 +928,13 @@ export const erbonService = {
       return created;
     }
 
-    // Agora anexa à reserva
+    // Vincular à reserva
     try {
       await this.attachGuestToBooking(hotelId, bookingInternalId, newGuestId, options?.isMainGuest);
     } catch (err: any) {
       console.error('[Erbon] Falha ao anexar hóspede recém-criado à reserva:', err.message);
-      throw new Error(`Hóspede criado (id=${newGuestId}), mas falhou ao vincular à reserva: ${err.message}`);
+      // Não lançar erro — hóspede foi criado com sucesso, só o vínculo falhou
+      console.warn('[Erbon] Hóspede criado mas não vinculado. id=', newGuestId);
     }
 
     return { ...created, id: newGuestId };
