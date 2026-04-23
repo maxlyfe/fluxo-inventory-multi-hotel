@@ -278,8 +278,9 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     : {};
 
   return {
-    // id: 0 para novo hóspede, ID real para update
-    id: existingId ?? 0,
+    // Omitir 'id' para novos hóspedes — Erbon rejeita id:0 (erro #1#)
+    // Incluir apenas para PUT /guests/update (existingId não-nulo)
+    ...(existingId ? { id: existingId } : {}),
     // Campos opcionais — omitidos quando vazios (nunca enviar null explícito)
     ...(data.firstName?.trim()   ? { firstName:   data.firstName.trim() }   : {}),
     ...(data.lastName?.trim()    ? { lastName:    data.lastName.trim() }    : {}),
