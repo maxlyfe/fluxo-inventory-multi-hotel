@@ -1,6 +1,6 @@
 // src/components/StockConferenceModal.tsx
-// Redesenhado — slate design system, category pills, product cards com imagem,
-// steppers de quantidade, sub-modais polidos.
+// Mobile-first redesign — touch targets ≥44px, 2-row product cards,
+// stepper largo, chevrons grandes, sub-modais polidos para mobile.
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
@@ -30,12 +30,12 @@ interface StockConferenceModalProps {
   onFinished: () => void;
 }
 
-// ── Stepper de quantidade ──────────────────────────────────────────────────────
+// ── Stepper de quantidade — mobile-first (touch targets ≥44px) ───────────────
 const QtyInput: React.FC<{
   value: number | undefined;
   onChange: (v: string) => void;
   current: number;
-}> = ({ value, onChange, current }) => {
+}> = ({ value, onChange }) => {
   const [raw, setRaw] = useState(value !== undefined ? String(value) : '');
 
   useEffect(() => {
@@ -43,28 +43,40 @@ const QtyInput: React.FC<{
   }, [value]);
 
   return (
-    <div className="flex items-center gap-1">
-      <button type="button"
-        onClick={() => {
-          const v = Math.max(0, (value ?? 0) - 1);
-          onChange(String(v));
-        }}
-        className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400 font-bold transition-colors flex items-center justify-center text-lg leading-none select-none">
+    <div className="flex items-center gap-2">
+      {/* Botão − : 44×44px mínimo */}
+      <button
+        type="button"
+        onClick={() => { const v = Math.max(0, (value ?? 0) - 1); onChange(String(v)); }}
+        style={{ touchAction: 'manipulation' }}
+        className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300
+          hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400
+          active:scale-95 font-bold transition-all flex items-center justify-center text-xl leading-none select-none"
+      >
         −
       </button>
+
+      {/* Input central: altura 44px, texto maior */}
       <input
-        type="text" inputMode="decimal"
+        type="text"
+        inputMode="decimal"
         value={raw}
         onChange={e => { setRaw(e.target.value); onChange(e.target.value); }}
         placeholder="—"
-        className="w-14 h-8 text-center text-sm font-bold rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 transition-colors"
+        className="w-16 h-11 text-center text-base font-bold rounded-xl border border-slate-200 dark:border-slate-600
+          bg-white dark:bg-slate-800 text-slate-800 dark:text-white
+          focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 transition-colors"
       />
-      <button type="button"
-        onClick={() => {
-          const v = (value ?? 0) + 1;
-          onChange(String(v));
-        }}
-        className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-600 dark:hover:text-emerald-400 font-bold transition-colors flex items-center justify-center text-lg leading-none select-none">
+
+      {/* Botão + : 44×44px mínimo */}
+      <button
+        type="button"
+        onClick={() => { const v = (value ?? 0) + 1; onChange(String(v)); }}
+        style={{ touchAction: 'manipulation' }}
+        className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300
+          hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-600 dark:hover:text-emerald-400
+          active:scale-95 font-bold transition-all flex items-center justify-center text-xl leading-none select-none"
+      >
         +
       </button>
     </div>
@@ -77,29 +89,28 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   isOpen, onClose, products, hotelId, sectorId, onFinished,
 }) => {
   const { addNotification } = useNotification();
-  const [searchTerm, setSearchTerm]   = useState('');
-  const [counts, setCounts]           = useState<Record<string, number>>({});
+  const [searchTerm, setSearchTerm]       = useState('');
+  const [counts, setCounts]               = useState<Record<string, number>>({});
   const [currentCatIdx, setCurrentCatIdx] = useState(0);
-  const [isSaving, setIsSaving]       = useState(false);
+  const [isSaving, setIsSaving]           = useState(false);
   const [activeCountId, setActiveCountId] = useState<string | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
 
-  const [showScanner,              setShowScanner]              = useState(false);
-  const [scanProduct,              setScanProduct]              = useState<Product | null>(null);
-  const [scanQty,                  setScanQty]                  = useState('1');
-  const [scanNotFound,             setScanNotFound]             = useState<string | null>(null);
-  const [registerBarcodeProduct,   setRegisterBarcodeProduct]   = useState<Product | null>(null);
-  const [productBarcodes,          setProductBarcodes]          = useState<Record<string, string[]>>({});
-  const [imgErrors,                setImgErrors]                = useState<Record<string, boolean>>({});
+  const [showScanner,            setShowScanner]            = useState(false);
+  const [scanProduct,            setScanProduct]            = useState<Product | null>(null);
+  const [scanQty,                setScanQty]                = useState('1');
+  const [scanNotFound,           setScanNotFound]           = useState<string | null>(null);
+  const [registerBarcodeProduct, setRegisterBarcodeProduct] = useState<Product | null>(null);
+  const [productBarcodes,        setProductBarcodes]        = useState<Record<string, string[]>>({});
+  const [imgErrors,              setImgErrors]              = useState<Record<string, boolean>>({});
 
-  // Categorias
+  // ── Categorias ──────────────────────────────────────────────────────────────
   const categories = useMemo(() => {
     const cats = Array.from(new Set(products.map(p => p.category || 'Sem Categoria'))).sort();
     return cats;
   }, [products]);
 
   const currentCategory = categories[currentCatIdx];
-
   const totalProducts   = products.length;
   const countedProducts = Object.keys(counts).length;
   const progressPct     = totalProducts > 0 ? Math.round((countedProducts / totalProducts) * 100) : 0;
@@ -301,48 +312,66 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   // ── render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* overlay */}
+      {/* ── overlay — bottom-sheet em mobile, centrado em desktop ─────────── */}
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
-        <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[90vh]">
+        <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-2xl overflow-hidden flex flex-col"
+          style={{ maxHeight: '96dvh' }}>
 
           {/* ── Header ─────────────────────────────────────────────────────── */}
-          <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 bg-indigo-600 dark:bg-indigo-700">
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 bg-indigo-600 dark:bg-indigo-700">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
                 <ListChecks className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-white">Conferência de Estoque</h2>
-                <p className="text-xs text-indigo-200">
-                  {sectorId ? 'Setor Selecionado' : 'Inventário Principal'}
-                </p>
+                <h2 className="text-base font-bold text-white leading-tight">Conferência de Estoque</h2>
+                <p className="text-xs text-indigo-200">{sectorId ? 'Setor Selecionado' : 'Inventário Principal'}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={fillRemainingWithZero} disabled={countedProducts === totalProducts}
+
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Preencher com 0 — touch target 44px */}
+              <button
+                onClick={fillRemainingWithZero}
+                disabled={countedProducts === totalProducts}
+                style={{ touchAction: 'manipulation' }}
                 title="Preencher não contados com 0"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                <ZapOff className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Preencher 0</span>
+                className="h-10 flex items-center gap-1.5 px-3 rounded-xl bg-amber-500 text-white text-xs font-semibold
+                  hover:bg-amber-600 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ZapOff className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden xs:inline">Preencher 0</span>
               </button>
-              <button onClick={() => { setScanNotFound(null); setShowScanner(true); }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/20 text-white text-xs font-semibold hover:bg-white/30 transition-colors">
-                <Camera className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Escanear</span>
+
+              {/* Escanear — touch target 44px */}
+              <button
+                onClick={() => { setScanNotFound(null); setShowScanner(true); }}
+                style={{ touchAction: 'manipulation' }}
+                className="h-10 flex items-center gap-1.5 px-3 rounded-xl bg-white/20 text-white text-xs font-semibold
+                  hover:bg-white/30 active:scale-95 transition-all"
+              >
+                <Camera className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden xs:inline">Escanear</span>
               </button>
-              <button onClick={onClose}
-                className="w-8 h-8 flex items-center justify-center rounded-xl text-white/70 hover:text-white hover:bg-white/20 transition-colors">
-                <X className="w-4 h-4" />
+
+              {/* Fechar — touch target 44×44px */}
+              <button
+                onClick={onClose}
+                style={{ touchAction: 'manipulation' }}
+                className="w-10 h-10 flex items-center justify-center rounded-xl text-white/70
+                  hover:text-white hover:bg-white/20 active:scale-95 transition-all"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
           {/* ── Barra de progresso ─────────────────────────────────────────── */}
-          <div className="flex-shrink-0 px-5 py-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Progresso</span>
+          <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Progresso</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
                   {countedProducts}/{totalProducts} · {progressPct}%
                 </span>
                 {progressPct === 100 && (
@@ -352,42 +381,61 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 )}
               </div>
             </div>
-            <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500"
+            <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${progressPct}%`,
                   background: progressPct === 100
                     ? 'linear-gradient(90deg,#22c55e,#16a34a)'
                     : 'linear-gradient(90deg,#6366f1,#8b5cf6)',
-                }} />
+                }}
+              />
             </div>
           </div>
 
           {/* ── Search + Category pills ──────────────────────────────────── */}
-          <div className="flex-shrink-0 px-4 pt-3 pb-3 space-y-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
-            {/* Busca */}
+          <div className="flex-shrink-0 px-4 pt-3 pb-2 space-y-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
+            {/* Busca — altura 44px */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input type="text" value={searchTerm}
+              <input
+                type="text"
+                value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Buscar produto em todas as categorias…"
-                className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 transition-colors"
+                placeholder="Buscar produto…"
+                className="w-full h-11 pl-9 pr-9 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200
+                  dark:border-slate-600 text-slate-800 dark:text-white placeholder-slate-400 text-sm
+                  focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 transition-colors"
               />
               {searchTerm && (
-                <button onClick={() => setSearchTerm('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                <button
+                  onClick={() => setSearchTerm('')}
+                  style={{ touchAction: 'manipulation' }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center
+                    text-slate-400 hover:text-slate-600 transition-colors rounded-lg"
+                >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
 
-            {/* Category pills (horizontal scroll) */}
+            {/* Category pills — chevrons com touch target 44×44px */}
             {!searchTerm && categories.length > 0 && (
-              <div className="flex items-center gap-2">
-                <button onClick={() => setCurrentCatIdx(i => Math.max(0, i - 1))} disabled={currentCatIdx === 0}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-30 transition-colors shrink-0">
-                  <ChevronLeft className="w-4 h-4" />
+              <div className="flex items-center gap-1.5">
+                {/* Chevron esquerda — 44×44px */}
+                <button
+                  onClick={() => setCurrentCatIdx(i => Math.max(0, i - 1))}
+                  disabled={currentCatIdx === 0}
+                  style={{ touchAction: 'manipulation' }}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400
+                    hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30
+                    disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all shrink-0"
+                >
+                  <ChevronLeft className="w-5 h-5" />
                 </button>
+
+                {/* Pills com scroll horizontal */}
                 <div className="flex-1 overflow-x-auto scrollbar-hide flex gap-2 pb-0.5">
                   {categories.map((cat, idx) => {
                     const catCounted = products
@@ -396,34 +444,46 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                     const catTotal = products.filter(p => (p.category || 'Sem Categoria') === cat).length;
                     const done = catCounted === catTotal && catTotal > 0;
                     return (
-                      <button key={cat} onClick={() => setCurrentCatIdx(idx)}
-                        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                      <button
+                        key={cat}
+                        onClick={() => setCurrentCatIdx(idx)}
+                        style={{ touchAction: 'manipulation' }}
+                        className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold
+                          transition-all active:scale-95 ${
                           idx === currentCatIdx
                             ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
                             : done
                               ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
                               : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'
-                        }`}>
-                        {done && <Check className="w-3 h-3" />}
-                        {cat}
-                        <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${
+                        }`}
+                      >
+                        {done && <Check className="w-3 h-3 shrink-0" />}
+                        <span className="truncate max-w-[100px]">{cat}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
                           idx === currentCatIdx ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
                         }`}>{catCounted}/{catTotal}</span>
                       </button>
                     );
                   })}
                 </div>
-                <button onClick={() => setCurrentCatIdx(i => Math.min(categories.length - 1, i + 1))}
+
+                {/* Chevron direita — 44×44px */}
+                <button
+                  onClick={() => setCurrentCatIdx(i => Math.min(categories.length - 1, i + 1))}
                   disabled={currentCatIdx === categories.length - 1}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-30 transition-colors shrink-0">
-                  <ChevronRight className="w-4 h-4" />
+                  style={{ touchAction: 'manipulation' }}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400
+                    hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30
+                    disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all shrink-0"
+                >
+                  <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
             )}
           </div>
 
           {/* ── Lista de produtos ─────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
             {isLoadingDraft ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
                 <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
@@ -431,8 +491,8 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
               </div>
             ) : filteredProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
-                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                  <Package className="w-6 h-6 text-slate-300 dark:text-slate-600" />
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                  <Package className="w-7 h-7 text-slate-300 dark:text-slate-600" />
                 </div>
                 <p className="text-sm">{searchTerm ? 'Nenhum produto encontrado.' : 'Nenhum produto nesta categoria.'}</p>
               </div>
@@ -443,53 +503,85 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 const hasCodes = (productBarcodes[product.id]?.length || 0) > 0;
 
                 return (
-                  <div key={product.id}
-                    className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
+                  <div
+                    key={product.id}
+                    className={`p-3 rounded-2xl border transition-all ${
                       counted
                         ? 'border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/60 dark:bg-indigo-900/10'
                         : 'border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60'
-                    }`}>
-
-                    {/* Imagem */}
-                    <div className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600">
-                      {product.image_url && !imgErrors[product.id]
-                        ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain"
-                            onError={() => setImgErrors(prev => ({ ...prev, [product.id]: true }))} loading="lazy" />
-                        : <Package className="w-4 h-4 text-slate-400 dark:text-slate-500" />
-                      }
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{product.name}</p>
-                        {/* botão barcode */}
-                        <button onClick={e => { e.stopPropagation(); setRegisterBarcodeProduct(product); }}
-                          title={hasCodes ? `${productBarcodes[product.id].length} código(s)` : 'Cadastrar barcode'}
-                          className={`p-1 rounded-md transition-colors ${
-                            hasCodes ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-slate-300 dark:text-slate-600 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
-                          }`}>
-                          <Barcode className="w-3.5 h-3.5" />
-                        </button>
+                    }`}
+                  >
+                    {/* Linha 1: imagem + nome + barcode + check */}
+                    <div className="flex items-center gap-3">
+                      {/* Miniatura */}
+                      <div className="w-11 h-11 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600">
+                        {product.image_url && !imgErrors[product.id]
+                          ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain"
+                              onError={() => setImgErrors(prev => ({ ...prev, [product.id]: true }))} loading="lazy" />
+                          : <Package className="w-5 h-5 text-slate-400 dark:text-slate-500" />
+                        }
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {searchTerm && <span className="text-[10px] font-bold text-indigo-500 uppercase">{product.category}</span>}
-                        <span className="text-xs text-slate-400">Atual: <span className="font-semibold text-slate-600 dark:text-slate-300">{product.quantity}</span></span>
-                        {diff !== null && (
-                          <span className={`text-xs font-bold ${diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : diff < 0 ? 'text-red-500 dark:text-red-400' : 'text-slate-400'}`}>
-                            {diff > 0 ? `+${diff}` : diff < 0 ? String(diff) : '='}
+
+                      {/* Nome + info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate leading-tight">
+                            {product.name}
+                          </p>
+                          {/* Botão barcode — 36×36px area com padding */}
+                          <button
+                            onClick={e => { e.stopPropagation(); setRegisterBarcodeProduct(product); }}
+                            style={{ touchAction: 'manipulation' }}
+                            title={hasCodes ? `${productBarcodes[product.id].length} código(s)` : 'Cadastrar barcode'}
+                            className={`w-9 h-9 flex items-center justify-center rounded-lg shrink-0 transition-colors ${
+                              hasCodes
+                                ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                                : 'text-slate-300 dark:text-slate-600 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
+                            }`}
+                          >
+                            <Barcode className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {searchTerm && (
+                            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{product.category}</span>
+                          )}
+                          <span className="text-xs text-slate-400">
+                            Atual: <span className="font-semibold text-slate-600 dark:text-slate-300">{product.quantity}</span>
                           </span>
-                        )}
+                          {diff !== null && (
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                              diff > 0
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                                : diff < 0
+                                  ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-400'
+                            }`}>
+                              {diff > 0 ? `+${diff}` : diff < 0 ? String(diff) : '='}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Check indicator */}
+                      <div className="shrink-0">
+                        {counted
+                          ? <CheckCircle2 className="w-6 h-6 text-indigo-500" />
+                          : <div className="w-6 h-6 rounded-full border-2 border-slate-200 dark:border-slate-600" />
+                        }
                       </div>
                     </div>
 
-                    {/* Stepper + check */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <QtyInput value={counts[product.id]} onChange={v => handleCountChange(product.id, v)} current={product.quantity} />
-                      {counted
-                        ? <CheckCircle2 className="w-5 h-5 text-indigo-500 shrink-0" />
-                        : <div className="w-5 h-5 rounded-full border-2 border-slate-200 dark:border-slate-600 shrink-0" />
-                      }
+                    {/* Linha 2: Stepper — largura total para conforto mobile */}
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                        {counted ? 'Contado' : 'Informe a quantidade'}
+                      </span>
+                      <QtyInput
+                        value={counts[product.id]}
+                        onChange={v => handleCountChange(product.id, v)}
+                        current={product.quantity}
+                      />
                     </div>
                   </div>
                 );
@@ -497,19 +589,34 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
             )}
           </div>
 
-          {/* ── Footer ───────────────────────────────────────────────────── */}
-          <div className="flex-shrink-0 flex items-center gap-3 px-5 py-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/80">
-            <button onClick={() => saveProgress(false)}
+          {/* ── Footer — botões com altura mínima 52px para mobile ──────── */}
+          <div className="flex-shrink-0 flex items-center gap-3 px-4 py-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/80"
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+            {/* Rascunho */}
+            <button
+              onClick={() => saveProgress(false)}
               disabled={isSaving || Object.keys(counts).length === 0}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors">
-              <Save className="w-4 h-4" /> Rascunho
+              style={{ touchAction: 'manipulation' }}
+              className="flex-1 h-13 min-h-[52px] flex items-center justify-center gap-2 rounded-xl bg-white dark:bg-slate-800
+                border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold
+                hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-[.98] disabled:opacity-50 transition-all"
+            >
+              <Save className="w-4 h-4 shrink-0" />
+              Rascunho
             </button>
-            <button onClick={() => saveProgress(true)}
+
+            {/* Finalizar — botão principal */}
+            <button
+              onClick={() => saveProgress(true)}
               disabled={isSaving || Object.keys(counts).length === 0}
-              className="flex-[2] flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-sm shadow-indigo-500/20 disabled:opacity-50 transition-colors">
+              style={{ touchAction: 'manipulation' }}
+              className="flex-[2] min-h-[52px] flex items-center justify-center gap-2 rounded-xl bg-indigo-600
+                hover:bg-indigo-700 text-white text-sm font-bold shadow-lg shadow-indigo-500/25
+                active:scale-[.98] disabled:opacity-50 transition-all"
+            >
               {isSaving
-                ? <><Loader2 className="w-4 h-4 animate-spin" /> Salvando…</>
-                : <><CheckCircle2 className="w-4 h-4" /> Finalizar Conferência</>
+                ? <><Loader2 className="w-4 h-4 animate-spin shrink-0" /> Salvando…</>
+                : <><CheckCircle2 className="w-4 h-4 shrink-0" /> Finalizar Conferência</>
               }
             </button>
           </div>
@@ -518,59 +625,101 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
       {/* Scanner — conferência */}
       {showScanner && (
-        <BarcodeScanner onDetected={handleBarcodeScan} onClose={() => setShowScanner(false)}
-          title="Escanear para Conferência" hint="Aponte para o código de barras do produto" />
+        <BarcodeScanner
+          onDetected={handleBarcodeScan}
+          onClose={() => setShowScanner(false)}
+          title="Escanear para Conferência"
+          hint="Aponte para o código de barras do produto"
+        />
       )}
 
       {/* Scanner — cadastrar barcode */}
       {registerBarcodeProduct && (
-        <BarcodeScanner onDetected={handleRegisterBarcode} onClose={() => setRegisterBarcodeProduct(null)}
+        <BarcodeScanner
+          onDetected={handleRegisterBarcode}
+          onClose={() => setRegisterBarcodeProduct(null)}
           title={`Cadastrar código — ${registerBarcodeProduct.name}`}
-          hint="Leia o código para vincular a este produto" />
+          hint="Leia o código para vincular a este produto"
+        />
       )}
 
       {/* ── Sub-modal: quantidade pós-scan ────────────────────────────── */}
       {scanProduct && (
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="w-full sm:max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 bg-indigo-50/60 dark:bg-indigo-900/20">
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full sm:max-w-sm bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+
+            {/* Drag handle — mobile */}
+            <div className="flex justify-center pt-3 pb-1 sm:hidden">
+              <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
+            </div>
+
+            {/* Header do sub-modal */}
+            <div className="px-5 pt-3 pb-4 border-b border-slate-100 dark:border-slate-700 bg-indigo-50/60 dark:bg-indigo-900/20">
               <div className="flex items-center gap-2 mb-1">
-                <Barcode className="w-4 h-4 text-indigo-500" />
+                <Barcode className="w-4 h-4 text-indigo-500 shrink-0" />
                 <p className="text-xs font-bold text-indigo-500 uppercase tracking-wider">Produto identificado</p>
               </div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">{scanProduct.name}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">{scanProduct.name}</h3>
+              <p className="text-xs text-slate-500 mt-1">
                 Estoque atual: <span className="font-semibold">{scanProduct.quantity}</span>
                 {counts[scanProduct.id] !== undefined && (
                   <span className="ml-2 text-indigo-600 dark:text-indigo-400">
-                    · Contado: {counts[scanProduct.id]}
+                    · Já contado: {counts[scanProduct.id]}
                   </span>
                 )}
               </p>
             </div>
-            <div className="px-5 py-4 space-y-4">
+
+            {/* Body */}
+            <div className="px-5 py-5 space-y-4" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Quantidade a adicionar</label>
-                <input type="number" value={scanQty} onChange={e => setScanQty(e.target.value)}
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                  Quantidade a adicionar
+                </label>
+                {/* Input grande para digitação confortável no mobile */}
+                <input
+                  type="number"
+                  value={scanQty}
+                  onChange={e => setScanQty(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleConfirmScanQty()}
-                  autoFocus min="0.01" step="0.01"
-                  className="w-full text-center text-2xl font-bold py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400" />
+                  autoFocus
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
+                  className="w-full text-center text-3xl font-bold py-4 rounded-2xl border border-slate-200 dark:border-slate-600
+                    bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white
+                    focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-indigo-400 transition-colors"
+                />
                 {counts[scanProduct.id] !== undefined && (
-                  <p className="text-xs text-center text-slate-400 mt-1.5">
-                    Total após confirmar: <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                  <p className="text-xs text-center text-slate-400 mt-2">
+                    Total após confirmar:{' '}
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
                       {(counts[scanProduct.id] || 0) + (parseFloat(scanQty) || 0)}
                     </span>
                   </p>
                 )}
               </div>
+
+              {/* Botões — mínimo 52px */}
               <div className="flex gap-3">
-                <button onClick={() => { setScanProduct(null); setScanQty('1'); }}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-medium text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                <button
+                  onClick={() => { setScanProduct(null); setScanQty('1'); }}
+                  style={{ touchAction: 'manipulation' }}
+                  className="flex-1 min-h-[52px] rounded-xl border border-slate-200 dark:border-slate-600
+                    text-slate-600 dark:text-slate-300 font-semibold text-sm
+                    hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-[.98] transition-all"
+                >
                   Cancelar
                 </button>
-                <button onClick={handleConfirmScanQty} disabled={!scanQty || parseFloat(scanQty) <= 0}
-                  className="flex-[2] py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
-                  <Plus className="w-4 h-4" /> Confirmar
+                <button
+                  onClick={handleConfirmScanQty}
+                  disabled={!scanQty || parseFloat(scanQty) <= 0}
+                  style={{ touchAction: 'manipulation' }}
+                  className="flex-[2] min-h-[52px] rounded-xl bg-indigo-600 text-white font-bold text-sm
+                    hover:bg-indigo-700 disabled:opacity-40 active:scale-[.98] transition-all
+                    flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+                >
+                  <Plus className="w-4 h-4 shrink-0" /> Confirmar
                 </button>
               </div>
             </div>
@@ -580,40 +729,71 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
       {/* ── Sub-modal: código não encontrado ──────────────────────────── */}
       {scanNotFound && (
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-900/20">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col"
+            style={{ maxHeight: '85dvh' }}>
+
+            {/* Drag handle — mobile */}
+            <div className="flex justify-center pt-3 pb-1 sm:hidden">
+              <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
+            </div>
+
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-900/20 shrink-0">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
                   <Barcode className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-sm font-bold text-slate-800 dark:text-white">Código não cadastrado</h3>
-                  <p className="text-xs text-slate-500 font-mono mt-0.5 truncate max-w-[260px]">{scanNotFound}</p>
+                  <p className="text-xs text-slate-500 font-mono mt-1 break-all">{scanNotFound}</p>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 mt-3">Selecione o produto para vincular este código ou tente novamente.</p>
+              <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+                Selecione o produto para vincular este código ou tente novamente.
+              </p>
             </div>
+
+            {/* Lista de produtos para vincular */}
             <div className="flex-1 overflow-y-auto p-3 space-y-1">
               {products.map(p => (
-                <button key={p.id} onClick={() => handleLinkBarcodeToProduct(p)}
-                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors flex items-center justify-between gap-2 group">
+                <button
+                  key={p.id}
+                  onClick={() => handleLinkBarcodeToProduct(p)}
+                  style={{ touchAction: 'manipulation' }}
+                  className="w-full text-left px-4 py-3.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20
+                    active:scale-[.98] transition-all flex items-center justify-between gap-3 group min-h-[56px]"
+                >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{p.name}</p>
-                    <p className="text-[11px] text-slate-400">{p.category}</p>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate
+                      group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{p.name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{p.category}</p>
                   </div>
-                  <Plus className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 shrink-0" />
+                  <Plus className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 shrink-0 transition-colors" />
                 </button>
               ))}
             </div>
-            <div className="flex gap-2 p-4 border-t border-slate-100 dark:border-slate-700">
-              <button onClick={() => setScanNotFound(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+
+            {/* Botões do rodapé */}
+            <div className="flex gap-3 p-4 border-t border-slate-100 dark:border-slate-700 shrink-0"
+              style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+              <button
+                onClick={() => setScanNotFound(null)}
+                style={{ touchAction: 'manipulation' }}
+                className="flex-1 min-h-[52px] rounded-xl border border-slate-200 dark:border-slate-600
+                  text-sm font-semibold text-slate-600 dark:text-slate-300
+                  hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-[.98] transition-all"
+              >
                 Fechar
               </button>
-              <button onClick={() => { setScanNotFound(null); setShowScanner(true); }}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-1.5">
-                <Camera className="w-4 h-4" /> Tentar novamente
+              <button
+                onClick={() => { setScanNotFound(null); setShowScanner(true); }}
+                style={{ touchAction: 'manipulation' }}
+                className="flex-1 min-h-[52px] rounded-xl bg-indigo-600 text-white text-sm font-bold
+                  hover:bg-indigo-700 active:scale-[.98] transition-all
+                  flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+              >
+                <Camera className="w-4 h-4 shrink-0" /> Tentar novamente
               </button>
             </div>
           </div>
