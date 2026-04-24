@@ -477,10 +477,6 @@ export default function WCICompanionEntry() {
     e.preventDefault();
     if (!realHotelId || !realBookingId) return;
     const fd = new FormData(e.currentTarget as HTMLFormElement);
-    const domFirstName = ((fd.get('firstName') as string) || firstName).trim();
-    const domLastName  = ((fd.get('lastName')  as string) || lastName).trim();
-    const fullName = [domFirstName, domLastName].filter(Boolean).join(' ');
-    const fd = new FormData(e.currentTarget as HTMLFormElement);
     const domName = ((fd.get('name') as string) || name).trim();
     if (!domName)               { setError('Nome completo é obrigatório.'); return; }
     if (!email.trim())          { setError('E-mail é obrigatório.'); return; }
