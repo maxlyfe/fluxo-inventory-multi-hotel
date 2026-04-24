@@ -239,7 +239,10 @@ const BudgetHistory = () => {
                 onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             )}
             <div className="flex-1 min-w-0">
-              <h3 className="text-base font-bold text-purple-700 dark:text-purple-300">{isOnline ? '🛒 Compra Online' : `Orçamento #${budgetId}`}</h3>
+              <h3 className="text-base font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+                {isOnline && <ShoppingCart className="h-4 w-4 shrink-0" />}
+                {isOnline ? 'Compra Online' : `Orçamento #${budgetId}`}
+              </h3>
               <div className="flex items-center mt-0.5 text-sm text-slate-600 dark:text-slate-300">
                 <ShoppingBag className="h-4 w-4 mr-1.5 text-slate-400 shrink-0" />
                 {isOnline ? `${budget.budget_items.length} produto${budget.budget_items.length !== 1 ? 's' : ''} · ${mainSupplier}` : `Fornecedor: ${mainSupplier}`}
@@ -248,8 +251,9 @@ const BudgetHistory = () => {
                 <div className="text-xs mt-1 text-slate-400">Aprovado por: {budget.approved_by_user_email.split('@')[0]} em {format(parseISO(budget.approved_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}</div>
               )}
               {isOnline && isDelivered && budget.purchased_at && (
-                <div className="text-xs mt-1 text-emerald-600 dark:text-emerald-400">
-                  🛍️ Comprado em {format(parseISO(budget.purchased_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}
+                <div className="text-xs mt-1 text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <ShoppingCart className="h-3 w-3 shrink-0" />
+                  Comprado em {format(parseISO(budget.purchased_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}
                   {budget.purchased_by_email ? ` por ${budget.purchased_by_email.split('@')[0]}` : ''}
                 </div>
               )}
@@ -257,19 +261,22 @@ const BudgetHistory = () => {
           </div>
 
           <div className="flex flex-wrap items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-700 gap-2">
-            <button onClick={() => toggleBudgetExpand(budget.id)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:text-purple-600 dark:text-slate-300 dark:hover:text-purple-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+            <button onClick={() => toggleBudgetExpand(budget.id)} className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:text-purple-600 dark:text-slate-300 dark:hover:text-purple-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
               <span>{isExpanded ? 'Ocultar' : 'Ver Itens'}</span>
               <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
             </button>
             <div className="flex flex-wrap gap-1.5">
-              {!isOnline && isPending && <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors"><Truck className="h-3.5 w-3.5" />Entrada</button>}
-              {!isOnline && isApproved && (<><button onClick={() => handleSetOnTheWay(budget.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition-colors"><Send className="h-3.5 w-3.5" />A Caminho</button><button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors"><Truck className="h-3.5 w-3.5" />Entrada</button></>)}
-              {!isOnline && isOnTheWay && <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors"><Truck className="h-3.5 w-3.5" />Entrada</button>}
-              {isOnline && isApproved && <button onClick={() => handleSetOnTheWay(budget.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition-colors"><Send className="h-3.5 w-3.5" />A Caminho</button>}
-              {isOnline && isOnTheWay && <button onClick={() => { setPurchaseModal({ budgetId: budget.id, totalValue: budget.total_value }); setActualValue(budget.total_value.toFixed(2)); }} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition-colors"><ShoppingCart className="h-3.5 w-3.5" />Registrar Compra</button>}
-              {(isPending || isApproved || isOnTheWay) && <button onClick={() => handleCancelBudget(budget.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-red-500 hover:bg-red-600 text-white rounded-xl transition-colors"><Ban className="h-3.5 w-3.5" />Cancelar</button>}
-              {!isOnline && <button onClick={() => captureAndCopyToClipboard(budget)} className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 hover:text-purple-600 dark:text-slate-300 dark:hover:text-purple-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"><ImageIcon className="h-3.5 w-3.5" />Copiar Imagem</button>}
-              <Link to={`/budget/${budget.id}`} state={{ originatingPage: '/budget-history' }} className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 hover:text-purple-600 dark:text-slate-300 dark:hover:text-purple-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"><Eye className="h-3.5 w-3.5" />Detalhes</Link>
+              {!isOnline && isPending && <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-xl transition-all"><Truck className="h-3.5 w-3.5" />Entrada</button>}
+              {!isOnline && isApproved && (<>
+                <button onClick={() => handleSetOnTheWay(budget.id)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 active:scale-95 text-white rounded-xl transition-all"><Send className="h-3.5 w-3.5" />A Caminho</button>
+                <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-xl transition-all"><Truck className="h-3.5 w-3.5" />Entrada</button>
+              </>)}
+              {!isOnline && isOnTheWay && <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-xl transition-all"><Truck className="h-3.5 w-3.5" />Entrada</button>}
+              {isOnline && isApproved && <button onClick={() => handleSetOnTheWay(budget.id)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 active:scale-95 text-white rounded-xl transition-all"><Send className="h-3.5 w-3.5" />A Caminho</button>}
+              {isOnline && isOnTheWay && <button onClick={() => { setPurchaseModal({ budgetId: budget.id, totalValue: budget.total_value }); setActualValue(budget.total_value.toFixed(2)); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-xl transition-all"><ShoppingCart className="h-3.5 w-3.5" />Registrar Compra</button>}
+              {(isPending || isApproved || isOnTheWay) && <button onClick={() => handleCancelBudget(budget.id)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-red-500 hover:bg-red-600 active:scale-95 text-white rounded-xl transition-all"><Ban className="h-3.5 w-3.5" />Cancelar</button>}
+              {!isOnline && <button onClick={() => captureAndCopyToClipboard(budget)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 hover:text-purple-600 dark:text-slate-300 dark:hover:text-purple-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"><ImageIcon className="h-3.5 w-3.5" />Copiar Img</button>}
+              <Link to={`/budget/${budget.id}`} state={{ originatingPage: '/budget-history' }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 hover:text-purple-600 dark:text-slate-300 dark:hover:text-purple-400 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"><Eye className="h-3.5 w-3.5" />Detalhes</Link>
             </div>
           </div>
         </div>
@@ -467,7 +474,7 @@ const BudgetHistory = () => {
       {purchaseModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
           <div className="bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-2xl w-full sm:max-w-sm p-6 shadow-2xl border border-slate-200 dark:border-slate-700">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">🛍️ Registrar Compra</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-emerald-500" />Registrar Compra</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">Estimado: <span className="font-semibold text-slate-700 dark:text-slate-300">R$ {purchaseModal.totalValue.toFixed(2).replace('.', ',')}</span></p>
             <div className="mb-5">
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Valor real pago (R$)*</label>
