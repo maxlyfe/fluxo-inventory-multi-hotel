@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useHotel } from '../../context/HotelContext';
 import {
-  Sparkles, Plus, Trash2, Edit2, X, Check, Loader2,
+  Sparkles, Plus, Trash2, Edit2, X, Loader2,
   ToggleLeft, ToggleRight, Globe, Building2,
 } from 'lucide-react';
 
@@ -19,16 +19,19 @@ interface Message {
   created_at: string;
 }
 
+const inputCls = 'w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-colors';
+const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+
 export default function MotivationalMessages() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<Message | null>(null);
-  const [form, setForm] = useState({ message: '', author: '', apply_to_all: false });
-  const [saving, setSaving] = useState(false);
+  const [editing, setEditing]   = useState<Message | null>(null);
+  const [form, setForm]         = useState({ message: '', author: '', apply_to_all: false });
+  const [saving, setSaving]     = useState(false);
 
   useEffect(() => {
     if (selectedHotel?.id) loadMessages();
@@ -67,7 +70,6 @@ export default function MotivationalMessages() {
         is_active: true,
         created_by: user?.id,
       };
-
       if (editing) {
         await supabase.from('motivational_messages').update(payload).eq('id', editing.id);
       } else {
@@ -92,37 +94,39 @@ export default function MotivationalMessages() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-amber-600 dark:text-amber-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Mensagens Motivacionais</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Frases exibidas no portal dos colaboradores</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Mensagens Motivacionais</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Frases exibidas no portal dos colaboradores</p>
           </div>
         </div>
         <button
           onClick={() => openForm()}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 text-sm"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 text-sm font-semibold active:scale-95 transition-all shadow-sm shadow-amber-500/20"
         >
           <Plus className="w-4 h-4" /> Nova Mensagem
         </button>
       </div>
 
-      {/* Messages List */}
+      {/* ── Messages List ───────────────────────────────────────────────── */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-20 bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse" />
+          ))}
         </div>
       ) : messages.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
-          <Sparkles className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">Nenhuma mensagem cadastrada</p>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-10 text-center shadow-sm">
+          <Sparkles className="w-10 h-10 text-slate-200 dark:text-slate-700 mx-auto mb-3" />
+          <p className="text-sm text-slate-400 dark:text-slate-500 mb-3">Nenhuma mensagem cadastrada</p>
           <button
             onClick={() => openForm()}
-            className="mt-3 text-sm text-amber-600 hover:text-amber-700"
+            className="text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors"
           >
             Criar primeira mensagem
           </button>
@@ -132,51 +136,52 @@ export default function MotivationalMessages() {
           {messages.map(msg => (
             <div
               key={msg.id}
-              className={`bg-white dark:bg-gray-800 rounded-xl border p-4 transition-opacity ${
+              className={`bg-white dark:bg-slate-800 rounded-2xl border p-4 shadow-sm transition-opacity ${
                 msg.is_active
-                  ? 'border-gray-200 dark:border-gray-700'
-                  : 'border-gray-200 dark:border-gray-700 opacity-50'
+                  ? 'border-slate-200 dark:border-slate-700'
+                  : 'border-slate-100 dark:border-slate-700/50 opacity-50'
               }`}
             >
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-800 dark:text-white italic">"{msg.message}"</p>
-                  <div className="flex items-center gap-2 mt-2">
+                  <p className="text-sm text-slate-800 dark:text-white italic leading-relaxed">
+                    &ldquo;{msg.message}&rdquo;
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
                     {msg.author && (
-                      <span className="text-xs text-gray-500 dark:text-gray-400">— {msg.author}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">— {msg.author}</span>
                     )}
                     {msg.hotel_id === null ? (
-                      <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                        <Globe className="w-3 h-3" /> Todas
+                      <span className="text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-medium">
+                        <Globe className="w-3 h-3" /> Todas as unidades
                       </span>
                     ) : (
-                      <span className="text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                      <span className="text-xs bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                         <Building2 className="w-3 h-3" /> Este hotel
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     onClick={() => toggleActive(msg)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition-all"
                     title={msg.is_active ? 'Desativar' : 'Ativar'}
                   >
                     {msg.is_active
-                      ? <ToggleRight className="w-5 h-5 text-green-500" />
-                      : <ToggleLeft className="w-5 h-5 text-gray-400" />
-                    }
+                      ? <ToggleRight className="w-5 h-5 text-emerald-500" />
+                      : <ToggleLeft className="w-5 h-5 text-slate-400" />}
                   </button>
                   <button
                     onClick={() => openForm(msg)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition-all"
                   >
-                    <Edit2 className="w-4 h-4 text-gray-500" />
+                    <Edit2 className="w-4 h-4 text-slate-500" />
                   </button>
                   <button
                     onClick={() => deleteMessage(msg.id)}
-                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                    className="p-1.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 active:scale-95 transition-all"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />
                   </button>
@@ -187,65 +192,78 @@ export default function MotivationalMessages() {
         </div>
       )}
 
-      {/* Form Modal */}
+      {/* ── Nova / Editar Mensagem Modal ────────────────────────────────── */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
                 {editing ? 'Editar Mensagem' : 'Nova Mensagem'}
               </h2>
-              <button onClick={() => setShowForm(false)} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                <X className="w-5 h-5 text-gray-500" />
+              <button
+                onClick={() => setShowForm(false)}
+                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 active:scale-95 transition-all"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="p-5 space-y-4">
+              {/* Mensagem */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mensagem *</label>
+                <label className={labelCls}>Mensagem *</label>
                 <textarea
                   value={form.message}
                   onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
                   rows={4}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none"
+                  className={`${inputCls} resize-none`}
                   placeholder="O sucesso é a soma de pequenos esforços repetidos dia após dia."
                 />
               </div>
+
+              {/* Autor */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Autor</label>
+                <label className={labelCls}>Autor <span className="normal-case font-normal text-slate-400">(opcional)</span></label>
                 <input
                   type="text"
                   value={form.author}
                   onChange={e => setForm(f => ({ ...f, author: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  className={inputCls}
                   placeholder="Robert Collier"
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+
+              {/* Escopo */}
+              <label className="flex items-center gap-2.5 cursor-pointer p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                 <input
                   type="checkbox"
                   checked={form.apply_to_all}
                   onChange={e => setForm(f => ({ ...f, apply_to_all: e.target.checked }))}
-                  className="rounded border-gray-300 dark:border-gray-600"
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-amber-500"
                 />
-                Exibir em todas as unidades
+                <div>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Exibir em todas as unidades</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">Aparece no portal de todos os hotéis</p>
+                </div>
               </label>
             </div>
 
-            <div className="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
+            {/* Footer */}
+            <div className="flex gap-3 px-5 py-4 border-t border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setShowForm(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving || !form.message.trim()}
-                className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1.5"
+                className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2 shadow-sm shadow-amber-500/20"
               >
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Salvar
+                {editing ? 'Salvar Alterações' : 'Criar Mensagem'}
               </button>
             </div>
           </div>

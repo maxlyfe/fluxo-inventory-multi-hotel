@@ -99,8 +99,8 @@ export function usePermissions() {
   const { user } = useAuth() as { user: UserWithRole | null };
 
   const isDev = useMemo(
-    () => user?.role === 'dev',
-    [user?.role]
+    () => user?.role === 'dev' || user?.custom_role?.name?.toLowerCase() === 'dev',
+    [user?.role, user?.custom_role?.name]
   );
 
   const isAdmin = useMemo(

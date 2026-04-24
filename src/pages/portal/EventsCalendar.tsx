@@ -13,8 +13,8 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, X, Clock,
-  MapPin, Users, AlertCircle, Loader2, Trash2, Edit2, Check,
-  Tag, Settings, Star, Eye, EyeOff,
+  MapPin, AlertCircle, Loader2, Trash2, Edit2, Check,
+  Tag, Eye, EyeOff,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -48,13 +48,14 @@ interface EventItem {
   event_types?: { name: string; color: string } | null;
 }
 
-interface Confirmation {
-  event_id: string;
-  status: 'pending' | 'confirmed' | 'declined';
-}
+// ---------------------------------------------------------------------------
+// Input style helpers
+// ---------------------------------------------------------------------------
+const inputCls = 'w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-colors';
+const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 
 // ---------------------------------------------------------------------------
-// Event Form Modal
+// Event Form Modal (Novo / Editar Evento)
 // ---------------------------------------------------------------------------
 function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
   event: EventItem | null;
@@ -73,8 +74,10 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
     location: event?.location || '',
     event_type_id: event?.event_type_id || '',
     is_mandatory: event?.is_mandatory || false,
-    visibility_start: event?.visibility_start ? format(parseISO(event.visibility_start), "yyyy-MM-dd'T'HH:mm") : '',
-    visibility_end: event?.visibility_end ? format(parseISO(event.visibility_end), "yyyy-MM-dd'T'HH:mm") : '',
+    visibility_start: event?.visibility_start
+      ? format(parseISO(event.visibility_start), "yyyy-MM-dd'T'HH:mm") : '',
+    visibility_end: event?.visibility_end
+      ? format(parseISO(event.visibility_end), "yyyy-MM-dd'T'HH:mm") : '',
     target_sectors: (event?.target_sectors || []).join(', '),
     target_roles: (event?.target_roles || []).join(', '),
     apply_to_all_hotels: event?.hotel_id === null,
@@ -100,7 +103,6 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
         target_sectors: form.target_sectors.trim() ? form.target_sectors.split(',').map(s => s.trim()) : null,
         target_roles: form.target_roles.trim() ? form.target_roles.split(',').map(s => s.trim()) : null,
       };
-
       if (event) {
         await supabase.from('events').update(payload).eq('id', event.id);
       } else {
@@ -116,81 +118,85 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
             {event ? 'Editar Evento' : 'Novo Evento'}
           </h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-            <X className="w-5 h-5 text-gray-500" />
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 active:scale-95 transition-all"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
-          {/* Title */}
+        <div className="p-5 space-y-4">
+          {/* Título */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Título *</label>
+            <label className={labelCls}>Título *</label>
             <input
               type="text"
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={inputCls}
               placeholder="Nome do evento"
             />
           </div>
 
-          {/* Date + Time */}
+          {/* Data + Horário */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data *</label>
+              <label className={labelCls}>Data *</label>
               <input
                 type="date"
                 value={form.event_date}
                 onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                className={inputCls}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Horário</label>
+              <label className={labelCls}>Horário</label>
               <input
                 type="time"
                 value={form.event_time}
                 onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                className={inputCls}
               />
             </div>
           </div>
 
-          {/* End Date + Location */}
+          {/* Data Final + Local */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data Final</label>
+              <label className={labelCls}>Data Final</label>
               <input
                 type="date"
                 value={form.end_date}
                 onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                className={inputCls}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Local</label>
+              <label className={labelCls}>Local</label>
               <input
                 type="text"
                 value={form.location}
                 onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                placeholder="Salão, piscina..."
+                className={inputCls}
+                placeholder="Salão, piscina…"
               />
             </div>
           </div>
 
-          {/* Type */}
+          {/* Tipo */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de Evento</label>
+            <label className={labelCls}>Tipo de Evento</label>
             <select
               value={form.event_type_id}
               onChange={e => setForm(f => ({ ...f, event_type_id: e.target.value }))}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              className={inputCls}
             >
               <option value="">Sem tipo</option>
               {eventTypes.filter(t => t.is_active).map(t => (
@@ -199,83 +205,83 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
             </select>
           </div>
 
-          {/* Description */}
+          {/* Descrição */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Descrição</label>
+            <label className={labelCls}>Descrição</label>
             <textarea
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               rows={3}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none"
-              placeholder="Detalhes do evento..."
+              className={`${inputCls} resize-none`}
+              placeholder="Detalhes do evento…"
             />
           </div>
 
-          {/* Visibility scheduling */}
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1.5">
-              <Eye className="w-4 h-4" /> Visibilidade Programada
+          {/* Visibilidade Programada */}
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 space-y-3">
+            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5" /> Visibilidade Programada
             </h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Visível a partir de</label>
+                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1.5">Visível a partir de</label>
                 <input
                   type="datetime-local"
                   value={form.visibility_start}
                   onChange={e => setForm(f => ({ ...f, visibility_start: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  className={inputCls}
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Visível até</label>
+                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1.5">Visível até</label>
                 <input
                   type="datetime-local"
                   value={form.visibility_end}
                   onChange={e => setForm(f => ({ ...f, visibility_end: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  className={inputCls}
                 />
               </div>
             </div>
           </div>
 
-          {/* Options */}
+          {/* Opções */}
           <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <label className="flex items-center gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={form.is_mandatory}
                 onChange={e => setForm(f => ({ ...f, is_mandatory: e.target.checked }))}
-                className="rounded border-gray-300 dark:border-gray-600"
+                className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
               />
-              Obrigatório
+              <span className="text-sm text-slate-700 dark:text-slate-300">Obrigatório</span>
             </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <label className="flex items-center gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={form.apply_to_all_hotels}
                 onChange={e => setForm(f => ({ ...f, apply_to_all_hotels: e.target.checked }))}
-                className="rounded border-gray-300 dark:border-gray-600"
+                className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
               />
-              Todas as unidades
+              <span className="text-sm text-slate-700 dark:text-slate-300">Todas as unidades</span>
             </label>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex gap-3 px-5 py-4 border-t border-slate-200 dark:border-slate-700">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
           >
             Cancelar
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !form.title.trim() || !form.event_date}
-            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
+            className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            {event ? 'Salvar' : 'Criar Evento'}
+            {event ? 'Salvar Alterações' : 'Criar Evento'}
           </button>
         </div>
       </div>
@@ -292,25 +298,22 @@ function EventTypeManagerModal({ eventTypes, hotelId, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [types, setTypes] = useState(eventTypes);
-  const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState('#3b82f6');
-  const [saving, setSaving] = useState(false);
+  const [types, setTypes]       = useState(eventTypes);
+  const [newName, setNewName]   = useState('');
+  const [newColor, setNewColor] = useState('#6366f1');
+  const [saving, setSaving]     = useState(false);
 
-  const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#0ea5e9'];
+  const COLORS = ['#6366f1', '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#0ea5e9'];
 
   async function addType() {
     if (!newName.trim()) return;
     setSaving(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('event_types')
       .insert({ hotel_id: hotelId, name: newName.trim(), color: newColor })
       .select()
       .single();
-    if (data) {
-      setTypes(t => [...t, data]);
-      setNewName('');
-    }
+    if (data) { setTypes(t => [...t, data]); setNewName(''); }
     setSaving(false);
     onSaved();
   }
@@ -329,31 +332,36 @@ function EventTypeManagerModal({ eventTypes, hotelId, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Tipos de Evento</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-            <X className="w-5 h-5 text-gray-500" />
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">Tipos de Evento</h2>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 active:scale-95 transition-all"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+        <div className="p-5 space-y-2 max-h-[55vh] overflow-y-auto">
           {types.map(t => (
-            <div key={t.id} className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
-              <span className={`flex-1 text-sm ${t.is_active ? 'text-gray-800 dark:text-white' : 'text-gray-400 dark:text-gray-500 line-through'}`}>
+            <div key={t.id} className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+              <div className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+              <span className={`flex-1 text-sm ${t.is_active ? 'text-slate-800 dark:text-white' : 'text-slate-400 dark:text-slate-500 line-through'}`}>
                 {t.name}
               </span>
               <button
                 onClick={() => toggleType(t.id, t.is_active)}
-                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition-all"
                 title={t.is_active ? 'Desativar' : 'Ativar'}
               >
-                {t.is_active ? <EyeOff className="w-3.5 h-3.5 text-gray-400" /> : <Eye className="w-3.5 h-3.5 text-green-500" />}
+                {t.is_active
+                  ? <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                  : <Eye className="w-3.5 h-3.5 text-emerald-500" />}
               </button>
               <button
                 onClick={() => deleteType(t.id)}
-                className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+                className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 active:scale-95 transition-all"
               >
                 <Trash2 className="w-3.5 h-3.5 text-red-400" />
               </button>
@@ -361,39 +369,39 @@ function EventTypeManagerModal({ eventTypes, hotelId, onClose, onSaved }: {
           ))}
 
           {/* Add new */}
-          <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-            <select
-              value={newColor}
-              onChange={e => setNewColor(e.target.value)}
-              className="w-10 h-8 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs"
-              style={{ backgroundColor: newColor, color: 'white' }}
-            >
+          <div className="flex items-center gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex gap-1 flex-wrap">
               {COLORS.map(c => (
-                <option key={c} value={c} style={{ backgroundColor: c }}>●</option>
+                <button
+                  key={c}
+                  onClick={() => setNewColor(c)}
+                  className={`w-5 h-5 rounded-full transition-transform ${newColor === c ? 'ring-2 ring-offset-1 ring-slate-400 scale-110' : 'hover:scale-110'}`}
+                  style={{ backgroundColor: c }}
+                />
               ))}
-            </select>
+            </div>
             <input
               type="text"
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addType()}
-              placeholder="Nome do tipo..."
-              className="flex-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              placeholder="Nome do tipo…"
+              className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-colors"
             />
             <button
               onClick={addType}
               disabled={saving || !newName.trim()}
-              className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="p-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 active:scale-95 transition-all"
             >
               <Plus className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-700">
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="w-full py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all"
           >
             Fechar
           </button>
@@ -412,15 +420,13 @@ export default function EventsCalendar() {
   const { isAdmin } = usePermissions();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
-  const [confirmations, setConfirmations] = useState<Confirmation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [events, setEvents]             = useState<EventItem[]>([]);
+  const [eventTypes, setEventTypes]     = useState<EventType[]>([]);
+  const [loading, setLoading]           = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [showEventForm, setShowEventForm] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [showEventForm, setShowEventForm]     = useState(false);
+  const [editingEvent, setEditingEvent]       = useState<EventItem | null>(null);
   const [showTypeManager, setShowTypeManager] = useState(false);
-  const [view, setView] = useState<'calendar' | 'list'>('calendar');
 
   useEffect(() => {
     if (selectedHotel?.id) loadData();
@@ -430,7 +436,7 @@ export default function EventsCalendar() {
     setLoading(true);
     try {
       const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-      const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+      const monthEnd   = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
 
       const [eventsRes, typesRes] = await Promise.all([
         supabase
@@ -453,9 +459,8 @@ export default function EventsCalendar() {
     }
   }
 
-  // Filter events based on visibility
   const visibleEvents = useMemo(() => {
-    if (isAdmin) return events; // Admin vê tudo
+    if (isAdmin) return events;
     const now = new Date();
     return events.filter(ev => {
       if (ev.visibility_start && isBefore(now, parseISO(ev.visibility_start))) return false;
@@ -464,11 +469,10 @@ export default function EventsCalendar() {
     });
   }, [events, isAdmin]);
 
-  // Calendar grid
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
-  const startDayOfWeek = getDay(monthStart); // 0=Sun
+  const monthStart     = startOfMonth(currentMonth);
+  const monthEnd       = endOfMonth(currentMonth);
+  const calendarDays   = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startDayOfWeek = getDay(monthStart);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, EventItem[]>();
@@ -483,16 +487,13 @@ export default function EventsCalendar() {
   const selectedDateEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
 
   async function handleConfirmation(eventId: string, status: 'confirmed' | 'declined') {
-    // Find employee linked to user
     const { data: emp } = await supabase
       .from('employees')
       .select('id')
       .eq('hotel_id', selectedHotel!.id)
       .eq('user_id', user!.id)
       .maybeSingle();
-
     if (!emp) return;
-
     await supabase.from('event_confirmations').upsert(
       { event_id: eventId, employee_id: emp.id, status, confirmed_at: new Date().toISOString() },
       { onConflict: 'event_id,employee_id' }
@@ -508,15 +509,15 @@ export default function EventsCalendar() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
             <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Calendário de Eventos</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{selectedHotel?.name}</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Calendário de Eventos</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{selectedHotel?.name}</p>
           </div>
         </div>
 
@@ -524,14 +525,14 @@ export default function EventsCalendar() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowTypeManager(true)}
-              className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
               title="Gerenciar tipos"
             >
               <Tag className="w-4 h-4" />
             </button>
             <button
               onClick={() => { setEditingEvent(null); setShowEventForm(true); }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold active:scale-95 transition-all shadow-sm shadow-indigo-600/20"
             >
               <Plus className="w-4 h-4" /> Novo Evento
             </button>
@@ -539,37 +540,37 @@ export default function EventsCalendar() {
         )}
       </div>
 
-      {/* Month Navigation */}
-      <div className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 mb-4">
+      {/* ── Month Navigation ─────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 mb-4 shadow-sm">
         <button
           onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+          className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="text-sm font-semibold text-gray-800 dark:text-white capitalize">
+        <span className="text-sm font-bold text-slate-800 dark:text-white capitalize">
           {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
         </span>
         <button
           onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+          className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
         >
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Calendar Grid */}
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          {/* ── Calendar Grid ────────────────────────────────────────────── */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
             {/* Weekday headers */}
             <div className="grid grid-cols-7 gap-1 mb-2">
               {WEEKDAYS.map(d => (
-                <div key={d} className="text-center text-xs font-medium text-gray-500 dark:text-gray-400 py-1">
+                <div key={d} className="text-center text-xs font-semibold text-slate-400 dark:text-slate-500 py-1">
                   {d}
                 </div>
               ))}
@@ -577,36 +578,35 @@ export default function EventsCalendar() {
 
             {/* Days grid */}
             <div className="grid grid-cols-7 gap-1">
-              {/* Empty cells before month starts */}
               {Array.from({ length: startDayOfWeek }).map((_, i) => (
                 <div key={`empty-${i}`} className="h-16" />
               ))}
 
               {calendarDays.map(day => {
-                const dateStr = format(day, 'yyyy-MM-dd');
-                const dayEvents = eventsByDate.get(dateStr) || [];
-                const isCurrent = isToday(day);
+                const dateStr  = format(day, 'yyyy-MM-dd');
+                const dayEvs   = eventsByDate.get(dateStr) || [];
+                const isCurrent  = isToday(day);
                 const isSelected = selectedDate === dateStr;
 
                 return (
                   <button
                     key={dateStr}
                     onClick={() => setSelectedDate(dateStr)}
-                    className={`h-16 p-1 rounded-lg text-left transition-colors ${
+                    className={`h-16 p-1.5 rounded-xl text-left transition-colors ${
                       isSelected
-                        ? 'bg-blue-100 dark:bg-blue-900/30 ring-2 ring-blue-400'
+                        ? 'bg-indigo-100 dark:bg-indigo-900/30 ring-2 ring-indigo-400'
                         : isCurrent
-                          ? 'bg-blue-50 dark:bg-blue-900/10'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                          ? 'bg-indigo-50 dark:bg-indigo-900/10'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
                     }`}
                   >
-                    <div className={`text-xs font-medium ${
-                      isCurrent ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                    <div className={`text-xs font-bold ${
+                      isCurrent ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300'
                     }`}>
                       {format(day, 'd')}
                     </div>
                     <div className="flex flex-wrap gap-0.5 mt-0.5">
-                      {dayEvents.slice(0, 3).map(ev => (
+                      {dayEvs.slice(0, 3).map(ev => (
                         <div
                           key={ev.id}
                           className="w-2 h-2 rounded-full"
@@ -614,8 +614,8 @@ export default function EventsCalendar() {
                           title={ev.title}
                         />
                       ))}
-                      {dayEvents.length > 3 && (
-                        <span className="text-[10px] text-gray-400">+{dayEvents.length - 3}</span>
+                      {dayEvs.length > 3 && (
+                        <span className="text-[10px] text-slate-400">+{dayEvs.length - 3}</span>
                       )}
                     </div>
                   </button>
@@ -624,73 +624,77 @@ export default function EventsCalendar() {
             </div>
           </div>
 
-          {/* Day Detail Panel */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          {/* ── Day Detail Panel ─────────────────────────────────────────── */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
             {selectedDate ? (
               <>
-                <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white mb-3 capitalize">
                   {format(parseISO(selectedDate), "dd 'de' MMMM, EEEE", { locale: ptBR })}
                 </h3>
+
                 {selectedDateEvents.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum evento neste dia</p>
+                  <div className="text-center py-8">
+                    <Calendar className="w-8 h-8 text-slate-200 dark:text-slate-700 mx-auto mb-2" />
+                    <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum evento neste dia</p>
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {selectedDateEvents.map(ev => (
                       <div
                         key={ev.id}
-                        className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
                       >
-                        <div className="flex items-start justify-between">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: ev.event_types?.color || '#6366f1' }} />
-                              <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{ev.title}</p>
+                              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ev.event_types?.color || '#6366f1' }} />
+                              <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{ev.title}</p>
                             </div>
                             {ev.event_types && (
-                              <span className="text-xs text-gray-500 dark:text-gray-400">{ev.event_types.name}</span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">{ev.event_types.name}</span>
                             )}
                           </div>
                           {ev.is_mandatory && (
-                            <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 px-1.5 py-0.5 rounded">
+                            <span className="shrink-0 text-xs bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300 px-1.5 py-0.5 rounded-full font-medium">
                               Obrigatório
                             </span>
                           )}
                         </div>
 
                         {ev.event_time && (
-                          <div className="flex items-center gap-1 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                          <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
                             <Clock className="w-3 h-3" /> {ev.event_time.slice(0, 5)}
                           </div>
                         )}
                         {ev.location && (
-                          <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <div className="flex items-center gap-1.5 mt-1 text-xs text-slate-500 dark:text-slate-400">
                             <MapPin className="w-3 h-3" /> {ev.location}
                           </div>
                         )}
                         {ev.description && (
-                          <p className="text-xs text-gray-600 dark:text-gray-300 mt-2">{ev.description}</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">{ev.description}</p>
                         )}
 
                         {/* Admin actions */}
                         {isAdmin && (
-                          <div className="flex items-center gap-1 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                             <button
                               onClick={() => { setEditingEvent(ev); setShowEventForm(true); }}
-                              className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-0.5"
+                              className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-0.5 transition-colors"
                             >
                               <Edit2 className="w-3 h-3" /> Editar
                             </button>
-                            <span className="text-gray-300 dark:text-gray-600">·</span>
+                            <span className="text-slate-300 dark:text-slate-600">·</span>
                             <button
                               onClick={() => handleDeleteEvent(ev.id)}
-                              className="text-xs text-red-500 hover:text-red-600 flex items-center gap-0.5"
+                              className="text-xs text-red-500 hover:text-red-600 flex items-center gap-0.5 transition-colors"
                             >
                               <Trash2 className="w-3 h-3" /> Excluir
                             </button>
                             {ev.visibility_start && (
                               <>
-                                <span className="text-gray-300 dark:text-gray-600">·</span>
-                                <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                                <span className="text-slate-300 dark:text-slate-600">·</span>
+                                <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
                                   <Eye className="w-3 h-3" />
                                   {format(parseISO(ev.visibility_start), 'dd/MM HH:mm')}
                                 </span>
@@ -701,16 +705,16 @@ export default function EventsCalendar() {
 
                         {/* Confirmation buttons */}
                         {!isAdmin && (
-                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                             <button
                               onClick={() => handleConfirmation(ev.id, 'confirmed')}
-                              className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
+                              className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
                             >
                               <Check className="w-3 h-3" /> Confirmar
                             </button>
                             <button
                               onClick={() => handleConfirmation(ev.id, 'declined')}
-                              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium transition-colors"
                             >
                               <X className="w-3 h-3" /> Recusar
                             </button>
@@ -722,16 +726,16 @@ export default function EventsCalendar() {
                 )}
               </>
             ) : (
-              <div className="text-center py-8">
-                <Calendar className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">Selecione um dia para ver os eventos</p>
+              <div className="text-center py-12">
+                <Calendar className="w-10 h-10 text-slate-200 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-sm text-slate-400 dark:text-slate-500">Selecione um dia para ver os eventos</p>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Modals */}
+      {/* ── Modals ──────────────────────────────────────────────────────── */}
       {showEventForm && selectedHotel && (
         <EventFormModal
           event={editingEvent}
