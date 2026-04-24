@@ -26,6 +26,8 @@ import StockCountHistoryModal from '../components/StockCountHistoryModal';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { UNIT_MEASURE_LABELS } from '../types/product';
+import DirectDeliveryModal from '../components/DirectDeliveryModal';
+import { notifyItemDelivered } from '../lib/notificationTriggers';
 
 interface Product {
   id: string;
@@ -46,6 +48,9 @@ interface Product {
   is_starred?: boolean;
   unit_measure?: string;
   product_type?: string;
+  is_portionable?: boolean;
+  auto_portion_product_id?: string | null;
+  auto_portion_multiplier?: number | null;
 }
 
 type SortKey = 'name' | 'quantity' | 'category' | 'average_price';
@@ -154,6 +159,8 @@ const Inventory = () => {
   const [barcodeFilterCode, setBarcodeFilterCode]       = useState('');
   const [showBarcodeScanner, setShowBarcodeScanner]     = useState(false);
   const [openActionsId, setOpenActionsId]               = useState<string | null>(null);
+  const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
+  const [allSectors, setAllSectors]                     = useState<{id: string, name: string}[]>([]);
 
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -198,7 +205,20 @@ const Inventory = () => {
     } finally { setLoading(false); }
   }, [selectedHotel, addNotification]);
 
-  useEffect(() => { if (selectedHotel) fetchProducts(); }, [selectedHotel, fetchProducts]);
+  const fetchSectors = useCallback(async () => {
+    try {
+      if (!selectedHotel?.id) { setAllSectors([]); return; }
+      const { data, error } = await supabase.from('sectors').select('id, name').eq('hotel_id', selectedHotel.id).order('name');
+      if (error) throw error;
+      setAllSectors(data || []);
+    } catch (err: any) {
+      console.error('Error fetching sectors:', err);
+    }
+  }, [selectedHotel]);
+
+  useEffect(() => {
+    if (selectedHotel) { fetchProducts(); fetchSectors(); }
+  }, [selectedHotel, fetchProducts, fetchSectors]);
 
   // ─ Handlers ────────────────────────────────────────────────────────────────
   const handleToggleStar = async (e: React.MouseEvent, productId: string, isCurrentlyStarred: boolean) => {
@@ -244,6 +264,107 @@ const Inventory = () => {
       fetchProducts();
     } catch (err) {
       addNotification('error', `Erro ao ajustar estoque para "${productName}": ${err instanceof Error ? err.message : ''}`);
+    }
+  };
+
+  const handleConfirmDirectDelivery = async (productId: string, sectorId: string, quantity: number, reason: string) => {
+    if (!selectedHotel?.id) return;
+    setShowDirectDeliveryModal(false);
+    try {
+      const product = products.find(p => p.id === productId);
+      const sector  = allSectors.find(s => s.id === sectorId);
+      if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
+      if (quantity > product.quantity) throw new Error(`Quantidade insuficiente. Disponível: ${product.quantity}`);
+
+      // 1. Cria requisição com status 'delivered' para histórico
+      const { data: newRequisition, error: reqErr } = await supabase
+        .from('requisitions')
+        .insert({
+          hotel_id: selectedHotel.id,
+          sector_id: sectorId,
+          product_id: productId,
+          item_name: product.name,
+          quantity,
+          status: 'delivered' as const,
+          delivered_quantity: quantity,
+          is_custom: false,
+          rejection_reason: `Entrega direta: ${reason || 'N/A'}`,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (reqErr) throw reqErr;
+
+      // 2. Deduz do estoque principal
+      const newStock = product.quantity - quantity;
+      await supabase.from('products').update({ quantity: newStock, updated_at: new Date().toISOString() }).eq('id', productId);
+
+      // 3. Porcionável → auto ou manual; senão → sector_stock direto
+      if (product.is_portionable) {
+        const purchaseCost = (product.last_purchase_price || product.average_price || 0) * quantity;
+        if (product.auto_portion_product_id && product.auto_portion_multiplier) {
+          const { data: autoResult, error: autoErr } = await supabase.rpc('process_auto_portioning', {
+            p_hotel_id: selectedHotel.id,
+            p_sector_id: sectorId,
+            p_parent_product_id: productId,
+            p_quantity_delivered: quantity,
+            p_purchase_cost: purchaseCost,
+          });
+          if (autoErr) throw new Error(`Falha no auto-porcionamento: ${autoErr.message}`);
+          const res = autoResult as { success: boolean; message: string };
+          if (!res.success) throw new Error(res.message);
+          addNotification('success', `Auto-porcionamento: ${res.message}`);
+        } else {
+          const { error: pendingErr } = await supabase.from('pending_portioning_entries').insert({
+            hotel_id: selectedHotel.id, sector_id: sectorId, product_id: productId,
+            quantity_delivered: quantity, purchase_cost: purchaseCost, requisition_id: newRequisition.id,
+          });
+          if (pendingErr) throw new Error(`Falha ao criar entrada pendente: ${pendingErr.message}`);
+          addNotification('info', 'Item porcionável enviado ao setor para processamento.');
+        }
+      } else {
+        const { error: sectorErr } = await supabase.rpc('record_sector_stock_entry', {
+          p_hotel_id: selectedHotel.id, p_sector_id: sectorId, p_product_id: productId, p_quantity: quantity,
+        });
+        if (sectorErr) {
+          console.error('CRÍTICO: falha ao atualizar estoque do setor na entrega direta:', sectorErr);
+          addNotification('error', 'Entrega registrada, mas FALHA ao somar no estoque do setor. Ajuste manualmente.');
+        }
+      }
+
+      // 4. Movimento de inventário
+      const unitCost = product.average_price || product.last_purchase_price || 0;
+      await supabase.from('inventory_movements').insert({
+        product_id: productId, hotel_id: selectedHotel.id,
+        quantity_change: -quantity, movement_type: 'consumption',
+        reason: `Entrega direta p/ ${sector.name}: ${reason || 'N/A'}`,
+        performed_by: 'Inventário - Entrega Direta',
+        unit_cost: unitCost, total_cost: unitCost * quantity, reference_id: newRequisition.id,
+      });
+
+      // 5. Balanço financeiro
+      const totalValue = unitCost * quantity;
+      if (totalValue > 0) {
+        await supabase.rpc('update_hotel_balance', {
+          p_hotel_id: selectedHotel.id, p_transaction_type: 'debit', p_amount: totalValue,
+          p_reason: `Consumo de ${quantity} un. de ${product.name} por setor`,
+          p_reference_type: 'consumption', p_reference_id: productId,
+        });
+      }
+
+      // 6. Notifica o setor
+      await notifyItemDelivered({
+        hotel_id: selectedHotel.id, sector_id: sectorId, product_name: product.name,
+        quantity, sector_name: sector.name, delivered_by: 'Inventário (Entrega Direta)',
+      });
+
+      addNotification('success', `"${product.name}" entregue diretamente para ${sector.name}!`);
+      fetchProducts();
+    } catch (err: any) {
+      console.error('Erro na entrega direta:', err);
+      addNotification('error', `Erro na entrega direta: ${err.message}`);
+      fetchProducts();
     }
   };
 
@@ -461,6 +582,12 @@ const Inventory = () => {
               <ArrowLeftRight className="w-4 h-4" />
             </button>
           </div>
+
+          <button onClick={() => setShowDirectDeliveryModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 transition-all text-sm font-semibold shadow-sm shadow-indigo-600/20">
+            <ArrowUpRight className="w-4 h-4" />
+            <span className="hidden sm:inline">Entrega Direta</span>
+          </button>
 
           <button onClick={handleCreateNew}
             className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 active:scale-95 transition-all text-sm shadow-sm shadow-blue-600/20">
@@ -922,6 +1049,14 @@ const Inventory = () => {
           hint="Aponte para o código de barras do produto"
         />
       )}
+
+      <DirectDeliveryModal
+        isOpen={showDirectDeliveryModal}
+        onClose={() => setShowDirectDeliveryModal(false)}
+        products={products.filter(p => p.is_active) as any}
+        sectors={allSectors}
+        onConfirm={handleConfirmDirectDelivery}
+      />
     </div>
   );
 };
