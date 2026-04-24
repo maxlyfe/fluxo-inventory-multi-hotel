@@ -404,10 +404,12 @@ export const erbonService = {
     return token;
   },
 
-  async getToken(hotelId: string): Promise<string> {
-    const cached = tokenCache.get(hotelId);
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.token;
+  async getToken(hotelId: string, forceRefresh = false): Promise<string> {
+    if (!forceRefresh) {
+      const cached = tokenCache.get(hotelId);
+      if (cached && Date.now() < cached.expiresAt) {
+        return cached.token;
+      }
     }
 
     const config = await this.getConfig(hotelId);
@@ -415,11 +417,15 @@ export const erbonService = {
     if (!config.is_active) throw new Error('Integração Erbon desativada para este hotel');
 
     const token = await this.authenticate(config);
-    tokenCache.set(hotelId, {
-      token,
-      expiresAt: Date.now() + TOKEN_LIFETIME_MS,
-    });
 
+    // Extrair exp real do JWT para não cachear além da validade do token
+    let expiresAt = Date.now() + TOKEN_LIFETIME_MS;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (payload.exp) expiresAt = (payload.exp * 1000) - (5 * 60 * 1000); // 5min antes do exp real
+    } catch { /* usa o padrão 23h se não conseguir decodificar */ }
+
+    tokenCache.set(hotelId, { token, expiresAt });
     return token;
   },
 
@@ -878,13 +884,15 @@ export const erbonService = {
   ): Promise<any> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
-    const token = await this.getToken(hotelId);
+    // forceRefresh=true: operação de escrita sempre usa token fresco
+    const token = await this.getToken(hotelId, true);
 
     const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
     const body = buildGuestBody(guestData, null);
     console.log('[Erbon] addGuest path:', path);
     console.log('[Erbon] addGuest body:', JSON.stringify(body));
+    console.log('[Erbon] addGuest token (primeiros 20):', token.substring(0, 20));
 
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
       method: 'POST',
