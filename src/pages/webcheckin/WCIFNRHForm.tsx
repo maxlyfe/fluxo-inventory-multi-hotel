@@ -8,6 +8,8 @@ import {
   loadGuestsFromStorage,
   saveGuestsToStorage,
   saveGuestFNRH,
+  uploadDocumentPhoto,
+  resolveHotelByCode,
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
@@ -78,6 +80,11 @@ export default function WCIFNRHForm() {
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [error,  setError]  = useState('');
+  const [docFrontFile, setDocFrontFile] = useState<File | null>(null);
+  const [docBackFile,  setDocBackFile]  = useState<File | null>(null);
+  const [docFrontPreview, setDocFrontPreview] = useState<string>('');
+  const [docBackPreview,  setDocBackPreview]  = useState<string>('');
+  const [uploading, setUploading] = useState(false);
 
   // Estado React — usado apenas para pré-preenchimento e controle de CEP/UF
   const [name,          setName]          = useState('');
@@ -130,6 +137,12 @@ export default function WCIFNRHForm() {
     }
   };
 
+  function handleFileSelect(file: File | null, side: 'front' | 'back') {
+    if (!file) return;
+    if (side === 'front') { setDocFrontFile(file); setDocFrontPreview(URL.createObjectURL(file)); }
+    else { setDocBackFile(file); setDocBackPreview(URL.createObjectURL(file)); }
+  }
+
   // ── Submit via FormData ─────────────────────────────────────────────────────
   // FormData lê os valores REAIS do DOM (name= attribute) no momento do submit.
   // Isso é imune a: autofill sem onChange, timing do React state, refs nulos.
@@ -169,6 +182,23 @@ export default function WCIFNRHForm() {
     setError('');
 
     try {
+      // Resolve hotel UUID and hasErbon flag
+      const hotelInfo = await resolveHotelByCode(hotelId!);
+      const hotelUUID = hotelInfo?.id || hotelId!;
+      const hasErbon  = hotelInfo?.hasErbon ?? false;
+
+      // Upload photos if selected
+      let docFrontUrl: string | undefined;
+      let docBackUrl:  string | undefined;
+      if (docFrontFile || docBackFile) {
+        setUploading(true);
+        try {
+          if (docFrontFile) docFrontUrl = await uploadDocumentPhoto(docFrontFile, hotelUUID, 'front');
+          if (docBackFile)  docBackUrl  = await uploadDocumentPhoto(docBackFile,  hotelUUID, 'back');
+        } catch { /* best-effort: continue even if upload fails */ }
+        setUploading(false);
+      }
+
       const payload: ErbonGuestPayload = {
         id:                  guestId ?? 0,
         name:                domName,
@@ -196,12 +226,13 @@ export default function WCIFNRHForm() {
 
       console.log('[FNRH] payload enviado:', JSON.stringify(payload));
 
-      const savedId = await saveGuestFNRH(
-        hotelId,
-        Number(bookingId),
-        guestId,
-        payload
-      );
+      let savedId: number;
+      if (hasErbon) {
+        savedId = await saveGuestFNRH(hotelUUID, Number(bookingId), guestId, payload);
+      } else {
+        // Non-Erbon: no API call, just local ID
+        savedId = guestId ?? Date.now();
+      }
 
       const fullName = domName;
       const stored   = loadGuestsFromStorage(bookingId) || [];
@@ -215,12 +246,14 @@ export default function WCIFNRHForm() {
           documents: payload.documents,
           fnrhCompleted: true,
           isMainGuest:  false,
+          documentFrontUrl: docFrontUrl,
+          documentBackUrl:  docBackUrl,
         };
         saveGuestsToStorage(bookingId, [...stored, newGuest]);
       } else {
         const updated = stored.map(g =>
           g.id === guestId
-            ? { ...g, name: fullName, email: domEmail, phone: domPhone, fnrhCompleted: true }
+            ? { ...g, name: fullName, email: domEmail, phone: domPhone, fnrhCompleted: true, documentFrontUrl: docFrontUrl, documentBackUrl: docBackUrl }
             : g
         );
         saveGuestsToStorage(bookingId, updated);
@@ -361,6 +394,63 @@ export default function WCIFNRHForm() {
               </Row>
             </div>
 
+            {/* ── Foto do Documento ── */}
+            <div>
+              <p style={sectionTitle}>Foto do Documento (Opcional)</p>
+              <Row>
+                {/* Frente */}
+                <div>
+                  <label style={labelStyle}>Frente do Documento</label>
+                  <div
+                    style={{
+                      ...inputStyle,
+                      display: 'flex', alignItems: 'center', gap: '0.75rem',
+                      cursor: 'pointer', minHeight: '3rem',
+                    }}
+                    onClick={() => document.getElementById('docFrontInput')?.click()}
+                  >
+                    {docFrontPreview
+                      ? <img src={docFrontPreview} alt="Frente" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8 }} />
+                      : <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.9rem' }}>Tirar foto / selecionar</span>
+                    }
+                  </div>
+                  <input
+                    id="docFrontInput"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: 'none' }}
+                    onChange={e => handleFileSelect(e.target.files?.[0] ?? null, 'front')}
+                  />
+                </div>
+                {/* Verso */}
+                <div>
+                  <label style={labelStyle}>Verso do Documento</label>
+                  <div
+                    style={{
+                      ...inputStyle,
+                      display: 'flex', alignItems: 'center', gap: '0.75rem',
+                      cursor: 'pointer', minHeight: '3rem',
+                    }}
+                    onClick={() => document.getElementById('docBackInput')?.click()}
+                  >
+                    {docBackPreview
+                      ? <img src={docBackPreview} alt="Verso" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8 }} />
+                      : <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.9rem' }}>Tirar foto / selecionar</span>
+                    }
+                  </div>
+                  <input
+                    id="docBackInput"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: 'none' }}
+                    onChange={e => handleFileSelect(e.target.files?.[0] ?? null, 'back')}
+                  />
+                </div>
+              </Row>
+            </div>
+
             {/* ── Endereço ── */}
             <div>
               <p style={sectionTitle}>{t('addressSection')}</p>
@@ -456,18 +546,20 @@ export default function WCIFNRHForm() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploading}
               style={{
                 padding: '1rem', borderRadius: 50, border: 'none',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                background: saving ? 'rgba(0,133,174,0.5)' : '#0085ae',
+                cursor: (saving || uploading) ? 'not-allowed' : 'pointer',
+                background: (saving || uploading) ? 'rgba(0,133,174,0.5)' : '#0085ae',
                 color: '#fff', fontWeight: 700, fontSize: '1.05rem',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
               }}
             >
-              {saving
-                ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> {t('saving')}</>
-                : t('saveData')
+              {uploading
+                ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> Enviando fotos...</>
+                : saving
+                  ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> {t('saving')}</>
+                  : t('saveData')
               }
             </button>
           </form>

@@ -45,12 +45,26 @@ export interface WebCheckinGuest {
     zipcode?: string;
     neighborhood?: string;
   };
+  documentFrontUrl?: string;
+  documentBackUrl?: string;
 }
 
 // ── Cache em memória (evita chamadas Supabase repetidas por navegação) ─────
 
-const _hotelCache = new Map<string, { id: string; erbonHotelId: string } | null>();
+const _hotelCache = new Map<string, { id: string; erbonHotelId: string; hasErbon: boolean } | null>();
 const _sessionCache = new Map<string, { bookingId: number; guests: WebCheckinGuest[] } | null>();
+
+// ── Utilitários de sessão (usados por createManualSession e createWCISession) ─
+
+const STORAGE_KEY = (bookingId: string | number) => `wci_guests_${bookingId}`;
+
+/** Gera token URL-safe aleatório (12 chars, a-z0-9). */
+function generateToken(length = 12): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => chars[b % chars.length]).join('');
+}
 
 // ── Hotéis disponíveis ─────────────────────────────────────────────────────
 
@@ -60,49 +74,216 @@ export async function fetchWebCheckinHotels(): Promise<WebCheckinHotel[]> {
     .select(`
       id, name, image_url, description, wci_code,
       wci_visible, wci_hotel_terms, wci_lgpd_terms,
-      erbon_hotel_config!inner(erbon_hotel_id, is_active)
+      erbon_hotel_config(erbon_hotel_id, is_active)
     `)
-    .eq('erbon_hotel_config.is_active', true)
-    .neq('wci_visible', false)
+    .eq('wci_visible', true)
     .order('name');
 
   if (error) throw error;
 
-  return (data || []).map((h: any) => ({
-    id: h.id,
-    wci_code: h.wci_code || h.id,   // fallback ao UUID se code não definido
-    name: h.name,
-    image_url: h.image_url || null,
-    logo_url: null,
-    description: h.description || null,
-    erbonHotelId: h.erbon_hotel_config?.[0]?.erbon_hotel_id || h.erbon_hotel_config?.erbon_hotel_id || '',
-    hasErbon: true,
-    wci_hotel_terms: h.wci_hotel_terms || null,
-    wci_lgpd_terms: h.wci_lgpd_terms || null,
-  }));
+  return (data || []).map((h: any) => {
+    const erbonCfg = Array.isArray(h.erbon_hotel_config)
+      ? h.erbon_hotel_config[0]
+      : h.erbon_hotel_config;
+    const erbonHotelId = erbonCfg?.erbon_hotel_id || '';
+    const hasErbon = !!(erbonHotelId && erbonCfg?.is_active === true);
+    return {
+      id: h.id,
+      wci_code: h.wci_code || h.id,   // fallback ao UUID se code não definido
+      name: h.name,
+      image_url: h.image_url || null,
+      logo_url: null,
+      description: h.description || null,
+      erbonHotelId,
+      hasErbon,
+      wci_hotel_terms: h.wci_hotel_terms || null,
+      wci_lgpd_terms: h.wci_lgpd_terms || null,
+    };
+  });
 }
 
 /**
- * Resolve wci_code → { id (UUID Supabase), erbonHotelId }.
+ * Resolve wci_code → { id (UUID Supabase), erbonHotelId, hasErbon }.
  * Resultado em cache de memória por sessão de página.
  */
 export async function resolveHotelByCode(
   wciCode: string
-): Promise<{ id: string; erbonHotelId: string } | null> {
+): Promise<{ id: string; erbonHotelId: string; hasErbon: boolean } | null> {
   if (_hotelCache.has(wciCode)) return _hotelCache.get(wciCode)!;
   const { data } = await anonClient
     .from('hotels')
-    .select('id, erbon_hotel_config!inner(erbon_hotel_id, is_active)')
+    .select('id, erbon_hotel_config(erbon_hotel_id, is_active)')
     .eq('wci_code', wciCode)
     .single();
   if (!data) { _hotelCache.set(wciCode, null); return null; }
-  const result = {
-    id: data.id,
-    erbonHotelId: (data as any).erbon_hotel_config?.[0]?.erbon_hotel_id
-      || (data as any).erbon_hotel_config?.erbon_hotel_id || '',
-  };
+  const erbonCfg = Array.isArray((data as any).erbon_hotel_config)
+    ? (data as any).erbon_hotel_config[0]
+    : (data as any).erbon_hotel_config;
+  const erbonHotelId = erbonCfg?.erbon_hotel_id || '';
+  const hasErbon = !!(erbonHotelId && erbonCfg?.is_active === true);
+  const result = { id: data.id, erbonHotelId, hasErbon };
   _hotelCache.set(wciCode, result);
   return result;
+}
+
+/**
+ * Cria sessão manual para hotéis sem integração Erbon.
+ * Gera um bookingId sintético (timestamp), cria a sessão em wci_sessions e
+ * retorna o token opaco para uso nas URLs públicas.
+ */
+export async function createManualSession(
+  hotelId: string,
+  guestName: string,
+  bookingNumber?: string
+): Promise<string> {
+  const syntheticBookingId = Date.now();
+  const token = generateToken();
+  const guests: WebCheckinGuest[] = [{
+    id: 0,
+    name: guestName.trim(),
+    fnrhCompleted: false,
+    isMainGuest: true,
+  }];
+  localStorage.setItem(STORAGE_KEY(syntheticBookingId), JSON.stringify(guests));
+  try {
+    await anonClient.from('wci_sessions').upsert({
+      booking_id: String(syntheticBookingId),
+      hotel_id: hotelId,
+      guests,
+      session_token: token,
+      booking_number: bookingNumber || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'booking_id' });
+  } catch { /* best-effort */ }
+  _sessionCache.set(token, { bookingId: syntheticBookingId, guests });
+  return token;
+}
+
+// ── Tipos para fichas ──────────────────────────────────────────────────────
+
+export interface SaveFichaGuestParams {
+  isMainGuest: boolean;
+  erbonGuestId?: number | null;
+  name: string;
+  email?: string;
+  phone?: string;
+  birthDate?: string;
+  genderId?: number;
+  nationality?: string;
+  profession?: string;
+  vehicleRegistration?: string;
+  documentType?: string;
+  documentNumber?: string;
+  addressCountry?: string;
+  addressState?: string;
+  addressCity?: string;
+  addressStreet?: string;
+  addressZipcode?: string;
+  addressNeighborhood?: string;
+  documentFrontUrl?: string;
+  documentBackUrl?: string;
+}
+
+export interface SaveFichaParams {
+  hotelId: string;
+  bookingNumber?: string;
+  bookingInternalId?: number | null;
+  roomNumber?: string;
+  checkinDate?: string;
+  checkoutDate?: string;
+  guests: SaveFichaGuestParams[];
+  hotelTermsAccepted: boolean;
+  lgpdAccepted: boolean;
+  signatureData?: string;
+  source?: 'web' | 'totem' | 'manual';
+}
+
+/**
+ * Persiste uma ficha de check-in completa no banco.
+ * INSERT em wci_checkin_fichas, depois INSERT de todos os hóspedes em wci_checkin_guests.
+ * Retorna o UUID da ficha criada.
+ */
+export async function saveFichaToDatabase(params: SaveFichaParams): Promise<string> {
+  const mainGuest = params.guests.find(g => g.isMainGuest) || params.guests[0];
+
+  const { data: fichaData, error: fichaError } = await anonClient
+    .from('wci_checkin_fichas')
+    .insert({
+      hotel_id: params.hotelId,
+      booking_number: params.bookingNumber || null,
+      booking_internal_id: params.bookingInternalId || null,
+      room_number: params.roomNumber || null,
+      checkin_date: params.checkinDate || null,
+      checkout_date: params.checkoutDate || null,
+      guest_name: mainGuest?.name || '',
+      hotel_terms_accepted: params.hotelTermsAccepted,
+      lgpd_accepted: params.lgpdAccepted,
+      signature_data: params.signatureData || null,
+      source: params.source || 'web',
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (fichaError) throw fichaError;
+  const fichaId: string = fichaData.id;
+
+  const guestRows = params.guests.map(g => ({
+    ficha_id: fichaId,
+    is_main_guest: g.isMainGuest,
+    erbon_guest_id: g.erbonGuestId || null,
+    name: g.name,
+    email: g.email || null,
+    phone: g.phone || null,
+    birth_date: g.birthDate || null,
+    gender_id: g.genderId || null,
+    nationality: g.nationality || null,
+    profession: g.profession || null,
+    vehicle_registration: g.vehicleRegistration || null,
+    document_type: g.documentType || null,
+    document_number: g.documentNumber || null,
+    address_country: g.addressCountry || null,
+    address_state: g.addressState || null,
+    address_city: g.addressCity || null,
+    address_street: g.addressStreet || null,
+    address_zipcode: g.addressZipcode || null,
+    address_neighborhood: g.addressNeighborhood || null,
+    document_front_url: g.documentFrontUrl || null,
+    document_back_url: g.documentBackUrl || null,
+  }));
+
+  const { error: guestsError } = await anonClient
+    .from('wci_checkin_guests')
+    .insert(guestRows);
+
+  if (guestsError) throw guestsError;
+
+  return fichaId;
+}
+
+/**
+ * Faz upload de foto de documento para o bucket `wci-documents`.
+ * Retorna a URL pública do arquivo.
+ */
+export async function uploadDocumentPhoto(
+  file: File,
+  hotelId: string,
+  side: 'front' | 'back'
+): Promise<string> {
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `${hotelId}/${Date.now()}_${side}.${ext}`;
+
+  const { error: uploadError } = await anonClient.storage
+    .from('wci-documents')
+    .upload(path, file, { upsert: false });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = anonClient.storage
+    .from('wci-documents')
+    .getPublicUrl(path);
+
+  return data.publicUrl;
 }
 
 /** Busca políticas de um hotel específico (todas as línguas). */
@@ -344,16 +525,6 @@ export async function submitAttachment(
 // Cada sessão de check-in tem um token opaco (12 chars aleatórios) que
 // substitui o bookingInternalID (inteiro Erbon) nas URLs públicas.
 // O token é armazenado na coluna wci_sessions.session_token.
-
-const STORAGE_KEY = (bookingId: string | number) => `wci_guests_${bookingId}`;
-
-/** Gera token URL-safe aleatório (12 chars, a-z0-9). */
-function generateToken(length = 12): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, b => chars[b % chars.length]).join('');
-}
 
 /**
  * Cria uma nova sessão WCI com token opaco.

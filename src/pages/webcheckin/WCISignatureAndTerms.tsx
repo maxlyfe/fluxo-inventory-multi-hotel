@@ -1,11 +1,17 @@
 // src/pages/webcheckin/WCISignatureAndTerms.tsx
-// Tela de confirmação final — exibe resumo de hóspedes que assinaram
-// e encerra o processo de web check-in no totem.
-import React, { useEffect, useState } from 'react';
+// Tela final do web check-in — termos, assinatura digital e envio ao banco.
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCircle, Clock, Home, Users } from 'lucide-react';
+import { CheckCircle, Home, PenLine, Trash2 } from 'lucide-react';
 import { useWCI } from './WebCheckinLayout';
-import { loadGuestsFromStorage, clearGuestsFromStorage, WebCheckinGuest } from './webCheckinService';
+import {
+  saveFichaToDatabase,
+  fetchHotelPolicies,
+  resolveHotelByCode,
+  loadGuestsFromStorage,
+  clearGuestsFromStorage,
+  WebCheckinGuest,
+} from './webCheckinService';
 
 const glassCard: React.CSSProperties = {
   background: 'rgba(255,255,255,0.10)',
@@ -22,25 +28,186 @@ export default function WCISignatureAndTerms() {
   const navigate = useNavigate();
   const { t } = useWCI();
 
+  // wciCode is the opaque hotel slug from URL; bookingId is the opaque session token
+  const wciCode = hotelId ?? '';
+  const sessionToken = bookingId ?? '';
+
+  // ── State ──────────────────────────────────────────────────────────────────
   const [guests, setGuests] = useState<WebCheckinGuest[]>([]);
+  const [hotelTerms, setHotelTerms] = useState('');
+  const [lgpdTerms, setLgpdTerms] = useState('');
+  const [hotelTermsAccepted, setHotelTermsAccepted] = useState(false);
+  const [lgpdAccepted, setLgpdAccepted] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [realHotelId, setRealHotelId] = useState<string | null>(null);
+  const [bookingRef, setBookingRef] = useState('');
 
+  // Signature canvas
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
+
+  // ── Load on mount ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!bookingId) return;
-    const stored = loadGuestsFromStorage(bookingId) || [];
+    if (!wciCode || !sessionToken) return;
+
+    // Load guests from local storage (session token = bookingId param)
+    const stored = loadGuestsFromStorage(sessionToken) || [];
     setGuests(stored);
-  }, [bookingId]);
 
-  const pending = guests.filter(g => !g.fnrhCompleted);
-  const signed  = guests.filter(g => g.fnrhCompleted);
+    // Resolve hotel code → real UUID + fetch policies
+    resolveHotelByCode(wciCode).then(resolved => {
+      if (!resolved) return;
+      setRealHotelId(resolved.id);
+      fetchHotelPolicies(resolved.id).then(policies => {
+        setHotelTerms(policies.wci_hotel_terms || '');
+        setLgpdTerms(policies.wci_lgpd_terms || '');
+      }).catch(() => {});
+    }).catch(() => {});
+  }, [wciCode, sessionToken]);
 
-  const handleConfirm = () => {
-    if (bookingId) clearGuestsFromStorage(bookingId);
-    setConfirmed(true);
-    setTimeout(() => navigate('/web-checkin'), 8000);
-  };
+  // ── Canvas helpers ─────────────────────────────────────────────────────────
+  function getPosFromEvent(
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>
+  ): { x: number; y: number } {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    if ('touches' in e) {
+      const touch = e.touches[0] || e.changedTouches[0];
+      return {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
+      };
+    }
+    return {
+      x: (e as React.MouseEvent<HTMLCanvasElement>).clientX - rect.left,
+      y: (e as React.MouseEvent<HTMLCanvasElement>).clientY - rect.top,
+    };
+  }
 
-  // ── Tela de sucesso final ────────────────────────────────────────────────
+  const handleDrawStart = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      if ('touches' in e) e.preventDefault();
+      const pos = getPosFromEvent(e);
+      setIsDrawing(true);
+      setLastPos(pos);
+    },
+    []
+  );
+
+  const handleDrawMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      if ('touches' in e) e.preventDefault();
+      if (!isDrawing) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const pos = getPosFromEvent(e);
+      ctx.beginPath();
+      ctx.moveTo(lastPos.x, lastPos.y);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.strokeStyle = '#0085ae';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      setLastPos(pos);
+      setHasSignature(true);
+    },
+    [isDrawing, lastPos]
+  );
+
+  const handleDrawEnd = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+      if ('touches' in e) e.preventDefault();
+      setIsDrawing(false);
+    },
+    []
+  );
+
+  function clearCanvas() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+  }
+
+  function getSignatureBase64(): string {
+    return canvasRef.current?.toDataURL('image/png') || '';
+  }
+
+  // ── Finalizar ──────────────────────────────────────────────────────────────
+  async function handleConfirm() {
+    setError('');
+
+    if (!hotelTermsAccepted && hotelTerms) {
+      setError('Aceite os termos para continuar.');
+      return;
+    }
+    if (!lgpdAccepted) {
+      setError('Aceite os termos para continuar.');
+      return;
+    }
+    if (!hasSignature) {
+      setError('Por favor, assine no campo acima.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const signatureData = getSignatureBase64();
+
+      const guestsForDb = guests.map(g => ({
+        isMainGuest: g.isMainGuest,
+        erbonGuestId: typeof g.id === 'number' && g.id > 0 ? g.id : null,
+        name: g.name,
+        email: g.email,
+        phone: g.phone,
+        documentType: g.documents?.[0]?.documentType,
+        documentNumber: g.documents?.[0]?.number,
+        birthDate: g.birthDate,
+        genderId: g.genderID,
+        nationality: g.nationality,
+        addressCountry: g.address?.country,
+        addressState: g.address?.state,
+        addressCity: g.address?.city,
+        addressStreet: g.address?.street,
+        addressZipcode: g.address?.zipcode,
+        addressNeighborhood: g.address?.neighborhood,
+        documentFrontUrl: (g as any).documentFrontUrl,
+        documentBackUrl: (g as any).documentBackUrl,
+      }));
+
+      if (realHotelId) {
+        await saveFichaToDatabase({
+          hotelId: realHotelId,
+          bookingNumber: bookingRef || undefined,
+          guests: guestsForDb,
+          hotelTermsAccepted,
+          lgpdAccepted,
+          signatureData,
+          source: 'web',
+        });
+      }
+
+      if (sessionToken) clearGuestsFromStorage(sessionToken);
+      setConfirmed(true);
+      setTimeout(() => navigate('/web-checkin'), 8000);
+    } catch (err: any) {
+      setError('Erro ao salvar. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Tela de sucesso ────────────────────────────────────────────────────────
   if (confirmed) {
     return (
       <div style={{
@@ -50,14 +217,20 @@ export default function WCISignatureAndTerms() {
         textAlign: 'center', padding: '2rem',
       }}>
         <CheckCircle size={80} color="#22c55e" style={{ marginBottom: '1.5rem' }} />
-        <h1 style={{ fontSize: 'clamp(1.5rem,5vw,2.5rem)', fontWeight: 800, color: '#fff', marginBottom: '0.75rem', textShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
+        <h1 style={{
+          fontSize: 'clamp(1.5rem,5vw,2.5rem)', fontWeight: 800, color: '#fff',
+          marginBottom: '0.75rem', textShadow: '0 2px 12px rgba(0,0,0,0.5)',
+        }}>
           {t('successTitle')}
         </h1>
-        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: '1.05rem', maxWidth: 480, lineHeight: 1.7, marginBottom: '0.5rem' }}>
+        <p style={{
+          color: 'rgba(255,255,255,0.75)', fontSize: '1.05rem',
+          maxWidth: 480, lineHeight: 1.7, marginBottom: '0.5rem',
+        }}>
           {t('successDesc')}
         </p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', marginBottom: '2rem' }}>
-          {signed.length} ficha{signed.length !== 1 ? 's' : ''} assinada{signed.length !== 1 ? 's' : ''} digitalmente.
+          Check-in realizado com sucesso!
         </p>
         <button
           onClick={() => navigate('/web-checkin')}
@@ -70,13 +243,19 @@ export default function WCISignatureAndTerms() {
           <Home size={18} /> {t('backStart')}
         </button>
         <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.78rem', marginTop: '1.5rem' }}>
-          Retornando automaticamente...
+          Retornando automaticamente em alguns segundos...
         </p>
       </div>
     );
   }
 
-  // ── Resumo de hóspedes ───────────────────────────────────────────────────
+  // ── Tela principal ─────────────────────────────────────────────────────────
+  const canFinish =
+    (!hotelTerms || hotelTermsAccepted) &&
+    lgpdAccepted &&
+    hasSignature &&
+    !saving;
+
   return (
     <div style={{
       minHeight: 'calc(100vh - 70px)',
@@ -87,78 +266,170 @@ export default function WCISignatureAndTerms() {
 
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-          <Users size={44} color="#0085ae" style={{ marginBottom: '0.75rem' }} />
-          <h1 style={{ fontSize: 'clamp(1.2rem,4vw,1.8rem)', fontWeight: 800, color: '#fff', margin: 0, textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
-            Resumo do Check-in
+          <PenLine size={44} color="#0085ae" style={{ marginBottom: '0.75rem' }} />
+          <h1 style={{
+            fontSize: 'clamp(1.2rem,4vw,1.8rem)', fontWeight: 800, color: '#fff',
+            margin: 0, textShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          }}>
+            Termos e Assinatura
           </h1>
-          {bookingId && (
+          {sessionToken && (
             <p style={{ color: 'rgba(255,255,255,0.55)', margin: '0.4rem 0 0', fontSize: '0.88rem' }}>
-              {t('bookingId')} #{bookingId}
+              {t('bookingId')} #{sessionToken}
             </p>
           )}
         </div>
 
-        {/* Fichas pendentes */}
-        {pending.length > 0 && (
-          <div style={{ ...glassCard, marginBottom: '1rem', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)' }}>
-            <p style={{ color: 'rgba(251,191,36,0.9)', fontWeight: 700, margin: '0 0 0.75rem', fontSize: '0.9rem' }}>
-              ⚠️ {pending.length} hóspede{pending.length > 1 ? 's' : ''} ainda não {pending.length > 1 ? 'assinaram' : 'assinou'}:
+        {/* Termos do Hotel */}
+        {hotelTerms ? (
+          <div style={{ ...glassCard, marginBottom: '1rem' }}>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.6rem' }}>
+              Regulamento do Hotel
             </p>
-            {pending.map((g, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
-                <Clock size={16} color="rgba(251,191,36,0.7)" />
-                <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.88rem' }}>{g.name}</span>
-                <button
-                  onClick={() => navigate(`/web-checkin/${hotelId}/companion/${bookingId}/${g.id}`)}
-                  style={{
-                    marginLeft: 'auto', background: 'rgba(251,191,36,0.2)', border: '1px solid rgba(251,191,36,0.4)',
-                    borderRadius: 8, padding: '0.25rem 0.75rem', cursor: 'pointer',
-                    color: 'rgba(251,191,36,0.9)', fontSize: '0.78rem', fontWeight: 600,
-                  }}
-                >
-                  Assinar agora
-                </button>
-              </div>
-            ))}
+            <div style={{
+              maxHeight: 180, overflowY: 'auto', color: 'rgba(255,255,255,0.8)',
+              fontSize: '0.85rem', lineHeight: 1.65, whiteSpace: 'pre-wrap',
+            }}>
+              {hotelTerms}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Termos LGPD */}
+        {lgpdTerms ? (
+          <div style={{ ...glassCard, marginBottom: '1rem' }}>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.6rem' }}>
+              Política de Privacidade (LGPD)
+            </p>
+            <div style={{
+              maxHeight: 120, overflowY: 'auto', color: 'rgba(255,255,255,0.8)',
+              fontSize: '0.85rem', lineHeight: 1.65, whiteSpace: 'pre-wrap',
+            }}>
+              {lgpdTerms}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Checkboxes */}
+        <div style={{ ...glassCard, marginBottom: '1rem' }}>
+          {hotelTerms && (
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+              cursor: 'pointer', marginBottom: '0.85rem',
+            }}>
+              <input
+                type="checkbox"
+                checked={hotelTermsAccepted}
+                onChange={e => { setHotelTermsAccepted(e.target.checked); setError(''); }}
+                style={{ width: 18, height: 18, marginTop: 2, accentColor: '#0085ae', flexShrink: 0, cursor: 'pointer' }}
+              />
+              <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                Li e aceito o <strong style={{ color: '#fff' }}>Regulamento do Hotel</strong>
+              </span>
+            </label>
+          )}
+
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer',
+          }}>
+            <input
+              type="checkbox"
+              checked={lgpdAccepted}
+              onChange={e => { setLgpdAccepted(e.target.checked); setError(''); }}
+              style={{ width: 18, height: 18, marginTop: 2, accentColor: '#0085ae', flexShrink: 0, cursor: 'pointer' }}
+            />
+            <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+              Li e aceito a <strong style={{ color: '#fff' }}>Política de Privacidade (LGPD)</strong> e autorizo o tratamento dos meus dados pessoais para fins de hospedagem.
+            </span>
+          </label>
+        </div>
+
+        {/* Canvas de assinatura */}
+        <div style={{ ...glassCard, marginBottom: '1.25rem', position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.88rem', fontWeight: 700, margin: 0 }}>
+              Assinatura Digital
+            </p>
+            <button
+              onClick={clearCanvas}
+              title="Limpar assinatura"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 8, padding: '0.3rem 0.75rem', cursor: 'pointer',
+                color: 'rgba(255,255,255,0.6)', fontSize: '0.78rem', fontWeight: 600,
+              }}
+            >
+              <Trash2 size={13} /> Limpar
+            </button>
+          </div>
+
+          <div style={{
+            border: hasSignature
+              ? '1px solid rgba(0,133,174,0.55)'
+              : '1px dashed rgba(255,255,255,0.25)',
+            borderRadius: 12, overflow: 'hidden', position: 'relative',
+          }}>
+            <canvas
+              ref={canvasRef}
+              width={600}
+              height={150}
+              onMouseDown={handleDrawStart}
+              onMouseMove={handleDrawMove}
+              onMouseUp={handleDrawEnd}
+              onMouseLeave={handleDrawEnd}
+              onTouchStart={handleDrawStart}
+              onTouchMove={handleDrawMove}
+              onTouchEnd={handleDrawEnd}
+              style={{
+                display: 'block',
+                width: '100%',
+                height: 150,
+                background: 'rgba(255,255,255,0.08)',
+                cursor: 'crosshair',
+                touchAction: 'none',
+              }}
+            />
+            {!hasSignature && (
+              <p style={{
+                position: 'absolute', top: '50%', left: '50%',
+                transform: 'translate(-50%, -50%)',
+                color: 'rgba(255,255,255,0.25)', fontSize: '0.85rem',
+                pointerEvents: 'none', margin: 0, userSelect: 'none',
+              }}>
+                Assine aqui com o dedo ou mouse
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Erro */}
+        {error && (
+          <div style={{
+            background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
+            borderRadius: 12, padding: '0.75rem 1rem', marginBottom: '1rem',
+            color: 'rgba(255,180,180,0.95)', fontSize: '0.88rem', textAlign: 'center',
+          }}>
+            {error}
           </div>
         )}
-
-        {/* Fichas assinadas */}
-        <div style={{ ...glassCard, marginBottom: '1.25rem' }}>
-          <p style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 700, margin: '0 0 0.75rem', fontSize: '0.88rem' }}>
-            {signed.length > 0 ? `✓ ${signed.length} ficha${signed.length > 1 ? 's' : ''} assinada${signed.length > 1 ? 's':''} digitalmente:` : 'Nenhuma ficha assinada ainda.'}
-          </p>
-          {signed.map((g, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
-              <CheckCircle size={16} color="#22c55e" />
-              <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.88rem' }}>{g.name}</span>
-              {g.isMainGuest && (
-                <span style={{ fontSize: '0.7rem', background: 'rgba(0,133,174,0.4)', color: '#7dd3ee', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>
-                  Principal
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
 
         {/* Botões */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <button
             onClick={handleConfirm}
-            disabled={signed.length === 0}
+            disabled={!canFinish}
             style={{
               padding: '1.05rem', borderRadius: 50, border: 'none',
-              cursor: signed.length === 0 ? 'not-allowed' : 'pointer',
-              background: signed.length === 0 ? 'rgba(0,133,174,0.3)' : '#0085ae',
+              cursor: canFinish ? 'pointer' : 'not-allowed',
+              background: canFinish ? '#0085ae' : 'rgba(0,133,174,0.3)',
               color: '#fff', fontWeight: 700, fontSize: '1.05rem',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+              transition: 'background 0.2s',
             }}
           >
             <CheckCircle size={20} />
-            {pending.length > 0
-              ? `Finalizar mesmo assim (${pending.length} pendente${pending.length > 1 ? 's':''} )`
-              : t('finishCheckin')
-            }
+            {saving ? 'Salvando...' : t('finishCheckin')}
           </button>
 
           <button
@@ -172,6 +443,7 @@ export default function WCISignatureAndTerms() {
             {t('back')}
           </button>
         </div>
+
       </div>
     </div>
   );

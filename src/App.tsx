@@ -93,6 +93,7 @@ import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import PDVPage           from './pages/pdv/PDV';
 import PDVHistory        from './pages/pdv/PDVHistory';
+import WCIFichasView     from './pages/reception/WCIFichasView';
 import RoomRack          from './pages/erbon/RoomRack';
 import InHouse           from './pages/erbon/InHouse';
 import CheckInList       from './pages/erbon/CheckInList';
@@ -540,6 +541,11 @@ function App() {
                     <Route path="/reception/inhouse" element={
                       <PrivateRoute modules={['reception']}>
                         <InHouse />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reception/wci-fichas" element={
+                      <PrivateRoute module="reception">
+                        <WCIFichasView />
                       </PrivateRoute>
                     } />
 

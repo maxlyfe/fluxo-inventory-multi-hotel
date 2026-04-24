@@ -171,10 +171,11 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'reception',
     activePrefixes: ['/reception'],
     items: [
-      { module: 'reception', label: "Rack de UH's", href: '/reception/rack',    icon: BedDouble, color: '#14b8a6' },
-      { module: 'reception', label: 'Check-in',      href: '/reception/checkin',  icon: LogIn,     color: '#22c55e' },
-      { module: 'reception', label: 'Check-out',     href: '/reception/checkout', icon: LogOut,    color: '#ef4444' },
-      { module: 'reception', label: 'In House',      href: '/reception/inhouse',  icon: Users,     color: '#3b82f6' },
+      { module: 'reception', label: "Rack de UH's",   href: '/reception/rack',       icon: BedDouble,     color: '#14b8a6' },
+      { module: 'reception', label: 'Check-in',        href: '/reception/checkin',    icon: LogIn,         color: '#22c55e' },
+      { module: 'reception', label: 'Check-out',       href: '/reception/checkout',   icon: LogOut,        color: '#ef4444' },
+      { module: 'reception', label: 'In House',        href: '/reception/inhouse',    icon: Users,         color: '#3b82f6' },
+      { module: 'reception', label: 'Fichas Web CI',   href: '/reception/wci-fichas', icon: ClipboardList, color: '#0085ae' },
     ],
   },
   {
