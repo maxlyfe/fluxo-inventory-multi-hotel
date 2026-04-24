@@ -53,6 +53,17 @@ export function HotelProvider({ children }: { children: React.ReactNode }) {
             setSelectedHotel(null);
             localStorage.removeItem('selectedHotel');
             setError('Hotel não encontrado no banco de dados');
+          } else {
+            // Merge fields from DB (fantasy_name, corporate_name, cnpj) into
+            // selectedHotel so pages like BudgetHistory can use them directly.
+            // Only update if something actually changed to avoid re-render loops.
+            const needsUpdate =
+              data.fantasy_name  !== selectedHotel.fantasy_name  ||
+              data.corporate_name !== selectedHotel.corporate_name ||
+              data.cnpj           !== selectedHotel.cnpj;
+            if (needsUpdate) {
+              setSelectedHotel(prev => prev ? { ...prev, ...data } : null);
+            }
           }
         } catch (err) {
           console.error('Error verifying hotel:', err);
