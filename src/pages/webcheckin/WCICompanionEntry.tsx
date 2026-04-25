@@ -35,6 +35,7 @@ import {
   submitSignature,
   submitAttachment,
   saveFichaToDatabase,
+  uploadBase64ToStorage,
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
@@ -589,13 +590,23 @@ export default function WCICompanionEntry() {
         upd(0, 'error', 'não foi possível salvar');
       }
 
+      // URLs dos documentos assinados (para salvar no banco)
+      let hotelRulesDocUrl: string | undefined;
+      let lgpdDocUrl: string | undefined;
+      let docFrontUrl: string | undefined;
+      let docBackUrl: string | undefined;
+
       // ── 2. Regulamento do Hotel (JPEG) — usa texto no idioma ativo ──────────
       upd(1, 'sending', 'gerando imagem...');
       try {
         const jpegB64 = await buildHotelRulesJpeg(docBase, activeHotelTerms);
         upd(1, 'sending', 'enviando...');
-        const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg');
-        upd(1, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
+        const [erbonOk, storageUrl] = await Promise.all([
+          submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg'),
+          uploadBase64ToStorage(jpegB64, realHotelId, `regulamento_${safeName}_${ts}.jpg`),
+        ]);
+        if (storageUrl) hotelRulesDocUrl = storageUrl;
+        upd(1, erbonOk ? 'done' : 'error', erbonOk ? 'salvo' : 'não foi possível salvar');
       } catch {
         upd(1, 'error', 'erro ao gerar');
       }
@@ -605,8 +616,12 @@ export default function WCICompanionEntry() {
       try {
         const jpegB64 = await buildLGPDJpeg(docBase, activeLgpdTerms);
         upd(2, 'sending', 'enviando...');
-        const ok = await submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg');
-        upd(2, ok ? 'done' : 'error', ok ? 'salvo' : 'não foi possível salvar');
+        const [erbonOk, storageUrl] = await Promise.all([
+          submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg'),
+          uploadBase64ToStorage(jpegB64, realHotelId, `lgpd_${safeName}_${ts}.jpg`),
+        ]);
+        if (storageUrl) lgpdDocUrl = storageUrl;
+        upd(2, erbonOk ? 'done' : 'error', erbonOk ? 'salvo' : 'não foi possível salvar');
       } catch {
         upd(2, 'error', 'erro ao gerar');
       }
@@ -620,8 +635,15 @@ export default function WCICompanionEntry() {
           const doc = docUploads[i];
           upd(docIdx, 'sending', `${i + 1}/${docUploads.length}...`);
           const docFileName = `doc_${safeName}_${ts}_${i + 1}.jpg`;
-          const ok = await submitAttachment(realHotelId, realBookingId, doc.base64, docFileName, 'image/jpeg');
-          if (ok) docsSent++;
+          const [erbonOk, storageUrl] = await Promise.all([
+            submitAttachment(realHotelId, realBookingId, doc.base64, docFileName, 'image/jpeg'),
+            uploadBase64ToStorage(doc.base64, realHotelId, docFileName),
+          ]);
+          if (storageUrl) {
+            if (i === 0) docFrontUrl = storageUrl;
+            else if (i === 1) docBackUrl = storageUrl;
+          }
+          if (erbonOk) docsSent++;
         }
         upd(docIdx, docsSent > 0 ? 'done' : 'error', `${docsSent}/${docUploads.length} salvo(s)`);
       }
@@ -653,8 +675,8 @@ export default function WCICompanionEntry() {
           addressStreet:  street    || undefined,
           addressZipcode: zipcode   || undefined,
           addressNeighborhood: neighborhood || undefined,
-          documentFrontUrl: undefined,
-          documentBackUrl:  undefined,
+          documentFrontUrl: docFrontUrl,
+          documentBackUrl:  docBackUrl,
         };
 
         // Monta lista: outros hóspedes da sessão + hóspede atual com dados completos
@@ -691,6 +713,8 @@ export default function WCICompanionEntry() {
           signatureData:      sigDataUrl,
           hotelTermsText:     activeHotelTerms || undefined,
           lgpdTermsText:      activeLgpdTerms  || undefined,
+          hotelRulesDocUrl,
+          lgpdDocUrl,
           source:             'web',
         });
       } catch (dbErr: any) {

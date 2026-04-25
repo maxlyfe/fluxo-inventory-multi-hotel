@@ -197,6 +197,8 @@ export interface SaveFichaParams {
   signatureData?: string;
   hotelTermsText?: string;
   lgpdTermsText?: string;
+  hotelRulesDocUrl?: string;
+  lgpdDocUrl?: string;
   source?: 'web' | 'totem' | 'manual';
 }
 
@@ -223,6 +225,8 @@ export async function saveFichaToDatabase(params: SaveFichaParams): Promise<stri
       signature_data: params.signatureData || null,
       hotel_terms_text: params.hotelTermsText || null,
       lgpd_terms_text: params.lgpdTermsText || null,
+      hotel_rules_doc_url: params.hotelRulesDocUrl || null,
+      lgpd_doc_url: params.lgpdDocUrl || null,
       source: params.source || 'web',
       created_at: new Date().toISOString(),
     })
@@ -263,6 +267,31 @@ export async function saveFichaToDatabase(params: SaveFichaParams): Promise<stri
   if (guestsError) throw guestsError;
 
   return fichaId;
+}
+
+/**
+ * Faz upload de base64 (JPEG/PNG) para o bucket `wci-documents`.
+ * Retorna a URL pública ou null em caso de erro.
+ */
+export async function uploadBase64ToStorage(
+  base64: string,
+  hotelId: string,
+  filename: string,
+  contentType = 'image/jpeg'
+): Promise<string | null> {
+  try {
+    const byteChars = atob(base64);
+    const byteArray = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([byteArray], { type: contentType });
+    const path = `${hotelId}/${filename}`;
+    const { error } = await anonClient.storage
+      .from('wci-documents')
+      .upload(path, blob, { upsert: true, contentType });
+    if (error) return null;
+    const { data } = anonClient.storage.from('wci-documents').getPublicUrl(path);
+    return data.publicUrl;
+  } catch { return null; }
 }
 
 /**

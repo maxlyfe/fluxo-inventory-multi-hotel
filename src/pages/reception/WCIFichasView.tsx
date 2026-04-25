@@ -4,6 +4,7 @@ import {
   ClipboardCheck, ChevronDown, ChevronUp, Search, X,
   FileImage, Check, AlertCircle, Loader2, User, Users,
   MapPin, Car, Briefcase, Globe, CalendarDays, FileText, Shield,
+  Copy, ExternalLink,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -44,6 +45,8 @@ interface Ficha {
   lgpd_accepted: boolean;
   hotel_terms_text: string | null;
   lgpd_terms_text: string | null;
+  hotel_rules_doc_url: string | null;
+  lgpd_doc_url: string | null;
   signature_data: string | null;
   source: string;
   status: string;
@@ -67,6 +70,7 @@ const GUEST_QUERY = `
 const FICHA_QUERY = `
   id, booking_number, room_number, guest_name,
   hotel_terms_accepted, lgpd_accepted, hotel_terms_text, lgpd_terms_text,
+  hotel_rules_doc_url, lgpd_doc_url,
   signature_data, source, status, created_at, checkin_date, checkout_date,
   wci_checkin_guests ( ${GUEST_QUERY} )
 `;
@@ -132,6 +136,25 @@ function BoolIcon({ value, label }: { value: boolean; label: string }) {
   );
 }
 
+// ── Copy button ──────────────────────────────────────────────────────────────
+
+function CopyBtn({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      title="Copiar"
+      className="ml-1 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors shrink-0 cursor-pointer"
+    >
+      {copied
+        ? <Check className="w-3 h-3 text-green-500" />
+        : <Copy className="w-3 h-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" />
+      }
+    </button>
+  );
+}
+
 // ── Field helper ─────────────────────────────────────────────────────────────
 
 function Field({ label, value, icon }: { label: string; value: string | null | undefined; icon?: React.ReactNode }) {
@@ -142,7 +165,10 @@ function Field({ label, value, icon }: { label: string; value: string | null | u
         {icon}
         {label}
       </span>
-      <p className="font-medium text-xs text-slate-700 dark:text-slate-200 mt-0.5">{value}</p>
+      <div className="flex items-center gap-0.5 mt-0.5">
+        <p className="font-medium text-xs text-slate-700 dark:text-slate-200">{value}</p>
+        <CopyBtn value={value} />
+      </div>
     </div>
   );
 }
@@ -189,7 +215,10 @@ function GuestCard({ guest }: { guest: FichaGuest }) {
           <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px] flex items-center gap-1">
             <MapPin className="w-2.5 h-2.5" /> Endereço
           </span>
-          <p className="font-medium text-xs text-slate-700 dark:text-slate-200 mt-0.5">{address}</p>
+          <div className="flex items-center gap-0.5 mt-0.5">
+            <p className="font-medium text-xs text-slate-700 dark:text-slate-200">{address}</p>
+            <CopyBtn value={address} />
+          </div>
         </div>
       )}
 
@@ -214,9 +243,11 @@ function GuestCard({ guest }: { guest: FichaGuest }) {
   );
 }
 
-// ── Terms section ─────────────────────────────────────────────────────────────
+// ── Signed document section ──────────────────────────────────────────────────
 
-function TermsSection({ label, text, icon }: { label: string; text: string; icon: React.ReactNode }) {
+function SignedDocSection({
+  label, docUrl, text, icon,
+}: { label: string; docUrl: string | null; text: string | null; icon: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-600 overflow-hidden">
@@ -227,12 +258,29 @@ function TermsSection({ label, text, icon }: { label: string; text: string; icon
       >
         <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
           {icon} {label}
+          {docUrl && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+              Doc. assinado
+            </span>
+          )}
         </span>
         {open ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
       </button>
       {open && (
-        <div className="px-4 py-3 max-h-48 overflow-y-auto">
-          <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">{text}</p>
+        <div className="px-4 py-3 space-y-3">
+          {docUrl ? (
+            <>
+              <a href={docUrl} target="_blank" rel="noopener noreferrer" className="block hover:opacity-90 transition-opacity">
+                <img src={docUrl} alt={label} className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white" />
+              </a>
+              <a href={docUrl} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-teal-600 dark:text-teal-400 hover:underline">
+                <ExternalLink className="w-3 h-3" /> Abrir documento completo
+              </a>
+            </>
+          ) : text ? (
+            <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">{text}</p>
+          ) : null}
         </div>
       )}
     </div>
@@ -306,14 +354,24 @@ function FichaRow({ ficha, expanded, onToggle }: { ficha: Ficha; expanded: boole
           )}
 
           {/* Termos aceitos */}
-          {(ficha.hotel_terms_text || ficha.lgpd_terms_text) && (
+          {(ficha.hotel_rules_doc_url || ficha.hotel_terms_text || ficha.lgpd_doc_url || ficha.lgpd_terms_text) && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Termos assinados</p>
-              {ficha.hotel_terms_text && (
-                <TermsSection label="Regulamento do Hotel" text={ficha.hotel_terms_text} icon={<FileText className="w-3.5 h-3.5 text-teal-500" />} />
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Documentos Assinados</p>
+              {(ficha.hotel_rules_doc_url || ficha.hotel_terms_text) && (
+                <SignedDocSection
+                  label="Regulamento do Hotel"
+                  docUrl={ficha.hotel_rules_doc_url}
+                  text={ficha.hotel_terms_text}
+                  icon={<FileText className="w-3.5 h-3.5 text-teal-500" />}
+                />
               )}
-              {ficha.lgpd_terms_text && (
-                <TermsSection label="Política de Privacidade (LGPD)" text={ficha.lgpd_terms_text} icon={<Shield className="w-3.5 h-3.5 text-teal-500" />} />
+              {(ficha.lgpd_doc_url || ficha.lgpd_terms_text) && (
+                <SignedDocSection
+                  label="Política de Privacidade (LGPD)"
+                  docUrl={ficha.lgpd_doc_url}
+                  text={ficha.lgpd_terms_text}
+                  icon={<Shield className="w-3.5 h-3.5 text-teal-500" />}
+                />
               )}
             </div>
           )}
