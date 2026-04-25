@@ -195,6 +195,8 @@ export interface SaveFichaParams {
   hotelTermsAccepted: boolean;
   lgpdAccepted: boolean;
   signatureData?: string;
+  hotelTermsText?: string;
+  lgpdTermsText?: string;
   source?: 'web' | 'totem' | 'manual';
 }
 
@@ -219,6 +221,8 @@ export async function saveFichaToDatabase(params: SaveFichaParams): Promise<stri
       hotel_terms_accepted: params.hotelTermsAccepted,
       lgpd_accepted: params.lgpdAccepted,
       signature_data: params.signatureData || null,
+      hotel_terms_text: params.hotelTermsText || null,
+      lgpd_terms_text: params.lgpdTermsText || null,
       source: params.source || 'web',
       created_at: new Date().toISOString(),
     })

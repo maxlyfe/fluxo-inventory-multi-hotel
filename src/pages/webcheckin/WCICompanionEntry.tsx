@@ -633,61 +633,67 @@ export default function WCICompanionEntry() {
           ? session.guests
           : (loadGuestsFromStorage(realBookingId) || []);
 
-        const guestsForDb = allGuests.map(g => ({
-          isMainGuest:    g.isMainGuest,
-          erbonGuestId:   typeof g.id === 'number' && g.id > 0 ? g.id : null,
-          name:           g.name,
-          email:          g.email,
-          phone:          g.phone,
-          documentType:   g.documents?.[0]?.documentType,
-          documentNumber: g.documents?.[0]?.number,
-          birthDate:      g.birthDate,
-          genderId:       g.genderID,
-          nationality:    g.nationality,
-          addressCountry: g.address?.country,
-          addressState:   g.address?.state,
-          addressCity:    g.address?.city,
-          addressStreet:  g.address?.street,
-          addressZipcode: g.address?.zipcode,
-          addressNeighborhood: g.address?.neighborhood,
-          documentFrontUrl: g.documentFrontUrl,
-          documentBackUrl:  g.documentBackUrl,
-        }));
+        // Dados completos do hóspede atual (do formulário, não da sessão que é incompleta)
+        const currentGuestData = {
+          isMainGuest:    !existingGuestId,
+          erbonGuestId:   savedGuestId,
+          name:           name.trim(),
+          email:          email.trim() || undefined,
+          phone:          phone.trim() || undefined,
+          documentType,
+          documentNumber: documentNumber.trim() || undefined,
+          birthDate:      birthDate || undefined,
+          genderId:       genderID || undefined,
+          nationality:    nationality || undefined,
+          profession:     profession.trim() || undefined,
+          vehicleRegistration: vehicleRegistration.trim() || undefined,
+          addressCountry: country   || undefined,
+          addressState:   state     || undefined,
+          addressCity:    city      || undefined,
+          addressStreet:  street    || undefined,
+          addressZipcode: zipcode   || undefined,
+          addressNeighborhood: neighborhood || undefined,
+          documentFrontUrl: undefined,
+          documentBackUrl:  undefined,
+        };
 
-        // Se o guest atual ainda não está na lista (dados recém-preenchidos), adiciona
-        const currentGuestInList = guestsForDb.some(g => g.erbonGuestId === savedGuestId);
-        if (!currentGuestInList) {
-          guestsForDb.push({
-            isMainGuest:    !existingGuestId,
-            erbonGuestId:   savedGuestId,
-            name,
-            email:          email.trim() || undefined,
-            phone:          phone.trim() || undefined,
-            documentType,
-            documentNumber: documentNumber.trim() || undefined,
-            birthDate:      birthDate || undefined,
-            genderId:       genderID || undefined,
-            nationality:    nationality || undefined,
-            addressCountry: country || undefined,
-            addressState:   state   || undefined,
-            addressCity:    city    || undefined,
-            addressStreet:  street  || undefined,
-            addressZipcode: zipcode || undefined,
-            addressNeighborhood: neighborhood || undefined,
-            documentFrontUrl: undefined,
-            documentBackUrl:  undefined,
-          });
-        }
+        // Monta lista: outros hóspedes da sessão + hóspede atual com dados completos
+        const othersForDb = allGuests
+          .filter(g => g.id !== savedGuestId)
+          .map(g => ({
+            isMainGuest:    g.isMainGuest,
+            erbonGuestId:   typeof g.id === 'number' && g.id > 0 ? g.id : null,
+            name:           g.name,
+            email:          g.email,
+            phone:          g.phone,
+            documentType:   g.documents?.[0]?.documentType,
+            documentNumber: g.documents?.[0]?.number,
+            birthDate:      g.birthDate,
+            genderId:       g.genderID,
+            nationality:    g.nationality,
+            addressCountry: g.address?.country,
+            addressState:   g.address?.state,
+            addressCity:    g.address?.city,
+            addressStreet:  g.address?.street,
+            addressZipcode: g.address?.zipcode,
+            addressNeighborhood: g.address?.neighborhood,
+            documentFrontUrl: g.documentFrontUrl,
+            documentBackUrl:  g.documentBackUrl,
+          }));
 
-        console.log('[WCI] salvando ficha no banco, hóspedes:', guestsForDb.length);
+        const guestsForDb = [...othersForDb, currentGuestData];
+
+        console.log('[WCI] salvando ficha no banco, hóspedes:', guestsForDb.length, JSON.stringify(currentGuestData));
         await saveFichaToDatabase({
-          hotelId:           realHotelId!,
-          bookingNumber:     session?.bookingNumber || undefined,
-          guests:            guestsForDb,
+          hotelId:            realHotelId!,
+          bookingNumber:      session?.bookingNumber || undefined,
+          guests:             guestsForDb,
           hotelTermsAccepted: hotelAccepted,
           lgpdAccepted,
-          signatureData:     sigDataUrl,
-          source:            'web',
+          signatureData:      sigDataUrl,
+          hotelTermsText:     activeHotelTerms || undefined,
+          lgpdTermsText:      activeLgpdTerms  || undefined,
+          source:             'web',
         });
         console.log('[WCI] ficha salva com sucesso');
       } catch (dbErr: any) {
