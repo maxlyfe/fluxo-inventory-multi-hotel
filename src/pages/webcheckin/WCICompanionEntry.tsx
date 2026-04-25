@@ -34,6 +34,7 @@ import {
   fetchFreshBookingGuests,
   submitSignature,
   submitAttachment,
+  saveFichaToDatabase,
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
@@ -623,6 +624,74 @@ export default function WCICompanionEntry() {
           if (ok) docsSent++;
         }
         upd(docIdx, docsSent > 0 ? 'done' : 'error', `${docsSent}/${docUploads.length} salvo(s)`);
+      }
+
+      // ── 5. Salvar ficha no banco de dados (Supabase) ─────────────────────
+      try {
+        const session = await resolveSession(sessionToken!).catch(() => null);
+        const allGuests = session?.guests?.length
+          ? session.guests
+          : (loadGuestsFromStorage(realBookingId) || []);
+
+        const guestsForDb = allGuests.map(g => ({
+          isMainGuest:    g.isMainGuest,
+          erbonGuestId:   typeof g.id === 'number' && g.id > 0 ? g.id : null,
+          name:           g.name,
+          email:          g.email,
+          phone:          g.phone,
+          documentType:   g.documents?.[0]?.documentType,
+          documentNumber: g.documents?.[0]?.number,
+          birthDate:      g.birthDate,
+          genderId:       g.genderID,
+          nationality:    g.nationality,
+          addressCountry: g.address?.country,
+          addressState:   g.address?.state,
+          addressCity:    g.address?.city,
+          addressStreet:  g.address?.street,
+          addressZipcode: g.address?.zipcode,
+          addressNeighborhood: g.address?.neighborhood,
+          documentFrontUrl: g.documentFrontUrl,
+          documentBackUrl:  g.documentBackUrl,
+        }));
+
+        // Se o guest atual ainda não está na lista (dados recém-preenchidos), adiciona
+        const currentGuestInList = guestsForDb.some(g => g.erbonGuestId === savedGuestId);
+        if (!currentGuestInList) {
+          guestsForDb.push({
+            isMainGuest:    !existingGuestId,
+            erbonGuestId:   savedGuestId,
+            name,
+            email:          email.trim() || undefined,
+            phone:          phone.trim() || undefined,
+            documentType,
+            documentNumber: documentNumber.trim() || undefined,
+            birthDate:      birthDate || undefined,
+            genderId:       genderID || undefined,
+            nationality:    nationality || undefined,
+            addressCountry: country || undefined,
+            addressState:   state   || undefined,
+            addressCity:    city    || undefined,
+            addressStreet:  street  || undefined,
+            addressZipcode: zipcode || undefined,
+            addressNeighborhood: neighborhood || undefined,
+            documentFrontUrl: undefined,
+            documentBackUrl:  undefined,
+          });
+        }
+
+        console.log('[WCI] salvando ficha no banco, hóspedes:', guestsForDb.length);
+        await saveFichaToDatabase({
+          hotelId:           realHotelId!,
+          bookingNumber:     session?.bookingNumber || undefined,
+          guests:            guestsForDb,
+          hotelTermsAccepted: hotelAccepted,
+          lgpdAccepted,
+          signatureData:     sigDataUrl,
+          source:            'web',
+        });
+        console.log('[WCI] ficha salva com sucesso');
+      } catch (dbErr: any) {
+        console.error('[WCI] ERRO ao salvar ficha no banco:', dbErr);
       }
 
       await new Promise(r => setTimeout(r, 900));
