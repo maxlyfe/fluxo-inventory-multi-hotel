@@ -242,24 +242,37 @@ export default function WCIFNRHForm() {
       // Guests ficam no storage sob o booking ID numérico (chave correta da sessão)
       const stored = session?.guests || loadGuestsFromStorage(numericBookingId) || [];
 
+      const guestProfile: Partial<WebCheckinGuest> = {
+        name:        fullName,
+        email:       domEmail,
+        phone:       domPhone,
+        documents:   payload.documents,
+        birthDate:   domBirthDate  || undefined,
+        genderID:    domGenderID   || undefined,
+        nationality: domNationality || undefined,
+        address: {
+          country:      addressCountry,
+          state:        domState        || undefined,
+          city:         domCity         || undefined,
+          street:       domStreet       || undefined,
+          zipcode:      domZipcode      || undefined,
+          neighborhood: domNeighborhood || undefined,
+        },
+        fnrhCompleted:    true,
+        documentFrontUrl: docFrontUrl,
+        documentBackUrl:  docBackUrl,
+      };
+
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: savedId,
-          name:  fullName,
-          email: domEmail,
-          phone: domPhone,
-          documents: payload.documents,
-          fnrhCompleted: true,
-          isMainGuest:  false,
-          documentFrontUrl: docFrontUrl,
-          documentBackUrl:  docBackUrl,
-        };
+          isMainGuest: false,
+          ...guestProfile,
+        } as WebCheckinGuest;
         saveGuestsToStorage(numericBookingId, [...stored, newGuest], hotelUUID);
       } else {
         const updated = stored.map(g =>
-          g.id === guestId
-            ? { ...g, name: fullName, email: domEmail, phone: domPhone, fnrhCompleted: true, documentFrontUrl: docFrontUrl, documentBackUrl: docBackUrl }
-            : g
+          g.id === guestId ? { ...g, ...guestProfile } : g
         );
         saveGuestsToStorage(numericBookingId, updated, hotelUUID);
       }

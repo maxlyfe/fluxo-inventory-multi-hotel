@@ -175,16 +175,19 @@ export default function WCISignatureAndTerms() {
 
       // Resolve hotel UUID on-demand (don't rely on async state)
       const hotelUUID = realHotelId || (await resolveHotelByCode(wciCode))?.id;
+      console.log('[WCI] handleConfirm — hotelUUID:', hotelUUID, 'sessionToken:', sessionToken, 'guests:', guests.length);
       if (!hotelUUID) throw new Error('Hotel não identificado. Tente novamente.');
 
-      // Resolve booking number on-demand if not yet populated
-      let finalBookingRef = bookingRef;
-      if (!finalBookingRef) {
-        const session = await resolveSession(sessionToken).catch(() => null);
-        finalBookingRef = session?.bookingNumber || '';
-      }
+      // Resolve session on-demand to get latest guests + booking number
+      const session = await resolveSession(sessionToken).catch(() => null);
+      console.log('[WCI] session:', session);
+      const latestGuests = (session?.guests?.length ? session.guests : guests);
 
-      const guestsForDb = guests.map(g => ({
+      // Resolve booking number on-demand if not yet populated
+      let finalBookingRef = bookingRef || session?.bookingNumber || '';
+      console.log('[WCI] bookingRef:', finalBookingRef, 'guests count:', latestGuests.length);
+
+      const guestsForDb = latestGuests.map(g => ({
         isMainGuest: g.isMainGuest,
         erbonGuestId: typeof g.id === 'number' && g.id > 0 ? g.id : null,
         name: g.name,
@@ -205,7 +208,9 @@ export default function WCISignatureAndTerms() {
         documentBackUrl: g.documentBackUrl,
       }));
 
-      await saveFichaToDatabase({
+      console.log('[WCI] guestsForDb:', JSON.stringify(guestsForDb));
+
+      const fichaId = await saveFichaToDatabase({
         hotelId: hotelUUID,
         bookingNumber: finalBookingRef || undefined,
         guests: guestsForDb,
@@ -214,12 +219,14 @@ export default function WCISignatureAndTerms() {
         signatureData,
         source: 'web',
       });
+      console.log('[WCI] ficha salva com id:', fichaId);
 
       if (sessionToken) clearGuestsFromStorage(sessionToken);
       setConfirmed(true);
       setTimeout(() => navigate('/web-checkin'), 8000);
     } catch (err: any) {
-      setError(err.message || 'Erro ao salvar. Tente novamente.');
+      console.error('[WCI] ERRO ao salvar ficha:', err);
+      setError(err.message || `Erro ao salvar (${String(err)}). Tente novamente.`);
     } finally {
       setSaving(false);
     }
