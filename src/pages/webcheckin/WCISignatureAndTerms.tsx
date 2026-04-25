@@ -175,17 +175,14 @@ export default function WCISignatureAndTerms() {
 
       // Resolve hotel UUID on-demand (don't rely on async state)
       const hotelUUID = realHotelId || (await resolveHotelByCode(wciCode))?.id;
-      console.log('[WCI] handleConfirm — hotelUUID:', hotelUUID, 'sessionToken:', sessionToken, 'guests:', guests.length);
       if (!hotelUUID) throw new Error('Hotel não identificado. Tente novamente.');
 
       // Resolve session on-demand to get latest guests + booking number
       const session = await resolveSession(sessionToken).catch(() => null);
-      console.log('[WCI] session:', session);
       const latestGuests = (session?.guests?.length ? session.guests : guests);
 
       // Resolve booking number on-demand if not yet populated
       let finalBookingRef = bookingRef || session?.bookingNumber || '';
-      console.log('[WCI] bookingRef:', finalBookingRef, 'guests count:', latestGuests.length);
 
       const guestsForDb = latestGuests.map(g => ({
         isMainGuest: g.isMainGuest,
@@ -208,8 +205,6 @@ export default function WCISignatureAndTerms() {
         documentBackUrl: g.documentBackUrl,
       }));
 
-      console.log('[WCI] guestsForDb:', JSON.stringify(guestsForDb));
-
       const fichaId = await saveFichaToDatabase({
         hotelId: hotelUUID,
         bookingNumber: finalBookingRef || undefined,
@@ -219,13 +214,11 @@ export default function WCISignatureAndTerms() {
         signatureData,
         source: 'web',
       });
-      console.log('[WCI] ficha salva com id:', fichaId);
 
       if (sessionToken) clearGuestsFromStorage(sessionToken);
       setConfirmed(true);
       setTimeout(() => navigate('/web-checkin'), 8000);
     } catch (err: any) {
-      console.error('[WCI] ERRO ao salvar ficha:', err);
       setError(err.message || `Erro ao salvar (${String(err)}). Tente novamente.`);
     } finally {
       setSaving(false);

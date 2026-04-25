@@ -225,8 +225,6 @@ export default function WCIFNRHForm() {
         },
       };
 
-      console.log('[FNRH] payload enviado:', JSON.stringify(payload));
-
       // Resolve o numeric booking ID real (bookingId do param é o token opaco)
       const session = await resolveSession(bookingId!).catch(() => null);
       const numericBookingId = session?.bookingId ?? 0;

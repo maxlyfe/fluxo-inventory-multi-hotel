@@ -682,8 +682,6 @@ export default function WCICompanionEntry() {
           }));
 
         const guestsForDb = [...othersForDb, currentGuestData];
-
-        console.log('[WCI] salvando ficha no banco, hóspedes:', guestsForDb.length, JSON.stringify(currentGuestData));
         await saveFichaToDatabase({
           hotelId:            realHotelId!,
           bookingNumber:      session?.bookingNumber || undefined,
@@ -695,9 +693,7 @@ export default function WCICompanionEntry() {
           lgpdTermsText:      activeLgpdTerms  || undefined,
           source:             'web',
         });
-        console.log('[WCI] ficha salva com sucesso');
       } catch (dbErr: any) {
-        console.error('[WCI] ERRO ao salvar ficha no banco:', dbErr);
       }
 
       await new Promise(r => setTimeout(r, 900));
