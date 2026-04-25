@@ -226,13 +226,14 @@ export default function WCIReservationSearch() {
 
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
-                  Número da reserva (opcional)
+                  Número da reserva *
                 </label>
                 <input
                   type="text"
                   value={bookingNumber}
-                  onChange={e => setBookingNumber(e.target.value)}
+                  onChange={e => { setBookingNumber(e.target.value); setError(''); }}
                   placeholder="Ex: 12345"
+                  required
                   style={{
                     width: '100%', boxSizing: 'border-box',
                     padding: '1rem 1.25rem',
@@ -258,13 +259,13 @@ export default function WCIReservationSearch() {
 
               <button
                 type="submit"
-                disabled={loading || !guestName.trim() || !realHotelId}
+                disabled={loading || !guestName.trim() || !bookingNumber.trim() || !realHotelId}
                 style={{
                   padding: '1rem', borderRadius: 50, border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
                   background: loading ? 'rgba(0,133,174,0.5)' : '#0085ae',
                   color: '#fff', fontWeight: 700, fontSize: '1.05rem',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  transition: 'all 0.2s', opacity: !guestName.trim() ? 0.5 : 1,
+                  transition: 'all 0.2s', opacity: (!guestName.trim() || !bookingNumber.trim()) ? 0.5 : 1,
                 }}
               >
                 {loading

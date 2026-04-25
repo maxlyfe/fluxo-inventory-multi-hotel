@@ -291,6 +291,7 @@ export default function WCICompanionEntry() {
   // IDs reais (resolvidos a partir dos tokens)
   const [realHotelId, setRealHotelId]     = useState<string | null>(null);
   const [realBookingId, setRealBookingId] = useState<number | null>(null);
+  const [hasErbon, setHasErbon]           = useState(false);
   const [resolving, setResolving]         = useState(true);
 
   // Políticas do hotel por idioma — 6 variantes (PT/EN/ES × regulamento/LGPD)
@@ -396,6 +397,7 @@ export default function WCICompanionEntry() {
 
       if (hotel) {
         setRealHotelId(hotel.id);
+        setHasErbon(hotel.hasErbon);
         // Carregar políticas em paralelo (não bloqueia o formulário)
         fetchHotelPolicies(hotel.id).then(p => {
           setPolicies({
@@ -508,7 +510,13 @@ export default function WCICompanionEntry() {
         },
       };
 
-      const newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, payload);
+      let newId: number;
+      if (hasErbon && realBookingId) {
+        newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, payload);
+      } else {
+        // Hotel sem API Erbon: usa ID sintético (não enviado para nenhuma API externa)
+        newId = existingGuestId && existingGuestId > 0 ? existingGuestId : (savedGuestId ?? 0);
+      }
       setSavedGuestId(newId);
 
       const stored = (await loadGuestsFromServer(realBookingId)) || loadGuestsFromStorage(realBookingId) || [];
@@ -581,47 +589,63 @@ export default function WCICompanionEntry() {
         signedAt,
       };
 
-      // ── 1. Assinatura PNG ──────────────────────────────────────────────────
-      upd(0, 'sending');
-      try {
-        await submitSignature(realHotelId, realBookingId, sigBase64, savedGuestId ?? undefined);
-        upd(0, 'done', 'OK');
-      } catch {
-        upd(0, 'error', 'não foi possível salvar');
-      }
-
       // URLs dos documentos assinados (para salvar no banco)
       let hotelRulesDocUrl: string | undefined;
       let lgpdDocUrl: string | undefined;
       let docFrontUrl: string | undefined;
       let docBackUrl: string | undefined;
 
-      // ── 2. Regulamento do Hotel (JPEG) — usa texto no idioma ativo ──────────
+      // ── 1. Assinatura PNG ──────────────────────────────────────────────────
+      upd(0, 'sending');
+      if (hasErbon && realBookingId) {
+        try {
+          await submitSignature(realHotelId, realBookingId, sigBase64, savedGuestId ?? undefined);
+          upd(0, 'done', 'OK');
+        } catch {
+          upd(0, 'error', 'não foi possível salvar');
+        }
+      } else {
+        upd(0, 'done', 'salvo');
+      }
+
+      // ── 2. Regulamento do Hotel (JPEG) ────────────────────────────────────
       upd(1, 'sending', 'gerando imagem...');
       try {
         const jpegB64 = await buildHotelRulesJpeg(docBase, activeHotelTerms);
-        upd(1, 'sending', 'enviando...');
-        const [erbonOk, storageUrl] = await Promise.all([
-          submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg'),
-          uploadBase64ToStorage(jpegB64, realHotelId, `regulamento_${safeName}_${ts}.jpg`),
-        ]);
-        if (storageUrl) hotelRulesDocUrl = storageUrl;
-        upd(1, erbonOk ? 'done' : 'error', erbonOk ? 'salvo' : 'não foi possível salvar');
+        upd(1, 'sending', 'salvando...');
+        const storageUpload = uploadBase64ToStorage(jpegB64, realHotelId, `regulamento_${safeName}_${ts}.jpg`);
+        if (hasErbon && realBookingId) {
+          const [storageUrl] = await Promise.all([
+            storageUpload,
+            submitAttachment(realHotelId, realBookingId, jpegB64, `Regulamento_${safeName}_${ts}.jpg`, 'image/jpeg'),
+          ]);
+          if (storageUrl) hotelRulesDocUrl = storageUrl;
+        } else {
+          const storageUrl = await storageUpload;
+          if (storageUrl) hotelRulesDocUrl = storageUrl;
+        }
+        upd(1, 'done', 'salvo');
       } catch {
         upd(1, 'error', 'erro ao gerar');
       }
 
-      // ── 3. LGPD (JPEG) — usa texto no idioma ativo ────────────────────────
+      // ── 3. LGPD (JPEG) ────────────────────────────────────────────────────
       upd(2, 'sending', 'gerando imagem...');
       try {
         const jpegB64 = await buildLGPDJpeg(docBase, activeLgpdTerms);
-        upd(2, 'sending', 'enviando...');
-        const [erbonOk, storageUrl] = await Promise.all([
-          submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg'),
-          uploadBase64ToStorage(jpegB64, realHotelId, `lgpd_${safeName}_${ts}.jpg`),
-        ]);
-        if (storageUrl) lgpdDocUrl = storageUrl;
-        upd(2, erbonOk ? 'done' : 'error', erbonOk ? 'salvo' : 'não foi possível salvar');
+        upd(2, 'sending', 'salvando...');
+        const storageUpload = uploadBase64ToStorage(jpegB64, realHotelId, `lgpd_${safeName}_${ts}.jpg`);
+        if (hasErbon && realBookingId) {
+          const [storageUrl] = await Promise.all([
+            storageUpload,
+            submitAttachment(realHotelId, realBookingId, jpegB64, `LGPD_${safeName}_${ts}.jpg`, 'image/jpeg'),
+          ]);
+          if (storageUrl) lgpdDocUrl = storageUrl;
+        } else {
+          const storageUrl = await storageUpload;
+          if (storageUrl) lgpdDocUrl = storageUrl;
+        }
+        upd(2, 'done', 'salvo');
       } catch {
         upd(2, 'error', 'erro ao gerar');
       }
@@ -629,23 +653,29 @@ export default function WCICompanionEntry() {
       // ── 4. Documentos de identificação ────────────────────────────────────
       if (hasDocUploads) {
         const docIdx = 3;
-        upd(docIdx, 'sending', 'enviando...');
-        let docsSent = 0;
+        upd(docIdx, 'sending', 'salvando...');
+        let docsSaved = 0;
         for (let i = 0; i < docUploads.length; i++) {
           const doc = docUploads[i];
           upd(docIdx, 'sending', `${i + 1}/${docUploads.length}...`);
           const docFileName = `doc_${safeName}_${ts}_${i + 1}.jpg`;
-          const [erbonOk, storageUrl] = await Promise.all([
-            submitAttachment(realHotelId, realBookingId, doc.base64, docFileName, 'image/jpeg'),
-            uploadBase64ToStorage(doc.base64, realHotelId, docFileName),
-          ]);
+          const storageUpload = uploadBase64ToStorage(doc.base64, realHotelId, docFileName);
+          let storageUrl: string | null = null;
+          if (hasErbon && realBookingId) {
+            [storageUrl] = await Promise.all([
+              storageUpload,
+              submitAttachment(realHotelId, realBookingId, doc.base64, docFileName, 'image/jpeg'),
+            ]);
+          } else {
+            storageUrl = await storageUpload;
+          }
           if (storageUrl) {
             if (i === 0) docFrontUrl = storageUrl;
             else if (i === 1) docBackUrl = storageUrl;
+            docsSaved++;
           }
-          if (erbonOk) docsSent++;
         }
-        upd(docIdx, docsSent > 0 ? 'done' : 'error', `${docsSent}/${docUploads.length} salvo(s)`);
+        upd(docIdx, docsSaved > 0 ? 'done' : 'error', `${docsSaved}/${docUploads.length} salvo(s)`);
       }
 
       // ── 5. Salvar ficha no banco de dados (Supabase) ─────────────────────
