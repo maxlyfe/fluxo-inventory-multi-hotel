@@ -10,6 +10,7 @@ import {
   saveGuestFNRH,
   uploadDocumentPhoto,
   resolveHotelByCode,
+  resolveSession,
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
@@ -226,16 +227,20 @@ export default function WCIFNRHForm() {
 
       console.log('[FNRH] payload enviado:', JSON.stringify(payload));
 
+      // Resolve o numeric booking ID real (bookingId do param é o token opaco)
+      const session = await resolveSession(bookingId!).catch(() => null);
+      const numericBookingId = session?.bookingId ?? 0;
+
       let savedId: number;
       if (hasErbon) {
-        savedId = await saveGuestFNRH(hotelUUID, Number(bookingId), guestId, payload);
+        savedId = await saveGuestFNRH(hotelUUID, numericBookingId, guestId, payload);
       } else {
-        // Non-Erbon: no API call, just local ID
         savedId = guestId ?? Date.now();
       }
 
       const fullName = domName;
-      const stored   = loadGuestsFromStorage(bookingId) || [];
+      // Guests ficam no storage sob o booking ID numérico (chave correta da sessão)
+      const stored = session?.guests || loadGuestsFromStorage(numericBookingId) || [];
 
       if (isNew) {
         const newGuest: WebCheckinGuest = {
@@ -249,14 +254,14 @@ export default function WCIFNRHForm() {
           documentFrontUrl: docFrontUrl,
           documentBackUrl:  docBackUrl,
         };
-        saveGuestsToStorage(bookingId, [...stored, newGuest]);
+        saveGuestsToStorage(numericBookingId, [...stored, newGuest], hotelUUID);
       } else {
         const updated = stored.map(g =>
           g.id === guestId
             ? { ...g, name: fullName, email: domEmail, phone: domPhone, fnrhCompleted: true, documentFrontUrl: docFrontUrl, documentBackUrl: docBackUrl }
             : g
         );
-        saveGuestsToStorage(bookingId, updated);
+        saveGuestsToStorage(numericBookingId, updated, hotelUUID);
       }
 
       setSaved(true);

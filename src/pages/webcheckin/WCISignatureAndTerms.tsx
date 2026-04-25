@@ -55,11 +55,7 @@ export default function WCISignatureAndTerms() {
   useEffect(() => {
     if (!wciCode || !sessionToken) return;
 
-    // Load guests from local storage (prefer token key; FNRH saves under token)
-    const stored = loadGuestsFromStorage(sessionToken) || [];
-    setGuests(stored);
-
-    // Resolve hotel code → real UUID + fetch policies + booking number from session
+    // Resolve hotel code → real UUID + fetch policies
     resolveHotelByCode(wciCode).then(resolved => {
       if (!resolved) return;
       setRealHotelId(resolved.id);
@@ -69,10 +65,17 @@ export default function WCISignatureAndTerms() {
       }).catch(() => {});
     }).catch(() => {});
 
-    // Populate booking reference from session record
+    // Carregar guests e booking number da sessão no servidor (fonte confiável)
+    // Guests ficam em wci_sessions.guests sob o numeric booking ID,
+    // mas resolveSession busca pelo session_token, então retorna a sessão correta.
     resolveSession(sessionToken).then(session => {
+      if (session?.guests?.length) setGuests(session.guests);
       if (session?.bookingNumber) setBookingRef(session.bookingNumber);
-    }).catch(() => {});
+    }).catch(() => {
+      // fallback ao localStorage se o servidor falhar
+      const stored = loadGuestsFromStorage(sessionToken) || [];
+      if (stored.length) setGuests(stored);
+    });
   }, [wciCode, sessionToken]);
 
   // ── Canvas helpers ─────────────────────────────────────────────────────────
