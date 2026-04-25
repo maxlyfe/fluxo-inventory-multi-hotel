@@ -261,6 +261,13 @@ export default function WCIGuestList() {
   const anyDone = guests.some(g => g.fnrhCompleted);
   const allDone = guests.length > 0 && guests.every(g => g.fnrhCompleted);
 
+  // Auto-navega para assinatura quando todos os hóspedes concluíram o FNRH
+  useEffect(() => {
+    if (allDone && !loading && wciCode && sessionToken) {
+      navigate(`/web-checkin/${wciCode}/signature/${sessionToken}`, { replace: true });
+    }
+  }, [allDone, loading, wciCode, sessionToken, navigate]);
+
   // Erro de resolução — token inválido ou expirado
   if (resolveError) {
     return (
