@@ -90,6 +90,9 @@ import WCIFNRHForm           from './pages/webcheckin/WCIFNRHForm';
 import WCISignatureAndTerms  from './pages/webcheckin/WCISignatureAndTerms';
 import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 
+// ── Pages — Diretoria ────────────────────────────────────────────────────────
+import PickupReport from './pages/diretoria/PickupReport';
+
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import PDVPage           from './pages/pdv/PDV';
 import PDVHistory        from './pages/pdv/PDVHistory';
@@ -302,6 +305,13 @@ function App() {
                     <Route path="/management/pdv" element={
                       <PrivateRoute module="management">
                         <PDVManagement />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Diretoria ─────────────────────────────────────────── */}
+                    <Route path="/diretoria/pickup" element={
+                      <PrivateRoute module="diretoria">
+                        <PickupReport />
                       </PrivateRoute>
                     } />
 

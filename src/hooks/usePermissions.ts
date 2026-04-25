@@ -40,6 +40,7 @@ export const MODULES: Module[] = [
   { key: 'hotel_documents',      label: 'Documentos e Licenças', description: 'Gestão de alvarás, licenças e documentos', group: 'Área Administrativa', icon: 'FileText'      },
   { key: 'commercial',           label: 'Comercial',            description: 'Clientes corporativos, grupos e metas',   group: 'Área Administrativa', icon: 'Briefcase'     },
   { key: 'pdv',                  label: 'PDV — Ponto de Venda', description: 'Lançar consumos na UH, histórico de vendas PDV', group: 'Área Administrativa', icon: 'ShoppingCart' },
+  { key: 'diretoria',            label: 'Diretoria',            description: 'Relatórios e análises para a diretoria',   group: 'Área Administrativa', icon: 'TrendingUp'    },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },

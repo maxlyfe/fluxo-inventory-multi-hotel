@@ -16,7 +16,7 @@ import {
   Sun, Cloud, Moon, CloudRain, CloudSnow, CloudLightning, CloudDrizzle,
   CloudFog, Wind, Thermometer, Droplets, Eye, MapPin, Clock,
   BedDouble, LogIn, LogOut, Users, Search, CalendarCheck, CalendarRange,
-  ArrowLeftRight, Phone, MessageSquare, ChevronRight, Sparkles, Zap,
+  ArrowLeftRight, Phone, MessageSquare, ChevronRight, Sparkles, Zap, TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -342,6 +342,7 @@ const Home = () => {
       { module: 'finances',             label: 'Financeiro',       sub: 'Controle financeiro',           href: '/finances',             icon: DollarSign,   color: '#10b981', gradient: 'from-green-500 to-green-600' },
       { module: 'personnel_department', label: 'Depart. Pessoal', sub: 'Escalas e contratos',           href: '/personnel-department', icon: UsersRound,   color: '#f43f5e', gradient: 'from-rose-500 to-rose-600' },
       { module: 'maintenance',          label: 'Manutenções',     sub: 'Tickets e equipamentos',        href: '/maintenance',          icon: HardHat,      color: '#f97316', gradient: 'from-orange-500 to-orange-600' },
+      { module: 'diretoria',            label: 'Diretoria',        sub: 'Pick-up e relatórios',          href: '/diretoria/pickup',     icon: TrendingUp,   color: '#0085ae', gradient: 'from-cyan-600 to-blue-700' },
     ];
     return candidates.filter(c => can(c.module));
   }, [user, can]);

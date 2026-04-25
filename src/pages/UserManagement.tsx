@@ -8,6 +8,7 @@ import {
   ShieldOff, ShieldCheck, UserX, Loader2, LogOut,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { useNavigate } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
@@ -315,6 +316,7 @@ function ModalActions({ onCancel, submitLabel, submitColor = 'bg-blue-600 hover:
 
 const UserManagement = () => {
   const { user: adminUser, session, forceSignOut } = useAuth();
+  const { isAdmin } = usePermissions();
   const navigate = useNavigate();
 
   const [users, setUsers]     = useState<User[]>([]);
@@ -375,7 +377,7 @@ const UserManagement = () => {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!adminUser || adminUser.role !== 'admin') { navigate('/'); return; }
+    if (!adminUser || !isAdmin) { navigate('/'); return; }
     fetchUsers();
     fetchCustomRoles();
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));

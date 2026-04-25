@@ -17,7 +17,7 @@ import {
   Settings as SettingsIcon, Package, Shield, ShieldAlert,
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
-  MonitorSmartphone, Store,
+  MonitorSmartphone, Store, TrendingUp,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -113,6 +113,16 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { module: 'inventory', label: 'Inventário',     href: '/inventory',           icon: Boxes,          color: '#8b5cf6' },
       { module: 'inventory', label: 'Transferências', href: '/inventory/transfers', icon: ArrowLeftRight, color: '#f97316' },
+    ],
+  },
+  {
+    key: 'diretoria',
+    label: 'Diretoria',
+    icon: TrendingUp,
+    module: 'diretoria',
+    activePrefixes: ['/diretoria'],
+    items: [
+      { module: 'diretoria', label: 'Pick-up', href: '/diretoria/pickup', icon: TrendingUp, color: '#0085ae' },
     ],
   },
   {

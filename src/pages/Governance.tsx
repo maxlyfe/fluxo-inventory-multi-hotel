@@ -20,7 +20,8 @@ import {
 import * as XLSX from 'xlsx';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useAuth } from '../context/AuthContext'; // Ajuste o caminho se necessário
+import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { useNavigate } from 'react-router-dom';
 
 
@@ -69,6 +70,7 @@ interface Loss {
 
 const Governance = () => {
   const { user } = useAuth();
+  const { isAdmin } = usePermissions();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('stock');
   const [products, setProducts] = useState<Product[]>([]);
@@ -116,7 +118,7 @@ const Governance = () => {
   });
 
   useEffect(() => {
-    if (!user || (user.role !== 'sup-governanca' && user.role !== 'admin')) {
+    if (!user || (!isAdmin && user.role !== 'sup-governanca')) {
       navigate('/');
       return;
     }
