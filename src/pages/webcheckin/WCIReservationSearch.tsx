@@ -86,7 +86,8 @@ export default function WCIReservationSearch() {
       const token = await createWCISession(
         result.booking.bookingInternalID,
         realHotelId,
-        result.guests as WebCheckinGuest[]
+        result.guests as WebCheckinGuest[],
+        result.booking.bookingNumber || null
       );
       navigate(`/web-checkin/${wciCode}/guests/${token}`);
     } catch (err: any) {

@@ -52,7 +52,7 @@ export interface WebCheckinGuest {
 // ── Cache em memória (evita chamadas Supabase repetidas por navegação) ─────
 
 const _hotelCache = new Map<string, { id: string; erbonHotelId: string; hasErbon: boolean } | null>();
-const _sessionCache = new Map<string, { bookingId: number; guests: WebCheckinGuest[] } | null>();
+const _sessionCache = new Map<string, { bookingId: number; guests: WebCheckinGuest[]; bookingNumber?: string | null } | null>();
 
 // ── Utilitários de sessão (usados por createManualSession e createWCISession) ─
 
@@ -534,7 +534,8 @@ export async function submitAttachment(
 export async function createWCISession(
   bookingId: number,
   hotelId: string,
-  guests: WebCheckinGuest[]
+  guests: WebCheckinGuest[],
+  bookingNumber?: string | null
 ): Promise<string> {
   const token = generateToken();
   localStorage.setItem(STORAGE_KEY(bookingId), JSON.stringify(guests));
@@ -544,31 +545,33 @@ export async function createWCISession(
       hotel_id: hotelId,
       guests,
       session_token: token,
+      booking_number: bookingNumber || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'booking_id' });
   } catch { /* best-effort */ }
-  _sessionCache.set(token, { bookingId, guests });
+  _sessionCache.set(token, { bookingId, guests, bookingNumber });
   return token;
 }
 
 /**
- * Resolve token de sessão → { bookingId (Erbon internal ID), guests }.
+ * Resolve token de sessão → { bookingId (Erbon internal ID), guests, bookingNumber }.
  * Busca em Supabase, resultado cacheado em memória.
  */
 export async function resolveSession(
   sessionToken: string
-): Promise<{ bookingId: number; guests: WebCheckinGuest[] } | null> {
+): Promise<{ bookingId: number; guests: WebCheckinGuest[]; bookingNumber?: string | null } | null> {
   if (_sessionCache.has(sessionToken)) return _sessionCache.get(sessionToken)!;
   try {
     const { data } = await anonClient
       .from('wci_sessions')
-      .select('booking_id, guests')
+      .select('booking_id, guests, booking_number')
       .eq('session_token', sessionToken)
       .single();
     if (!data) { _sessionCache.set(sessionToken, null); return null; }
     const result = {
       bookingId: Number(data.booking_id),
       guests: (data.guests as WebCheckinGuest[]) || [],
+      bookingNumber: (data as any).booking_number || null,
     };
     _sessionCache.set(sessionToken, result);
     return result;

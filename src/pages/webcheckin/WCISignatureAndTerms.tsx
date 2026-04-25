@@ -8,6 +8,7 @@ import {
   saveFichaToDatabase,
   fetchHotelPolicies,
   resolveHotelByCode,
+  resolveSession,
   loadGuestsFromStorage,
   clearGuestsFromStorage,
   WebCheckinGuest,
@@ -54,11 +55,11 @@ export default function WCISignatureAndTerms() {
   useEffect(() => {
     if (!wciCode || !sessionToken) return;
 
-    // Load guests from local storage (session token = bookingId param)
+    // Load guests from local storage (prefer token key; FNRH saves under token)
     const stored = loadGuestsFromStorage(sessionToken) || [];
     setGuests(stored);
 
-    // Resolve hotel code → real UUID + fetch policies
+    // Resolve hotel code → real UUID + fetch policies + booking number from session
     resolveHotelByCode(wciCode).then(resolved => {
       if (!resolved) return;
       setRealHotelId(resolved.id);
@@ -66,6 +67,11 @@ export default function WCISignatureAndTerms() {
         setHotelTerms(policies.wci_hotel_terms || '');
         setLgpdTerms(policies.wci_lgpd_terms || '');
       }).catch(() => {});
+    }).catch(() => {});
+
+    // Populate booking reference from session record
+    resolveSession(sessionToken).then(session => {
+      if (session?.bookingNumber) setBookingRef(session.bookingNumber);
     }).catch(() => {});
   }, [wciCode, sessionToken]);
 
@@ -164,6 +170,17 @@ export default function WCISignatureAndTerms() {
     try {
       const signatureData = getSignatureBase64();
 
+      // Resolve hotel UUID on-demand (don't rely on async state)
+      const hotelUUID = realHotelId || (await resolveHotelByCode(wciCode))?.id;
+      if (!hotelUUID) throw new Error('Hotel não identificado. Tente novamente.');
+
+      // Resolve booking number on-demand if not yet populated
+      let finalBookingRef = bookingRef;
+      if (!finalBookingRef) {
+        const session = await resolveSession(sessionToken).catch(() => null);
+        finalBookingRef = session?.bookingNumber || '';
+      }
+
       const guestsForDb = guests.map(g => ({
         isMainGuest: g.isMainGuest,
         erbonGuestId: typeof g.id === 'number' && g.id > 0 ? g.id : null,
@@ -181,27 +198,25 @@ export default function WCISignatureAndTerms() {
         addressStreet: g.address?.street,
         addressZipcode: g.address?.zipcode,
         addressNeighborhood: g.address?.neighborhood,
-        documentFrontUrl: (g as any).documentFrontUrl,
-        documentBackUrl: (g as any).documentBackUrl,
+        documentFrontUrl: g.documentFrontUrl,
+        documentBackUrl: g.documentBackUrl,
       }));
 
-      if (realHotelId) {
-        await saveFichaToDatabase({
-          hotelId: realHotelId,
-          bookingNumber: bookingRef || undefined,
-          guests: guestsForDb,
-          hotelTermsAccepted,
-          lgpdAccepted,
-          signatureData,
-          source: 'web',
-        });
-      }
+      await saveFichaToDatabase({
+        hotelId: hotelUUID,
+        bookingNumber: finalBookingRef || undefined,
+        guests: guestsForDb,
+        hotelTermsAccepted,
+        lgpdAccepted,
+        signatureData,
+        source: 'web',
+      });
 
       if (sessionToken) clearGuestsFromStorage(sessionToken);
       setConfirmed(true);
       setTimeout(() => navigate('/web-checkin'), 8000);
     } catch (err: any) {
-      setError('Erro ao salvar. Tente novamente.');
+      setError(err.message || 'Erro ao salvar. Tente novamente.');
     } finally {
       setSaving(false);
     }
