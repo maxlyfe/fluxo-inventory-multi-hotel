@@ -135,7 +135,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'management',      label: 'Gerência',      href: '/management',                icon: BarChart3,          color: '#22c55e' },
       { module: 'reports',         label: 'Relatórios',    href: '/reports',                   icon: FileText,           color: '#0ea5e9' },
       { module: 'hotel_documents', label: 'Documentos',    href: '/management/documents',      icon: Shield,             color: '#6366f1' },
-      { module: 'management',      label: 'Web Check-in',  href: '/management/webcheckin',     icon: MonitorSmartphone,  color: '#0085ae' },
+      { module: 'webcheckin_mgmt', label: 'Web Check-in',  href: '/management/webcheckin',     icon: MonitorSmartphone,  color: '#0085ae' },
       // PDV oculto — integração Erbon POST /currentaccount indisponível na API pública
     ],
   },
@@ -239,7 +239,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'roles_management',   label: 'Gestão de Perfis',  href: '/admin/roles',    icon: UserCog,       color: '#f59e0b' },
       { module: 'sectors_management', label: 'Gestão de Setores', href: '/admin/sectors',  icon: LayoutGrid,    color: '#14b8a6' },
       { module: 'erbon_pms',          label: 'Erbon PMS',         href: '/admin/erbon',    icon: Link2,         color: '#0ea5e9' },
-      { module: 'users_management',   label: 'WhatsApp',          href: '/admin/whatsapp', icon: MessageSquare, color: '#22c55e' },
+      { module: 'whatsapp_integration', label: 'WhatsApp',        href: '/admin/whatsapp', icon: MessageSquare, color: '#22c55e' },
     ],
   },
 ];

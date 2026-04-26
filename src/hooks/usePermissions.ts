@@ -40,12 +40,17 @@ export const MODULES: Module[] = [
   { key: 'hotel_documents',      label: 'Documentos e Licenças', description: 'Gestão de alvarás, licenças e documentos', group: 'Área Administrativa', icon: 'FileText'      },
   { key: 'commercial',           label: 'Comercial',            description: 'Clientes corporativos, grupos e metas',   group: 'Área Administrativa', icon: 'Briefcase'     },
   { key: 'pdv',                  label: 'PDV — Ponto de Venda', description: 'Lançar consumos na UH, histórico de vendas PDV', group: 'Área Administrativa', icon: 'ShoppingCart' },
-  { key: 'diretoria',            label: 'Diretoria',            description: 'Relatórios e análises para a diretoria',   group: 'Área Administrativa', icon: 'TrendingUp'    },
+  { key: 'diretoria',            label: 'Diretoria (Pick-up)',  description: 'Relatórios de Pick-up e performance',      group: 'Área Administrativa', icon: 'TrendingUp'    },
+  { key: 'directors_dashboard',  label: 'Dashboard Diretoria',  description: 'KPIs consolidados e comparativo de hotéis', group: 'Área Administrativa', icon: 'BarChart3'     },
+  { key: 'webcheckin_mgmt',      label: 'Gestão Web Check-in',  description: 'Monitoramento e config de web check-in',   group: 'Área Administrativa', icon: 'MonitorSmartphone' },
+  { key: 'weekly_control',       label: 'Controle Semanal',     description: 'Lançamentos semanais de consumo e quebra', group: 'Área Administrativa', icon: 'Calendar'       },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },
   { key: 'hotels_management',    label: 'Gestão de Hotéis',     description: 'Cadastro e configuração de unidades',      group: 'Administração',       icon: 'Building2'     },
   { key: 'users_management',     label: 'Gestão de Usuários',   description: 'Criar e gerir utilizadores do sistema',    group: 'Administração',       icon: 'UserCheck'     },
+  { key: 'erbon_pms',            label: 'Integração Erbon',     description: 'Configuração da API Erbon PMS',            group: 'Administração',       icon: 'Link2'         },
+  { key: 'whatsapp_integration', label: 'Integração WhatsApp',  description: 'Configuração da API Meta/WhatsApp',        group: 'Administração',       icon: 'MessageSquare' },
 ];
 
 // Gera módulos dinâmicos de setor — chamado pelo RolesManagement com dados do banco

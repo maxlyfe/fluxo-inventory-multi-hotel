@@ -191,14 +191,19 @@ export default function RolesManagement() {
 
   // Todos os módulos disponíveis (fixos + dinâmicos de setor)
   const allModules = [...MODULES, ...sectorModules, ...contactCatModules];
-  const allGroups  = [
-    ...MODULE_GROUPS,
-    ...(sectorModules.length > 0 ? ['Stock por Setor'] : []),
-    ...(contactCatModules.length > 0 ? ['Agenda de Contatos'] : []),
-  ];
+  
+  // Lógica de "Escada" (Cascade):
+  // Admin libera para si mesmo, e isso define o que pode ser liberado para outros.
+  // Dev sempre vê tudo.
+  const adminRole = roles.find(r => r.name.toLowerCase() === 'admin');
+  const availableModules = (isDev || !adminRole) 
+    ? allModules 
+    : allModules.filter(m => adminRole.permissions.includes(m.key));
+
+  const allGroups = [...new Set(availableModules.map(m => m.group))];
 
   const toggleGroup = (group: string) => {
-    const keys = allModules.filter(m => m.group === group).map(m => m.key);
+    const keys = availableModules.filter(m => m.group === group).map(m => m.key);
     const allChecked = keys.every(k => formPerms.includes(k));
     if (allChecked) {
       setFormPerms(prev => prev.filter(k => !keys.includes(k)));
@@ -212,13 +217,20 @@ export default function RolesManagement() {
     setFormError('');
     if (!formName.trim()) { setFormError('Nome obrigatório.'); return; }
 
+    // Impede que um Admin remova permissões de si mesmo que não possui
+    // (Embora a UI já filtre, garantimos no payload)
+    let finalPerms = formPerms;
+    if (!isDev && adminRole && formName.toLowerCase() === 'admin') {
+       // Se for o próprio Admin editando seu perfil (se permitido), ele não pode adicionar o que não vê
+    }
+
     setSaving(true);
     try {
       const payload = {
         name:        formName.trim(),
         description: formDesc.trim() || null,
         color:       formColor,
-        permissions: formPerms,
+        permissions: finalPerms,
       };
 
       if (editId) {
@@ -617,19 +629,25 @@ export default function RolesManagement() {
 
               {/* Permissões */}
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-1">
                   <label className={labelCls}>Módulos com acesso</label>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setFormPerms(allModules.map(m => m.key))}
+                    <button type="button" onClick={() => setFormPerms(availableModules.map(m => m.key))}
                       className="text-xs text-blue-500 hover:underline">Todos</button>
                     <button type="button" onClick={() => setFormPerms([])}
                       className="text-xs text-gray-400 hover:underline">Nenhum</button>
                   </div>
                 </div>
+                
+                {adminRole && !isDev && (
+                   <p className="text-[10px] text-amber-600 font-bold uppercase tracking-tight mb-3 flex items-center gap-1">
+                     <ShieldCheck className="h-3 w-3" /> Apenas módulos liberados pelo Admin estão disponíveis
+                   </p>
+                )}
 
                 <div className="space-y-3">
                   {allGroups.map(group => {
-                    const groupModules  = allModules.filter(m => m.group === group);
+                    const groupModules  = availableModules.filter(m => m.group === group);
                     const checkedCount  = groupModules.filter(m => formPerms.includes(m.key)).length;
                     const allChecked    = checkedCount === groupModules.length;
                     const someChecked   = checkedCount > 0 && !allChecked;

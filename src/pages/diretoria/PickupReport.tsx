@@ -1,5 +1,5 @@
 // src/pages/diretoria/PickupReport.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Minus, Plus, X, Search, Loader2,
   Users, BedDouble, DollarSign, CalendarRange, BarChart2, AlertCircle, ChevronDown,
@@ -11,6 +11,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { erbonService } from '../../lib/erbonService';
 import { useHotel } from '../../context/HotelContext';
+import { useTheme } from '../../context/ThemeContext';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ interface PeriodMetrics {
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 
-const PERIOD_COLORS = ['#0085ae', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444'];
+const PERIOD_COLORS = ['#0ea5e9', '#f59e0b', '#10b981', '#8b5cf6', '#f43f5e'];
 
 function nextColor(periods: Period[]): string {
   return PERIOD_COLORS[periods.length % PERIOD_COLORS.length];
@@ -39,10 +40,7 @@ function nextColor(periods: Period[]): string {
 
 function parseGuests(raw: string): number {
   if (!raw) return 0;
-  // Se for apenas um número, retorna ele
   if (/^\d+$/.test(raw.trim())) return parseInt(raw.trim(), 10);
-  
-  // Tenta o formato "Adults:2,Children:1" ou "Adultos: 2"
   return raw.split(',').reduce((sum, part) => {
     const segments = part.split(':');
     const valStr = segments.length > 1 ? segments[1] : segments[0];
@@ -75,7 +73,6 @@ async function fetchPeriodMetrics(hotelId: string, from: string, to: string): Pr
 
   const totalGuests = occupancy.reduce((s, d) => s + parseGuests(d.totalGuestByType), 0);
   
-  // Soma todas as categorias de UH vendida para precisão total (conforme seasonHelper)
   const totalUHs = occupancy.reduce((s, d) => {
     const sold = (d.roomSalledConfirmed || 0) +
                  (d.roomSalledRateDefault || 0) +
@@ -103,12 +100,7 @@ async function fetchPeriodMetrics(hotelId: string, from: string, to: string): Pr
                  (d.roomSalledPermut || 0) +
                  (d.roomSalledCrewMember || 0) +
                  (d.roomSalledDayUse || 0);
-    return {
-      date: d.date,
-      revenue: d.totalRevenue ?? 0,
-      uhs: sold,
-      adr: d.adr ?? 0,
-    };
+    return { date: d.date, revenue: d.totalRevenue ?? 0, uhs: sold, adr: d.adr ?? 0 };
   });
 
   return { totalGuests, totalUHs, avgADR, avgPerGuest, totalRevenue, avgDailyRevenue, days: occupancy.length, dailyRevenue };
@@ -116,67 +108,68 @@ async function fetchPeriodMetrics(hotelId: string, from: string, to: string): Pr
 
 // ── Sub-componentes ──────────────────────────────────────────────────────────
 
-function TrendBadge({ value, base }: { value: number; base: number }) {
+function TrendBadgeCompact({ value, base, color, isDark }: { value: number; base: number; color: string; isDark: boolean }) {
   if (base === 0) return null;
   const pct = ((value - base) / base) * 100;
-  const up = pct > 0.5;
-  const down = pct < -0.5;
-  const color = up ? '#22c55e' : down ? '#ef4444' : '#94a3b8';
+  const up = pct > 0.01;
+  const down = pct < -0.01;
+  const statusColor = up ? '#10b981' : down ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
   const Icon = up ? TrendingUp : down ? TrendingDown : Minus;
+  
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, color, background: `${color}18`, borderRadius: 6, padding: '2px 6px' }}>
-      <Icon size={11} />
-      {Math.abs(pct).toFixed(1)}%
+    <span style={{ 
+      display: 'inline-flex', alignItems: 'center', gap: 2, 
+      fontSize: 9, fontWeight: 700, color: statusColor, 
+      padding: '0 4px',
+      borderLeft: `2px solid ${color}`,
+      transition: 'all 0.3s ease'
+    }}>
+      <Icon size={8} />
+      {Math.abs(pct).toFixed(0)}%
     </span>
   );
 }
 
-interface MetricCardProps {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  color: string;
-  subValue?: string;
-}
-
-function MetricCard({ label, value, icon, color, subValue }: MetricCardProps) {
+function MetricCard({ label, value, icon, color, subValue, isDark }: { label: string; value: string; icon: React.ReactNode; color: string; subValue?: string; isDark: boolean }) {
   return (
     <div style={{
-      background: 'rgba(30,41,59,0.7)',
-      border: '1px solid rgba(148,163,184,0.12)',
-      borderRadius: 16,
-      padding: '1.1rem 1.3rem',
-      display: 'flex', flexDirection: 'column', gap: 6,
-      backdropFilter: 'blur(12px)',
+      background: isDark 
+        ? 'linear-gradient(135deg, rgba(30,41,59,0.7) 0%, rgba(15,23,42,0.8) 100%)'
+        : 'linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(241,245,249,1) 100%)',
+      border: isDark ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(203,213,225,0.5)',
+      borderRadius: 20, padding: '1.25rem',
+      display: 'flex', flexDirection: 'column', gap: 8, backdropFilter: 'blur(16px)',
+      boxShadow: isDark ? '0 10px 25px -5px rgba(0,0,0,0.3)' : '0 10px 15px -3px rgba(148,163,184,0.1)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'rgba(148,163,184,0.8)', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6 }}>
-        <span style={{ color }}>{icon}</span>
+      <div style={{ 
+        display: 'flex', alignItems: 'center', gap: 10, 
+        color: isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.8)', 
+        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 
+      }}>
+        <div style={{ background: `${color}15`, padding: 8, borderRadius: 10, color }}>{icon}</div>
         {label}
       </div>
-      <div style={{ fontSize: 'clamp(1.3rem, 3vw, 1.7rem)', fontWeight: 800, color: '#f1f5f9', lineHeight: 1.1 }}>{value}</div>
-      {subValue && <div style={{ fontSize: 11, color: 'rgba(148,163,184,0.6)' }}>{subValue}</div>}
+      <div style={{ fontSize: '1.75rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.5, marginTop: 4 }}>{value}</div>
+      {subValue && <div style={{ fontSize: 11, color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.6)', fontWeight: 500 }}>{subValue}</div>}
     </div>
   );
 }
 
-const DARK_TOOLTIP_STYLE: React.CSSProperties = {
-  background: 'rgba(15,23,42,0.96)',
-  border: '1px solid rgba(148,163,184,0.2)',
-  borderRadius: 10,
-  padding: '8px 12px',
-  fontSize: 12,
-  color: '#f1f5f9',
-};
-
-function CustomTooltip({ active, payload, label, formatter }: any) {
+function CustomTooltip({ active, payload, label, formatter, isDark }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={DARK_TOOLTIP_STYLE}>
-      <div style={{ fontWeight: 700, marginBottom: 6, color: '#94a3b8', fontSize: 11 }}>{label}</div>
+    <div style={{ 
+      background: isDark ? 'rgba(15,23,42,0.96)' : 'rgba(255,255,255,0.98)', 
+      border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : 'rgba(203,213,225,0.8)'}`, 
+      borderRadius: 12, padding: '10px 14px', fontSize: 12, 
+      color: isDark ? '#f1f5f9' : '#1e293b', 
+      boxShadow: '0 10px 15px -3px rgba(0,0,0,0.2)' 
+    }}>
+      <div style={{ fontWeight: 800, marginBottom: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
       {payload.map((p: any) => (
-        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
-          <span style={{ color: '#cbd5e1' }}>{p.name}:</span>
+        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+          <span style={{ color: isDark ? '#cbd5e1' : '#475569' }}>{p.name}:</span>
           <span style={{ fontWeight: 700, color: p.color }}>{formatter ? formatter(p.value) : p.value}</span>
         </div>
       ))}
@@ -188,20 +181,22 @@ function CustomTooltip({ active, payload, label, formatter }: any) {
 
 export default function PickupReport() {
   const { selectedHotel } = useHotel();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
 
   const [hotels, setHotels] = useState<HotelOption[]>([]);
   const [selectedHotelId, setSelectedHotelId] = useState<string>(selectedHotel?.id ?? '');
-
   const [periods, setPeriods] = useState<Period[]>([
     { id: 'p1', label: 'Período 1', from: '', to: '', color: PERIOD_COLORS[0] },
   ]);
   const [view, setView] = useState<'individual' | 'comparativo'>('individual');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Map<string, PeriodMetrics>>(new Map());
-  const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [globalError, setGlobalError] = useState('');
 
-  // ── Carregar hotéis ──
+  // Estados para iluminação tecnológica
+  const [activeCell, setActiveCell] = useState<{ periodId: string; metricKey: string } | null>(null);
+
   useEffect(() => {
     supabase.from('hotels').select('id, name, code').order('name').then(({ data }) => {
       setHotels(data ?? []);
@@ -209,343 +204,257 @@ export default function PickupReport() {
     });
   }, []);
 
-  // ── Período helpers ──
   function addPeriod() {
     if (periods.length >= 5) return;
-    const n = periods.length + 1;
-    setPeriods(prev => [...prev, { id: `p${Date.now()}`, label: `Período ${n}`, from: '', to: '', color: nextColor(prev) }]);
+    setPeriods(prev => [...prev, { id: `p${Date.now()}`, label: `Período ${prev.length + 1}`, from: '', to: '', color: nextColor(prev) }]);
   }
-
   function removePeriod(id: string) {
     setPeriods(prev => prev.filter(p => p.id !== id));
     setResults(prev => { const m = new Map(prev); m.delete(id); return m; });
-    setErrors(prev => { const m = new Map(prev); m.delete(id); return m; });
   }
-
   function updatePeriod(id: string, field: keyof Period, value: string) {
     setPeriods(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   }
 
-  const canSearch = selectedHotelId && periods.every(p => p.from && p.to && p.from <= p.to);
-
-  // ── Buscar dados ──
   async function handleSearch() {
-    if (!canSearch) return;
+    if (!selectedHotelId || !periods.every(p => p.from && p.to)) return;
     setLoading(true);
     setGlobalError('');
-    setErrors(new Map());
     const newResults = new Map<string, PeriodMetrics>();
-    const newErrors = new Map<string, string>();
-
     await Promise.all(periods.map(async (p) => {
       try {
         const metrics = await fetchPeriodMetrics(selectedHotelId, p.from, p.to);
         newResults.set(p.id, metrics);
-      } catch (err: any) {
-        newErrors.set(p.id, err.message || 'Erro ao buscar dados');
-      }
+      } catch (err: any) { console.error(err); }
     }));
-
     setResults(newResults);
-    setErrors(newErrors);
-    if (newResults.size === 0) setGlobalError('Nenhum dado retornado. Verifique se o hotel possui integração Erbon configurada.');
+    if (newResults.size === 0) setGlobalError('Erro ao buscar dados.');
     setLoading(false);
   }
 
-  const hasResults = results.size > 0;
   const periodsWithResults = periods.filter(p => results.has(p.id));
+  
+  const METRICS_LIST = useMemo(() => [
+    { key: 'totalRevenue',   label: 'Receita Total', fmt: fmtBRL, icon: <TrendingUp size={14} /> },
+    { key: 'totalUHs',       label: 'UHs Vendidas',  fmt: fmtNum, icon: <BedDouble size={14} /> },
+    { key: 'avgADR',         label: 'ADR Médio',     fmt: fmtBRL, icon: <BarChart2 size={14} /> },
+    { key: 'totalGuests',    label: 'Total Hóspedes', fmt: fmtNum, icon: <Users size={14} /> },
+    { key: 'avgDailyRevenue',label: 'Média Diária',  fmt: fmtBRL, icon: <CalendarRange size={14} /> },
+  ] as const, []);
 
-  // ── Dados para gráficos ──
-  const adrChartData = periodsWithResults.map(p => ({
-    name: p.label,
-    ADR: parseFloat((results.get(p.id)!.avgADR).toFixed(2)),
-    color: p.color,
+  // Gráficos calculados dentro do componente
+  const adrChartData = periodsWithResults.map(p => ({ 
+    name: p.label, 
+    ADR: parseFloat((results.get(p.id)!.avgADR).toFixed(2)), 
+    color: p.color 
   }));
 
-  const uhsChartData = periodsWithResults.map(p => ({
-    name: p.label,
-    UHs: results.get(p.id)!.totalUHs,
-    color: p.color,
+  const uhsChartData = periodsWithResults.map(p => ({ 
+    name: p.label, 
+    UHs: results.get(p.id)!.totalUHs, 
+    color: p.color 
   }));
 
   const revenueChartData = (() => {
     if (!periodsWithResults.length) return [];
     const maxDays = Math.max(...periodsWithResults.map(p => results.get(p.id)!.dailyRevenue.length));
     return Array.from({ length: maxDays }, (_, i) => {
-      const row: Record<string, any> = { day: `Dia ${i + 1}` };
-      periodsWithResults.forEach(p => {
-        const day = results.get(p.id)!.dailyRevenue[i];
-        row[p.label] = day?.revenue ?? null;
-      });
+      const row: any = { day: `Dia ${i + 1}` };
+      periodsWithResults.forEach(p => row[p.label] = results.get(p.id)!.dailyRevenue[i]?.revenue ?? null);
       return row;
     });
   })();
 
-  const base = periodsWithResults.length > 0 ? results.get(periodsWithResults[0].id) : undefined;
-
-  // ── Render ──
   return (
-    <div style={{ minHeight: '100vh', background: '#020617', color: '#f1f5f9' }}>
+    <div style={{ 
+      minHeight: '100vh', 
+      background: isDark ? '#020617' : '#f8fafc', 
+      color: isDark ? '#f8fafc' : '#1e293b', 
+      fontFamily: 'Inter, sans-serif',
+      transition: 'background-color 0.3s ease'
+    }}>
       <style>{`
-        .pickup-period-card { transition: box-shadow 0.2s; }
-        .pickup-period-card:hover { box-shadow: 0 0 0 1px rgba(148,163,184,0.2), 0 4px 16px rgba(0,0,0,0.4); }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        .pickup-period-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .pickup-period-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border-color: ${isDark ? 'rgba(148,163,184,0.3)' : 'rgba(148,163,184,0.5)'} !important; }
         .pickup-hotel-select { appearance: none; -webkit-appearance: none; background-image: none; }
-        .pickup-tab { transition: all 0.2s; cursor: pointer; }
-        .pickup-tab:hover { background: rgba(148,163,184,0.08); }
-        .pickup-search-btn { transition: all 0.18s; }
-        .pickup-search-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
-        .pickup-search-btn:active:not(:disabled) { transform: translateY(0); }
-        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+        .pickup-tab { transition: all 0.2s ease; cursor: pointer; }
+        .pickup-search-btn { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .pickup-search-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 10px 20px -5px rgba(14,165,233,0.3); }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: ${isDark ? 'invert(0.8)' : 'none'}; cursor: pointer; }
+        
+        .matrix-cell { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; position: relative; overflow: hidden; }
+        .cell-base-active { background: ${isDark ? 'rgba(14,165,233,0.1)' : 'rgba(14,165,233,0.05)'} !important; border-color: #0ea5e9 !important; box-shadow: 0 0 30px ${isDark ? 'rgba(14,165,233,0.2)' : 'rgba(14,165,233,0.1)'}; transform: scale(1.02); z-index: 10; }
+        .cell-target-active { filter: ${isDark ? 'brightness(1.2)' : 'brightness(0.95)'}; z-index: 5; }
+        .lighting-beam { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; transition: opacity 0.5s; background: linear-gradient(90deg, transparent, ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'}, transparent); }
+        .cell-target-active .lighting-beam { opacity: 1; animation: shine 2s infinite; }
+        
+        @keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      {/* ── Header ── */}
-      <div style={{ borderBottom: '1px solid rgba(148,163,184,0.1)', padding: '1.5rem 2rem', background: 'rgba(15,23,42,0.8)', backdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 10 }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, #0085ae, #0059a8)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <TrendingUp size={22} color="#fff" />
-            </div>
+      {/* Header */}
+      <div style={{ borderBottom: `1px solid ${isDark ? 'rgba(148,163,184,0.08)' : 'rgba(203,213,225,0.5)'}`, padding: '1.25rem 2rem', background: isDark ? 'rgba(2,6,23,0.85)' : 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 8px 16px -4px rgba(14,165,233,0.4)' }}><TrendingUp size={24} color="#fff" /></div>
             <div>
-              <h1 style={{ margin: 0, fontSize: 'clamp(1.1rem, 3vw, 1.5rem)', fontWeight: 800, color: '#f1f5f9', letterSpacing: -0.3 }}>Pick-up</h1>
-              <p style={{ margin: 0, fontSize: 12, color: '#64748b', fontWeight: 500 }}>Análise comparativa de períodos</p>
+              <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.8 }}>Relatório Pick-up</h1>
+              <p style={{ margin: 0, fontSize: 13, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 500 }}>Inteligência e performance hoteleira</p>
             </div>
           </div>
-
-          {/* Hotel selector */}
-          <div style={{ position: 'relative', minWidth: 220 }}>
-            <select
-              className="pickup-hotel-select"
-              value={selectedHotelId}
-              onChange={e => setSelectedHotelId(e.target.value)}
-              style={{
-                width: '100%', padding: '0.55rem 2.5rem 0.55rem 0.9rem',
-                background: 'rgba(30,41,59,0.9)', border: '1px solid rgba(148,163,184,0.2)',
-                borderRadius: 10, color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                outline: 'none',
-              }}
-            >
-              <option value="" disabled>Selecionar hotel</option>
-              {hotels.map(h => (
-                <option key={h.id} value={h.id}>{h.name}</option>
-              ))}
+          <div style={{ position: 'relative', minWidth: 260 }}>
+            <select className="pickup-hotel-select" value={selectedHotelId} onChange={e => setSelectedHotelId(e.target.value)} style={{ width: '100%', padding: '0.65rem 2.5rem 0.65rem 1rem', background: isDark ? 'rgba(30,41,59,0.5)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : 'rgba(203,213,225,0.8)'}`, borderRadius: 12, color: isDark ? '#f1f5f9' : '#1e293b', fontSize: 14, fontWeight: 700 }}>
+              <option value="" disabled>Selecione o hotel</option>
+              {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
             </select>
-            <ChevronDown size={14} color="#64748b" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <ChevronDown size={16} color={isDark ? '#94a3b8' : '#64748b'} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '2rem 1.5rem' }}>
-
-        {/* ── Bloco de períodos ── */}
-        <div style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: 8 }}>
-            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Períodos de análise</h2>
-            {periods.length < 5 && (
-              <button
-                onClick={addPeriod}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '0.45rem 1rem',
-                  background: 'rgba(0,133,174,0.15)', border: '1px solid rgba(0,133,174,0.35)',
-                  borderRadius: 8, color: '#0085ae', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                <Plus size={15} /> Adicionar período
-              </button>
-            )}
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '2.5rem 2rem' }}>
+        {/* Configuração de Períodos */}
+        <div style={{ marginBottom: '3rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            <h2 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>Períodos de Análise</h2>
+            {periods.length < 5 && <button onClick={addPeriod} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.6rem 1.2rem', background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 12, color: '#0ea5e9', fontSize: 14, fontWeight: 700 }}><Plus size={16} /> Adicionar</button>}
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 340px), 1fr))', gap: '1rem' }}>
-            {periods.map((p) => (
-              <div key={p.id} className="pickup-period-card" style={{
-                background: 'rgba(15,23,42,0.7)',
-                border: `1px solid rgba(148,163,184,0.12)`,
-                borderLeft: `4px solid ${p.color}`,
-                borderRadius: 14,
-                padding: '1.1rem 1.3rem',
-                position: 'relative',
-              }}>
-                {periods.length > 1 && (
-                  <button
-                    onClick={() => removePeriod(p.id)}
-                    style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 6, padding: 4, cursor: 'pointer', display: 'flex' }}
-                  >
-                    <X size={14} color="#ef4444" />
-                  </button>
-                )}
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.9rem' }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
-                  <input
-                    type="text"
-                    value={p.label}
-                    onChange={e => updatePeriod(p.id, 'label', e.target.value)}
-                    style={{
-                      background: 'transparent', border: 'none', outline: 'none',
-                      color: '#f1f5f9', fontSize: 13, fontWeight: 700, width: '100%',
-                    }}
-                  />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 360px), 1fr))', gap: '1.5rem' }}>
+            {periods.map(p => (
+              <div key={p.id} className="pickup-period-card" style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderLeft: `4px solid ${p.color}`, borderRadius: 20, padding: '1.5rem', position: 'relative', backdropFilter: 'blur(10px)' }}>
+                {periods.length > 1 && <button onClick={() => removePeriod(p.id)} style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(244,63,94,0.1)', border: 'none', borderRadius: 8, padding: 6 }}><X size={16} color="#f43f5e" /></button>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 4, background: p.color }} />
+                  <input type="text" value={p.label} onChange={e => updatePeriod(p.id, 'label', e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 15, fontWeight: 800, width: '100%' }} />
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>De</label>
-                    <input
-                      type="date"
-                      value={p.from}
-                      onChange={e => updatePeriod(p.id, 'from', e.target.value)}
-                      style={{
-                        width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.7rem',
-                        background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(148,163,184,0.2)',
-                        borderRadius: 8, color: '#f1f5f9', fontSize: 12, outline: 'none',
-                      }}
-                    />
+                    <label style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 800, marginBottom: 6, textTransform: 'uppercase' }}>Início</label>
+                    <input type="date" value={p.from} onChange={e => updatePeriod(p.id, 'from', e.target.value)} style={{ width: '100%', padding: '0.65rem 0.8rem', background: isDark ? 'rgba(30,41,59,0.4)' : '#f1f5f9', border: `1px solid ${isDark ? 'rgba(148,163,184,0.15)' : 'rgba(203,213,225,0.8)'}`, borderRadius: 10, color: isDark ? '#f1f5f9' : '#1e293b', fontSize: 13 }} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Até</label>
-                    <input
-                      type="date"
-                      value={p.to}
-                      min={p.from}
-                      onChange={e => updatePeriod(p.id, 'to', e.target.value)}
-                      style={{
-                        width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.7rem',
-                        background: 'rgba(30,41,59,0.8)', border: '1px solid rgba(148,163,184,0.2)',
-                        borderRadius: 8, color: '#f1f5f9', fontSize: 12, outline: 'none',
-                      }}
-                    />
+                    <label style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 800, marginBottom: 6, textTransform: 'uppercase' }}>Fim</label>
+                    <input type="date" value={p.to} min={p.from} onChange={e => updatePeriod(p.id, 'to', e.target.value)} style={{ width: '100%', padding: '0.65rem 0.8rem', background: isDark ? 'rgba(30,41,59,0.4)' : '#f1f5f9', border: `1px solid ${isDark ? 'rgba(148,163,184,0.15)' : 'rgba(203,213,225,0.8)'}`, borderRadius: 10, color: isDark ? '#f1f5f9' : '#1e293b', fontSize: 13 }} />
                   </div>
                 </div>
-
-                {errors.has(p.id) && (
-                  <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center', color: '#fca5a5', fontSize: 11 }}>
-                    <AlertCircle size={13} color="#ef4444" />
-                    {errors.get(p.id)}
-                  </div>
-                )}
               </div>
             ))}
           </div>
-
-          {/* Botão buscar */}
-          <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'center' }}>
-            <button
-              className="pickup-search-btn"
-              onClick={handleSearch}
-              disabled={!canSearch || loading}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '0.8rem 2.5rem', borderRadius: 50, border: 'none',
-                background: canSearch && !loading ? 'linear-gradient(135deg, #0085ae, #0059a8)' : 'rgba(0,133,174,0.3)',
-                color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: canSearch && !loading ? 'pointer' : 'not-allowed',
-                boxShadow: canSearch && !loading ? '0 4px 20px rgba(0,133,174,0.4)' : 'none',
-                opacity: !canSearch ? 0.5 : 1,
-              }}
-            >
-              {loading
-                ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Buscando...</>
-                : <><Search size={18} /> Buscar Pick-up</>
-              }
+          <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center' }}>
+            <button className="pickup-search-btn" onClick={handleSearch} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '1rem 3.5rem', borderRadius: 16, border: 'none', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', color: '#fff', fontWeight: 800, fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(14,165,233,0.4)' }}>
+              {loading ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> Processando...</> : <><Search size={20} /> Analisar Performance</>}
             </button>
           </div>
         </div>
 
-        {/* ── Erro global ── */}
-        {globalError && (
-          <div style={{ marginBottom: '1.5rem', display: 'flex', gap: 10, alignItems: 'center', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '0.9rem 1.2rem', color: '#fca5a5' }}>
-            <AlertCircle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
-            {globalError}
-          </div>
-        )}
-
-        {/* ── Resultados ── */}
-        {hasResults && (
-          <>
-            {/* Toggle view */}
-            <div style={{ display: 'flex', gap: 4, background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(148,163,184,0.12)', borderRadius: 12, padding: 4, width: 'fit-content', marginBottom: '1.5rem' }}>
+        {periodsWithResults.length > 0 && (
+          <div style={{ animation: 'fadeIn 0.5s ease' }}>
+            <div style={{ display: 'flex', gap: 6, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 16, padding: 6, width: 'fit-content', marginBottom: '2.5rem' }}>
               {(['individual', 'comparativo'] as const).map(v => (
-                <button
-                  key={v}
-                  className="pickup-tab"
-                  onClick={() => setView(v)}
-                  style={{
-                    padding: '0.5rem 1.2rem', borderRadius: 9, border: 'none',
-                    background: view === v ? 'rgba(0,133,174,0.9)' : 'transparent',
-                    color: view === v ? '#fff' : '#94a3b8',
-                    fontWeight: 600, fontSize: 13, textTransform: 'capitalize',
-                  }}
-                >
-                  {v === 'individual' ? 'Individual' : 'Comparativo'}
+                <button key={v} className="pickup-tab" onClick={() => setView(v)} style={{ padding: '0.75rem 1.75rem', borderRadius: 12, border: 'none', background: view === v ? '#0ea5e9' : 'transparent', color: view === v ? '#fff' : isDark ? '#94a3b8' : '#64748b', fontWeight: 800, fontSize: 14 }}>
+                  {v === 'individual' ? 'Visão Individual' : 'Matriz de Inteligência'}
                 </button>
               ))}
             </div>
 
-            {/* ── View Individual ── */}
-            {view === 'individual' && periodsWithResults.map((p) => {
+            {view === 'individual' && periodsWithResults.map(p => {
               const m = results.get(p.id)!;
               return (
-                <div key={p.id} style={{ marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1rem' }}>
-                    <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
-                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#f1f5f9' }}>{p.label}</h3>
-                    <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{fmtDate(p.from)} – {fmtDate(p.to)}</span>
+                <div key={p.id} style={{ marginBottom: '3rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.5rem' }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 4, background: p.color }} />
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900 }}>{p.label} <span style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 500 }}>({fmtDate(p.from)} – {fmtDate(p.to)})</span></h3>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 200px), 1fr))', gap: '0.9rem' }}>
-                    <MetricCard label="Hóspedes" value={fmtNum(m.totalGuests)} icon={<Users size={14} />} color={p.color} subValue="atendidos no período" />
-                    <MetricCard label="UHs Vendidas" value={fmtNum(m.totalUHs)} icon={<BedDouble size={14} />} color={p.color} subValue="quartos ocupados" />
-                    <MetricCard label="ADR Médio" value={fmtBRL(m.avgADR)} icon={<BarChart2 size={14} />} color={p.color} subValue="receita líq. / UH" />
-                    <MetricCard label="Valor Médio / Hóspede" value={fmtBRL(m.avgPerGuest)} icon={<DollarSign size={14} />} color={p.color} subValue="receita total / hóspedes" />
-                    <MetricCard label="Total do Período" value={fmtBRL(m.totalRevenue)} icon={<TrendingUp size={14} />} color={p.color} subValue={`${m.days} dias`} />
-                    <MetricCard label="Média Diária" value={fmtBRL(m.avgDailyRevenue)} icon={<CalendarRange size={14} />} color={p.color} subValue="receita / dia" />
-                    <MetricCard label="Dias Analisados" value={fmtNum(m.days)} icon={<CalendarRange size={14} />} color={p.color} subValue={`${fmtDate(p.from)} a ${fmtDate(p.to)}`} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 240px), 1fr))', gap: '1.25rem' }}>
+                    <MetricCard label="Receita" value={fmtBRL(m.totalRevenue)} icon={<TrendingUp size={16} />} color={p.color} subValue={`${m.days} dias`} isDark={isDark} />
+                    <MetricCard label="ADR" value={fmtBRL(m.avgADR)} icon={<BarChart2 size={16} />} color={p.color} subValue="Líquido" isDark={isDark} />
+                    <MetricCard label="UHs" value={fmtNum(m.totalUHs)} icon={<BedDouble size={16} />} color={p.color} subValue="Vendidas" isDark={isDark} />
+                    <MetricCard label="Hóspedes" value={fmtNum(m.totalGuests)} icon={<Users size={16} />} color={p.color} isDark={isDark} />
                   </div>
                 </div>
               );
             })}
 
-            {/* ── View Comparativo ── */}
-            {view === 'comparativo' && periodsWithResults.length >= 1 && (
-              <>
-                {/* Tabela comparativa */}
-                <div style={{ overflowX: 'auto', marginBottom: '2rem', borderRadius: 16, border: '1px solid rgba(148,163,184,0.12)' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            {view === 'comparativo' && (
+              <div className="matrix-container" style={{ position: 'relative', background: isDark ? 'rgba(15,23,42,0.4)' : '#fff', borderRadius: 32, border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, padding: '2.5rem', backdropFilter: 'blur(12px)', marginBottom: '4rem' }}>
+                <div style={{ marginBottom: '2.5rem' }}>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 900, letterSpacing: -0.5 }}>Análise Comparativa Unificada</h3>
+                  <p style={{ fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>Valores sempre visíveis. Interaja para **iluminar** as conexões de performance.</p>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 24px' }}>
                     <thead>
-                      <tr style={{ background: 'rgba(15,23,42,0.9)', borderBottom: '1px solid rgba(148,163,184,0.12)' }}>
-                        <th style={{ padding: '1rem 1.3rem', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, whiteSpace: 'nowrap' }}>Métrica</th>
+                      <tr style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 }}>
+                        <th style={{ textAlign: 'left', padding: '0 1.5rem' }}>Métrica</th>
                         {periodsWithResults.map(p => (
-                          <th key={p.id} style={{ padding: '1rem 1.3rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
-                              <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{p.label}</span>
+                          <th key={p.id} style={{ textAlign: 'right', padding: '0 1.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
+                              {p.label}
                             </div>
-                            <div style={{ color: '#64748b', fontSize: 10, fontWeight: 400, marginTop: 2 }}>{fmtDate(p.from)} – {fmtDate(p.to)}</div>
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody>
-                      {([
-                        { key: 'totalGuests',    label: 'Hóspedes',              fmt: fmtNum,  icon: <Users size={13} /> },
-                        { key: 'totalUHs',       label: 'UHs Vendidas',          fmt: fmtNum,  icon: <BedDouble size={13} /> },
-                        { key: 'avgADR',         label: 'ADR Médio',             fmt: fmtBRL,  icon: <BarChart2 size={13} /> },
-                        { key: 'avgPerGuest',    label: 'Valor Médio/Hóspede',   fmt: fmtBRL,  icon: <DollarSign size={13} /> },
-                        { key: 'totalRevenue',   label: 'Valor Total do Período', fmt: fmtBRL, icon: <TrendingUp size={13} /> },
-                        { key: 'avgDailyRevenue',label: 'Média Diária',          fmt: fmtBRL,  icon: <CalendarRange size={13} /> },
-                        { key: 'days',           label: 'Dias Analisados',       fmt: fmtNum,  icon: <CalendarRange size={13} /> },
-                      ] as { key: keyof PeriodMetrics; label: string; fmt: (v: number) => string; icon: React.ReactNode }[]).map((row, ri) => (
-                        <tr key={row.key} style={{ background: ri % 2 === 0 ? 'rgba(15,23,42,0.5)' : 'rgba(30,41,59,0.3)', borderBottom: '1px solid rgba(148,163,184,0.06)' }}>
-                          <td style={{ padding: '0.85rem 1.3rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
-                            <span style={{ color: '#64748b' }}>{row.icon}</span>
-                            {row.label}
+                    <tbody onMouseLeave={() => setActiveCell(null)}>
+                      {METRICS_LIST.map(row => (
+                        <tr key={row.key} style={{ background: isDark ? 'rgba(30,41,59,0.1)' : 'rgba(241,245,249,0.5)', borderRadius: 24 }}>
+                          <td style={{ padding: '2rem 1.5rem', borderTopLeftRadius: 24, borderBottomLeftRadius: 24, minWidth: 160 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: isDark ? '#94a3b8' : '#475569', fontWeight: 700 }}>
+                              <div style={{ color: '#0ea5e9' }}>{row.icon}</div>
+                              {row.label}
+                            </div>
                           </td>
-                          {periodsWithResults.map((p, pi) => {
-                            const m = results.get(p.id)!;
-                            const v = m[row.key] as number;
-                            const baseVal = pi > 0 && base ? (base[row.key] as number) : 0;
+                          {periodsWithResults.map((p, pIdx) => {
+                            const val = results.get(p.id)![row.key] as number;
+                            const isActiveBase = activeCell?.periodId === p.id && activeCell?.metricKey === row.key;
+                            const isComparisonTarget = activeCell?.metricKey === row.key && activeCell?.periodId !== p.id;
+
                             return (
-                              <td key={p.id} style={{ padding: '0.85rem 1.3rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                                  <span style={{ fontWeight: 700, color: '#f1f5f9', fontSize: 14 }}>{row.fmt(v)}</span>
-                                  {pi > 0 && <TrendBadge value={v} base={baseVal} />}
+                              <td key={p.id} style={{ 
+                                padding: '0 1rem', textAlign: 'right', verticalAlign: 'middle',
+                                borderTopRightRadius: pIdx === periodsWithResults.length - 1 ? 24 : 0,
+                                borderBottomRightRadius: pIdx === periodsWithResults.length - 1 ? 24 : 0
+                              }}>
+                                <div 
+                                  className={`matrix-cell ${isActiveBase ? 'cell-base-active' : ''} ${isComparisonTarget ? 'cell-target-active' : ''}`}
+                                  onMouseEnter={() => setActiveCell({ periodId: p.id, metricKey: row.key })}
+                                  onClick={() => setActiveCell({ periodId: p.id, metricKey: row.key })}
+                                  style={{ 
+                                    padding: '1.25rem', borderRadius: 16,
+                                    minHeight: 80, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                                    border: isActiveBase ? `1px solid ${p.color}` : isComparisonTarget ? `1px solid ${p.color}50` : `1px solid ${isDark ? 'transparent' : 'rgba(203,213,225,0.3)'}`,
+                                    boxShadow: isActiveBase ? `0 0 30px ${p.color}40` : isComparisonTarget ? `0 0 20px ${p.color}20` : 'none',
+                                    background: isActiveBase ? `${p.color}15` : (isDark ? 'rgba(15,23,42,0.3)' : '#fff'),
+                                  }}
+                                >
+                                  <div className="lighting-beam" />
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, position: 'relative', zIndex: 2 }}>
+                                    <span style={{ 
+                                      fontWeight: 900, 
+                                      color: isActiveBase ? p.color : isComparisonTarget ? p.color : isDark ? '#f8fafc' : '#1e293b', 
+                                      fontSize: isActiveBase ? 18 : 16, 
+                                      transition: 'all 0.3s ease',
+                                      textShadow: isActiveBase ? `0 0 10px ${p.color}40` : 'none'
+                                    }}>
+                                      {row.fmt(val)}
+                                    </span>
+                                    
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '4px 8px', maxWidth: 220 }}>
+                                      {periodsWithResults.filter(other => other.id !== p.id).map(other => (
+                                        <TrendBadgeCompact 
+                                          key={other.id}
+                                          value={val} 
+                                          base={results.get(other.id)![row.key] as number} 
+                                          color={other.color}
+                                          isDark={isDark}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
                               </td>
                             );
@@ -555,78 +464,62 @@ export default function PickupReport() {
                     </tbody>
                   </table>
                 </div>
-
-                {/* Gráficos */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-
-                  {/* ADR por período */}
-                  <div style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.12)', borderRadius: 18, padding: '1.5rem' }}>
-                    <h4 style={{ margin: '0 0 1.2rem', fontSize: 13, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7 }}>ADR por Período</h4>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={adrChartData} barSize={42}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <YAxis tickFormatter={v => `R$${v}`} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} width={70} />
-                        <Tooltip content={<CustomTooltip formatter={fmtBRL} />} />
-                        <Bar dataKey="ADR" radius={[8, 8, 0, 0]}>
-                          {adrChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                          <LabelList dataKey="ADR" position="top" formatter={(v: number) => `R$${v.toFixed(0)}`} style={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* UHs por período */}
-                  <div style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.12)', borderRadius: 18, padding: '1.5rem' }}>
-                    <h4 style={{ margin: '0 0 1.2rem', fontSize: 13, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7 }}>UHs Vendidas por Período</h4>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={uhsChartData} barSize={42}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} width={40} />
-                        <Tooltip content={<CustomTooltip formatter={fmtNum} />} />
-                        <Bar dataKey="UHs" radius={[8, 8, 0, 0]}>
-                          {uhsChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                          <LabelList dataKey="UHs" position="top" style={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {/* Gráfico de receita diária */}
-                {revenueChartData.length > 0 && (
-                  <div style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(148,163,184,0.12)', borderRadius: 18, padding: '1.5rem', marginBottom: '2rem' }}>
-                    <h4 style={{ margin: '0 0 1.2rem', fontSize: 13, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.7 }}>Receita Diária por Período</h4>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={revenueChartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" vertical={false} />
-                        <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                        <YAxis tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} width={60} />
-                        <Tooltip content={<CustomTooltip formatter={fmtBRL} />} />
-                        <Legend wrapperStyle={{ paddingTop: 12, fontSize: 12, color: '#94a3b8' }} />
-                        {periodsWithResults.map(p => (
-                          <Line
-                            key={p.id}
-                            type="monotone"
-                            dataKey={p.label}
-                            stroke={p.color}
-                            strokeWidth={2.5}
-                            dot={false}
-                            activeDot={{ r: 5, fill: p.color, strokeWidth: 0 }}
-                            connectNulls={false}
-                          />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </>
+              </div>
             )}
-          </>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 500px), 1fr))', gap: '2rem', marginBottom: '3rem' }}>
+              <div style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 24, padding: '2rem' }}>
+                <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>ADR Benchmarking</h4>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={adrChartData} barSize={50}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.06)" : "rgba(203,213,225,0.2)"} vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={v => `R$${v}`} tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
+                    <Tooltip content={<CustomTooltip formatter={fmtBRL} isDark={isDark} />} cursor={{ fill: isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.1)' }} />
+                    <Bar dataKey="ADR" radius={[12, 12, 0, 0]}>
+                      {adrChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      <LabelList dataKey="ADR" position="top" formatter={(v: number) => `R$${v.toFixed(0)}`} style={{ fill: isDark ? '#f8fafc' : '#1e293b', fontSize: 12, fontWeight: 800 }} offset={10} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 24, padding: '2rem' }}>
+                <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>Volume de UHs</h4>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={uhsChartData} barSize={50} margin={{ top: 30, right: 10, left: 10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.06)" : "rgba(203,213,225,0.2)"} vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15)]} hide />
+                    <Tooltip content={<CustomTooltip formatter={fmtNum} isDark={isDark} />} cursor={{ fill: isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.1)' }} />
+                    <Bar dataKey="UHs" radius={[12, 12, 0, 0]}>
+                      {uhsChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      <LabelList dataKey="UHs" position="top" style={{ fill: isDark ? '#f8fafc' : '#1e293b', fontSize: 12, fontWeight: 800 }} offset={10} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {revenueChartData.length > 0 && (
+              <div style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 24, padding: '2rem', marginBottom: '4rem' }}>
+                <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>Curva de Receita Diária</h4>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={revenueChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.06)" : "rgba(203,213,225,0.2)"} vertical={false} />
+                    <XAxis dataKey="day" tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip formatter={fmtBRL} isDark={isDark} />} />
+                    <Legend iconType="circle" />
+                    {periodsWithResults.map(p => (
+                      <Line key={p.id} type="monotone" dataKey={p.label} stroke={p.color} strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
         )}
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
