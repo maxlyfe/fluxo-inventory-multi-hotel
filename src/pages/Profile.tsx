@@ -22,9 +22,16 @@ interface EmployeeLink {
   hotels?: { name: string };
 }
 
+function formatMaskedCPF(cpf: string): string {
+  const clean = cpf.replace(/\D/g, '');
+  if (clean.length !== 11) return cpf;
+  return `${clean.substring(0, 3)}.***.***-${clean.substring(9, 11)}`;
+}
+
 export default function Profile() {
   const { user, refreshProfile } = useAuth();
   const { selectedHotel } = useHotel();
+  const navigate = useNavigate();
   
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,7 +51,7 @@ export default function Profile() {
       setFullName(user.full_name || '');
       setCpf(user.cpf || '');
       setPhotoUrl(user.photo_url || '');
-      checkEmployeeLink(user.cpf || '');
+      if (user.cpf) checkEmployeeLink(user.cpf);
     }
   }, [user]);
 
@@ -291,9 +298,10 @@ export default function Profile() {
                   <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input 
                     type="text" 
-                    value={cpf}
+                    value={employee ? formatMaskedCPF(cpf) : cpf}
                     onChange={e => setCpf(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    disabled={!!employee}
+                    className={`w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all ${employee ? 'cursor-not-allowed opacity-80' : ''}`}
                     placeholder="000.000.000-00"
                   />
                 </div>

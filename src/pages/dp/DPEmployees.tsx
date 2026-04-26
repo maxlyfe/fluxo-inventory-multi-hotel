@@ -399,6 +399,21 @@ export default function DPEmployees() {
 
     setSaving(true);
     try {
+      const cleanCpf = form.cpf?.replace(/\D/g, '');
+      
+      // Verifica CPF duplicado (exceto se for o próprio editando)
+      if (cleanCpf) {
+        const { data: existing } = await supabase
+          .from('employees')
+          .select('id, name')
+          .eq('cpf', cleanCpf)
+          .maybeSingle();
+        
+        if (existing && existing.id !== editId) {
+          throw new Error(`Este CPF já está cadastrado para o colaborador: ${existing.name}`);
+        }
+      }
+
       const payload = {
         hotel_id:       form.hotel_id,
         user_id:        form.user_id || null,
