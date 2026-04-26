@@ -24,6 +24,7 @@ interface User {
   last_sign_in_at:   string;
   raw_user_meta_data?: { role?: string };
   banned_until?:     string | null;
+  photo_url?:        string | null;
 }
 
 interface CustomRole {
@@ -420,6 +421,7 @@ const UserManagement = () => {
         last_sign_in_at:    u.last_sign_in_at,
         raw_user_meta_data: u.raw_user_meta_data,
         banned_until:       u.banned_until,
+        photo_url:          u.photo_url          || null,
       })));
     } catch (err: any) {
       showToast('error', 'Erro ao carregar usuários: ' + err.message);
@@ -543,6 +545,24 @@ const UserManagement = () => {
       setTogglingBan(null);
     }
   };
+
+  const handleRemovePhoto = async (user: User) => {
+    if (!window.confirm(`Remover foto de perfil de ${user.email}?`)) return;
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ photo_url: null })
+        .eq('id', user.id);
+      if (error) throw error;
+      showToast('success', 'Foto removida com sucesso.');
+      fetchUsers();
+    } catch (err: any) {
+      showToast('error', 'Erro ao remover foto: ' + err.message);
+    }
+  };
+
+  const { can } = usePermissions();
+  const canManagePhotos = isDev || isAdmin || can('diretoria');
 
   // ---------------------------------------------------------------------------
   // Notification preferences
@@ -736,8 +756,12 @@ const UserManagement = () => {
               return (
                 <div key={user.id} className={`flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-4 transition-colors group ${disabled ? 'bg-red-50/30 dark:bg-red-900/5' : 'hover:bg-gray-50/70 dark:hover:bg-gray-700/30'}`}>
                   {/* Avatar */}
-                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 shadow-sm ${disabled ? 'bg-gray-400 dark:bg-gray-600' : 'bg-gradient-to-br from-blue-400 to-indigo-600'}`}>
-                    {user.email[0].toUpperCase()}
+                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 shadow-sm overflow-hidden ${disabled ? 'bg-gray-400 dark:bg-gray-600' : 'bg-gradient-to-br from-blue-400 to-indigo-600'}`}>
+                    {user.photo_url ? (
+                      <img src={user.photo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      user.email[0].toUpperCase()
+                    )}
                   </div>
 
                   {/* Info */}
@@ -767,6 +791,10 @@ const UserManagement = () => {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                    {user.photo_url && canManagePhotos && (
+                      <ActionButton title="Remover foto" icon={<Camera className="h-4 w-4 text-red-500" />} color="hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => handleRemovePhoto(user)} />
+                    )}
                     <ActionButton title="Alterar senha" icon={<Key className="h-4 w-4" />} color="text-indigo-600 dark:text-indigo-400"
                       disabled={disabled} onClick={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }} />
                     <ActionButton title="Alterar função" icon={<UserCog className="h-4 w-4" />} color="text-amber-600 dark:text-amber-400"

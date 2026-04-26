@@ -92,6 +92,7 @@ import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 
 // ── Pages — Diretoria ────────────────────────────────────────────────────────
 import PickupReport from './pages/diretoria/PickupReport';
+import Profile      from './pages/Profile';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
 import PDVPage           from './pages/pdv/PDV';
@@ -224,6 +225,11 @@ function App() {
 
                     {/* Dashboard */}
                     <Route path="/" element={<Home />} />
+                    <Route path="/profile" element={
+                      <PrivateRoute>
+                        <Profile />
+                      </PrivateRoute>
+                    } />
                     <Route path="/sector/:id" element={<SectorRequests />} />
 
                     {/* ── Portal do Colaborador ──────────────────────────────── */}
