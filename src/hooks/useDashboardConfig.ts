@@ -65,7 +65,7 @@ export function useDashboardConfig() {
     fetchConfig();
   }, [fetchConfig]);
 
-  const addWidget = async (widgetId: string) => {
+  const addWidget = async (widgetId: string, customSettings: any = {}, sizeW?: number) => {
     if (!user?.id) return;
     const def = AVAILABLE_WIDGETS.find(w => w.id === widgetId);
     if (!def) return;
@@ -75,8 +75,9 @@ export function useDashboardConfig() {
       widget_id: widgetId,
       position_x: 0,
       position_y: widgets.length,
-      size_w: def.defaultSize === 'full' ? 12 : def.defaultSize === 'large' ? 6 : 4,
-      size_h: 1
+      size_w: sizeW || (def.defaultSize === 'full' ? 12 : def.defaultSize === 'large' ? 6 : 4),
+      size_h: 1,
+      settings: customSettings
     };
 
     if (isLocalMode) {
