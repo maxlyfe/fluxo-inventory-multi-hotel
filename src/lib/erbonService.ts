@@ -174,6 +174,13 @@ export interface ErbonOccupancyPension {
   date: string;
   occupancy: number;
   roomSalledConfirmed: number;
+  roomSalledRateDefault?: number;
+  roomSalledPending?: number;
+  roomSalledInvited?: number;
+  roomSalledHouseUse?: number;
+  roomSalledPermut?: number;
+  roomSalledCrewMember?: number;
+  roomSalledDayUse?: number;
   roomAvailable: number;
   totalGuestByType: string;
   totalCheckInsSingleDay: number;

@@ -39,8 +39,14 @@ function nextColor(periods: Period[]): string {
 
 function parseGuests(raw: string): number {
   if (!raw) return 0;
+  // Se for apenas um número, retorna ele
+  if (/^\d+$/.test(raw.trim())) return parseInt(raw.trim(), 10);
+  
+  // Tenta o formato "Adults:2,Children:1" ou "Adultos: 2"
   return raw.split(',').reduce((sum, part) => {
-    const val = parseInt(part.split(':')[1] || '0', 10);
+    const segments = part.split(':');
+    const valStr = segments.length > 1 ? segments[1] : segments[0];
+    const val = parseInt(valStr.trim() || '0', 10);
     return sum + (isNaN(val) ? 0 : val);
   }, 0);
 }
@@ -68,19 +74,42 @@ async function fetchPeriodMetrics(hotelId: string, from: string, to: string): Pr
   ]);
 
   const totalGuests = occupancy.reduce((s, d) => s + parseGuests(d.totalGuestByType), 0);
-  const totalUHs = occupancy.reduce((s, d) => s + (d.roomSalledConfirmed ?? 0), 0);
+  
+  // Soma todas as categorias de UH vendida para precisão total (conforme seasonHelper)
+  const totalUHs = occupancy.reduce((s, d) => {
+    const sold = (d.roomSalledConfirmed || 0) +
+                 (d.roomSalledRateDefault || 0) +
+                 (d.roomSalledPending || 0) +
+                 (d.roomSalledInvited || 0) +
+                 (d.roomSalledHouseUse || 0) +
+                 (d.roomSalledPermut || 0) +
+                 (d.roomSalledCrewMember || 0) +
+                 (d.roomSalledDayUse || 0);
+    return s + sold;
+  }, 0);
+
   const totalRevenue = occupancy.reduce((s, d) => s + (d.totalRevenue ?? 0), 0);
   const totalNetRevenue = otb.reduce((s, d) => s + (d.netRoomRevenueTransient ?? 0), 0);
   const avgADR = totalUHs > 0 ? totalNetRevenue / totalUHs : 0;
   const avgPerGuest = totalGuests > 0 ? totalRevenue / totalGuests : 0;
   const avgDailyRevenue = occupancy.length > 0 ? totalRevenue / occupancy.length : 0;
 
-  const dailyRevenue = occupancy.map(d => ({
-    date: d.date,
-    revenue: d.totalRevenue ?? 0,
-    uhs: d.roomSalledConfirmed ?? 0,
-    adr: d.adr ?? 0,
-  }));
+  const dailyRevenue = occupancy.map(d => {
+    const sold = (d.roomSalledConfirmed || 0) +
+                 (d.roomSalledRateDefault || 0) +
+                 (d.roomSalledPending || 0) +
+                 (d.roomSalledInvited || 0) +
+                 (d.roomSalledHouseUse || 0) +
+                 (d.roomSalledPermut || 0) +
+                 (d.roomSalledCrewMember || 0) +
+                 (d.roomSalledDayUse || 0);
+    return {
+      date: d.date,
+      revenue: d.totalRevenue ?? 0,
+      uhs: sold,
+      adr: d.adr ?? 0,
+    };
+  });
 
   return { totalGuests, totalUHs, avgADR, avgPerGuest, totalRevenue, avgDailyRevenue, days: occupancy.length, dailyRevenue };
 }

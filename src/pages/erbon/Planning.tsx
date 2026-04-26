@@ -220,7 +220,16 @@ const Planning: React.FC = () => {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-center font-medium text-gray-700 dark:text-gray-200">{day.roomSalledConfirmed}</td>
+                        <td className="px-3 py-2.5 text-center font-medium text-gray-700 dark:text-gray-200">
+                          {(day.roomSalledConfirmed || 0) + 
+                           (day.roomSalledRateDefault || 0) + 
+                           (day.roomSalledPending || 0) + 
+                           (day.roomSalledInvited || 0) + 
+                           (day.roomSalledHouseUse || 0) + 
+                           (day.roomSalledPermut || 0) + 
+                           (day.roomSalledCrewMember || 0) + 
+                           (day.roomSalledDayUse || 0)}
+                        </td>
                         <td className="px-3 py-2.5 text-center text-gray-500">{day.roomAvailable}</td>
                         <td className="px-3 py-2.5 text-center text-green-600 font-medium">{day.totalCheckInsSingleDay}</td>
                         <td className="px-3 py-2.5 text-center text-red-600 font-medium">{day.totalCheckOutsSingleDay}</td>
