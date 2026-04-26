@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { AVAILABLE_WIDGETS, WidgetDefinition } from '../config/widgetsConfig';
+import { AVAILABLE_WIDGETS } from '../config/widgetsConfig';
 
 export interface UserWidget {
   id: string;
@@ -13,10 +13,13 @@ export interface UserWidget {
   settings?: any;
 }
 
+const STORAGE_KEY = 'fluxo_dashboard_fallback';
+
 export function useDashboardConfig() {
   const { user } = useAuth();
   const [widgets, setWidgets] = useState<UserWidget[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isLocalMode, setIsLocalMode] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     if (!user?.id) return;
@@ -30,12 +33,16 @@ export function useDashboardConfig() {
         .order('position_x', { ascending: true });
 
       if (error) {
-        // Se a tabela não existir (404 / 42P01), não lança erro, apenas usa o padrão
+        // Se a tabela não existir (42P01 ou 404), ativa o modo local
         if (error.code === '42P01' || (error as any).status === 404) {
-          console.warn('Tabela user_dashboard_widgets não encontrada. Usando dashboard padrão.');
-          setWidgets([
-            { id: 'default-1', widget_id: 'greeting', position_x: 0, position_y: 0, size_w: 12, size_h: 1 },
-          ]);
+          console.warn('DB Dashboard indisponível. Ativando modo local.');
+          setIsLocalMode(true);
+          const local = localStorage.getItem(`${STORAGE_KEY}_${user.id}`);
+          if (local) {
+            setWidgets(JSON.parse(local));
+          } else {
+            setWidgets([{ id: 'default-1', widget_id: 'greeting', position_x: 0, position_y: 0, size_w: 12, size_h: 1 }]);
+          }
           setLoading(false);
           return;
         }
@@ -45,10 +52,7 @@ export function useDashboardConfig() {
       if (data && data.length > 0) {
         setWidgets(data);
       } else {
-        // Configuração padrão para novos usuários
-        setWidgets([
-          { id: 'default-1', widget_id: 'greeting', position_x: 0, position_y: 0, size_w: 12, size_h: 1 },
-        ]);
+        setWidgets([{ id: 'default-1', widget_id: 'greeting', position_x: 0, position_y: 0, size_w: 12, size_h: 1 }]);
       }
     } catch (err) {
       console.error('Erro ao carregar dashboard:', err);
@@ -66,7 +70,7 @@ export function useDashboardConfig() {
     const def = AVAILABLE_WIDGETS.find(w => w.id === widgetId);
     if (!def) return;
 
-    const newWidget = {
+    const newWidgetData = {
       user_id: user.id,
       widget_id: widgetId,
       position_x: 0,
@@ -75,18 +79,44 @@ export function useDashboardConfig() {
       size_h: 1
     };
 
-    const { data, error } = await supabase
-      .from('user_dashboard_widgets')
-      .insert(newWidget)
-      .select()
-      .single();
+    if (isLocalMode) {
+      const newWidgets = [...widgets, { ...newWidgetData, id: `local-${Date.now()}` }];
+      setWidgets(newWidgets);
+      localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(newWidgets));
+      return;
+    }
 
-    if (!error && data) {
-      setWidgets(prev => [...prev, data]);
+    try {
+      const { data, error } = await supabase
+        .from('user_dashboard_widgets')
+        .insert(newWidgetData)
+        .select()
+        .single();
+      
+      if (!error && data) {
+        setWidgets(prev => [...prev, data]);
+      } else {
+        // Fallback imediato se o insert falhar (ex: tabela sumiu)
+        setIsLocalMode(true);
+        const localItems = [...widgets, { ...newWidgetData, id: `local-${Date.now()}` }];
+        setWidgets(localItems);
+        localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(localItems));
+      }
+    } catch {
+      setIsLocalMode(true);
     }
   };
 
   const removeWidget = async (id: string) => {
+    if (!user?.id) return;
+
+    if (isLocalMode || id.startsWith('local-') || id.startsWith('default-')) {
+      const newWidgets = widgets.filter(w => w.id !== id);
+      setWidgets(newWidgets);
+      localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(newWidgets));
+      return;
+    }
+
     const { error } = await supabase
       .from('user_dashboard_widgets')
       .delete()
@@ -97,5 +127,5 @@ export function useDashboardConfig() {
     }
   };
 
-  return { widgets, loading, addWidget, removeWidget, refresh: fetchConfig };
+  return { widgets, loading, addWidget, removeWidget, refresh: fetchConfig, isLocalMode };
 }
