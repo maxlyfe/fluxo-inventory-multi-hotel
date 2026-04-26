@@ -205,15 +205,24 @@ const Home = () => {
     if (!user) return [];
     const groups: SidebarGroup[] = [];
     for (const def of NAV_GROUPS) {
-      if (def.adminOnly && !isAdmin) continue;
+      // Regra Admin: se for AdminLegado ou Dev ou tiver a permissão do grupo/itens
+      const canAccessGroup = def.adminOnly 
+        ? (isDev || (isAdmin && !user.custom_role_id) || (def.module ? can(def.module) : def.items.some(i => can(i.module))))
+        : (!def.module || can(def.module) || def.items.some(i => can(i.module)));
+
+      if (!canAccessGroup) continue;
+
       const group: SidebarGroup = { label: def.label, items: [], adminOnly: def.adminOnly, dynamicKey: def.dynamicKey };
+      
+      // Filtra itens
       for (const item of def.items) {
         if (item.module === '__contacts__') {
           if (isAdmin || can('purchases') || canAccessContacts) group.items.push(item);
-        } else if (def.adminOnly || can(item.module)) {
+        } else if (can(item.module)) {
           group.items.push(item);
         }
       }
+
       if (def.dynamicKey === 'stockSectors') {
         stockSectors.forEach((sector, idx) => {
           if (can(`sector_stock:${sector.id}`)) {
@@ -231,7 +240,7 @@ const Home = () => {
       if (group.items.length > 0) groups.push(group);
     }
     return groups;
-  }, [user, isAdmin, can, canAccessContacts, stockSectors, allSectors]);
+  }, [user, isAdmin, isDev, can, canAccessContacts, stockSectors, allSectors]);
 
   const toggleGroup = (label: string) =>
     setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));

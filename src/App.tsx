@@ -316,28 +316,27 @@ function App() {
                     } />
 
                     {/* ── Administração — Perfis & Setores ────────────────────
-                        Acesso controlado internamente pelo usePermissions hook.
-                        O PrivateRoute só exige login (roles=[]).             */}
+                        Acesso controlado pelo usePermissions hook através de módulos. */}
                     <Route path="/admin/roles" element={
-                      <PrivateRoute adminOnly>
+                      <PrivateRoute module="roles_management">
                         <RolesManagement />
                       </PrivateRoute>
                     } />
 
                     <Route path="/admin/sectors" element={
-                      <PrivateRoute adminOnly>
+                      <PrivateRoute module="sectors_management">
                         <SectorsManagement />
                       </PrivateRoute>
                     } />
 
                     <Route path="/admin/erbon" element={
-                      <PrivateRoute adminOnly>
+                      <PrivateRoute module="erbon_pms">
                         <ErbonIntegration />
                       </PrivateRoute>
                     } />
 
                     <Route path="/admin/whatsapp" element={
-                      <PrivateRoute adminOnly>
+                      <PrivateRoute module="whatsapp_integration">
                         <WhatsAppIntegration />
                       </PrivateRoute>
                     } />
@@ -350,7 +349,7 @@ function App() {
 
                     {/* ── Usuários ────────────────────────────────────────── */}
                     <Route path="/users" element={
-                      <PrivateRoute adminOnly>
+                      <PrivateRoute module="users_management">
                         <UserManagement />
                       </PrivateRoute>
                     } />
@@ -467,7 +466,7 @@ function App() {
 
                     {/* ── Financeiro ───────────────────────────────────────── */}
                     <Route path="/finances" element={
-                      <PrivateRoute adminOnly>
+                      <PrivateRoute module="finances">
                         <FinancialManagement />
                       </PrivateRoute>
                     } />

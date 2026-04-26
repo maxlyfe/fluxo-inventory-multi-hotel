@@ -116,17 +116,22 @@ export function usePermissions() {
 
   /**
    * Verifica se o utilizador tem permissão para um módulo.
-   * Admin tem acesso a tudo automaticamente.
+   * Apenas DEV tem bypass total. Admin respeita o perfil custom_role se definido.
    */
   const can = useMemo(
     () => (moduleKey: string): boolean => {
       if (!user) return false;
-      if (isAdmin) return true;
+      if (isDev) return true;
+      
       const perms = user.custom_role?.permissions ?? [];
+      
+      // Se for admin legado (sem custom_role), damos acesso total por segurança
+      if (isAdmin && !user.custom_role_id) return true;
+
       // Suporte direto a chaves simples e compostas (ex: 'sector_stock:UUID')
       return perms.includes(moduleKey);
     },
-    [user, isAdmin]
+    [user, isDev, isAdmin]
   );
 
   /**

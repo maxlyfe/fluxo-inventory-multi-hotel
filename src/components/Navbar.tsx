@@ -87,23 +87,38 @@ const Navbar = () => {
   const visibleSections = useMemo(() =>
     NAV_GROUPS
       .filter(s => {
-        // Ignora grupo "requisicoes" (só faz sentido no sidebar)
+        // Ignora grupo "requisicoes" (só faz sentido no sidebar da Home)
         if (s.dynamicKey === 'allSectors') return false;
-        if (s.adminOnly) return isAdmin;
+        
+        // Regra de Administração (AdminLegado ou Dev ou Permissão específica)
+        if (s.adminOnly) {
+          if (isDev) return true;
+          if (isAdmin && !user?.custom_role_id) return true;
+          // Se tiver módulo específico (ex: roles_management), can() já resolve
+          if (s.module && can(s.module)) return true;
+          // Se não tiver módulo no grupo, mas tiver em algum item
+          return s.items.some(i => can(i.module));
+        }
+
         if (s.module) {
           if (can(s.module)) return true;
           if (s.key === 'compras' && canAccessContacts) return true;
           return false;
         }
-        return true;
+
+        // Se o grupo não tem módulo, verifica se tem permissão em PELO MENOS um item
+        return s.items.some(i => can(i.module));
       })
       .map(s => {
-        if (s.key === 'compras' && !isAdmin && !can('purchases')) {
-          return { ...s, items: s.items.filter(i => i.href === CONTACT_ITEM_HREF) };
-        }
-        return s;
-      }),
-    [isAdmin, can, canAccessContacts]
+        // Filtra os itens individualmente dentro de cada grupo
+        const filteredItems = s.items.filter(i => {
+           if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
+           return can(i.module);
+        });
+        return { ...s, items: filteredItems };
+      })
+      .filter(s => s.items.length > 0), // Remove grupos que ficaram vazios
+    [isAdmin, isDev, can, canAccessContacts, user?.custom_role_id]
   );
 
   // Seção ativa baseada na rota atual — prioriza o prefix mais longo (mais específico)
