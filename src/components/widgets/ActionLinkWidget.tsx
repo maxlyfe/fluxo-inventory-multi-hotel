@@ -13,7 +13,7 @@ export default function ActionLinkWidget({ settings }: { settings?: any }) {
   const sub = settings?.sub || 'Clique para acessar';
 
   // @ts-ignore
-  const Icon = LucideIcons[iconName] || LucideIcons.Link;
+  const Icon = (LucideIcons as any)[iconName] || LucideIcons.Link;
 
   return (
     <button

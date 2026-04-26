@@ -142,6 +142,13 @@ const Home = () => {
             const definition = AVAILABLE_WIDGETS.find(w => w.id === userWidget.widget_id);
             if (!definition) return null;
             const WidgetComponent = definition.component;
+            // Helper para gerar classes literais (Tailwind safe)
+            const getGridSpan = (sizeW: number) => {
+              if (sizeW === 12) return 'col-span-12';
+              if (sizeW === 6)  return 'col-span-12 lg:col-span-6';
+              if (sizeW === 4)  return 'col-span-12 sm:col-span-6 lg:col-span-4';
+              return 'col-span-12 sm:col-span-6 lg:col-span-3';
+            };
             const spanClass = getGridSpan(userWidget.size_w);
 
             return (
