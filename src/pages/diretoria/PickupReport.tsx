@@ -25,6 +25,7 @@ interface PeriodMetrics {
   avgADR: number;
   avgPerGuest: number;
   totalRevenue: number;
+  totalRoomRevenue: number;
   avgDailyRevenue: number;
   days: number;
   dailyRevenue: { date: string; revenue: number; uhs: number; adr: number }[];
@@ -103,7 +104,7 @@ async function fetchPeriodMetrics(hotelId: string, from: string, to: string): Pr
     return { date: d.date, revenue: d.totalRevenue ?? 0, uhs: sold, adr: d.adr ?? 0 };
   });
 
-  return { totalGuests, totalUHs, avgADR, avgPerGuest, totalRevenue, avgDailyRevenue, days: occupancy.length, dailyRevenue };
+  return { totalGuests, totalUHs, avgADR, avgPerGuest, totalRevenue, totalRoomRevenue: totalNetRevenue, avgDailyRevenue, days: occupancy.length, dailyRevenue };
 }
 
 // ── Sub-componentes ──────────────────────────────────────────────────────────
@@ -235,11 +236,12 @@ export default function PickupReport() {
   const periodsWithResults = periods.filter(p => results.has(p.id));
   
   const METRICS_LIST = useMemo(() => [
-    { key: 'totalRevenue',   label: 'Receita Total', fmt: fmtBRL, icon: <TrendingUp size={14} /> },
-    { key: 'totalUHs',       label: 'UHs Vendidas',  fmt: fmtNum, icon: <BedDouble size={14} /> },
-    { key: 'avgADR',         label: 'ADR Médio',     fmt: fmtBRL, icon: <BarChart2 size={14} /> },
-    { key: 'totalGuests',    label: 'Total Hóspedes', fmt: fmtNum, icon: <Users size={14} /> },
-    { key: 'avgDailyRevenue',label: 'Média Diária',  fmt: fmtBRL, icon: <CalendarRange size={14} /> },
+    { key: 'totalRevenue',     label: 'Receita Total',        fmt: fmtBRL, icon: <TrendingUp size={14} /> },
+    { key: 'totalRoomRevenue', label: 'Receita Hospedagem',   fmt: fmtBRL, icon: <BedDouble size={14} /> },
+    { key: 'totalUHs',         label: 'UHs Vendidas',         fmt: fmtNum, icon: <BedDouble size={14} /> },
+    { key: 'avgADR',           label: 'ADR Médio',            fmt: fmtBRL, icon: <BarChart2 size={14} /> },
+    { key: 'totalGuests',      label: 'Total Hóspedes',       fmt: fmtNum, icon: <Users size={14} /> },
+    { key: 'avgDailyRevenue',  label: 'Média Diária (Total)', fmt: fmtBRL, icon: <CalendarRange size={14} /> },
   ] as const, []);
 
   // Gráficos calculados dentro do componente
@@ -368,8 +370,9 @@ export default function PickupReport() {
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 900 }}>{p.label} <span style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 500 }}>({fmtDate(p.from)} – {fmtDate(p.to)})</span></h3>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 240px), 1fr))', gap: '1.25rem' }}>
-                    <MetricCard label="Receita" value={fmtBRL(m.totalRevenue)} icon={<TrendingUp size={16} />} color={p.color} subValue={`${m.days} dias`} isDark={isDark} />
-                    <MetricCard label="ADR" value={fmtBRL(m.avgADR)} icon={<BarChart2 size={16} />} color={p.color} subValue="Líquido" isDark={isDark} />
+                    <MetricCard label="Receita Total" value={fmtBRL(m.totalRevenue)} icon={<TrendingUp size={16} />} color={p.color} subValue={`diárias + consumos · ${m.days} dias`} isDark={isDark} />
+                    <MetricCard label="Receita Hospedagem" value={fmtBRL(m.totalRoomRevenue)} icon={<BedDouble size={16} />} color={p.color} subValue="só diárias (líquido)" isDark={isDark} />
+                    <MetricCard label="ADR" value={fmtBRL(m.avgADR)} icon={<BarChart2 size={16} />} color={p.color} subValue="Diária média líquida" isDark={isDark} />
                     <MetricCard label="UHs" value={fmtNum(m.totalUHs)} icon={<BedDouble size={16} />} color={p.color} subValue="Vendidas" isDark={isDark} />
                     <MetricCard label="Hóspedes" value={fmtNum(m.totalGuests)} icon={<Users size={16} />} color={p.color} isDark={isDark} />
                   </div>
