@@ -1,10 +1,10 @@
+// src/pages/Home.tsx
 import React, { useState, useEffect, useMemo, Suspense, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   X, Plus, Settings2, Save, Trash2, 
   Layout, Sparkles, Loader2, Search,
-  ShieldCheck, Boxes, Hotel, TrendingUp,
-  Package, LayoutGrid, ArrowRight, ChevronRight
+  Package, ChevronRight
 } from 'lucide-react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase } from '../lib/supabase';
@@ -13,13 +13,13 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useHotel } from '../context/HotelContext';
 import { useDashboardConfig } from '../hooks/useDashboardConfig';
-import { AVAILABLE_WIDGETS, WIDGET_SIZE_MAP, WidgetSize } from '../config/widgetsConfig';
+import { AVAILABLE_WIDGETS, WidgetSize } from '../config/widgetsConfig';
 import { NAV_GROUPS } from '../lib/navigationConfig';
 import WidgetContainer from '../components/widgets/WidgetContainer';
 
 const Home = () => {
   const { user } = useAuth();
-  const { can, isAdmin, isDev } = usePermissions();
+  const { can, isAdmin } = usePermissions();
   const { selectedHotel } = useHotel();
   const { widgets, loading, addWidget, removeWidget } = useDashboardConfig();
   const navigate = useNavigate();
@@ -29,7 +29,10 @@ const Home = () => {
   const [searchTerm, setSearchTarget] = useState('');
   const [allHotelSectors, setAllHotelSectors] = useState<any[]>([]);
 
-  // Carrega setores do hotel para serem usados como atalhos
+  useEffect(() => {
+    if (!selectedHotel) navigate('/select-hotel', { replace: true });
+  }, [selectedHotel, navigate]);
+
   useEffect(() => {
     if (selectedHotel?.id) {
       supabase.from('sectors').select('id, name, color').eq('hotel_id', selectedHotel.id).order('name')
@@ -37,11 +40,8 @@ const Home = () => {
     }
   }, [selectedHotel?.id]);
 
-  // Agrupa todas as possíveis páginas/destinos liberados para o usuário
   const possibleTargets = useMemo(() => {
     const targets: any[] = [];
-
-    // 1. Páginas do sistema (Navigation Config)
     NAV_GROUPS.forEach(group => {
       group.items.forEach(item => {
         if (can(item.module) || (item.module === '__contacts__' && isAdmin)) {
@@ -51,14 +51,12 @@ const Home = () => {
             sub: group.label,
             href: item.href,
             icon: item.icon,
-            color: item.color,
-            module: item.module
+            iconName: item.iconName,
+            color: item.color
           });
         }
       });
     });
-
-    // 2. Setores para requisição rápida
     allHotelSectors.forEach(sector => {
       targets.push({
         id: `sector-${sector.id}`,
@@ -66,11 +64,10 @@ const Home = () => {
         sub: 'Requisição Direta',
         href: `/sector/${sector.id}`,
         icon: Package,
-        color: sector.color || '#6366f1',
-        module: `sector_stock:${sector.id}`
+        iconName: 'Package',
+        color: sector.color || '#6366f1'
       });
     });
-
     return targets;
   }, [allHotelSectors, can, isAdmin]);
 
@@ -79,7 +76,6 @@ const Home = () => {
     t.sub.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Widgets informativos padrão (não atalhos)
   const standardWidgets = AVAILABLE_WIDGETS.filter(w => w.type === 'standard' && (!w.module || can(w.module)));
 
   if (!selectedHotel || loading) {
@@ -91,22 +87,25 @@ const Home = () => {
   }
 
   const handleAddAction = (target: any, size: WidgetSize = 'small') => {
-    // Adiciona o widget do tipo 'action-link' com as configurações do alvo
     addWidget('action-link', {
       label: target.label,
       href: target.href,
-      icon: (target.icon as any).name || 'Link', // Tenta pegar o nome do ícone lucide
+      icon: target.iconName || 'Link',
       color: target.color,
       sub: target.sub,
-      size_w: size === 'small' ? 3 : size === 'medium' ? 4 : 6
-    });
+    }, size === 'small' ? 3 : size === 'medium' ? 4 : 6);
     setShowMarketplace(false);
+  };
+
+  const getGridSpan = (sizeW: number) => {
+    if (sizeW === 12) return 'col-span-12';
+    if (sizeW === 6)  return 'col-span-12 lg:col-span-6';
+    if (sizeW === 4)  return 'col-span-12 sm:col-span-6 lg:col-span-4';
+    return 'col-span-12 sm:col-span-6 lg:col-span-3';
   };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 pb-20">
-      
-      {/* ── Toolbar de Controle ────────────────────────────────────────── */}
       <div className="sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 lg:px-8 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -118,27 +117,17 @@ const Home = () => {
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{selectedHotel.name}</p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             {!isEditing ? (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-blue-500 transition-all active:scale-95 shadow-sm"
-              >
-                <Settings2 className="w-3.5 h-3.5" /> Customizar
+              <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-blue-500 transition-all active:scale-95 shadow-sm">
+                <Settings2 className="w-3.5 h-3.5" /> Personalizar
               </button>
             ) : (
               <>
-                <button
-                  onClick={() => setShowMarketplace(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-all active:scale-95 shadow-lg shadow-indigo-500/20"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Adicionar Atalho ou Widget
+                <button onClick={() => setShowMarketplace(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-all active:scale-95 shadow-lg">
+                  <Plus className="w-3.5 h-3.5" /> Adicionar
                 </button>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-all active:scale-95 shadow-lg shadow-emerald-500/20"
-                >
+                <button onClick={() => setIsEditing(false)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-all active:scale-95 shadow-lg">
                   <Save className="w-3.5 h-3.5" /> Concluir
                 </button>
               </>
@@ -152,18 +141,12 @@ const Home = () => {
           {widgets.map((userWidget) => {
             const definition = AVAILABLE_WIDGETS.find(w => w.id === userWidget.widget_id);
             if (!definition) return null;
-
             const WidgetComponent = definition.component;
-            // Usa o tamanho salvo no banco (col-span-X)
-            const spanClass = `col-span-12 sm:col-span-${userWidget.size_w || 4} lg:col-span-${userWidget.size_w || 3}`;
+            const spanClass = getGridSpan(userWidget.size_w);
 
             return (
               <div key={userWidget.id} className={spanClass}>
-                <WidgetContainer
-                  label={definition.label}
-                  isEditing={isEditing}
-                  onRemove={() => removeWidget(userWidget.id)}
-                >
+                <WidgetContainer label={definition.label} isEditing={isEditing} onRemove={() => removeWidget(userWidget.id)}>
                   <Suspense fallback={<div className="h-40 rounded-3xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}>
                     <WidgetComponent settings={userWidget.settings} />
                   </Suspense>
@@ -171,7 +154,6 @@ const Home = () => {
               </div>
             );
           })}
-
           {widgets.length === 0 && !loading && (
             <div className="col-span-12 py-20 flex flex-col items-center justify-center text-center">
               <Sparkles className="w-12 h-12 text-slate-300 mb-4" />
@@ -182,39 +164,28 @@ const Home = () => {
         </div>
       </main>
 
-      {/* ── Marketplace de Atalhos & Widgets ──────────────────────────────── */}
       <Transition show={showMarketplace} as={Fragment}>
         <Dialog as="div" className="relative z-[100]" onClose={() => setShowMarketplace(false)}>
           <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm" />
           <div className="fixed inset-0 z-10 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
               <Dialog.Panel className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 p-8">
-                
                 <div className="flex items-center justify-between mb-8">
                   <div>
                     <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Adicionar ao Dashboard</h3>
-                    <p className="text-sm text-slate-400 mt-1">Crie atalhos diretos para páginas e setores ou adicione widgets de dados.</p>
+                    <p className="text-sm text-slate-400 mt-1">Crie atalhos diretos ou adicione widgets de dados.</p>
                   </div>
-                  <button onClick={() => setShowMarketplace(false)} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-all">
+                  <button onClick={() => setShowMarketplace(false)} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full hover:text-red-500 transition-all">
                     <X className="w-6 h-6" />
                   </button>
                 </div>
-
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  
-                  {/* Coluna 1: Widgets de Dados */}
                   <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest px-2">Módulos de Dados</h4>
                     <div className="space-y-2">
                       {standardWidgets.map(w => (
-                        <button
-                          key={w.id}
-                          onClick={() => { addWidget(w.id); setShowMarketplace(false); }}
-                          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 border border-slate-100 dark:border-slate-700 transition-all text-left"
-                        >
-                          <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-                            <w.icon className="w-5 h-5 text-indigo-500" />
-                          </div>
+                        <button key={w.id} onClick={() => { addWidget(w.id); setShowMarketplace(false); }} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 hover:bg-indigo-900/10 border border-slate-100 dark:border-slate-700 transition-all text-left">
+                          <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm"><w.icon className="w-5 h-5 text-indigo-500" /></div>
                           <div>
                             <p className="text-sm font-bold text-slate-800 dark:text-white">{w.label}</p>
                             <p className="text-[10px] text-slate-400">{w.description}</p>
@@ -223,29 +194,17 @@ const Home = () => {
                       ))}
                     </div>
                   </div>
-
-                  {/* Coluna 2 e 3: Atalhos para Páginas e Setores */}
                   <div className="lg:col-span-2 space-y-4">
                     <div className="flex items-center justify-between px-2">
                       <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Atalhos de Acesso Rápido</h4>
                       <div className="relative">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input 
-                          type="text" 
-                          placeholder="Buscar destino..."
-                          value={searchTerm}
-                          onChange={e => setSearchTarget(e.target.value)}
-                          className="pl-8 pr-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none w-48"
-                        />
+                        <input type="text" placeholder="Buscar destino..." value={searchTerm} onChange={e => setSearchTarget(e.target.value)} className="pl-8 pr-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none w-48" />
                       </div>
                     </div>
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
                       {filteredTargets.map(target => (
-                        <div 
-                          key={target.id}
-                          className="group p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 flex flex-col gap-3"
-                        >
+                        <div key={target.id} className="group p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm" style={{ backgroundColor: `${target.color}15` }}>
                               <target.icon className="w-5 h-5" style={{ color: target.color }} />
@@ -255,7 +214,6 @@ const Home = () => {
                               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{target.sub}</p>
                             </div>
                           </div>
-                          
                           <div className="flex gap-2">
                             <button onClick={() => handleAddAction(target, 'small')} className="flex-1 py-1.5 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">Pequeno</button>
                             <button onClick={() => handleAddAction(target, 'medium')} className="flex-1 py-1.5 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">Médio</button>
@@ -265,7 +223,6 @@ const Home = () => {
                       ))}
                     </div>
                   </div>
-
                 </div>
               </Dialog.Panel>
             </div>

@@ -16,6 +16,20 @@ const Sidebar = () => {
   const { selectedHotel } = useHotel();
   const location = useLocation();
   const [isHovered, setIsHovered] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  // Fecha todos os grupos quando o mouse sai da sidebar (opcional, para limpeza visual)
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+    // setExpandedGroups({}); // Descomente se preferir que tudo feche ao sair
+  };
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   // Helper: is current path
   const isActive = (href: string) =>
@@ -95,39 +109,69 @@ const Sidebar = () => {
           </div>
 
           {/* Dynamic Sections */}
-          {visibleSections.map(section => (
-            <div key={section.key} className="space-y-1">
-              {isHovered && (
-                <p className="px-2 text-[10px] font-black text-slate-400 dark:text-slate-600 uppercase tracking-widest mb-2 truncate">
-                  {section.label}
-                </p>
-              )}
-              {section.items.map(item => (
-                <Link 
-                  key={item.href}
-                  to={item.href} 
-                  title={item.label}
+          {visibleSections.map(section => {
+            const isExpanded = expandedGroups[section.key];
+            const hasActiveItem = section.items.some(i => isActive(i.href));
+
+            return (
+              <div key={section.key} className="space-y-1">
+                {/* Header da Seção - Clicável */}
+                <button
+                  onClick={() => toggleGroup(section.key)}
                   className={classNames(
-                    "flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all group/item",
-                    isActive(item.href)
-                      ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400" 
-                      : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-800 dark:hover:text-slate-200"
+                    "w-full flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all group/header",
+                    isExpanded || hasActiveItem 
+                      ? "text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10" 
+                      : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                   )}
                 >
-                  <item.icon 
-                    className="w-6 h-6 shrink-0 transition-colors" 
-                    style={{ color: isActive(item.href) ? item.color : undefined }}
-                  />
+                  <section.icon className="w-6 h-6 shrink-0" />
                   <span className={classNames(
-                    "text-sm font-semibold truncate transition-opacity duration-200", 
+                    "text-xs font-black uppercase tracking-widest truncate transition-opacity duration-200", 
                     isHovered ? "opacity-100" : "opacity-0"
                   )}>
-                    {item.label}
+                    {section.label}
                   </span>
-                </Link>
-              ))}
-            </div>
-          ))}
+                  {isHovered && (
+                    <ChevronRight className={classNames(
+                      "w-3 h-3 ml-auto transition-transform duration-200",
+                      isExpanded ? "rotate-90" : ""
+                    )} />
+                  )}
+                </button>
+
+                {/* Itens da Seção - Condicionais */}
+                {(isExpanded || (hasActiveItem && !isHovered)) && (
+                  <div className={classNames("space-y-1", isHovered ? "ml-4" : "ml-0")}>
+                    {section.items.map(item => (
+                      <Link 
+                        key={item.href}
+                        to={item.href} 
+                        title={item.label}
+                        className={classNames(
+                          "flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all group/item",
+                          isActive(item.href)
+                            ? "text-blue-600 dark:text-blue-400 font-bold" 
+                            : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                        )}
+                      >
+                        <item.icon 
+                          className="w-5 h-5 shrink-0 transition-colors" 
+                          style={{ color: isActive(item.href) ? item.color : undefined }}
+                        />
+                        <span className={classNames(
+                          "text-sm font-semibold truncate transition-opacity duration-200", 
+                          isHovered ? "opacity-100" : "opacity-0"
+                        )}>
+                          {item.label}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Footer Actions */}
