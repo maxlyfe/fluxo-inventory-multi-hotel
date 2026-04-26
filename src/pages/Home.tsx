@@ -129,7 +129,7 @@ const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 // ---------------------------------------------------------------------------
 const Home = () => {
   const { user }          = useAuth();
-  const { can, isAdmin, roleName, roleColor, canAccessContacts } = usePermissions();
+  const { can, isAdmin, isDev, roleName, roleColor, canAccessContacts } = usePermissions();
   const { selectedHotel } = useHotel();
   const navigate          = useNavigate();
 
