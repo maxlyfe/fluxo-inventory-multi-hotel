@@ -19,16 +19,10 @@ import { useTheme } from '../../context/ThemeContext';
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 interface OTBRow {
-  stayDate:          string;
-  currentOTB:        number;
-  comparisonOTB:     number;
-  deltaRooms:        number;
-  currentRevenue:    number;
-  comparisonRevenue: number;
-  deltaRevenue:      number;
-  currentAdr:        number;
-  comparisonAdr:     number;
-  deltaAdrPct:       number;
+  stayDate:      string;
+  currentOTB:    number;
+  comparisonOTB: number;
+  deltaRooms:    number;
 }
 
 interface WindowBucket { label: string; count: number; revenue: number; }
@@ -39,10 +33,6 @@ type ComparisonOffset = 1 | 7 | 30;
 type ActiveTab = 'table' | 'window' | 'channel' | 'pace';
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
-
-function fmtBRL(v: number): string {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
-}
 
 function fmtShortDate(iso: string): string {
   if (!iso) return '';
@@ -79,29 +69,6 @@ function DeltaCell({ val, isDark }: { val: number; isDark: boolean }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 800, color }}>
       <Icon size={13} />
       {val > 0 ? '+' : ''}{val}
-    </span>
-  );
-}
-
-function DeltaRevCell({ val, isDark }: { val: number; isDark: boolean }) {
-  const color = val > 0 ? '#10b981' : val < 0 ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
-  const Icon  = val > 0 ? TrendingUp : val < 0 ? TrendingDown : Minus;
-  const abs   = Math.abs(val);
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color, fontSize: 12 }}>
-      <Icon size={12} />
-      {fmtBRL(abs)}
-    </span>
-  );
-}
-
-function DeltaPctCell({ val, isDark }: { val: number; isDark: boolean }) {
-  const color = val > 0 ? '#10b981' : val < 0 ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
-  const Icon  = val > 0 ? TrendingUp : val < 0 ? TrendingDown : Minus;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color, fontSize: 12 }}>
-      <Icon size={12} />
-      {Math.abs(val).toFixed(1)}%
     </span>
   );
 }
@@ -204,11 +171,11 @@ export default function PickupReport() {
 
     const [{ data: todaySnap, error: e1 }, { data: compSnap, error: e2 }] = await Promise.all([
       supabase.from('diretoria_pickup_snapshots')
-        .select('stay_date,rooms_otb,net_room_revenue,adr')
+        .select('stay_date,rooms_otb')
         .eq('hotel_id', hId).eq('snapshot_date', today)
         .gte('stay_date', today).order('stay_date'),
       supabase.from('diretoria_pickup_snapshots')
-        .select('stay_date,rooms_otb,net_room_revenue,adr')
+        .select('stay_date,rooms_otb')
         .eq('hotel_id', hId).eq('snapshot_date', compDate)
         .gte('stay_date', today).order('stay_date'),
     ]);
@@ -218,20 +185,12 @@ export default function PickupReport() {
     const compMap = new Map((compSnap ?? []).map((r: any) => [r.stay_date, r]));
 
     return (todaySnap ?? []).map((r: any) => {
-      const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0, net_room_revenue: 0, adr: 0 };
+      const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0 };
       return {
-        stayDate:          r.stay_date,
-        currentOTB:        r.rooms_otb,
-        comparisonOTB:     c.rooms_otb,
-        deltaRooms:        r.rooms_otb - c.rooms_otb,
-        currentRevenue:    Number(r.net_room_revenue),
-        comparisonRevenue: Number(c.net_room_revenue),
-        deltaRevenue:      Number(r.net_room_revenue) - Number(c.net_room_revenue),
-        currentAdr:        Number(r.adr),
-        comparisonAdr:     Number(c.adr),
-        deltaAdrPct:       Number(c.adr) > 0
-          ? ((Number(r.adr) - Number(c.adr)) / Number(c.adr)) * 100
-          : 0,
+        stayDate:      r.stay_date,
+        currentOTB:    r.rooms_otb,
+        comparisonOTB: c.rooms_otb,
+        deltaRooms:    r.rooms_otb - c.rooms_otb,
       };
     });
   }, []);
@@ -493,40 +452,46 @@ export default function PickupReport() {
 
             {/* ── Tab: Tabela OTB ── */}
             {activeTab === 'table' && (
-              <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, overflow: 'hidden' }}>
-                {otbRows.length === 0 ? (
-                  <div style={{ padding: '4rem', textAlign: 'center', color: textSub }}>
-                    <BedDouble size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
-                    <p style={{ fontWeight: 600, margin: 0 }}>Nenhum dado OTB disponível para hoje.</p>
-                    <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>O snapshot do período de comparação (vs {compOffset}d) pode não existir ainda.</p>
-                  </div>
-                ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ borderBottom: `1px solid ${cardBdr}` }}>
-                          {['Data Estadia', 'OTB Atual', `OTB −${compOffset}d`, 'ΔQ', 'Receita Atual', 'Δ Receita', 'ADR Atual', 'Δ ADR %'].map(h => (
-                            <th key={h} style={{ padding: '1rem 1.25rem', textAlign: h === 'Data Estadia' ? 'left' : 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {otbRows.map((r, i) => (
-                          <tr key={r.stayDate} className="pu-row" style={{ borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none' }}>
-                            <td style={{ padding: '0.85rem 1.25rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', whiteSpace: 'nowrap' }}>{fmtFullDate(r.stayDate)}</td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>{r.currentOTB}</td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: textSub }}>{r.comparisonOTB}</td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaCell val={r.deltaRooms} isDark={isDark} /></td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13 }}>{fmtBRL(r.currentRevenue)}</td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaRevCell val={r.deltaRevenue} isDark={isDark} /></td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13 }}>{fmtBRL(r.currentAdr)}</td>
-                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaPctCell val={r.deltaAdrPct} isDark={isDark} /></td>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Info banner */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.75rem 1.25rem', background: isDark ? 'rgba(14,165,233,0.08)' : 'rgba(14,165,233,0.06)', border: `1px solid ${isDark ? 'rgba(14,165,233,0.2)' : 'rgba(14,165,233,0.15)'}`, borderRadius: 12, fontSize: 12, color: isDark ? '#7dd3fc' : '#0369a1', fontWeight: 500 }}>
+                  <BedDouble size={14} style={{ flexShrink: 0 }} />
+                  <span>
+                    O endpoint OTB do Erbon retorna receita apenas para datas passadas (actuals). Para datas futuras, a tabela exibe quartos confirmados — a métrica principal de pick-up.
+                  </span>
+                </div>
+
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, overflow: 'hidden' }}>
+                  {otbRows.length === 0 ? (
+                    <div style={{ padding: '4rem', textAlign: 'center', color: textSub }}>
+                      <BedDouble size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                      <p style={{ fontWeight: 600, margin: 0 }}>Nenhum dado OTB disponível para hoje.</p>
+                      <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>O snapshot do período de comparação (vs {compOffset}d) pode não existir ainda.</p>
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${cardBdr}` }}>
+                            {['Data Estadia', 'OTB Atual', `OTB −${compOffset}d`, 'Δ Quartos'].map(h => (
+                              <th key={h} style={{ padding: '1rem 1.25rem', textAlign: h === 'Data Estadia' ? 'left' : 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        </thead>
+                        <tbody>
+                          {otbRows.map((r, i) => (
+                            <tr key={r.stayDate} className="pu-row" style={{ borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none' }}>
+                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', whiteSpace: 'nowrap' }}>{fmtFullDate(r.stayDate)}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>{r.currentOTB}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: textSub }}>{r.comparisonOTB}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaCell val={r.deltaRooms} isDark={isDark} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
