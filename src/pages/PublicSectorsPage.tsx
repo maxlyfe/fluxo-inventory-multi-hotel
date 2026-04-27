@@ -32,7 +32,6 @@ export default function PublicSectorsPage() {
       .from('sectors')
       .select('id, name, color')
       .eq('hotel_id', selectedHotel.id)
-      .eq('is_active', true)
       .order('name')
       .then(({ data, error: err }) => {
         if (err) setError('Não foi possível carregar os setores.');
