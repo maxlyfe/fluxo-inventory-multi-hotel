@@ -91,7 +91,8 @@ import WCISignatureAndTerms  from './pages/webcheckin/WCISignatureAndTerms';
 import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 
 // ── Pages — Diretoria ────────────────────────────────────────────────────────
-import PickupReport from './pages/diretoria/PickupReport';
+import PickupReport       from './pages/diretoria/PickupReport';
+import PerformanceReport  from './pages/diretoria/PerformanceReport';
 import Profile      from './pages/Profile';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
@@ -318,6 +319,11 @@ function App() {
                     <Route path="/diretoria/pickup" element={
                       <PrivateRoute module="diretoria">
                         <PickupReport />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/diretoria/performance" element={
+                      <PrivateRoute module="diretoria">
+                        <PerformanceReport />
                       </PrivateRoute>
                     } />
 

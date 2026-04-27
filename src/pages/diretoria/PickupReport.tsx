@@ -1,8 +1,11 @@
 // src/pages/diretoria/PickupReport.tsx
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+// Relatório de Pick-up real — velocidade de reservas, snapshots OTB diários,
+// janela de antecedência, canal de origem e pace vs STLY.
+
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  TrendingUp, TrendingDown, Minus, Plus, X, Search, Loader2,
-  Users, BedDouble, DollarSign, CalendarRange, BarChart2, AlertCircle, ChevronDown,
+  TrendingUp, TrendingDown, Minus, Loader2, AlertCircle,
+  Users, BedDouble, BarChart2, CalendarRange, RefreshCw,
 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -13,511 +16,619 @@ import { erbonService } from '../../lib/erbonService';
 import { useHotel } from '../../context/HotelContext';
 import { useTheme } from '../../context/ThemeContext';
 
-// ── Tipos ────────────────────────────────────────────────────────────────────
+// ── Tipos ─────────────────────────────────────────────────────────────────────
 
-interface HotelOption { id: string; name: string; code?: string | null; }
-
-type Period = { id: string; label: string; from: string; to: string; color: string; };
-
-interface PeriodMetrics {
-  totalGuests: number;
-  totalUHs: number;
-  avgADR: number;
-  avgPerGuest: number;
-  totalRevenue: number;
-  totalRoomRevenue: number;
-  avgDailyRevenue: number;
-  days: number;
-  dailyRevenue: { date: string; revenue: number; uhs: number; adr: number }[];
+interface OTBRow {
+  stayDate:          string;
+  currentOTB:        number;
+  comparisonOTB:     number;
+  deltaRooms:        number;
+  currentRevenue:    number;
+  comparisonRevenue: number;
+  deltaRevenue:      number;
+  currentAdr:        number;
+  comparisonAdr:     number;
+  deltaAdrPct:       number;
 }
 
-// ── Constantes ───────────────────────────────────────────────────────────────
+interface WindowBucket { label: string; count: number; revenue: number; }
+interface ChannelBucket { channel: string; count: number; revenue: number; }
+interface PacePoint    { snapshotDate: string; currentOTB: number; stlyOTB: number; }
 
-const PERIOD_COLORS = ['#0ea5e9', '#f59e0b', '#10b981', '#8b5cf6', '#f43f5e'];
+type ComparisonOffset = 1 | 7 | 30;
+type ActiveTab = 'table' | 'window' | 'channel' | 'pace';
 
-function nextColor(periods: Period[]): string {
-  return PERIOD_COLORS[periods.length % PERIOD_COLORS.length];
+// ── Utilitários ───────────────────────────────────────────────────────────────
+
+function fmtBRL(v: number): string {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
 }
 
-function parseGuests(raw: string): number {
-  if (!raw) return 0;
-  if (/^\d+$/.test(raw.trim())) return parseInt(raw.trim(), 10);
-  return raw.split(',').reduce((sum, part) => {
-    const segments = part.split(':');
-    const valStr = segments.length > 1 ? segments[1] : segments[0];
-    const val = parseInt(valStr.trim() || '0', 10);
-    return sum + (isNaN(val) ? 0 : val);
-  }, 0);
+function fmtShortDate(iso: string): string {
+  if (!iso) return '';
+  const [, m, d] = iso.split('T')[0].split('-');
+  return `${d}/${m}`;
 }
 
-function fmtBRL(value: number): string {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
-}
-
-function fmtNum(value: number): string {
-  return value.toLocaleString('pt-BR');
-}
-
-function fmtDate(iso: string): string {
+function fmtFullDate(iso: string): string {
   if (!iso) return '';
   const [y, m, d] = iso.split('T')[0].split('-');
   return `${d}/${m}/${y?.slice(2)}`;
 }
 
-// ── Fetch de métricas por período ────────────────────────────────────────────
+function todayStr(): string { return new Date().toISOString().split('T')[0]; }
 
-async function fetchPeriodMetrics(hotelId: string, from: string, to: string): Promise<PeriodMetrics> {
-  const [otb, occupancy] = await Promise.all([
-    erbonService.fetchOTB(hotelId, from, to),
-    erbonService.fetchOccupancyWithPension(hotelId, from, to),
-  ]);
-
-  const totalGuests = occupancy.reduce((s, d) => s + parseGuests(d.totalGuestByType), 0);
-  
-  const totalUHs = occupancy.reduce((s, d) => {
-    const sold = (d.roomSalledConfirmed || 0) +
-                 (d.roomSalledRateDefault || 0) +
-                 (d.roomSalledPending || 0) +
-                 (d.roomSalledInvited || 0) +
-                 (d.roomSalledHouseUse || 0) +
-                 (d.roomSalledPermut || 0) +
-                 (d.roomSalledCrewMember || 0) +
-                 (d.roomSalledDayUse || 0);
-    return s + sold;
-  }, 0);
-
-  const totalRevenue = occupancy.reduce((s, d) => s + (d.totalRevenue ?? 0), 0);
-  const totalNetRevenue = otb.reduce((s, d) => s + (d.netRoomRevenueTransient ?? 0), 0);
-  const avgADR = totalUHs > 0 ? totalNetRevenue / totalUHs : 0;
-  const avgPerGuest = totalGuests > 0 ? totalRevenue / totalGuests : 0;
-  const avgDailyRevenue = occupancy.length > 0 ? totalRevenue / occupancy.length : 0;
-
-  const dailyRevenue = occupancy.map(d => {
-    const sold = (d.roomSalledConfirmed || 0) +
-                 (d.roomSalledRateDefault || 0) +
-                 (d.roomSalledPending || 0) +
-                 (d.roomSalledInvited || 0) +
-                 (d.roomSalledHouseUse || 0) +
-                 (d.roomSalledPermut || 0) +
-                 (d.roomSalledCrewMember || 0) +
-                 (d.roomSalledDayUse || 0);
-    return { date: d.date, revenue: d.totalRevenue ?? 0, uhs: sold, adr: d.adr ?? 0 };
-  });
-
-  return { totalGuests, totalUHs, avgADR, avgPerGuest, totalRevenue, totalRoomRevenue: totalNetRevenue, avgDailyRevenue, days: occupancy.length, dailyRevenue };
+function addDays(base: string, n: number): string {
+  const d = new Date(base); d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
 }
 
-// ── Sub-componentes ──────────────────────────────────────────────────────────
+function subDays(base: string, n: number): string { return addDays(base, -n); }
 
-function TrendBadgeCompact({ value, base, color, isDark }: { value: number; base: number; color: string; isDark: boolean }) {
-  if (base === 0) return null;
-  const pct = ((value - base) / base) * 100;
-  const up = pct > 0.01;
-  const down = pct < -0.01;
-  const statusColor = up ? '#10b981' : down ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
-  const Icon = up ? TrendingUp : down ? TrendingDown : Minus;
-  
+function subYears(base: string, n: number): string {
+  const d = new Date(base); d.setFullYear(d.getFullYear() - n);
+  return d.toISOString().split('T')[0];
+}
+
+// ── Sub-componentes ───────────────────────────────────────────────────────────
+
+function DeltaCell({ val, isDark }: { val: number; isDark: boolean }) {
+  const color = val > 0 ? '#10b981' : val < 0 ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
+  const Icon  = val > 0 ? TrendingUp : val < 0 ? TrendingDown : Minus;
   return (
-    <span style={{ 
-      display: 'inline-flex', alignItems: 'center', gap: 2, 
-      fontSize: 9, fontWeight: 700, color: statusColor, 
-      padding: '0 4px',
-      borderLeft: `2px solid ${color}`,
-      transition: 'all 0.3s ease'
-    }}>
-      <Icon size={8} />
-      {Math.abs(pct).toFixed(0)}%
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 800, color }}>
+      <Icon size={13} />
+      {val > 0 ? '+' : ''}{val}
     </span>
   );
 }
 
-function MetricCard({ label, value, icon, color, subValue, isDark }: { label: string; value: string; icon: React.ReactNode; color: string; subValue?: string; isDark: boolean }) {
+function DeltaRevCell({ val, isDark }: { val: number; isDark: boolean }) {
+  const color = val > 0 ? '#10b981' : val < 0 ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
+  const Icon  = val > 0 ? TrendingUp : val < 0 ? TrendingDown : Minus;
+  const abs   = Math.abs(val);
   return (
-    <div style={{
-      background: isDark 
-        ? 'linear-gradient(135deg, rgba(30,41,59,0.7) 0%, rgba(15,23,42,0.8) 100%)'
-        : 'linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(241,245,249,1) 100%)',
-      border: isDark ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(203,213,225,0.5)',
-      borderRadius: 20, padding: '1.25rem',
-      display: 'flex', flexDirection: 'column', gap: 8, backdropFilter: 'blur(16px)',
-      boxShadow: isDark ? '0 10px 25px -5px rgba(0,0,0,0.3)' : '0 10px 15px -3px rgba(148,163,184,0.1)',
-    }}>
-      <div style={{ 
-        display: 'flex', alignItems: 'center', gap: 10, 
-        color: isDark ? 'rgba(148,163,184,0.7)' : 'rgba(71,85,105,0.8)', 
-        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 
-      }}>
-        <div style={{ background: `${color}15`, padding: 8, borderRadius: 10, color }}>{icon}</div>
-        {label}
-      </div>
-      <div style={{ fontSize: '1.75rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.5, marginTop: 4 }}>{value}</div>
-      {subValue && <div style={{ fontSize: 11, color: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.6)', fontWeight: 500 }}>{subValue}</div>}
-    </div>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color, fontSize: 12 }}>
+      <Icon size={12} />
+      {fmtBRL(abs)}
+    </span>
   );
 }
 
-function CustomTooltip({ active, payload, label, formatter, isDark }: any) {
+function DeltaPctCell({ val, isDark }: { val: number; isDark: boolean }) {
+  const color = val > 0 ? '#10b981' : val < 0 ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
+  const Icon  = val > 0 ? TrendingUp : val < 0 ? TrendingDown : Minus;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color, fontSize: 12 }}>
+      <Icon size={12} />
+      {Math.abs(val).toFixed(1)}%
+    </span>
+  );
+}
+
+function CustomTooltip({ active, payload, label, isDark }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ 
-      background: isDark ? 'rgba(15,23,42,0.96)' : 'rgba(255,255,255,0.98)', 
-      border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : 'rgba(203,213,225,0.8)'}`, 
-      borderRadius: 12, padding: '10px 14px', fontSize: 12, 
-      color: isDark ? '#f1f5f9' : '#1e293b', 
-      boxShadow: '0 10px 15px -3px rgba(0,0,0,0.2)' 
+    <div style={{
+      background: isDark ? 'rgba(15,23,42,0.97)' : 'rgba(255,255,255,0.98)',
+      border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : 'rgba(203,213,225,0.8)'}`,
+      borderRadius: 12, padding: '10px 14px', fontSize: 12,
+      color: isDark ? '#f1f5f9' : '#1e293b',
+      boxShadow: '0 10px 15px -3px rgba(0,0,0,0.2)',
     }}>
-      <div style={{ fontWeight: 800, marginBottom: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontWeight: 800, marginBottom: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {label}
+      </div>
       {payload.map((p: any) => (
         <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
           <span style={{ color: isDark ? '#cbd5e1' : '#475569' }}>{p.name}:</span>
-          <span style={{ fontWeight: 700, color: p.color }}>{formatter ? formatter(p.value) : p.value}</span>
+          <span style={{ fontWeight: 700, color: p.color }}>
+            {typeof p.value === 'number' ? p.value.toFixed(0) : p.value}
+          </span>
         </div>
       ))}
     </div>
   );
 }
 
-// ── Componente principal ─────────────────────────────────────────────────────
+// ── Constantes visuais ────────────────────────────────────────────────────────
+
+const BUCKET_COLORS   = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#f43f5e'];
+const CHANNEL_COLORS  = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e', '#14b8a6', '#ec4899', '#64748b'];
+
+// ── Componente principal ──────────────────────────────────────────────────────
 
 export default function PickupReport() {
   const { selectedHotel } = useHotel();
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  const { theme }         = useTheme();
+  const isDark            = theme === 'dark';
+  const hotelId           = selectedHotel?.id ?? '';
 
-  const [hotels, setHotels] = useState<HotelOption[]>([]);
-  const [selectedHotelId, setSelectedHotelId] = useState<string>(selectedHotel?.id ?? '');
-  const [periods, setPeriods] = useState<Period[]>([
-    { id: 'p1', label: 'Período 1', from: '', to: '', color: PERIOD_COLORS[0] },
-  ]);
-  const [view, setView] = useState<'individual' | 'comparativo'>('individual');
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<Map<string, PeriodMetrics>>(new Map());
-  const [globalError, setGlobalError] = useState('');
+  // Estado
+  const [compOffset,   setCompOffset]   = useState<ComparisonOffset>(7);
+  const [activeTab,    setActiveTab]    = useState<ActiveTab>('table');
+  const [snapLoading,  setSnapLoading]  = useState(false);
+  const [dataLoading,  setDataLoading]  = useState(false);
+  const [error,        setError]        = useState('');
+  const [noErbon,      setNoErbon]      = useState(false);
+  const [snapTime,     setSnapTime]     = useState('');
 
-  // Estados para iluminação tecnológica
-  const [activeCell, setActiveCell] = useState<{ periodId: string; metricKey: string } | null>(null);
+  const [otbRows,      setOtbRows]      = useState<OTBRow[]>([]);
+  const [winBuckets,   setWinBuckets]   = useState<WindowBucket[]>([]);
+  const [chanBuckets,  setChanBuckets]  = useState<ChannelBucket[]>([]);
+  const [pacePoints,   setPacePoints]   = useState<PacePoint[]>([]);
 
-  useEffect(() => {
-    supabase.from('hotels').select('id, name, code').order('name').then(({ data }) => {
-      setHotels(data ?? []);
-      if (!selectedHotelId && data?.length) setSelectedHotelId(data[0].id);
+  // ── Auto-snapshot ────────────────────────────────────────────────────────────
+
+  const ensureSnapshot = useCallback(async (hId: string): Promise<boolean> => {
+    const today = todayStr();
+    const { data: existing, error: chkErr } = await supabase
+      .from('diretoria_pickup_snapshots')
+      .select('stay_date').eq('hotel_id', hId).eq('snapshot_date', today).limit(1);
+    if (chkErr) throw chkErr;
+    if (existing && existing.length > 0) {
+      setSnapTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      return false; // já existia
+    }
+
+    const endDate = addDays(today, 90);
+    const otbData = await erbonService.fetchOTB(hId, today, endDate);
+    if (!otbData.length) return false;
+
+    const rows = otbData.map(d => ({
+      hotel_id:         hId,
+      snapshot_date:    today,
+      stay_date:        d.stayDate.split('T')[0],
+      rooms_otb:        d.totalRoomsDeductedTransient ?? 0,
+      net_room_revenue: d.netRoomRevenueTransient ?? 0,
+      adr:              (d.totalRoomsDeductedTransient ?? 0) > 0
+                          ? (d.netRoomRevenueTransient ?? 0) / (d.totalRoomsDeductedTransient ?? 1)
+                          : 0,
+    }));
+
+    const { error: upsErr } = await supabase
+      .from('diretoria_pickup_snapshots')
+      .upsert(rows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
+    if (upsErr) throw upsErr;
+
+    setSnapTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    return true; // capturado agora
+  }, []);
+
+  // ── Loaders ──────────────────────────────────────────────────────────────────
+
+  const loadOTBTable = useCallback(async (hId: string, offset: ComparisonOffset): Promise<OTBRow[]> => {
+    const today    = todayStr();
+    const compDate = subDays(today, offset);
+
+    const [{ data: todaySnap, error: e1 }, { data: compSnap, error: e2 }] = await Promise.all([
+      supabase.from('diretoria_pickup_snapshots')
+        .select('stay_date,rooms_otb,net_room_revenue,adr')
+        .eq('hotel_id', hId).eq('snapshot_date', today)
+        .gte('stay_date', today).order('stay_date'),
+      supabase.from('diretoria_pickup_snapshots')
+        .select('stay_date,rooms_otb,net_room_revenue,adr')
+        .eq('hotel_id', hId).eq('snapshot_date', compDate)
+        .gte('stay_date', today).order('stay_date'),
+    ]);
+    if (e1) throw e1;
+    if (e2) throw e2;
+
+    const compMap = new Map((compSnap ?? []).map((r: any) => [r.stay_date, r]));
+
+    return (todaySnap ?? []).map((r: any) => {
+      const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0, net_room_revenue: 0, adr: 0 };
+      return {
+        stayDate:          r.stay_date,
+        currentOTB:        r.rooms_otb,
+        comparisonOTB:     c.rooms_otb,
+        deltaRooms:        r.rooms_otb - c.rooms_otb,
+        currentRevenue:    Number(r.net_room_revenue),
+        comparisonRevenue: Number(c.net_room_revenue),
+        deltaRevenue:      Number(r.net_room_revenue) - Number(c.net_room_revenue),
+        currentAdr:        Number(r.adr),
+        comparisonAdr:     Number(c.adr),
+        deltaAdrPct:       Number(c.adr) > 0
+          ? ((Number(r.adr) - Number(c.adr)) / Number(c.adr)) * 100
+          : 0,
+      };
     });
   }, []);
 
-  function addPeriod() {
-    if (periods.length >= 5) return;
-    setPeriods(prev => [...prev, { id: `p${Date.now()}`, label: `Período ${prev.length + 1}`, from: '', to: '', color: nextColor(prev) }]);
-  }
-  function removePeriod(id: string) {
-    setPeriods(prev => prev.filter(p => p.id !== id));
-    setResults(prev => { const m = new Map(prev); m.delete(id); return m; });
-  }
-  function updatePeriod(id: string, field: keyof Period, value: string) {
-    setPeriods(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-  }
+  const loadBookingAnalysis = useCallback(async (hId: string) => {
+    const today  = todayStr();
+    const endStr = addDays(today, 90);
 
-  async function handleSearch() {
-    if (!selectedHotelId || !periods.every(p => p.from && p.to)) return;
-    setLoading(true);
-    setGlobalError('');
-    const newResults = new Map<string, PeriodMetrics>();
-    await Promise.all(periods.map(async (p) => {
-      try {
-        const metrics = await fetchPeriodMetrics(selectedHotelId, p.from, p.to);
-        newResults.set(p.id, metrics);
-      } catch (err: any) { console.error(err); }
-    }));
-    setResults(newResults);
-    if (newResults.size === 0) setGlobalError('Erro ao buscar dados.');
-    setLoading(false);
-  }
+    let bookings: any[] = [];
+    try {
+      bookings = await erbonService.searchBookings(hId, { checkin: today, checkout: endStr });
+    } catch {
+      // searchBookings pode falhar se o hotel não tiver reservas no período — retorna vazio
+      bookings = [];
+    }
 
-  const periodsWithResults = periods.filter(p => results.has(p.id));
-  
-  const METRICS_LIST = useMemo(() => [
-    { key: 'totalRevenue',     label: 'Receita Total',        fmt: fmtBRL, icon: <TrendingUp size={14} /> },
-    { key: 'totalRoomRevenue', label: 'Receita Hospedagem',   fmt: fmtBRL, icon: <BedDouble size={14} /> },
-    { key: 'totalUHs',         label: 'UHs Vendidas',         fmt: fmtNum, icon: <BedDouble size={14} /> },
-    { key: 'avgADR',           label: 'ADR Médio',            fmt: fmtBRL, icon: <BarChart2 size={14} /> },
-    { key: 'totalGuests',      label: 'Total Hóspedes',       fmt: fmtNum, icon: <Users size={14} /> },
-    { key: 'avgDailyRevenue',  label: 'Média Diária (Total)', fmt: fmtBRL, icon: <CalendarRange size={14} /> },
-  ] as const, []);
+    const buckets: WindowBucket[] = [
+      { label: '0-7d',  count: 0, revenue: 0 },
+      { label: '8-15d', count: 0, revenue: 0 },
+      { label: '16-30d', count: 0, revenue: 0 },
+      { label: '31-60d', count: 0, revenue: 0 },
+      { label: '61+d',  count: 0, revenue: 0 },
+    ];
+    const chanMap = new Map<string, ChannelBucket>();
 
-  // Gráficos calculados dentro do componente
-  const adrChartData = periodsWithResults.map(p => ({ 
-    name: p.label, 
-    ADR: parseFloat((results.get(p.id)!.avgADR).toFixed(2)), 
-    color: p.color 
-  }));
+    bookings.forEach((b: any) => {
+      const days = Math.max(0, Math.floor(
+        (new Date(b.checkInDateTime).getTime() - new Date(b.createdAt).getTime()) / 86_400_000
+      ));
+      const rev = b.totalBookingRate ?? 0;
+      const bi  = days <= 7 ? 0 : days <= 15 ? 1 : days <= 30 ? 2 : days <= 60 ? 3 : 4;
+      buckets[bi].count++;
+      buckets[bi].revenue += rev;
 
-  const uhsChartData = periodsWithResults.map(p => ({ 
-    name: p.label, 
-    UHs: results.get(p.id)!.totalUHs, 
-    color: p.color 
-  }));
-
-  const revenueChartData = (() => {
-    if (!periodsWithResults.length) return [];
-    const maxDays = Math.max(...periodsWithResults.map(p => results.get(p.id)!.dailyRevenue.length));
-    return Array.from({ length: maxDays }, (_, i) => {
-      const row: any = { day: `Dia ${i + 1}` };
-      periodsWithResults.forEach(p => row[p.label] = results.get(p.id)!.dailyRevenue[i]?.revenue ?? null);
-      return row;
+      const ch = b.sourceDesc || 'N/A';
+      if (!chanMap.has(ch)) chanMap.set(ch, { channel: ch, count: 0, revenue: 0 });
+      const e = chanMap.get(ch)!;
+      e.count++;
+      e.revenue += rev;
     });
-  })();
+
+    return {
+      winBuckets: buckets,
+      chanBuckets: Array.from(chanMap.values()).sort((a, b) => b.count - a.count),
+    };
+  }, []);
+
+  const loadPace = useCallback(async (hId: string): Promise<PacePoint[]> => {
+    const today  = todayStr();
+    const from60 = subDays(today, 60);
+
+    const { data, error: pErr } = await supabase
+      .from('diretoria_pickup_snapshots')
+      .select('snapshot_date,rooms_otb')
+      .eq('hotel_id', hId)
+      .gte('snapshot_date', from60)
+      .lte('snapshot_date', today)
+      .gte('stay_date', today);
+    if (pErr) throw pErr;
+
+    const byDate = new Map<string, number>();
+    (data ?? []).forEach((r: any) =>
+      byDate.set(r.snapshot_date, (byDate.get(r.snapshot_date) ?? 0) + r.rooms_otb)
+    );
+
+    // STLY actuals: ocupação real do mesmo período no ano anterior
+    const stlyStart = subYears(today, 1);
+    const stlyEnd   = addDays(stlyStart, 90);
+    const stlyMap   = new Map<string, number>();
+    try {
+      const occ = await erbonService.fetchOccupancyWithPension(hId, stlyStart, stlyEnd);
+      occ.forEach(o => stlyMap.set(o.date.split('T')[0], o.roomSalledConfirmed ?? 0));
+    } catch { /* STLY indisponível — linha vazia */ }
+
+    return Array.from(byDate.keys()).sort().map(snapDate => {
+      const stlyKey = subYears(snapDate, 1);
+      return {
+        snapshotDate: snapDate,
+        currentOTB:   byDate.get(snapDate) ?? 0,
+        stlyOTB:      stlyMap.get(stlyKey) ?? 0,
+      };
+    });
+  }, []);
+
+  // ── Efeito principal ──────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!hotelId) return;
+    let cancelled = false;
+
+    async function run() {
+      setError(''); setNoErbon(false); setSnapLoading(true);
+      try {
+        const cfg = await erbonService.getConfig(hotelId);
+        if (!cfg || !(cfg as any).is_active) { setNoErbon(true); return; }
+        await ensureSnapshot(hotelId);
+      } catch (e: any) {
+        if (!cancelled) setError('Erro ao capturar snapshot: ' + e.message);
+        return;
+      } finally {
+        if (!cancelled) setSnapLoading(false);
+      }
+
+      if (cancelled) return;
+      setDataLoading(true);
+      try {
+        const [rows, bookAna, pace] = await Promise.all([
+          loadOTBTable(hotelId, compOffset),
+          loadBookingAnalysis(hotelId),
+          loadPace(hotelId),
+        ]);
+        if (!cancelled) {
+          setOtbRows(rows);
+          setWinBuckets(bookAna.winBuckets);
+          setChanBuckets(bookAna.chanBuckets);
+          setPacePoints(pace);
+        }
+      } catch (e: any) {
+        if (!cancelled) setError('Erro ao carregar dados: ' + e.message);
+      } finally {
+        if (!cancelled) setDataLoading(false);
+      }
+    }
+
+    run();
+    return () => { cancelled = true; };
+  }, [hotelId, compOffset, ensureSnapshot, loadOTBTable, loadBookingAnalysis, loadPace]);
+
+  // ── Render helpers ────────────────────────────────────────────────────────────
+
+  const isLoading = snapLoading || dataLoading;
+  const totalBookings = chanBuckets.reduce((s, c) => s + c.count, 0);
+
+  const cardBg   = isDark ? 'rgba(15,23,42,0.6)'  : '#fff';
+  const cardBdr  = isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)';
+  const headBg   = isDark ? 'rgba(2,6,23,0.88)'   : 'rgba(255,255,255,0.88)';
+  const textMute = isDark ? '#64748b' : '#94a3b8';
+  const textSub  = isDark ? '#94a3b8' : '#64748b';
+
+  // ── JSX ───────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
-      background: isDark ? '#020617' : '#f8fafc', 
-      color: isDark ? '#f8fafc' : '#1e293b', 
-      fontFamily: 'Inter, sans-serif',
-      transition: 'background-color 0.3s ease'
-    }}>
+    <div style={{ minHeight: '100vh', background: isDark ? '#020617' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontFamily: 'Inter, sans-serif' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        .pickup-period-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .pickup-period-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border-color: ${isDark ? 'rgba(148,163,184,0.3)' : 'rgba(148,163,184,0.5)'} !important; }
-        .pickup-hotel-select { appearance: none; -webkit-appearance: none; background-image: none; }
-        .pickup-tab { transition: all 0.2s ease; cursor: pointer; }
-        .pickup-search-btn { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .pickup-search-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 10px 20px -5px rgba(14,165,233,0.3); }
-        input[type="date"]::-webkit-calendar-picker-indicator { filter: ${isDark ? 'invert(0.8)' : 'none'}; cursor: pointer; }
-        
-        .matrix-cell { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; position: relative; overflow: hidden; }
-        .cell-base-active { background: ${isDark ? 'rgba(14,165,233,0.1)' : 'rgba(14,165,233,0.05)'} !important; border-color: #0ea5e9 !important; box-shadow: 0 0 30px ${isDark ? 'rgba(14,165,233,0.2)' : 'rgba(14,165,233,0.1)'}; transform: scale(1.02); z-index: 10; }
-        .cell-target-active { filter: ${isDark ? 'brightness(1.2)' : 'brightness(0.95)'}; z-index: 5; }
-        .lighting-beam { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; transition: opacity 0.5s; background: linear-gradient(90deg, transparent, ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'}, transparent); }
-        .cell-target-active .lighting-beam { opacity: 1; animation: shine 2s infinite; }
-        
-        @keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+        .pu-tab { transition: all 0.2s ease; cursor: pointer; border: none; }
+        .pu-offset-pill { transition: all 0.2s ease; cursor: pointer; border: none; }
+        .pu-row:hover td { background: ${isDark ? 'rgba(14,165,233,0.05)' : 'rgba(14,165,233,0.03)'} !important; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-up { animation: fadeUp 0.4s ease; }
       `}</style>
 
-      {/* Header */}
-      <div style={{ borderBottom: `1px solid ${isDark ? 'rgba(148,163,184,0.08)' : 'rgba(203,213,225,0.5)'}`, padding: '1.25rem 2rem', background: isDark ? 'rgba(2,6,23,0.85)' : 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 100 }}>
+      {/* ── Header ── */}
+      <div style={{ borderBottom: `1px solid ${cardBdr}`, padding: '1.25rem 2rem', background: headBg, backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+
+          {/* Título */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 8px 16px -4px rgba(14,165,233,0.4)' }}><TrendingUp size={24} color="#fff" /></div>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 16px -4px rgba(14,165,233,0.4)', flexShrink: 0 }}>
+              <TrendingUp size={24} color="#fff" />
+            </div>
             <div>
-              <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.8 }}>Relatório Pick-up</h1>
-              <p style={{ margin: 0, fontSize: 13, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 500 }}>Inteligência e performance hoteleira</p>
+              <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.8 }}>Pick-up Report</h1>
+              <p style={{ margin: 0, fontSize: 13, color: textSub, fontWeight: 500 }}>Velocidade de reservas · Próximos 90 dias</p>
             </div>
           </div>
-          <div style={{ position: 'relative', minWidth: 260 }}>
-            <select className="pickup-hotel-select" value={selectedHotelId} onChange={e => setSelectedHotelId(e.target.value)} style={{ width: '100%', padding: '0.65rem 2.5rem 0.65rem 1rem', background: isDark ? 'rgba(30,41,59,0.5)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : 'rgba(203,213,225,0.8)'}`, borderRadius: 12, color: isDark ? '#f1f5f9' : '#1e293b', fontSize: 14, fontWeight: 700 }}>
-              <option value="" disabled>Selecione o hotel</option>
-              {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-            </select>
-            <ChevronDown size={16} color={isDark ? '#94a3b8' : '#64748b'} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+
+          {/* Snapshot badge + offset pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Snapshot status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.5rem 1rem', background: isDark ? 'rgba(30,41,59,0.6)' : '#f1f5f9', borderRadius: 10, fontSize: 12, fontWeight: 600, color: textSub }}>
+              {snapLoading
+                ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Capturando snapshot...</>
+                : snapTime
+                  ? <><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} /> Snapshot: {snapTime}</>
+                  : <><div style={{ width: 8, height: 8, borderRadius: '50%', background: textMute }} /> Aguardando...</>
+              }
+            </div>
+
+            {/* Separador */}
+            <div style={{ width: 1, height: 24, background: cardBdr }} />
+
+            {/* Offset comparison pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${cardBdr}`, borderRadius: 12, padding: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: textMute, paddingLeft: 8, paddingRight: 4, textTransform: 'uppercase', letterSpacing: 0.8 }}>vs</span>
+              {([1, 7, 30] as ComparisonOffset[]).map(n => (
+                <button key={n} className="pu-offset-pill" onClick={() => setCompOffset(n)}
+                  style={{ padding: '0.4rem 0.9rem', borderRadius: 8, background: compOffset === n ? '#0ea5e9' : 'transparent', color: compOffset === n ? '#fff' : textSub, fontWeight: 800, fontSize: 13 }}>
+                  {n}d
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '2.5rem 2rem' }}>
-        {/* Configuração de Períodos */}
-        <div style={{ marginBottom: '3rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-            <h2 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>Períodos de Análise</h2>
-            {periods.length < 5 && <button onClick={addPeriod} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.6rem 1.2rem', background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.3)', borderRadius: 12, color: '#0ea5e9', fontSize: 14, fontWeight: 700 }}><Plus size={16} /> Adicionar</button>}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 360px), 1fr))', gap: '1.5rem' }}>
-            {periods.map(p => (
-              <div key={p.id} className="pickup-period-card" style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderLeft: `4px solid ${p.color}`, borderRadius: 20, padding: '1.5rem', position: 'relative', backdropFilter: 'blur(10px)' }}>
-                {periods.length > 1 && <button onClick={() => removePeriod(p.id)} style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(244,63,94,0.1)', border: 'none', borderRadius: 8, padding: 6 }}><X size={16} color="#f43f5e" /></button>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
-                  <div style={{ width: 12, height: 12, borderRadius: 4, background: p.color }} />
-                  <input type="text" value={p.label} onChange={e => updatePeriod(p.id, 'label', e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 15, fontWeight: 800, width: '100%' }} />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 800, marginBottom: 6, textTransform: 'uppercase' }}>Início</label>
-                    <input type="date" value={p.from} onChange={e => updatePeriod(p.id, 'from', e.target.value)} style={{ width: '100%', padding: '0.65rem 0.8rem', background: isDark ? 'rgba(30,41,59,0.4)' : '#f1f5f9', border: `1px solid ${isDark ? 'rgba(148,163,184,0.15)' : 'rgba(203,213,225,0.8)'}`, borderRadius: 10, color: isDark ? '#f1f5f9' : '#1e293b', fontSize: 13 }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 800, marginBottom: 6, textTransform: 'uppercase' }}>Fim</label>
-                    <input type="date" value={p.to} min={p.from} onChange={e => updatePeriod(p.id, 'to', e.target.value)} style={{ width: '100%', padding: '0.65rem 0.8rem', background: isDark ? 'rgba(30,41,59,0.4)' : '#f1f5f9', border: `1px solid ${isDark ? 'rgba(148,163,184,0.15)' : 'rgba(203,213,225,0.8)'}`, borderRadius: 10, color: isDark ? '#f1f5f9' : '#1e293b', fontSize: 13 }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center' }}>
-            <button className="pickup-search-btn" onClick={handleSearch} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '1rem 3.5rem', borderRadius: 16, border: 'none', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', color: '#fff', fontWeight: 800, fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(14,165,233,0.4)' }}>
-              {loading ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> Processando...</> : <><Search size={20} /> Analisar Performance</>}
-            </button>
-          </div>
-        </div>
+      {/* ── Body ── */}
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '2rem 2rem' }}>
 
-        {periodsWithResults.length > 0 && (
-          <div style={{ animation: 'fadeIn 0.5s ease' }}>
-            <div style={{ display: 'flex', gap: 6, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 16, padding: 6, width: 'fit-content', marginBottom: '2.5rem' }}>
-              {(['individual', 'comparativo'] as const).map(v => (
-                <button key={v} className="pickup-tab" onClick={() => setView(v)} style={{ padding: '0.75rem 1.75rem', borderRadius: 12, border: 'none', background: view === v ? '#0ea5e9' : 'transparent', color: view === v ? '#fff' : isDark ? '#94a3b8' : '#64748b', fontWeight: 800, fontSize: 14 }}>
-                  {v === 'individual' ? 'Visão Individual' : 'Matriz de Inteligência'}
+        {/* Sem Erbon */}
+        {noErbon && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, background: isDark ? 'rgba(239,68,68,0.1)' : '#fef2f2', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 16, padding: '1.5rem 2rem', marginBottom: '2rem' }}>
+            <AlertCircle size={24} color="#ef4444" />
+            <div>
+              <p style={{ margin: 0, fontWeight: 800, color: '#ef4444' }}>Erbon PMS não configurado</p>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: isDark ? '#fca5a5' : '#b91c1c' }}>Configure a integração Erbon para {selectedHotel?.name ?? 'este hotel'} em Configurações → Erbon PMS.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Erro */}
+        {error && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: isDark ? 'rgba(239,68,68,0.1)' : '#fef2f2', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 16, padding: '1rem 1.5rem', marginBottom: '2rem' }}>
+            <AlertCircle size={18} color="#ef4444" />
+            <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 600 }}>{error}</span>
+          </div>
+        )}
+
+        {/* Loading global */}
+        {isLoading && !noErbon && !error && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '4rem', color: textSub }}>
+            <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontWeight: 600 }}>{snapLoading ? 'Capturando snapshot OTB...' : 'Carregando análise...'}</span>
+          </div>
+        )}
+
+        {/* Conteúdo principal */}
+        {!isLoading && !noErbon && !error && (
+          <div className="fade-up">
+
+            {/* ── Tabs ── */}
+            <div style={{ display: 'flex', gap: 4, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${cardBdr}`, borderRadius: 16, padding: 4, width: 'fit-content', marginBottom: '2rem', flexWrap: 'wrap' }}>
+              {([
+                { id: 'table',   label: 'Tabela OTB',         icon: <BedDouble size={14} /> },
+                { id: 'window',  label: 'Janela de Reserva',  icon: <CalendarRange size={14} /> },
+                { id: 'channel', label: 'Canais',              icon: <Users size={14} /> },
+                { id: 'pace',    label: 'Pace vs STLY',       icon: <BarChart2 size={14} /> },
+              ] as { id: ActiveTab; label: string; icon: React.ReactNode }[]).map(t => (
+                <button key={t.id} className="pu-tab" onClick={() => setActiveTab(t.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.65rem 1.25rem', borderRadius: 12, background: activeTab === t.id ? '#0ea5e9' : 'transparent', color: activeTab === t.id ? '#fff' : textSub, fontWeight: 700, fontSize: 13 }}>
+                  {t.icon}{t.label}
                 </button>
               ))}
             </div>
 
-            {view === 'individual' && periodsWithResults.map(p => {
-              const m = results.get(p.id)!;
-              return (
-                <div key={p.id} style={{ marginBottom: '3rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.5rem' }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 4, background: p.color }} />
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900 }}>{p.label} <span style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 500 }}>({fmtDate(p.from)} – {fmtDate(p.to)})</span></h3>
+            {/* ── Tab: Tabela OTB ── */}
+            {activeTab === 'table' && (
+              <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, overflow: 'hidden' }}>
+                {otbRows.length === 0 ? (
+                  <div style={{ padding: '4rem', textAlign: 'center', color: textSub }}>
+                    <BedDouble size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <p style={{ fontWeight: 600, margin: 0 }}>Nenhum dado OTB disponível para hoje.</p>
+                    <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>O snapshot do período de comparação (vs {compOffset}d) pode não existir ainda.</p>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 240px), 1fr))', gap: '1.25rem' }}>
-                    <MetricCard label="Receita Total" value={fmtBRL(m.totalRevenue)} icon={<TrendingUp size={16} />} color={p.color} subValue={`diárias + consumos · ${m.days} dias`} isDark={isDark} />
-                    <MetricCard label="Receita Hospedagem" value={fmtBRL(m.totalRoomRevenue)} icon={<BedDouble size={16} />} color={p.color} subValue="só diárias (líquido)" isDark={isDark} />
-                    <MetricCard label="ADR" value={fmtBRL(m.avgADR)} icon={<BarChart2 size={16} />} color={p.color} subValue="Diária média líquida" isDark={isDark} />
-                    <MetricCard label="UHs" value={fmtNum(m.totalUHs)} icon={<BedDouble size={16} />} color={p.color} subValue="Vendidas" isDark={isDark} />
-                    <MetricCard label="Hóspedes" value={fmtNum(m.totalGuests)} icon={<Users size={16} />} color={p.color} isDark={isDark} />
-                  </div>
-                </div>
-              );
-            })}
-
-            {view === 'comparativo' && (
-              <div className="matrix-container" style={{ position: 'relative', background: isDark ? 'rgba(15,23,42,0.4)' : '#fff', borderRadius: 32, border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, padding: '2.5rem', backdropFilter: 'blur(12px)', marginBottom: '4rem' }}>
-                <div style={{ marginBottom: '2.5rem' }}>
-                  <h3 style={{ fontSize: '1.5rem', fontWeight: 900, letterSpacing: -0.5 }}>Análise Comparativa Unificada</h3>
-                  <p style={{ fontSize: 13, color: isDark ? '#94a3b8' : '#64748b' }}>Valores sempre visíveis. Interaja para **iluminar** as conexões de performance.</p>
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 24px' }}>
-                    <thead>
-                      <tr style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 }}>
-                        <th style={{ textAlign: 'left', padding: '0 1.5rem' }}>Métrica</th>
-                        {periodsWithResults.map(p => (
-                          <th key={p.id} style={{ textAlign: 'right', padding: '0 1.5rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
-                              {p.label}
-                            </div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody onMouseLeave={() => setActiveCell(null)}>
-                      {METRICS_LIST.map(row => (
-                        <tr key={row.key} style={{ background: isDark ? 'rgba(30,41,59,0.1)' : 'rgba(241,245,249,0.5)', borderRadius: 24 }}>
-                          <td style={{ padding: '2rem 1.5rem', borderTopLeftRadius: 24, borderBottomLeftRadius: 24, minWidth: 160 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: isDark ? '#94a3b8' : '#475569', fontWeight: 700 }}>
-                              <div style={{ color: '#0ea5e9' }}>{row.icon}</div>
-                              {row.label}
-                            </div>
-                          </td>
-                          {periodsWithResults.map((p, pIdx) => {
-                            const val = results.get(p.id)![row.key] as number;
-                            const isActiveBase = activeCell?.periodId === p.id && activeCell?.metricKey === row.key;
-                            const isComparisonTarget = activeCell?.metricKey === row.key && activeCell?.periodId !== p.id;
-
-                            return (
-                              <td key={p.id} style={{ 
-                                padding: '0 1rem', textAlign: 'right', verticalAlign: 'middle',
-                                borderTopRightRadius: pIdx === periodsWithResults.length - 1 ? 24 : 0,
-                                borderBottomRightRadius: pIdx === periodsWithResults.length - 1 ? 24 : 0
-                              }}>
-                                <div 
-                                  className={`matrix-cell ${isActiveBase ? 'cell-base-active' : ''} ${isComparisonTarget ? 'cell-target-active' : ''}`}
-                                  onMouseEnter={() => setActiveCell({ periodId: p.id, metricKey: row.key })}
-                                  onClick={() => setActiveCell({ periodId: p.id, metricKey: row.key })}
-                                  style={{ 
-                                    padding: '1.25rem', borderRadius: 16,
-                                    minHeight: 80, display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                                    border: isActiveBase ? `1px solid ${p.color}` : isComparisonTarget ? `1px solid ${p.color}50` : `1px solid ${isDark ? 'transparent' : 'rgba(203,213,225,0.3)'}`,
-                                    boxShadow: isActiveBase ? `0 0 30px ${p.color}40` : isComparisonTarget ? `0 0 20px ${p.color}20` : 'none',
-                                    background: isActiveBase ? `${p.color}15` : (isDark ? 'rgba(15,23,42,0.3)' : '#fff'),
-                                  }}
-                                >
-                                  <div className="lighting-beam" />
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, position: 'relative', zIndex: 2 }}>
-                                    <span style={{ 
-                                      fontWeight: 900, 
-                                      color: isActiveBase ? p.color : isComparisonTarget ? p.color : isDark ? '#f8fafc' : '#1e293b', 
-                                      fontSize: isActiveBase ? 18 : 16, 
-                                      transition: 'all 0.3s ease',
-                                      textShadow: isActiveBase ? `0 0 10px ${p.color}40` : 'none'
-                                    }}>
-                                      {row.fmt(val)}
-                                    </span>
-                                    
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '4px 8px', maxWidth: 220 }}>
-                                      {periodsWithResults.filter(other => other.id !== p.id).map(other => (
-                                        <TrendBadgeCompact 
-                                          key={other.id}
-                                          value={val} 
-                                          base={results.get(other.id)![row.key] as number} 
-                                          color={other.color}
-                                          isDark={isDark}
-                                        />
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-                            );
-                          })}
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: `1px solid ${cardBdr}` }}>
+                          {['Data Estadia', 'OTB Atual', `OTB −${compOffset}d`, 'ΔQ', 'Receita Atual', 'Δ Receita', 'ADR Atual', 'Δ ADR %'].map(h => (
+                            <th key={h} style={{ padding: '1rem 1.25rem', textAlign: h === 'Data Estadia' ? 'left' : 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {otbRows.map((r, i) => (
+                          <tr key={r.stayDate} className="pu-row" style={{ borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none' }}>
+                            <td style={{ padding: '0.85rem 1.25rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', whiteSpace: 'nowrap' }}>{fmtFullDate(r.stayDate)}</td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>{r.currentOTB}</td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: textSub }}>{r.comparisonOTB}</td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaCell val={r.deltaRooms} isDark={isDark} /></td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13 }}>{fmtBRL(r.currentRevenue)}</td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaRevCell val={r.deltaRevenue} isDark={isDark} /></td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13 }}>{fmtBRL(r.currentAdr)}</td>
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaPctCell val={r.deltaAdrPct} isDark={isDark} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Tab: Janela de Reserva ── */}
+            {activeTab === 'window' && (
+              <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, padding: '2rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: 13, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.5 }}>Distribuição por Janela de Reserva</h4>
+                <p style={{ margin: '0 0 2rem', fontSize: 12, color: textSub }}>Antecedência com que as reservas dos próximos 90 dias foram feitas.</p>
+                {winBuckets.every(b => b.count === 0) ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: textSub }}>
+                    <CalendarRange size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <p style={{ fontWeight: 600, margin: 0 }}>Sem reservas nos próximos 90 dias.</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <BarChart data={winBuckets} barSize={52} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.2)'} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: textSub, fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<CustomTooltip isDark={isDark} />} cursor={{ fill: isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.1)' }} />
+                      <Bar dataKey="count" name="Reservas" radius={[10, 10, 0, 0]}>
+                        {winBuckets.map((_, i) => <Cell key={i} fill={BUCKET_COLORS[i % BUCKET_COLORS.length]} />)}
+                        <LabelList dataKey="count" position="top" style={{ fill: isDark ? '#f8fafc' : '#1e293b', fontSize: 12, fontWeight: 800 }} offset={8} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            )}
+
+            {/* ── Tab: Canais ── */}
+            {activeTab === 'channel' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: '1.5rem' }}>
+                {/* Bar chart */}
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, padding: '2rem' }}>
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: 13, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.5 }}>Reservas por Canal</h4>
+                  <p style={{ margin: '0 0 2rem', fontSize: 12, color: textSub }}>Reservas confirmadas para os próximos 90 dias.</p>
+                  {chanBuckets.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '3rem', color: textSub }}>
+                      <Users size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                      <p style={{ fontWeight: 600, margin: 0 }}>Sem reservas para analisar.</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={chanBuckets} layout="vertical" barSize={22} margin={{ left: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.2)'} horizontal={false} />
+                        <XAxis type="number" tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="channel" width={120} tick={{ fill: textSub, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip isDark={isDark} />} cursor={{ fill: isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.1)' }} />
+                        <Bar dataKey="count" name="Reservas" radius={[0, 8, 8, 0]}>
+                          {chanBuckets.map((_, i) => <Cell key={i} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* Share list */}
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, padding: '2rem' }}>
+                  <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.5 }}>Share de Canais</h4>
+                  {chanBuckets.length === 0 ? (
+                    <p style={{ color: textSub, fontSize: 13, textAlign: 'center' }}>Sem dados</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {chanBuckets.map((d, i) => {
+                        const pct = totalBookings > 0 ? (d.count / totalBookings) * 100 : 0;
+                        const color = CHANNEL_COLORS[i % CHANNEL_COLORS.length];
+                        return (
+                          <div key={d.channel}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: 600 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
+                                {d.channel}
+                                <span style={{ color: textMute, fontWeight: 500 }}>({d.count})</span>
+                              </span>
+                              <span style={{ fontWeight: 800, color }}>{pct.toFixed(1)}%</span>
+                            </div>
+                            <div style={{ height: 5, background: isDark ? 'rgba(148,163,184,0.1)' : '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 4, transition: 'width 0.8s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 500px), 1fr))', gap: '2rem', marginBottom: '3rem' }}>
-              <div style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 24, padding: '2rem' }}>
-                <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>ADR Benchmarking</h4>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={adrChartData} barSize={50}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.06)" : "rgba(203,213,225,0.2)"} vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={v => `R$${v}`} tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
-                    <Tooltip content={<CustomTooltip formatter={fmtBRL} isDark={isDark} />} cursor={{ fill: isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.1)' }} />
-                    <Bar dataKey="ADR" radius={[12, 12, 0, 0]}>
-                      {adrChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                      <LabelList dataKey="ADR" position="top" formatter={(v: number) => `R$${v.toFixed(0)}`} style={{ fill: isDark ? '#f8fafc' : '#1e293b', fontSize: 12, fontWeight: 800 }} offset={10} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 24, padding: '2rem' }}>
-                <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>Volume de UHs</h4>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={uhsChartData} barSize={50} margin={{ top: 30, right: 10, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.06)" : "rgba(203,213,225,0.2)"} vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15)]} hide />
-                    <Tooltip content={<CustomTooltip formatter={fmtNum} isDark={isDark} />} cursor={{ fill: isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.1)' }} />
-                    <Bar dataKey="UHs" radius={[12, 12, 0, 0]}>
-                      {uhsChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                      <LabelList dataKey="UHs" position="top" style={{ fill: isDark ? '#f8fafc' : '#1e293b', fontSize: 12, fontWeight: 800 }} offset={10} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
 
-            {revenueChartData.length > 0 && (
-              <div style={{ background: isDark ? 'rgba(15,23,42,0.6)' : '#fff', border: `1px solid ${isDark ? 'rgba(148,163,184,0.1)' : 'rgba(203,213,225,0.5)'}`, borderRadius: 24, padding: '2rem', marginBottom: '4rem' }}>
-                <h4 style={{ margin: '0 0 2rem', fontSize: 13, fontWeight: 800, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: 1.5 }}>Curva de Receita Diária</h4>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={revenueChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.06)" : "rgba(203,213,225,0.2)"} vertical={false} />
-                    <XAxis dataKey="day" tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip formatter={fmtBRL} isDark={isDark} />} />
-                    <Legend iconType="circle" />
-                    {periodsWithResults.map(p => (
-                      <Line key={p.id} type="monotone" dataKey={p.label} stroke={p.color} strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
+            {/* ── Tab: Pace vs STLY ── */}
+            {activeTab === 'pace' && (
+              <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, padding: '2rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem', fontSize: 13, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.5 }}>Curva de Pace — OTB Atual vs STLY</h4>
+                <p style={{ margin: '0 0 2rem', fontSize: 12, color: textSub }}>
+                  Total de quartos OTB capturado por dia (últimos 60 dias). STLY = ocupação real do mesmo período do ano anterior.
+                </p>
+                {pacePoints.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: textSub }}>
+                    <BarChart2 size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <p style={{ fontWeight: 600, margin: 0 }}>Dados de pace acumulam após os primeiros dias de uso.</p>
+                    <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>Abra este relatório diariamente para construir o histórico.</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={340}>
+                    <LineChart data={pacePoints} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.2)'} vertical={false} />
+                      <XAxis dataKey="snapshotDate" tickFormatter={fmtShortDate} tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<CustomTooltip isDark={isDark} />} />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                      <Line type="monotone" dataKey="currentOTB" name="OTB Atual" stroke="#0ea5e9" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
+                      <Line type="monotone" dataKey="stlyOTB" name="STLY" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 5 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             )}
           </div>

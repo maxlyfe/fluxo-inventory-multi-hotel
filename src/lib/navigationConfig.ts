@@ -121,9 +121,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Diretoria',
     icon: TrendingUp,
     module: 'diretoria',
-    activePrefixes: ['/diretoria', '/diretoria/pickup'],
+    activePrefixes: ['/diretoria'],
     items: [
-        { module: 'diretoria', label: 'Pick-up', href: '/diretoria/pickup', icon: TrendingUp, iconName: 'TrendingUp', color: '#0ea5e9' },
+      { module: 'diretoria', label: 'Pick-up',     href: '/diretoria/pickup',      icon: TrendingUp, iconName: 'TrendingUp', color: '#0ea5e9' },
+      { module: 'diretoria', label: 'Performance', href: '/diretoria/performance', icon: BarChart2,  iconName: 'BarChart2',  color: '#8b5cf6' },
     ],
   },
   {
