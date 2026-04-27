@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -7,6 +7,7 @@ interface AppUser {
   email?: string;
   role?: string;
   full_name?: string;
+  cpf?: string;
   avatar_url?: string;
   custom_role_id?: string;
   custom_role?: {
@@ -21,6 +22,7 @@ interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
   needsName: boolean;
+  refreshProfile: () => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
   loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
   saveName: (fullName: string) => Promise<{ success: boolean; message?: string }>;
@@ -38,6 +40,7 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
       .select(`
         role,
         full_name,
+        cpf,
         avatar_url,
         custom_role_id,
         custom_roles (
@@ -58,6 +61,7 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
     return {
       role:           data.role           || 'guest',
       full_name:      data.full_name      || undefined,
+      cpf:            data.cpf            || undefined,
       avatar_url:     data.avatar_url     || undefined,
       custom_role_id: data.custom_role_id || undefined,
       // Permissões carregadas do perfil — usadas pelo usePermissions para liberar módulos
@@ -213,8 +217,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) return;
+    const profile = await fetchProfile(user.id);
+    setUser(prev => prev ? { ...prev, ...profile } : null);
+  }, [user?.id]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, needsName, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
+    <AuthContext.Provider value={{ user, loading, needsName, refreshProfile, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
       {children}
     </AuthContext.Provider>
   );

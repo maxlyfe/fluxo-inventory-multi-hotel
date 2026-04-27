@@ -52,26 +52,46 @@ export default function Profile() {
       setFullName(user.full_name || '');
       setCpf(user.cpf || '');
       setPhotoUrl(user.photo_url || '');
-      if (user.cpf) checkEmployeeLink(user.cpf);
+      checkEmployeeLink();
     }
   }, [user]);
 
-  async function checkEmployeeLink(cpfValue: string) {
-    if (!cpfValue) return;
-    const cleanCpf = cpfValue.replace(/\D/g, '');
-    if (cleanCpf.length !== 11) return;
+  async function checkEmployeeLink() {
+    if (!user?.id) return;
 
     try {
-      const { data, error } = await supabase
+      // 1. Tenta buscar por user_id (vínculo direto já estabelecido)
+      const { data: byId, error: errorId } = await supabase
         .from('employees')
         .select('*, hotels(name)')
-        .eq('cpf', cleanCpf)
+        .eq('user_id', user.id)
         .maybeSingle();
       
-      if (!error && data) {
-        setEmployee(data as EmployeeLink);
-      } else {
-        setEmployee(null);
+      if (!errorId && byId) {
+        setEmployee(byId as EmployeeLink);
+        // Se encontramos pelo ID, garantimos que o CPF no formulário seja o do colaborador se estiver vazio
+        if (!cpf && byId.cpf) setCpf(byId.cpf);
+        return;
+      }
+
+      // 2. Se não tem user_id vinculado, tenta buscar pelo CPF do perfil (se existir)
+      if (user.cpf) {
+        const cleanCpf = user.cpf.replace(/\D/g, '');
+        if (cleanCpf.length === 11) {
+          const { data: byCpf, error: errorCpf } = await supabase
+            .from('employees')
+            .select('*, hotels(name)')
+            .eq('cpf', cleanCpf)
+            .maybeSingle();
+          
+          if (!errorCpf && byCpf) {
+            setEmployee(byCpf as EmployeeLink);
+            // Auto-vincula se o colaborador já existir mas não tiver user_id
+            if (!byCpf.user_id) {
+               await supabase.from('employees').update({ user_id: user.id }).eq('id', byCpf.id);
+            }
+          }
+        }
       }
     } catch (err) {
       console.error('Erro ao buscar colaborador:', err);
