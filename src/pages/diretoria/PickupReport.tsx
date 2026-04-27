@@ -2,10 +2,12 @@
 // Relatório de Pick-up real — velocidade de reservas, snapshots OTB diários,
 // janela de antecedência, canal de origem e pace vs STLY.
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import {
   TrendingUp, TrendingDown, Minus, Loader2, AlertCircle,
   Users, BedDouble, BarChart2, CalendarRange, RefreshCw,
+  Upload, Plus, Trash2, Download, X, History, CheckCircle2,
 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -125,6 +127,20 @@ export default function PickupReport() {
   const [winBuckets,   setWinBuckets]   = useState<WindowBucket[]>([]);
   const [chanBuckets,  setChanBuckets]  = useState<ChannelBucket[]>([]);
   const [pacePoints,   setPacePoints]   = useState<PacePoint[]>([]);
+
+  // ── Estado do modal de importação histórica ───────────────────────────────────
+  interface ManualRow { stayDate: string; roomsOtb: string; }
+  interface ExcelPreviewRow { snapshot_date: string; stay_date: string; rooms_otb: number; }
+
+  const [showImport,     setShowImport]     = useState(false);
+  const [importTab,      setImportTab]      = useState<'manual' | 'excel'>('manual');
+  const [snapDateInput,  setSnapDateInput]  = useState('');
+  const [manualRows,     setManualRows]     = useState<ManualRow[]>([{ stayDate: '', roomsOtb: '' }]);
+  const [importSaving,   setImportSaving]   = useState(false);
+  const [importMsg,      setImportMsg]      = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [excelPreview,   setExcelPreview]   = useState<ExcelPreviewRow[]>([]);
+  const [excelFileName,  setExcelFileName]  = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Auto-snapshot ────────────────────────────────────────────────────────────
 
@@ -332,6 +348,136 @@ export default function PickupReport() {
     return () => { cancelled = true; };
   }, [hotelId, compOffset, ensureSnapshot, loadOTBTable, loadBookingAnalysis, loadPace]);
 
+  // ── Funções de importação histórica ──────────────────────────────────────────
+
+  /** Converte dd/mm/yyyy ou yyyy-mm-dd para yyyy-mm-dd */
+  function parseDate(raw: string): string {
+    const s = String(raw ?? '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split('/');
+      return `${y}-${m}-${d}`;
+    }
+    // Tenta converter número serial do Excel
+    const n = Number(s);
+    if (!isNaN(n) && n > 40000) {
+      const d = new Date((n - 25569) * 86400 * 1000);
+      return d.toISOString().split('T')[0];
+    }
+    return '';
+  }
+
+  function downloadTemplate() {
+    const rows = [
+      ['Data Snapshot', 'Data Estadia', 'Quartos OTB'],
+      ['20/04/2026', '01/05/2026', 15],
+      ['20/04/2026', '02/05/2026', 12],
+      ['21/04/2026', '01/05/2026', 16],
+    ];
+    const ws   = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 14 }];
+    const wb   = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pickup Histórico');
+    XLSX.writeFile(wb, 'template_pickup_historico.xlsx');
+  }
+
+  function handleExcelFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExcelFileName(file.name);
+    setImportMsg(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb   = XLSX.read(ev.target?.result, { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const preview: ExcelPreviewRow[] = [];
+        for (let i = 1; i < data.length; i++) {
+          const [snap, stay, rooms] = data[i];
+          const sd = parseDate(String(snap));
+          const st = parseDate(String(stay));
+          const ro = Number(String(rooms).replace(',', '.'));
+          if (sd && st && !isNaN(ro) && ro >= 0) {
+            preview.push({ snapshot_date: sd, stay_date: st, rooms_otb: ro });
+          }
+        }
+        setExcelPreview(preview);
+        if (!preview.length) setImportMsg({ type: 'err', text: 'Nenhuma linha válida encontrada. Verifique o formato do arquivo.' });
+      } catch (err: any) {
+        setImportMsg({ type: 'err', text: 'Erro ao ler arquivo: ' + err.message });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  async function saveManual() {
+    setImportMsg(null);
+    if (!snapDateInput) { setImportMsg({ type: 'err', text: 'Selecione a data do snapshot.' }); return; }
+    const rows = manualRows
+      .filter(r => r.stayDate && r.roomsOtb !== '')
+      .map(r => ({
+        hotel_id:         hotelId,
+        snapshot_date:    snapDateInput,
+        stay_date:        r.stayDate,
+        rooms_otb:        Math.round(Number(r.roomsOtb.replace(',', '.')) || 0),
+        net_room_revenue: 0,
+        adr:              0,
+      }));
+    if (!rows.length) { setImportMsg({ type: 'err', text: 'Adicione ao menos uma linha com data e quartos.' }); return; }
+    setImportSaving(true);
+    try {
+      const { error } = await supabase
+        .from('diretoria_pickup_snapshots')
+        .upsert(rows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
+      if (error) throw error;
+      setImportMsg({ type: 'ok', text: `${rows.length} linha(s) salvas com sucesso!` });
+      setManualRows([{ stayDate: '', roomsOtb: '' }]);
+      setSnapDateInput('');
+    } catch (e: any) {
+      setImportMsg({ type: 'err', text: 'Erro ao salvar: ' + e.message });
+    } finally {
+      setImportSaving(false);
+    }
+  }
+
+  async function saveExcel() {
+    if (!excelPreview.length) return;
+    setImportSaving(true);
+    setImportMsg(null);
+    try {
+      const rows = excelPreview.map(r => ({
+        hotel_id:         hotelId,
+        snapshot_date:    r.snapshot_date,
+        stay_date:        r.stay_date,
+        rooms_otb:        r.rooms_otb,
+        net_room_revenue: 0,
+        adr:              0,
+      }));
+      const { error } = await supabase
+        .from('diretoria_pickup_snapshots')
+        .upsert(rows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
+      if (error) throw error;
+      setImportMsg({ type: 'ok', text: `${rows.length} linha(s) importadas com sucesso!` });
+      setExcelPreview([]);
+      setExcelFileName('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (e: any) {
+      setImportMsg({ type: 'err', text: 'Erro ao importar: ' + e.message });
+    } finally {
+      setImportSaving(false);
+    }
+  }
+
+  function closeImport() {
+    setShowImport(false);
+    setImportMsg(null);
+    setExcelPreview([]);
+    setExcelFileName('');
+    setManualRows([{ stayDate: '', roomsOtb: '' }]);
+    setSnapDateInput('');
+  }
+
   // ── Render helpers ────────────────────────────────────────────────────────────
 
   const isLoading = snapLoading || dataLoading;
@@ -383,6 +529,15 @@ export default function PickupReport() {
                   : <><div style={{ width: 8, height: 8, borderRadius: '50%', background: textMute }} /> Aguardando...</>
               }
             </div>
+
+            {/* Separador */}
+            <div style={{ width: 1, height: 24, background: cardBdr }} />
+
+            {/* Botão Importar Histórico */}
+            <button onClick={() => { setShowImport(true); setImportMsg(null); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem', borderRadius: 10, background: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)', border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`, color: '#8b5cf6', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              <History size={14} /> Importar Histórico
+            </button>
 
             {/* Separador */}
             <div style={{ width: 1, height: 24, background: cardBdr }} />
@@ -612,6 +767,189 @@ export default function PickupReport() {
           </div>
         )}
       </div>
+
+      {/* ── Modal: Importar Histórico ── */}
+      {showImport && (
+        <div
+          onClick={closeImport}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: isDark ? '#0f172a' : '#fff', border: `1px solid ${cardBdr}`, borderRadius: 24, width: '100%', maxWidth: 680, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+
+            {/* Modal header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.75rem', borderBottom: `1px solid ${cardBdr}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#8b5cf6,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <History size={18} color="#fff" />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontWeight: 800, fontSize: 15, color: isDark ? '#f8fafc' : '#1e293b' }}>Importar Histórico de Pick-up</p>
+                  <p style={{ margin: 0, fontSize: 12, color: textSub }}>Alimente snapshots anteriores para ativar a comparação</p>
+                </div>
+              </div>
+              <button onClick={closeImport} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textSub, padding: 4, borderRadius: 8 }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Tabs do modal */}
+            <div style={{ display: 'flex', gap: 4, padding: '1rem 1.75rem 0', borderBottom: `1px solid ${cardBdr}` }}>
+              {([
+                { id: 'manual', label: 'Entrada Manual' },
+                { id: 'excel',  label: 'Importar Excel' },
+              ] as { id: 'manual' | 'excel'; label: string }[]).map(t => (
+                <button key={t.id} onClick={() => { setImportTab(t.id); setImportMsg(null); }}
+                  style={{ padding: '0.5rem 1.25rem', marginBottom: -1, borderRadius: '8px 8px 0 0', fontWeight: 700, fontSize: 13, cursor: 'pointer', border: 'none', borderBottom: importTab === t.id ? `2px solid #8b5cf6` : '2px solid transparent', background: 'transparent', color: importTab === t.id ? '#8b5cf6' : textSub }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Modal body */}
+            <div style={{ overflowY: 'auto', padding: '1.5rem 1.75rem', flex: 1 }}>
+
+              {/* ── Aba: Entrada Manual ── */}
+              {importTab === 'manual' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: textSub, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                      Data do Snapshot <span style={{ color: '#f43f5e' }}>*</span>
+                    </label>
+                    <input type="date" value={snapDateInput} onChange={e => setSnapDateInput(e.target.value)}
+                      max={todayStr()}
+                      style={{ padding: '0.6rem 0.9rem', borderRadius: 10, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.6)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 14, width: '100%', outline: 'none' }} />
+                    <p style={{ margin: '6px 0 0', fontSize: 11, color: textMute }}>
+                      A data em que o OTB foi anotado no caderno — não a data de estadia.
+                    </p>
+                  </div>
+
+                  {/* Tabela de linhas */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: textSub, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                      Datas de Estadia e Quartos OTB
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {/* Header */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 36px', gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>Data Estadia</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>Quartos OTB</span>
+                        <span />
+                      </div>
+                      {manualRows.map((row, i) => (
+                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 36px', gap: 8, alignItems: 'center' }}>
+                          <input type="date" value={row.stayDate}
+                            onChange={e => setManualRows(prev => prev.map((r, idx) => idx === i ? { ...r, stayDate: e.target.value } : r))}
+                            style={{ padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.6)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, outline: 'none' }} />
+                          <input type="text" inputMode="numeric" placeholder="ex: 15" value={row.roomsOtb}
+                            onChange={e => setManualRows(prev => prev.map((r, idx) => idx === i ? { ...r, roomsOtb: e.target.value } : r))}
+                            style={{ padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.6)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, outline: 'none' }} />
+                          <button onClick={() => setManualRows(prev => prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i))}
+                            style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: isDark ? 'rgba(244,63,94,0.1)' : '#fef2f2', color: '#f43f5e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button onClick={() => setManualRows(prev => [...prev, { stayDate: '', roomsOtb: '' }])}
+                      style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem', borderRadius: 8, border: `1px dashed ${isDark ? 'rgba(148,163,184,0.3)' : '#cbd5e1'}`, background: 'transparent', color: textSub, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                      <Plus size={14} /> Adicionar linha
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Aba: Importar Excel ── */}
+              {importTab === 'excel' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {/* Download template */}
+                  <div style={{ background: isDark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.05)', border: `1px solid ${isDark ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.15)'}`, borderRadius: 14, padding: '1.25rem' }}>
+                    <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: 14, color: isDark ? '#f8fafc' : '#1e293b' }}>1. Baixe o template</p>
+                    <p style={{ margin: '0 0 12px', fontSize: 12, color: textSub }}>Preencha com os dados do caderno. Colunas: <strong>Data Snapshot</strong> · <strong>Data Estadia</strong> · <strong>Quartos OTB</strong></p>
+                    <p style={{ margin: '0 0 12px', fontSize: 11, color: textMute }}>Formato aceito: <code>dd/mm/yyyy</code> — múltiplas datas de snapshot no mesmo arquivo</p>
+                    <button onClick={downloadTemplate}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.55rem 1.1rem', borderRadius: 8, border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.25)'}`, background: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)', color: '#8b5cf6', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                      <Download size={14} /> Baixar Template Excel
+                    </button>
+                  </div>
+
+                  {/* Upload */}
+                  <div>
+                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: 14, color: isDark ? '#f8fafc' : '#1e293b' }}>2. Faça upload do arquivo preenchido</p>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.85rem 1.1rem', borderRadius: 12, border: `2px dashed ${isDark ? 'rgba(148,163,184,0.25)' : '#e2e8f0'}`, cursor: 'pointer', background: isDark ? 'rgba(30,41,59,0.3)' : '#f8fafc' }}>
+                      <Upload size={18} color={textSub} />
+                      <span style={{ fontSize: 13, color: textSub, fontWeight: 500 }}>
+                        {excelFileName || 'Clique para selecionar o arquivo .xlsx ou .xls'}
+                      </span>
+                      <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleExcelFile} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+
+                  {/* Preview */}
+                  {excelPreview.length > 0 && (
+                    <div>
+                      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                        {excelPreview.length} linha(s) encontradas — prévia:
+                      </p>
+                      <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${cardBdr}`, borderRadius: 12 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ borderBottom: `1px solid ${cardBdr}`, background: isDark ? 'rgba(15,23,42,0.8)' : '#f1f5f9' }}>
+                              {['Snapshot', 'Estadia', 'Quartos OTB'].map(h => (
+                                <th key={h} style={{ padding: '0.5rem 0.85rem', textAlign: 'left', fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8, fontSize: 10 }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {excelPreview.slice(0, 50).map((r, i) => (
+                              <tr key={i} style={{ borderBottom: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` }}>
+                                <td style={{ padding: '0.45rem 0.85rem', color: textSub }}>{fmtFullDate(r.snapshot_date)}</td>
+                                <td style={{ padding: '0.45rem 0.85rem', color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: 600 }}>{fmtFullDate(r.stay_date)}</td>
+                                <td style={{ padding: '0.45rem 0.85rem', fontWeight: 800, color: '#0ea5e9' }}>{r.rooms_otb}</td>
+                              </tr>
+                            ))}
+                            {excelPreview.length > 50 && (
+                              <tr><td colSpan={3} style={{ padding: '0.5rem 0.85rem', color: textMute, fontSize: 11, textAlign: 'center' }}>...e mais {excelPreview.length - 50} linhas</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Mensagem de resultado */}
+              {importMsg && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.75rem 1rem', borderRadius: 10, marginTop: '1rem', background: importMsg.type === 'ok' ? (isDark ? 'rgba(16,185,129,0.1)' : '#f0fdf4') : (isDark ? 'rgba(244,63,94,0.1)' : '#fef2f2'), border: `1px solid ${importMsg.type === 'ok' ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)'}` }}>
+                  {importMsg.type === 'ok'
+                    ? <CheckCircle2 size={16} color="#10b981" />
+                    : <AlertCircle size={16} color="#f43f5e" />}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: importMsg.type === 'ok' ? '#10b981' : '#f43f5e' }}>{importMsg.text}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '1rem 1.75rem', borderTop: `1px solid ${cardBdr}` }}>
+              <button onClick={closeImport}
+                style={{ padding: '0.6rem 1.25rem', borderRadius: 10, border: `1px solid ${cardBdr}`, background: 'transparent', color: textSub, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                Fechar
+              </button>
+              <button
+                onClick={importTab === 'manual' ? saveManual : saveExcel}
+                disabled={importSaving || (importTab === 'excel' && excelPreview.length === 0)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.6rem 1.4rem', borderRadius: 10, border: 'none', background: importSaving ? textMute : '#8b5cf6', color: '#fff', fontWeight: 700, fontSize: 13, cursor: importSaving ? 'not-allowed' : 'pointer', opacity: (importTab === 'excel' && excelPreview.length === 0 && !importSaving) ? 0.4 : 1 }}>
+                {importSaving
+                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</>
+                  : <><Upload size={14} /> {importTab === 'manual' ? 'Salvar Snapshot' : `Importar ${excelPreview.length > 0 ? excelPreview.length + ' linhas' : ''}`}</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
