@@ -316,7 +316,7 @@ function ModalActions({ onCancel, submitLabel, submitColor = 'bg-blue-600 hover:
 // ---------------------------------------------------------------------------
 
 const UserManagement = () => {
-  const { user: adminUser, session, forceSignOut } = useAuth();
+  const { user: adminUser, session, forceSignOut, refreshProfile } = useAuth();
   const { isAdmin, isDev, can } = usePermissions();
   const navigate = useNavigate();
 
@@ -516,7 +516,14 @@ const UserManagement = () => {
 
       await fetchUsers();
       setShowChangeRole(false);
-      showToast('success', `Perfil de ${changeRole.email} atualizado para ${selectedRole.name}.`);
+
+      // Se o admin mudou o próprio perfil, recarregar permissões imediatamente
+      if (changeRole.userId === adminUser?.id) {
+        await refreshProfile();
+        showToast('success', `Seu perfil foi atualizado para ${selectedRole.name}. Permissões actualizadas.`);
+      } else {
+        showToast('success', `Perfil de ${changeRole.email} atualizado para ${selectedRole.name}. O utilizador precisará fazer re-login para ver as novas permissões.`);
+      }
     } catch (err: any) {
       showToast('error', err.message);
     } finally {

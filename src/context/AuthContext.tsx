@@ -32,7 +32,30 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Mapeia um registo raw do banco para o formato CustomRole esperado pelo hook. */
+function mapCustomRole(cr: any) {
+  if (!cr) return null;
+  return {
+    id:          cr.id          as string,
+    name:        cr.name        as string,
+    permissions: Array.isArray(cr.permissions) ? (cr.permissions as string[]) : [],
+    color:       (cr.color as string) || '#94a3b8',
+  };
+}
+
+/**
+ * Carrega o perfil completo do utilizador, incluindo o custom_role e as suas permissões.
+ *
+ * Estratégia de resiliência:
+ * 1. Tenta carregar o perfil + custom_role num único JOIN.
+ * 2. Se o JOIN falhar (ex: RLS na tabela custom_roles), cai em fallback:
+ *    a. Carrega o perfil sem JOIN.
+ *    b. Busca o custom_role numa query separada.
+ * 3. Em caso de erro irrecuperável, retorna {} — o utilizador fica como 'guest'
+ *    mas NÃO é barrado — apenas sem permissões específicas.
+ */
 async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
+  // ── Tentativa 1: JOIN directo (caminho normal) ────────────────────────────
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -51,29 +74,61 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
       .eq('id', userId)
       .maybeSingle();
 
+    if (!error && data) {
+      return {
+        role:           data.role           || 'guest',
+        full_name:      data.full_name      || undefined,
+        photo_url:      data.photo_url      || undefined,
+        custom_role_id: data.custom_role_id || undefined,
+        custom_role:    mapCustomRole((data as any).custom_roles),
+      };
+    }
+
+    // JOIN falhou — registar e tentar fallback
     if (error) {
-      console.warn('[Auth] Erro ao buscar perfil (esquema pode estar desatualizado):', error.message);
+      console.error('[Auth] JOIN custom_roles falhou, tentando fallback separado:', error.message);
+    }
+  } catch (e: any) {
+    console.error('[Auth] Exceção no fetchProfile (tentativa 1):', e.message);
+  }
+
+  // ── Tentativa 2: Perfil sem JOIN + query separada para custom_role ────────
+  try {
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('role, full_name, photo_url, custom_role_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (profileErr || !profile) {
+      console.error('[Auth] Não foi possível carregar o perfil:', profileErr?.message);
       return {};
     }
-    if (!data) return {};
 
-    // Supabase retorna o join sob o nome da tabela 'custom_roles'
-    const cr = (data as any).custom_roles;
+    let custom_role = null;
+    if (profile.custom_role_id) {
+      const { data: cr, error: crErr } = await supabase
+        .from('custom_roles')
+        .select('id, name, permissions, color')
+        .eq('id', profile.custom_role_id)
+        .maybeSingle();
+
+      if (crErr) {
+        console.error('[Auth] Não foi possível carregar o custom_role:', crErr.message);
+      } else {
+        custom_role = mapCustomRole(cr);
+      }
+    }
 
     return {
-      role:           data.role           || 'guest',
-      full_name:      data.full_name      || undefined,
-      photo_url:      data.photo_url      || undefined,
-      custom_role_id: data.custom_role_id || undefined,
-      // Permissões carregadas do perfil — usadas pelo usePermissions para liberar módulos
-      custom_role: cr ? {
-        id:          cr.id,
-        name:        cr.name,
-        permissions: Array.isArray(cr.permissions) ? cr.permissions : [],
-        color:       cr.color || '#94a3b8',
-      } : null,
+      role:           profile.role           || 'guest',
+      full_name:      profile.full_name      || undefined,
+      photo_url:      profile.photo_url      || undefined,
+      custom_role_id: profile.custom_role_id || undefined,
+      custom_role,
     };
-  } catch {
+  } catch (e: any) {
+    console.error('[Auth] Exceção no fetchProfile (fallback):', e.message);
     return {};
   }
 }

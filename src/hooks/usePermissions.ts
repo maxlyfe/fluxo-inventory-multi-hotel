@@ -84,10 +84,19 @@ export function buildContactCategoryModules(
 export const MODULE_GROUPS = [...new Set(MODULES.map(m => m.group))];
 
 // -----------------------------------------------------------------------
+// Emails com bypass DEV total — independente do banco de dados
+// Adicionar o(s) email(s) do(s) desenvolvedor(es) aqui.
+// -----------------------------------------------------------------------
+export const DEV_EMAILS: string[] = [
+  // 'dev@meridiana.com',
+];
+
+// -----------------------------------------------------------------------
 // Tipo do user esperado no AuthContext
 // -----------------------------------------------------------------------
 interface UserWithRole {
   id:              string;
+  email?:          string;  // necessário para bypass por email
   role?:           string;  // campo legado — 'admin' = superuser
   custom_role_id?: string | null;
   custom_role?: {
@@ -104,11 +113,26 @@ interface UserWithRole {
 export function usePermissions() {
   const { user } = useAuth() as { user: UserWithRole | null };
 
-  const isDev = useMemo(
-    () => user?.role === 'dev' || user?.custom_role?.name?.toLowerCase() === 'dev',
-    [user?.role, user?.custom_role?.name]
-  );
+  /**
+   * DEV — bypass total, verificado por ordem de prioridade:
+   * 1. Email na lista DEV_EMAILS (mais confiável — não depende do DB)
+   * 2. profiles.role === 'dev' (configurado manualmente no DB)
+   * 3. Nome do custom_role === 'dev' (criado via /admin/roles)
+   */
+  const isDev = useMemo(() => {
+    if (!user) return false;
+    if (user.email && DEV_EMAILS.length > 0 && DEV_EMAILS.includes(user.email)) return true;
+    if (user.role === 'dev') return true;
+    if (user.custom_role?.name?.toLowerCase() === 'dev') return true;
+    return false;
+  }, [user?.email, user?.role, user?.custom_role?.name]);
 
+  /**
+   * isAdmin — true para:
+   * • DEV (bypass total)
+   * • profiles.role === 'admin' (admin legado sem custom_role_id)
+   * Note: admin com custom_role_id é restrito às permissões do seu perfil.
+   */
   const isAdmin = useMemo(
     () => user?.role === 'admin' || isDev,
     [user?.role, isDev]
@@ -116,19 +140,25 @@ export function usePermissions() {
 
   /**
    * Verifica se o utilizador tem permissão para um módulo.
-   * Apenas DEV tem bypass total. Admin respeita o perfil custom_role se definido.
+   *
+   * Ordem de prioridade:
+   * 1. DEV → true para tudo
+   * 2. Admin legado (role='admin' SEM custom_role_id) → true para tudo
+   * 3. Qualquer outro utilizador → verifica custom_role.permissions[]
    */
   const can = useMemo(
     () => (moduleKey: string): boolean => {
       if (!user) return false;
+
+      // Prioridade 1 — DEV: acesso irrestrito
       if (isDev) return true;
-      
-      const perms = user.custom_role?.permissions ?? [];
-      
-      // Se for admin legado (sem custom_role), damos acesso total por segurança
+
+      // Prioridade 2 — Admin legado sem perfil customizado: acesso total
       if (isAdmin && !user.custom_role_id) return true;
 
-      // Suporte direto a chaves simples e compostas (ex: 'sector_stock:UUID')
+      // Prioridade 3 — Permissões dinâmicas do perfil (custom_role.permissions[])
+      // Suporta chaves simples ('inventory') e compostas ('sector_stock:UUID')
+      const perms = user.custom_role?.permissions ?? [];
       return perms.includes(moduleKey);
     },
     [user, isDev, isAdmin]
