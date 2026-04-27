@@ -103,11 +103,15 @@ const Navbar = () => {
         if (s.module) {
           if (can(s.module)) return true;
           if (s.key === 'compras' && canAccessContacts) return true;
-          return false;
+          // Não retorna false — verifica se há pelo menos um item acessível
         }
 
-        // Se o grupo não tem módulo, verifica se tem permissão em PELO MENOS um item
-        return s.items.some(i => can(i.module));
+        // Mostra o grupo se o user tem permissão em PELO MENOS um dos seus itens
+        return s.items.some(i => {
+          if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
+          if (!i.module) return true;
+          return can(i.module);
+        });
       })
       .map(s => {
         // Filtra os itens individualmente dentro de cada grupo

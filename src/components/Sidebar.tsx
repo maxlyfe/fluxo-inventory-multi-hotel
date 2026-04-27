@@ -70,9 +70,13 @@ const Sidebar = () => {
         if (s.module) {
           if (can(s.module)) return true;
           if (s.key === 'compras' && canAccessContacts) return true;
-          return false;
+          // Não retorna false — verifica se há pelo menos um item acessível
         }
-        return s.items.some(i => can(i.module));
+        return s.items.some(i => {
+          if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
+          if (!i.module) return true;
+          return can(i.module);
+        });
       })
       .map(s => {
         // Filtrar itens estáticos por permissão
