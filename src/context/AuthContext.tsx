@@ -97,11 +97,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setLoading(true);
 
+    // Timeout de segurança — garante que loading nunca fica preso indefinidamente
+    // (pode ocorrer quando há conflito de instâncias GoTrueClient ou falha de rede)
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+      console.warn('[Auth] Timeout de segurança atingido — loading forçado para false.');
+    }, 8000);
+
     async function loadSessionAndProfile(session: Session | null) {
       const baseUser = mapSupabaseUserToAppUser(session?.user ?? null);
       if (!baseUser?.id) {
         setSession(session);
         setUser(null);
+        clearTimeout(safetyTimer);
         setLoading(false);
         return;
       }
@@ -113,12 +121,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profile.role === 'guest' && !profile.full_name) {
         setNeedsName(true);
       }
+      clearTimeout(safetyTimer);
       setLoading(false);
     }
 
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.warn('[Auth] Sessão inválida:', error.message);
+        clearTimeout(safetyTimer);
         setSession(null); setUser(null); setLoading(false);
         return;
       }
@@ -132,13 +142,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       if (event === 'SIGNED_OUT' || !session) {
+        clearTimeout(safetyTimer);
         setSession(null); setUser(null); setNeedsName(false); setLoading(false);
         return;
       }
       loadSessionAndProfile(session);
     });
 
-    return () => { authListener?.subscription.unsubscribe(); };
+    return () => {
+      clearTimeout(safetyTimer);
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
 
   // Sem timer de inatividade — sessão persiste até logout explícito

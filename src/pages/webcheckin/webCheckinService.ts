@@ -1,13 +1,10 @@
 // src/pages/webcheckin/webCheckinService.ts
 // Serviço isolado para o Web Check-in — não usa useHotel() nem auth
-// Opera como cliente público (sem sessão Supabase autenticada).
+// Opera como cliente público (anon key) — reutiliza o singleton de lib/supabase
+// para evitar múltiplas instâncias GoTrueClient no mesmo contexto.
 
-import { createClient } from '@supabase/supabase-js';
+import { supabase as anonClient } from '../../lib/supabase';
 import { erbonService, ErbonBooking, ErbonGuest, ErbonGuestPayload } from '../../lib/erbonService';
-
-const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL  as string;
-const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-const anonClient   = createClient(supabaseUrl, supabaseAnon);
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
 
