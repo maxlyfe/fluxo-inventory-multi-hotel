@@ -82,10 +82,10 @@ const Sidebar = () => {
             <Layout className="w-5 h-5 text-white" />
           </div>
           <span className={classNames(
-            "font-black text-slate-800 dark:text-white uppercase tracking-tighter transition-opacity duration-200",
+            "font-black text-slate-800 dark:text-white tracking-tight transition-opacity duration-200",
             isHovered ? "opacity-100" : "opacity-0"
           )}>
-            Fluxo
+            LyFe Hoteles
           </span>
         </Link>
 
