@@ -31,8 +31,13 @@ interface WindowBucket { label: string; count: number; revenue: number; }
 interface ChannelBucket { channel: string; count: number; revenue: number; }
 interface PacePoint    { snapshotDate: string; currentOTB: number; stlyOTB: number; }
 
-type ComparisonOffset = 1 | 7 | 30;
 type ActiveTab = 'table' | 'window' | 'channel' | 'pace';
+
+const QUICK_OFFSETS = [
+  { label: 'Ontem',   days: 1  },
+  { label: '7 dias',  days: 7  },
+  { label: '30 dias', days: 30 },
+] as const;
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
 
@@ -115,7 +120,7 @@ export default function PickupReport() {
   const hotelId           = selectedHotel?.id ?? '';
 
   // Estado
-  const [compOffset,   setCompOffset]   = useState<ComparisonOffset>(7);
+  const [compDate,     setCompDate]     = useState<string>(() => subDays(todayStr(), 7));
   const [activeTab,    setActiveTab]    = useState<ActiveTab>('table');
   const [snapLoading,  setSnapLoading]  = useState(false);
   const [dataLoading,  setDataLoading]  = useState(false);
@@ -181,9 +186,8 @@ export default function PickupReport() {
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
-  const loadOTBTable = useCallback(async (hId: string, offset: ComparisonOffset): Promise<OTBRow[]> => {
-    const today    = todayStr();
-    const compDate = subDays(today, offset);
+  const loadOTBTable = useCallback(async (hId: string, cDate: string): Promise<OTBRow[]> => {
+    const today = todayStr();
 
     const [{ data: todaySnap, error: e1 }, { data: compSnap, error: e2 }] = await Promise.all([
       supabase.from('diretoria_pickup_snapshots')
@@ -192,7 +196,7 @@ export default function PickupReport() {
         .gte('stay_date', today).order('stay_date'),
       supabase.from('diretoria_pickup_snapshots')
         .select('stay_date,rooms_otb')
-        .eq('hotel_id', hId).eq('snapshot_date', compDate)
+        .eq('hotel_id', hId).eq('snapshot_date', cDate)
         .gte('stay_date', today).order('stay_date'),
     ]);
     if (e1) throw e1;
@@ -327,7 +331,7 @@ export default function PickupReport() {
       setDataLoading(true);
       try {
         const [rows, bookAna, pace] = await Promise.all([
-          loadOTBTable(hotelId, compOffset),
+          loadOTBTable(hotelId, compDate),
           loadBookingAnalysis(hotelId),
           loadPace(hotelId),
         ]);
@@ -346,7 +350,7 @@ export default function PickupReport() {
 
     run();
     return () => { cancelled = true; };
-  }, [hotelId, compOffset, ensureSnapshot, loadOTBTable, loadBookingAnalysis, loadPace]);
+  }, [hotelId, compDate, ensureSnapshot, loadOTBTable, loadBookingAnalysis, loadPace]);
 
   // ── Funções de importação histórica ──────────────────────────────────────────
 
@@ -542,15 +546,35 @@ export default function PickupReport() {
             {/* Separador */}
             <div style={{ width: 1, height: 24, background: cardBdr }} />
 
-            {/* Offset comparison pills */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${cardBdr}`, borderRadius: 12, padding: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: textMute, paddingLeft: 8, paddingRight: 4, textTransform: 'uppercase', letterSpacing: 0.8 }}>vs</span>
-              {([1, 7, 30] as ComparisonOffset[]).map(n => (
-                <button key={n} className="pu-offset-pill" onClick={() => setCompOffset(n)}
-                  style={{ padding: '0.4rem 0.9rem', borderRadius: 8, background: compOffset === n ? '#0ea5e9' : 'transparent', color: compOffset === n ? '#fff' : textSub, fontWeight: 800, fontSize: 13 }}>
-                  {n}d
-                </button>
-              ))}
+            {/* Comparação: pills rápidos + date picker livre */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>vs</span>
+
+              {/* Quick pills */}
+              <div style={{ display: 'flex', gap: 4, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${cardBdr}`, borderRadius: 12, padding: 4 }}>
+                {QUICK_OFFSETS.map(({ label, days }) => {
+                  const target = subDays(todayStr(), days);
+                  const active = compDate === target;
+                  return (
+                    <button key={days} className="pu-offset-pill" onClick={() => setCompDate(target)}
+                      style={{ padding: '0.4rem 0.9rem', borderRadius: 8, background: active ? '#0ea5e9' : 'transparent', color: active ? '#fff' : textSub, fontWeight: 800, fontSize: 13 }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Date picker livre */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.35rem 0.75rem', background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${QUICK_OFFSETS.some(({ days }) => subDays(todayStr(), days) === compDate) ? cardBdr : '#0ea5e9'}`, borderRadius: 10 }}>
+                <CalendarRange size={13} color={QUICK_OFFSETS.some(({ days }) => subDays(todayStr(), days) === compDate) ? textMute : '#0ea5e9'} />
+                <input
+                  type="date"
+                  value={compDate}
+                  max={subDays(todayStr(), 1)}
+                  onChange={e => e.target.value && setCompDate(e.target.value)}
+                  style={{ border: 'none', background: 'transparent', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, fontWeight: 700, outline: 'none', cursor: 'pointer', width: 130 }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -621,14 +645,14 @@ export default function PickupReport() {
                     <div style={{ padding: '4rem', textAlign: 'center', color: textSub }}>
                       <BedDouble size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
                       <p style={{ fontWeight: 600, margin: 0 }}>Nenhum dado OTB disponível para hoje.</p>
-                      <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>O snapshot do período de comparação (vs {compOffset}d) pode não existir ainda.</p>
+                      <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>O snapshot de comparação ({fmtFullDate(compDate)}) pode não existir ainda. Use "Importar Histórico" para alimentar datas anteriores.</p>
                     </div>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: `1px solid ${cardBdr}` }}>
-                            {['Data Estadia', 'OTB Atual', `OTB −${compOffset}d`, 'Δ Quartos'].map(h => (
+                            {['Data Estadia', 'OTB Hoje', `OTB em ${fmtFullDate(compDate)}`, 'Δ Quartos'].map(h => (
                               <th key={h} style={{ padding: '1rem 1.25rem', textAlign: h === 'Data Estadia' ? 'left' : 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                           </tr>
