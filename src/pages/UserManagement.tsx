@@ -317,7 +317,7 @@ function ModalActions({ onCancel, submitLabel, submitColor = 'bg-blue-600 hover:
 
 const UserManagement = () => {
   const { user: adminUser, session, forceSignOut } = useAuth();
-  const { isAdmin } = usePermissions();
+  const { isAdmin, isDev, can } = usePermissions();
   const navigate = useNavigate();
 
   const [users, setUsers]     = useState<User[]>([]);
@@ -561,7 +561,6 @@ const UserManagement = () => {
     }
   };
 
-  const { can } = usePermissions();
   const canManagePhotos = isDev || isAdmin || can('diretoria');
 
   // ---------------------------------------------------------------------------

@@ -7,7 +7,6 @@ interface AppUser {
   email?: string;
   role?: string;
   full_name?: string;
-  cpf?: string;
   photo_url?: string;
   custom_role_id?: string;
   custom_role?: {
@@ -40,7 +39,6 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
       .select(`
         role,
         full_name,
-        cpf,
         photo_url,
         custom_role_id,
         custom_roles (
@@ -65,7 +63,6 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
     return {
       role:           data.role           || 'guest',
       full_name:      data.full_name      || undefined,
-      cpf:            data.cpf            || undefined,
       photo_url:      data.photo_url      || undefined,
       custom_role_id: data.custom_role_id || undefined,
       // Permissões carregadas do perfil — usadas pelo usePermissions para liberar módulos
