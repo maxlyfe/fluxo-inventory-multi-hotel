@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle, PlusCircle, X } from 'lucide-react';
+import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle, PlusCircle, X, LogIn } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
@@ -164,6 +165,14 @@ const HotelSelection = () => {
           <p className="mt-2 text-lg text-gray-600 dark:text-gray-400">
             Selecione a unidade para continuar
           </p>
+          {!user && (
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg text-sm font-medium text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <LogIn className="h-4 w-4" /> Entrar com conta
+            </Link>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useMemo, Suspense, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  X, Plus, Settings2, Save, Trash2, 
+  X, Plus, Settings2, Save, Trash2,
   Layout, Sparkles, Loader2, Search,
-  Package, ChevronRight
+  Package, ChevronRight, Boxes,
 } from 'lucide-react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase } from '../lib/supabase';
@@ -16,10 +16,11 @@ import { useDashboardConfig } from '../hooks/useDashboardConfig';
 import { AVAILABLE_WIDGETS, WidgetSize } from '../config/widgetsConfig';
 import { NAV_GROUPS } from '../lib/navigationConfig';
 import WidgetContainer from '../components/widgets/WidgetContainer';
+import { sectorIcon } from '../utils/sectorIcon';
 
 const Home = () => {
   const { user } = useAuth();
-  const { can, isAdmin } = usePermissions();
+  const { can, isAdmin, isDev } = usePermissions();
   const { selectedHotel } = useHotel();
   const { widgets, loading, addWidget, removeWidget } = useDashboardConfig();
   const navigate = useNavigate();
@@ -58,18 +59,36 @@ const Home = () => {
       });
     });
     allHotelSectors.forEach(sector => {
+      const { icon, iconName } = sectorIcon(sector.name);
       targets.push({
         id: `sector-${sector.id}`,
         label: sector.name,
         sub: 'Requisição Direta',
         href: `/sector/${sector.id}`,
-        icon: Package,
-        iconName: 'Package',
+        icon,
+        iconName,
         color: sector.color || '#6366f1'
       });
     });
+
+    // Stock setorial — só aparece se o utilizador tem permissão (ou é admin/dev)
+    allHotelSectors.forEach(sector => {
+      if (isAdmin || isDev || can(`sector_stock:${sector.id}`)) {
+        const { icon, iconName } = sectorIcon(sector.name);
+        targets.push({
+          id: `stock-sector-${sector.id}`,
+          label: sector.name,
+          sub: 'Stock Setorial',
+          href: `/sector-stock/${sector.id}`,
+          icon,
+          iconName,
+          color: sector.color || '#8b5cf6'
+        });
+      }
+    });
+
     return targets;
-  }, [allHotelSectors, can, isAdmin]);
+  }, [allHotelSectors, can, isAdmin, isDev]);
 
   const filteredTargets = possibleTargets.filter(t => 
     t.label.toLowerCase().includes(searchTerm.toLowerCase()) || 

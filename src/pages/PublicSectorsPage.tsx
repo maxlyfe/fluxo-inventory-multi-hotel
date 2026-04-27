@@ -5,39 +5,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
-import {
-  Package, Loader2, AlertCircle, Search, ArrowLeft,
-  UtensilsCrossed, Wrench, Sparkles, CalendarDays,
-  DollarSign, BarChart2, ShoppingCart, Shirt, Coffee,
-  Dumbbell, Waves, Trees, Car, Tv2, ClipboardList,
-  ChefHat, Wine, Users, Building2, Megaphone,
-} from 'lucide-react';
-
-// ── Ícone automático por nome do setor ──────────────────────────────────────
-function sectorIcon(name: string) {
-  const n = name.toLowerCase();
-  if (/cozinha|restaurante|food/i.test(n))       return ChefHat;
-  if (/bar|bebida|drink/i.test(n))               return Wine;
-  if (/manuten/i.test(n))                        return Wrench;
-  if (/governan|limpeza|housekeeping/i.test(n))  return Sparkles;
-  if (/evento|event/i.test(n))                   return CalendarDays;
-  if (/financ|contab/i.test(n))                  return DollarSign;
-  if (/gerenc|diretor|admin/i.test(n))           return BarChart2;
-  if (/compra|estoque|almoxar/i.test(n))         return ShoppingCart;
-  if (/roupa|lavand|uniform/i.test(n))           return Shirt;
-  if (/café|cafeter/i.test(n))                   return Coffee;
-  if (/acad|fitness|gym/i.test(n))               return Dumbbell;
-  if (/piscina|spa|água/i.test(n))               return Waves;
-  if (/jardim|área|externa/i.test(n))            return Trees;
-  if (/valet|estacion|garagem/i.test(n))         return Car;
-  if (/ti|tecnologia|inform/i.test(n))           return Tv2;
-  if (/recep/i.test(n))                          return ClipboardList;
-  if (/rh|recursos|pessoal/i.test(n))            return Users;
-  if (/marketing|comunic/i.test(n))              return Megaphone;
-  if (/hotel|geral|operac/i.test(n))             return Building2;
-  if (/produ/i.test(n))                          return UtensilsCrossed;
-  return Package;
-}
+import { Loader2, AlertCircle, Search, ArrowLeft, Package, LogIn } from 'lucide-react';
+import { sectorIcon } from '../utils/sectorIcon';
 
 // Paleta de fallback — usado quando setor não tem cor definida
 const PALETTE = [
@@ -116,17 +85,31 @@ export default function PublicSectorsPage() {
         background: 'rgba(15,23,42,0.7)',
         position: 'sticky', top: 0, zIndex: 10,
       }}>
-        <button
-          onClick={() => navigate('/select-hotel')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '0.45rem 0.9rem', borderRadius: 10,
-            border: '1px solid rgba(148,163,184,0.15)',
-            background: 'rgba(148,163,184,0.07)',
-            color: '#94a3b8', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          }}>
-          <ArrowLeft size={14} /> Trocar hotel
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => navigate('/select-hotel')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '0.45rem 0.9rem', borderRadius: 10,
+              border: '1px solid rgba(148,163,184,0.15)',
+              background: 'rgba(148,163,184,0.07)',
+              color: '#94a3b8', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}>
+            <ArrowLeft size={14} /> Trocar hotel
+          </button>
+          <Link
+            to="/login"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '0.45rem 0.9rem', borderRadius: 10,
+              border: '1px solid rgba(99,102,241,0.2)',
+              background: 'rgba(99,102,241,0.08)',
+              color: '#a5b4fc', fontSize: 13, fontWeight: 600,
+              textDecoration: 'none',
+            }}>
+            <LogIn size={14} /> Entrar
+          </Link>
+        </div>
 
         {/* Relógio */}
         <div style={{ textAlign: 'right' }}>
@@ -232,7 +215,7 @@ export default function PublicSectorsPage() {
           }}>
             {filtered.map((sector, i) => {
               const color = sector.color || PALETTE[i % PALETTE.length];
-              const Icon  = sectorIcon(sector.name);
+              const { icon: Icon } = sectorIcon(sector.name);
               return (
                 <Link
                   key={sector.id}

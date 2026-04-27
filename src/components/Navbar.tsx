@@ -172,7 +172,8 @@ const Navbar = () => {
         <div className="relative flex items-center justify-between h-14">
 
           {/* ── Logo + hotel + switcher ────────────────────────────────────── */}
-          <div className="flex items-center flex-shrink-0 gap-1">
+          {/* pl-10: espaço para o botão hamburger fixo no mobile */}
+          <div className="flex items-center flex-shrink-0 gap-1 pl-10 lg:pl-0">
             <Link to="/" className="flex items-center gap-2 group">
               <HotelIcon className="h-6 w-6 text-blue-600 dark:text-blue-400 flex-shrink-0" />
               <span className="text-sm sm:text-base font-bold text-gray-800 dark:text-white whitespace-nowrap truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
