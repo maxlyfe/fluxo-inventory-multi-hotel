@@ -26,7 +26,7 @@ interface PrivateRouteProps {
 
 const PrivateRoute = ({ children, module, modules, adminOnly, customCheck }: PrivateRouteProps) => {
   const { user, loading } = useAuth();
-  const { can, canAny, isAdmin } = usePermissions();
+  const { can, canAny, isAdmin, isDev } = usePermissions();
   const location          = useLocation();
 
   // ── Aguarda carregamento do perfil ────────────────────────────────────────
@@ -43,8 +43,8 @@ const PrivateRoute = ({ children, module, modules, adminOnly, customCheck }: Pri
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // ── Rota exclusiva admin ──────────────────────────────────────────────────
-  if (adminOnly && !isAdmin) {
+  // ── Rota exclusiva admin — DEV tem bypass total ───────────────────────────
+  if (adminOnly && !isAdmin && !isDev) {
     return <Navigate to="/" replace />;
   }
 

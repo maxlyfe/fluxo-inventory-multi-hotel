@@ -299,7 +299,7 @@ export default function RolesManagement() {
   };
 
   // ---------------------------------------------------------------------------
-  if (!isAdmin) return (
+  if (!isAdmin && !isDev) return (
     <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
       <ShieldCheck className="h-10 w-10 opacity-30" />
       <p className="text-sm">Acesso restrito a administradores.</p>

@@ -378,7 +378,7 @@ const UserManagement = () => {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!adminUser || !isAdmin) { navigate('/'); return; }
+    if (!adminUser || (!isAdmin && !isDev)) { navigate('/'); return; }
     fetchUsers();
     fetchCustomRoles();
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));
