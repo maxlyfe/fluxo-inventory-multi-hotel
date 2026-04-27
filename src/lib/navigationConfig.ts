@@ -17,7 +17,7 @@ import {
   Settings as SettingsIcon, Package, Shield, ShieldAlert,
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
-  MonitorSmartphone, Store, TrendingUp, PieChart, LayoutDashboard, Users2
+  MonitorSmartphone, Store, TrendingUp,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -123,9 +123,7 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'diretoria',
     activePrefixes: ['/diretoria', '/diretoria/pickup'],
     items: [
-        { module: 'diretoria', label: 'Dashboard',     href: '/diretoria',                 icon: PieChart,    iconName: 'PieChart',    color: '#3b82f6' },
-        { module: 'diretoria', label: 'Pick-up',       href: '/diretoria/pickup',          icon: TrendingUp,  iconName: 'TrendingUp',  color: '#0ea5e9' },
-        { module: 'directors_dashboard', label: 'KPIs Hotéis', href: '/diretoria/comparison', icon: BarChart3, iconName: 'BarChart3', color: '#10b981' },
+        { module: 'diretoria', label: 'Pick-up', href: '/diretoria/pickup', icon: TrendingUp, iconName: 'TrendingUp', color: '#0ea5e9' },
     ],
   },
   {
