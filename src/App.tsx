@@ -79,6 +79,7 @@ import ErbonIntegration     from './pages/admin/ErbonIntegration';
 import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
 import SupplierContacts    from './pages/SupplierContacts';
 import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages';
+import PublicSectorsPage   from './pages/PublicSectorsPage';
 
 // ── Pages — Web Check-in (público) ───────────────────────────────────────────
 import WebCheckinLayout      from './pages/webcheckin/WebCheckinLayout';
@@ -153,6 +154,21 @@ function PushNotificationSetup() {
 }
 
 // ---------------------------------------------------------------------------
+// HomeGuard — para "/" redireciona não-autenticados para /select-hotel,
+// evitando o loop Home → select-hotel → Home
+// ---------------------------------------------------------------------------
+function HomeGuard() {
+  const { user, loading } = useAuth();
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
+    </div>
+  );
+  if (!user) return <Navigate to="/select-hotel" replace />;
+  return <Home />;
+}
+
+// ---------------------------------------------------------------------------
 // ContactsRouteGuard — acesso a contatos por purchases OU categorias liberadas
 // ---------------------------------------------------------------------------
 function ContactsRouteGuard({ children }: { children: React.ReactNode }) {
@@ -189,8 +205,9 @@ function App() {
 
                 <Routes>
                   {/* ── Rotas públicas ────────────────────────────────────── */}
-                  <Route path="/login"           element={<Login />} />
-                  <Route path="/select-hotel"    element={<HotelSelection />} />
+                  <Route path="/login"            element={<Login />} />
+                  <Route path="/select-hotel"     element={<HotelSelection />} />
+                  <Route path="/public/sectors"   element={<PublicSectorsPage />} />
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
 
                   {/* ── Escala pública (link para líder de setor) ────────── */}
@@ -224,8 +241,8 @@ function App() {
                   {/* ── Rotas privadas com MainLayout (Navbar) ──────────────── */}
                   <Route element={<MainLayout />}>
 
-                    {/* Dashboard */}
-                    <Route path="/" element={<Home />} />
+                    {/* Dashboard — guard evita loop para não-autenticados */}
+                    <Route path="/" element={<HomeGuard />} />
                     <Route path="/profile" element={
                       <PrivateRoute>
                         <Profile />

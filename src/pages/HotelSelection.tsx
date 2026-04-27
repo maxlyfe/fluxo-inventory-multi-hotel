@@ -83,11 +83,13 @@ const HotelSelection = () => {
   }, [fetchHotels]);
 
   /**
-   * Salva o hotel selecionado no contexto e navega para a home.
+   * Salva o hotel selecionado no contexto.
+   * - Autenticado   → dashboard (/)
+   * - Não autenticado → seleção de setor público (/public/sectors)
    */
   const handleSelectHotel = (hotel: Hotel) => {
     setSelectedHotel(hotel);
-    navigate('/');
+    navigate(user ? '/' : '/public/sectors');
   };
 
   /**
