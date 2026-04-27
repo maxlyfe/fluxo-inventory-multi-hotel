@@ -148,18 +148,27 @@ export default function Profile() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
+    // Validar tamanho (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'A imagem deve ter no máximo 2MB.' });
+      return;
+    }
+
     setLoading(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`; // Pasta raiz do bucket
 
-      // Upload para o bucket 'avatars' (assume-se que existe)
+      // Tenta upload para o bucket 'avatars'
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Erro no storage:', uploadError);
+        throw new Error('Falha ao enviar arquivo. O bucket "avatars" pode não estar configurado.');
+      }
 
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
@@ -174,10 +183,9 @@ export default function Profile() {
 
       setPhotoUrl(publicUrl);
       await refreshProfile();
-      setMessage({ type: 'success', text: 'Foto atualizada!' });
+      setMessage({ type: 'success', text: 'Foto atualizada com sucesso!' });
     } catch (err: any) {
-      setMessage({ type: 'error', text: 'Erro no upload: Verifique se o bucket "avatars" existe ou use a coluna photo_url.' });
-      console.error(err);
+      setMessage({ type: 'error', text: err.message || 'Erro ao processar imagem.' });
     } finally {
       setLoading(false);
     }

@@ -8,7 +8,7 @@ interface AppUser {
   role?: string;
   full_name?: string;
   cpf?: string;
-  avatar_url?: string;
+  photo_url?: string;
   custom_role_id?: string;
   custom_role?: {
     id:          string;
@@ -41,7 +41,7 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
         role,
         full_name,
         cpf,
-        avatar_url,
+        photo_url,
         custom_role_id,
         custom_roles (
           id,
@@ -53,7 +53,11 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
       .eq('id', userId)
       .maybeSingle();
 
-    if (error || !data) return {};
+    if (error) {
+      console.warn('[Auth] Erro ao buscar perfil (esquema pode estar desatualizado):', error.message);
+      return {};
+    }
+    if (!data) return {};
 
     // Supabase retorna o join sob o nome da tabela 'custom_roles'
     const cr = (data as any).custom_roles;
@@ -62,7 +66,7 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
       role:           data.role           || 'guest',
       full_name:      data.full_name      || undefined,
       cpf:            data.cpf            || undefined,
-      avatar_url:     data.avatar_url     || undefined,
+      photo_url:      data.photo_url      || undefined,
       custom_role_id: data.custom_role_id || undefined,
       // Permissões carregadas do perfil — usadas pelo usePermissions para liberar módulos
       custom_role: cr ? {
