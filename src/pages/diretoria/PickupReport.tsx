@@ -237,15 +237,28 @@ export default function PickupReport() {
   }, []);
 
   const loadBookingAnalysis = useCallback(async (hId: string) => {
-    const today  = todayStr();
-    const endStr = addDays(today, 90);
+    const today = todayStr();
 
-    let bookings: any[] = [];
-    try {
-      bookings = await erbonService.searchBookings(hId, { checkin: today, checkout: endStr });
-    } catch {
-      // searchBookings pode falhar se o hotel não tiver reservas no período — retorna vazio
-      bookings = [];
+    // A API Erbon filtra por data de check-in ESPECÍFICA (não por intervalo).
+    // Fazemos 30 chamadas paralelas (uma por dia) e deduplicamos pelo bookingInternalID.
+    const DAYS_AHEAD = 30;
+    const dates = Array.from({ length: DAYS_AHEAD }, (_, i) => addDays(today, i));
+
+    const settled = await Promise.allSettled(
+      dates.map(date => erbonService.searchBookings(hId, { checkin: date }))
+    );
+
+    const seen = new Set<number>();
+    const bookings: any[] = [];
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        for (const b of r.value) {
+          if (b.status !== 'CANCELLED' && !seen.has(b.bookingInternalID)) {
+            seen.add(b.bookingInternalID);
+            bookings.push(b);
+          }
+        }
+      }
     }
 
     const buckets: WindowBucket[] = [
