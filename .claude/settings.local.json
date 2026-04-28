@@ -10,7 +10,9 @@
       "Bash(npx vite build)",
       "mcp__Claude_Preview__preview_start",
       "Bash(where npm.cmd)",
-      "Bash(where npm)"
+      "Bash(where npm)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
