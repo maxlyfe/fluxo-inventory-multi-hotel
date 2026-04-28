@@ -7,6 +7,7 @@ interface AppUser {
   email?: string;
   role?: string;
   full_name?: string;
+  cpf?: string;
   photo_url?: string;
   custom_role_id?: string;
   custom_role?: {
@@ -45,17 +46,10 @@ function mapCustomRole(cr: any) {
 
 /**
  * Carrega o perfil completo do utilizador, incluindo o custom_role e as suas permissões.
- *
- * Estratégia de resiliência:
- * 1. Tenta carregar o perfil + custom_role num único JOIN.
- * 2. Se o JOIN falhar (ex: RLS na tabela custom_roles), cai em fallback:
- *    a. Carrega o perfil sem JOIN.
- *    b. Busca o custom_role numa query separada.
- * 3. Em caso de erro irrecuperável, retorna {} — o utilizador fica como 'guest'
- *    mas NÃO é barrado — apenas sem permissões específicas.
+ * Estratégia de resiliência: tenta os campos novos e faz fallback para o básico se falhar (ex: colunas inexistentes).
  */
 async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
-  // ── Tentativa 1: JOIN directo (caminho normal) ────────────────────────────
+  // ── Tentativa 1: JOIN completo (caminho ideal) ────────────────────────────
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -63,13 +57,9 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
         role,
         full_name,
         photo_url,
+        cpf,
         custom_role_id,
-        custom_roles (
-          id,
-          name,
-          permissions,
-          color
-        )
+        custom_roles (id, name, permissions, color)
       `)
       .eq('id', userId)
       .maybeSingle();
@@ -79,58 +69,39 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
         role:           data.role           || 'guest',
         full_name:      data.full_name      || undefined,
         photo_url:      data.photo_url      || undefined,
+        cpf:            data.cpf            || undefined,
         custom_role_id: data.custom_role_id || undefined,
         custom_role:    mapCustomRole((data as any).custom_roles),
       };
     }
 
-    // JOIN falhou — registar e tentar fallback
-    if (error) {
-      console.error('[Auth] JOIN custom_roles falhou, tentando fallback separado:', error.message);
-    }
-  } catch (e: any) {
-    console.error('[Auth] Exceção no fetchProfile (tentativa 1):', e.message);
-  }
-
-  // ── Tentativa 2: Perfil sem JOIN + query separada para custom_role ────────
-  try {
-    const { data: profile, error: profileErr } = await supabase
-      .from('profiles')
-      .select('role, full_name, photo_url, custom_role_id')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (profileErr || !profile) {
-      console.error('[Auth] Não foi possível carregar o perfil:', profileErr?.message);
-      return {};
-    }
-
-    let custom_role = null;
-    if (profile.custom_role_id) {
-      const { data: cr, error: crErr } = await supabase
-        .from('custom_roles')
-        .select('id, name, permissions, color')
-        .eq('id', profile.custom_role_id)
+    // Se o erro for 400 ou mencionar colunas, tentamos sem os campos novos
+    if (error && ((error as any).status === 400 || error.message.includes('column'))) {
+      const { data: basic, error: basicErr } = await supabase
+        .from('profiles')
+        .select(`
+          role,
+          full_name,
+          custom_role_id,
+          custom_roles (id, name, permissions, color)
+        `)
+        .eq('id', userId)
         .maybeSingle();
 
-      if (crErr) {
-        console.error('[Auth] Não foi possível carregar o custom_role:', crErr.message);
-      } else {
-        custom_role = mapCustomRole(cr);
+      if (!basicErr && basic) {
+        return {
+          role:           basic.role           || 'guest',
+          full_name:      basic.full_name      || undefined,
+          custom_role_id: basic.custom_role_id || undefined,
+          custom_role:    mapCustomRole((basic as any).custom_roles),
+        };
       }
     }
-
-    return {
-      role:           profile.role           || 'guest',
-      full_name:      profile.full_name      || undefined,
-      photo_url:      profile.photo_url      || undefined,
-      custom_role_id: profile.custom_role_id || undefined,
-      custom_role,
-    };
   } catch (e: any) {
-    console.error('[Auth] Exceção no fetchProfile (fallback):', e.message);
-    return {};
+    console.error('[Auth] Erro ao carregar perfil:', e.message);
   }
+
+  return {};
 }
 
 function mapSupabaseUserToAppUser(supabaseUser: SupabaseUser | null): AppUser | null {
@@ -148,27 +119,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading]     = useState(true);
   const [needsName, setNeedsName] = useState(false);
 
-  // Carrega sessão + perfil completo (com custom_role/permissões) antes de liberar loading
   useEffect(() => {
     setLoading(true);
-
-    // Timeout de segurança — garante que loading nunca fica preso indefinidamente
-    // (pode ocorrer quando há conflito de instâncias GoTrueClient ou falha de rede)
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-      console.warn('[Auth] Timeout de segurança atingido — loading forçado para false.');
-    }, 8000);
 
     async function loadSessionAndProfile(session: Session | null) {
       const baseUser = mapSupabaseUserToAppUser(session?.user ?? null);
       if (!baseUser?.id) {
         setSession(session);
         setUser(null);
-        clearTimeout(safetyTimer);
         setLoading(false);
         return;
       }
-      // Buscar perfil completo (role + permissões) ANTES de liberar loading
       const profile = await fetchProfile(baseUser.id);
       const fullUser = { ...baseUser, ...profile };
       setSession(session);
@@ -176,14 +137,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profile.role === 'guest' && !profile.full_name) {
         setNeedsName(true);
       }
-      clearTimeout(safetyTimer);
       setLoading(false);
     }
 
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
-        console.warn('[Auth] Sessão inválida:', error.message);
-        clearTimeout(safetyTimer);
         setSession(null); setUser(null); setLoading(false);
         return;
       }
@@ -192,25 +150,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
-        // Atualiza sessão e relança fetch do perfil (permissões podem ter mudado)
         loadSessionAndProfile(session);
         return;
       }
       if (event === 'SIGNED_OUT' || !session) {
-        clearTimeout(safetyTimer);
         setSession(null); setUser(null); setNeedsName(false); setLoading(false);
         return;
       }
       loadSessionAndProfile(session);
     });
 
-    return () => {
-      clearTimeout(safetyTimer);
-      authListener?.subscription.unsubscribe();
-    };
+    return () => { authListener?.subscription.unsubscribe(); };
   }, []);
-
-  // Sem timer de inatividade — sessão persiste até logout explícito
 
   const login = async (email: string, password: string) => {
     setLoading(true);
@@ -273,8 +224,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Força logout de outro utilizador via edge function (apenas admin)
-  // Usa supabase.functions.invoke para garantir apikey + Authorization corretos
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) return;
+    const profile = await fetchProfile(user.id);
+    setUser(prev => prev ? { ...prev, ...profile } : null);
+  }, [user?.id]);
+
   const forceSignOut = async (userId: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('admin-user-actions', {
@@ -286,12 +241,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
     }
   };
-
-  const refreshProfile = useCallback(async () => {
-    if (!user?.id) return;
-    const profile = await fetchProfile(user.id);
-    setUser(prev => prev ? { ...prev, ...profile } : null);
-  }, [user?.id]);
 
   return (
     <AuthContext.Provider value={{ user, loading, needsName, refreshProfile, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>

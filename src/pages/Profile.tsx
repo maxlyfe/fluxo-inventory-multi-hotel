@@ -106,6 +106,7 @@ export default function Profile() {
     try {
       const cleanCpf = cpf.replace(/\D/g, '');
       
+      // Tenta o update completo
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -115,28 +116,42 @@ export default function Profile() {
         })
         .eq('id', user?.id);
 
-      if (error) throw error;
+      if (error) {
+        // Se falhar por causa da coluna CPF, tenta salvar apenas o Nome
+        if (error.message.includes('cpf') || error.code === '42703') {
+          console.warn('[Profile] Coluna CPF inexistente, salvando apenas nome...');
+          const { error: retryError } = await supabase
+            .from('profiles')
+            .update({
+              full_name: fullName,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', user?.id);
+          
+          if (retryError) throw retryError;
+          setMessage({ type: 'success', text: 'Nome atualizado! (CPF requer atualização de banco)' });
+        } else {
+          throw error;
+        }
+      } else {
+        setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+      }
 
-      // Se o CPF for de um colaborador, vincula o user_id na tabela employees
-      if (cleanCpf.length === 11) {
+      // Se o CPF foi salvo com sucesso e tem 11 dígitos, vincula ao colaborador
+      if (!error && cleanCpf.length === 11) {
         const { data: empData } = await supabase
           .from('employees')
-          .select('id')
+          .select('id, user_id')
           .eq('cpf', cleanCpf)
           .maybeSingle();
 
-        if (empData) {
-          await supabase
-            .from('employees')
-            .update({ user_id: user?.id })
-            .eq('id', empData.id);
-          
-          checkEmployeeLink(cleanCpf);
+        if (empData && !empData.user_id) {
+          await supabase.from('employees').update({ user_id: user?.id }).eq('id', empData.id);
+          checkEmployeeLink();
         }
       }
 
       await refreshProfile();
-      setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Erro ao salvar perfil.' });
     } finally {
