@@ -404,11 +404,17 @@ const Navbar = () => {
             <div className="hidden lg:block">
               <Menu as="div" className="relative">
                 <Menu.Button className="flex text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900">
-                  <img
-                    className="h-8 w-8 rounded-full"
-                    src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
-                    alt="Avatar"
-                  />
+                  <div className="h-8 w-8 rounded-full overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                    {user.photo_url ? (
+                      <img className="h-full w-full object-cover" src={user.photo_url} alt="Avatar" />
+                    ) : (
+                      <img
+                        className="h-full w-full"
+                        src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
+                        alt="Avatar"
+                      />
+                    )}
+                  </div>
                 </Menu.Button>
 
                 <Transition
@@ -586,11 +592,17 @@ const Navbar = () => {
             {/* User info + actions */}
             <div className="border-t border-gray-100 dark:border-gray-700 mt-2 pt-3 px-3 space-y-1">
               <div className="flex items-center gap-3 px-3 py-2 mb-2">
-                <img
-                  className="h-10 w-10 rounded-full flex-shrink-0"
-                  src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
-                  alt="Avatar"
-                />
+                <div className="h-10 w-10 rounded-full overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
+                  {user.photo_url ? (
+                    <img className="h-full w-full object-cover" src={user.photo_url} alt="Avatar" />
+                  ) : (
+                    <img
+                      className="h-full w-full"
+                      src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
+                      alt="Avatar"
+                    />
+                  )}
+                </div>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">
                     {user.email?.split("@")[0]}
