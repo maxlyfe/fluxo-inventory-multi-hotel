@@ -22,7 +22,7 @@ interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
   needsName: boolean;
-  isCompatibilityMode: boolean; // Indica se o banco está sem as colunas novas
+  isCompatibilityMode: boolean;
   refreshProfile: () => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
   loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
@@ -44,8 +44,8 @@ function mapCustomRole(cr: any) {
   };
 }
 
-// Variável global para persistir o estado do esquema entre re-renderizações
-let GLOBAL_COMPATIBILITY_MODE = false;
+// Persiste o estado do esquema globalmente na sessão da aba para evitar múltiplos 400
+let GLOBAL_COMPATIBILITY_MODE = sessionStorage.getItem('fluxo_compat_mode') === 'true';
 
 async function fetchProfile(userId: string): Promise<{ profile: Partial<AppUser>, isCompat: boolean }> {
   try {
@@ -71,8 +71,10 @@ async function fetchProfile(userId: string): Promise<{ profile: Partial<AppUser>
       .maybeSingle();
 
     if (error) {
-      if (error.message.includes('photo_url') || error.message.includes('cpf') || (error as any).status === 400) {
+      // Erro 400 ou 42703 (undefined_column) indica que o banco está sem as colunas novas
+      if (error.code === '42703' || (error as any).status === 400 || error.message.includes('column')) {
         GLOBAL_COMPATIBILITY_MODE = true;
+        sessionStorage.setItem('fluxo_compat_mode', 'true');
         return fetchProfile(userId);
       }
       return { profile: {}, isCompat: false };
