@@ -120,7 +120,49 @@ export default function Profile() {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    setMessage({ type: 'info', text: 'O recurso de foto exige a criação do bucket "avatars" no Supabase.' });
+
+    // Validar tamanho (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'A imagem deve ter no máximo 2MB.' });
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`; 
+
+      // Tenta upload para o bucket 'avatars'
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error('Erro no storage:', uploadError);
+        throw new Error('Falha no upload. Verifique se o bucket "avatars" foi criado no Supabase como PUBLIC.');
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ photo_url: publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setPhotoUrl(publicUrl);
+      await refreshProfile(true);
+      setMessage({ type: 'success', text: 'Foto atualizada com sucesso!' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Erro ao processar imagem.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
