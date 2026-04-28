@@ -154,6 +154,14 @@ export default function PickupReport() {
 
   const [showImport,     setShowImport]     = useState(false);
   const [importTab,      setImportTab]      = useState<'manual' | 'excel' | 'manage'>('manual');
+  const [snapDateInput,  setSnapDateInput]  = useState('');
+  const [manualRows,     setManualRows]     = useState<ManualRow[]>([{ stayDate: '', roomsOtb: '' }]);
+  const [importSaving,   setImportSaving]   = useState(false);
+  const [importMsg,      setImportMsg]      = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [excelPreview,   setExcelPreview]   = useState<ExcelPreviewRow[]>([]);
+  const [excelFileName,  setExcelFileName]  = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [manageSnapshots, setManageSnapshots] = useState<{ snapshot_date: string; count: number }[]>([]);
   const [manageLoading,   setManageLoading]   = useState(false);
   const [manageSearch,    setManageSearch]    = useState('');
