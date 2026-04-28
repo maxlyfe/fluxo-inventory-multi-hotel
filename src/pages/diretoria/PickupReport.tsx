@@ -8,6 +8,7 @@ import {
   TrendingUp, TrendingDown, Minus, Loader2, AlertCircle,
   Users, BedDouble, BarChart2, CalendarRange, RefreshCw,
   Upload, Plus, Trash2, Download, X, History, CheckCircle2,
+  Search,
 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -149,13 +150,13 @@ export default function PickupReport() {
   const [pacePoints,   setPacePoints]   = useState<PacePoint[]>([]);
 
   // ── Estado do modal de importação histórica ───────────────────────────────────
-  interface ManualRow { stayDate: string; roomsOtb: string; }
-  interface ExcelPreviewRow { snapshot_date: string; stay_date: string; rooms_otb: number; }
+  interface ManualRow { stayDate: string; roomsOtb: string; revOtb: string; }
+  interface ExcelPreviewRow { snapshot_date: string; stay_date: string; rooms_otb: number; net_room_revenue: number; }
 
   const [showImport,     setShowImport]     = useState(false);
   const [importTab,      setImportTab]      = useState<'manual' | 'excel' | 'manage'>('manual');
   const [snapDateInput,  setSnapDateInput]  = useState('');
-  const [manualRows,     setManualRows]     = useState<ManualRow[]>([{ stayDate: '', roomsOtb: '' }]);
+  const [manualRows,     setManualRows]     = useState<ManualRow[]>([{ stayDate: '', roomsOtb: '', revOtb: '' }]);
   const [importSaving,   setImportSaving]   = useState(false);
   const [importMsg,      setImportMsg]      = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [excelPreview,   setExcelPreview]   = useState<ExcelPreviewRow[]>([]);
@@ -460,13 +461,13 @@ export default function PickupReport() {
 
   function downloadTemplate() {
     const rows = [
-      ['Data Snapshot', 'Data Estadia', 'Quartos OTB'],
-      ['20/04/2026', '01/05/2026', 15],
-      ['20/04/2026', '02/05/2026', 12],
-      ['21/04/2026', '01/05/2026', 16],
+      ['Data Snapshot', 'Data Estadia', 'Quartos OTB', 'Receita OTB'],
+      ['20/04/2026', '01/05/2026', 15, 4500.50],
+      ['20/04/2026', '02/05/2026', 12, 3800.00],
+      ['21/04/2026', '01/05/2026', 16, 4850.00],
     ];
     const ws   = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 14 }];
+    ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 14 }];
     const wb   = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pickup Histórico');
     XLSX.writeFile(wb, 'template_pickup_historico.xlsx');
@@ -485,12 +486,13 @@ export default function PickupReport() {
         const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
         const preview: ExcelPreviewRow[] = [];
         for (let i = 1; i < data.length; i++) {
-          const [snap, stay, rooms] = data[i];
+          const [snap, stay, rooms, rev] = data[i];
           const sd = parseDate(String(snap));
           const st = parseDate(String(stay));
           const ro = Number(String(rooms).replace(',', '.'));
+          const rv = Number(String(rev || '0').replace(',', '.'));
           if (sd && st && !isNaN(ro) && ro >= 0) {
-            preview.push({ snapshot_date: sd, stay_date: st, rooms_otb: ro });
+            preview.push({ snapshot_date: sd, stay_date: st, rooms_otb: ro, net_room_revenue: rv });
           }
         }
         setExcelPreview(preview);
@@ -507,14 +509,18 @@ export default function PickupReport() {
     if (!snapDateInput) { setImportMsg({ type: 'err', text: 'Selecione a data do snapshot.' }); return; }
     const rows = manualRows
       .filter(r => r.stayDate && r.roomsOtb !== '')
-      .map(r => ({
-        hotel_id:         hotelId,
-        snapshot_date:    snapDateInput,
-        stay_date:        r.stayDate,
-        rooms_otb:        Math.round(Number(r.roomsOtb.replace(',', '.')) || 0),
-        net_room_revenue: 0,
-        adr:              0,
-      }));
+      .map(r => {
+        const rooms = Math.round(Number(r.roomsOtb.replace(',', '.')) || 0);
+        const rev   = Number(r.revOtb.replace(',', '.')) || 0;
+        return {
+          hotel_id:         hotelId,
+          snapshot_date:    snapDateInput,
+          stay_date:        r.stayDate,
+          rooms_otb:        rooms,
+          net_room_revenue: rev,
+          adr:              rooms > 0 ? rev / rooms : 0,
+        };
+      });
     if (!rows.length) { setImportMsg({ type: 'err', text: 'Adicione ao menos uma linha com data e quartos.' }); return; }
     setImportSaving(true);
     try {
@@ -523,7 +529,7 @@ export default function PickupReport() {
         .upsert(rows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
       if (error) throw error;
       setImportMsg({ type: 'ok', text: `${rows.length} linha(s) salvas com sucesso!` });
-      setManualRows([{ stayDate: '', roomsOtb: '' }]);
+      setManualRows([{ stayDate: '', roomsOtb: '', revOtb: '' }]);
       setSnapDateInput('');
     } catch (e: any) {
       setImportMsg({ type: 'err', text: 'Erro ao salvar: ' + e.message });
@@ -542,8 +548,8 @@ export default function PickupReport() {
         snapshot_date:    r.snapshot_date,
         stay_date:        r.stay_date,
         rooms_otb:        r.rooms_otb,
-        net_room_revenue: 0,
-        adr:              0,
+        net_room_revenue: r.net_room_revenue,
+        adr:              r.rooms_otb > 0 ? r.net_room_revenue / r.rooms_otb : 0,
       }));
       const { error } = await supabase
         .from('diretoria_pickup_snapshots')
@@ -565,7 +571,7 @@ export default function PickupReport() {
     setImportMsg(null);
     setExcelPreview([]);
     setExcelFileName('');
-    setManualRows([{ stayDate: '', roomsOtb: '' }]);
+    setManualRows([{ stayDate: '', roomsOtb: '', revOtb: '' }]);
     setSnapDateInput('');
   }
 
@@ -1027,22 +1033,26 @@ export default function PickupReport() {
                   {/* Tabela de linhas */}
                   <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: textSub, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                      Datas de Estadia e Quartos OTB
+                      Datas de Estadia e Valores OTB
                     </label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {/* Header */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 36px', gap: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr 1.2fr 36px', gap: 8 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>Data Estadia</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>Quartos OTB</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>Quartos</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>Receita (R$)</span>
                         <span />
                       </div>
                       {manualRows.map((row, i) => (
-                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 36px', gap: 8, alignItems: 'center' }}>
+                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr 1.2fr 36px', gap: 8, alignItems: 'center' }}>
                           <input type="date" value={row.stayDate}
                             onChange={e => setManualRows(prev => prev.map((r, idx) => idx === i ? { ...r, stayDate: e.target.value } : r))}
                             style={{ padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.6)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, outline: 'none' }} />
                           <input type="text" inputMode="numeric" placeholder="ex: 15" value={row.roomsOtb}
                             onChange={e => setManualRows(prev => prev.map((r, idx) => idx === i ? { ...r, roomsOtb: e.target.value } : r))}
+                            style={{ padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.6)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, outline: 'none' }} />
+                          <input type="text" inputMode="decimal" placeholder="ex: 4500,00" value={row.revOtb}
+                            onChange={e => setManualRows(prev => prev.map((r, idx) => idx === i ? { ...r, revOtb: e.target.value } : r))}
                             style={{ padding: '0.55rem 0.8rem', borderRadius: 8, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.6)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, outline: 'none' }} />
                           <button onClick={() => setManualRows(prev => prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i))}
                             style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: isDark ? 'rgba(244,63,94,0.1)' : '#fef2f2', color: '#f43f5e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1052,7 +1062,7 @@ export default function PickupReport() {
                       ))}
                     </div>
 
-                    <button onClick={() => setManualRows(prev => [...prev, { stayDate: '', roomsOtb: '' }])}
+                    <button onClick={() => setManualRows(prev => [...prev, { stayDate: '', roomsOtb: '', revOtb: '' }])}
                       style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem', borderRadius: 8, border: `1px dashed ${isDark ? 'rgba(148,163,184,0.3)' : '#cbd5e1'}`, background: 'transparent', color: textSub, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                       <Plus size={14} /> Adicionar linha
                     </button>
