@@ -7,7 +7,7 @@ import { useHotel } from '../context/HotelContext';
 import {
   User, Mail, Camera, Save, Loader2, AlertCircle, CheckCircle,
   Hash, Building2, Briefcase, Calendar, Clock, LogOut,
-  ShieldCheck, ArrowRight, Trash2, Info
+  ShieldCheck, ArrowRight, Trash2, Info, RefreshCw
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -66,6 +66,7 @@ export default function Profile() {
         if (!cpf && byId.cpf) setCpf(byId.cpf);
         return;
       }
+      // Se não tem user_id vinculado, tenta buscar pelo CPF (se visível/carregado)
       if (user.cpf) {
         const cleanCpf = user.cpf.replace(/\D/g, '');
         if (cleanCpf.length === 11) {
@@ -88,18 +89,27 @@ export default function Profile() {
       const cleanCpf = cpf.replace(/\D/g, '');
       const updateData: any = { full_name: fullName, updated_at: new Date().toISOString() };
       
-      // Se estamos em modo de compatibilidade, nem tentamos o CPF
-      if (isCompatibilityMode) {
-        const { error } = await supabase.from('profiles').update(updateData).eq('id', user?.id);
-        if (error) throw error;
-        setMessage({ type: 'info', text: 'Nome salvo! CPF e Foto desativados no banco.' });
+      // Tenta atualizar. Se der erro de coluna CPF ou modo compatibilidade estiver ativo, salvamos apenas nome.
+      let error = null;
+      if (!isCompatibilityMode) {
+        const res = await supabase.from('profiles').update({ ...updateData, cpf: cleanCpf }).eq('id', user?.id);
+        error = res.error;
       } else {
-        const { error } = await supabase.from('profiles').update({ ...updateData, cpf: cleanCpf }).eq('id', user?.id);
-        if (error) throw error;
+        const res = await supabase.from('profiles').update(updateData).eq('id', user?.id);
+        error = res.error;
+      }
+
+      if (error && (error.message.includes('cpf') || (error as any).status === 400)) {
+        await supabase.from('profiles').update(updateData).eq('id', user?.id);
+        setMessage({ type: 'info', text: 'Nome salvo! O banco ainda não possui as colunas de CPF/Foto.' });
+      } else if (error) {
+        throw error;
+      } else {
         setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
       }
 
-      await refreshProfile();
+      // Força uma verificação completa do esquema após salvar, para ver se o SQL já foi rodado
+      await refreshProfile(true);
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Erro ao salvar.' });
     } finally {
@@ -131,7 +141,7 @@ export default function Profile() {
               <div className="w-32 h-32 rounded-[2.5rem] bg-slate-100 dark:bg-slate-800 overflow-hidden border-4 border-white dark:border-slate-800 shadow-xl flex items-center justify-center">
                 {photoUrl ? <img src={photoUrl} alt="" className="w-full h-full object-cover" /> : <User className="w-16 h-16 text-slate-300" />}
               </div>
-              <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 p-3 bg-indigo-500 text-white rounded-2xl shadow-lg hover:bg-indigo-600 transition-all"><Camera className="w-4 h-4" /></button>
+              <button disabled={isCompatibilityMode} onClick={() => fileInputRef.current?.click()} className={`absolute bottom-0 right-0 p-3 bg-indigo-500 text-white rounded-2xl shadow-lg hover:bg-indigo-600 transition-all ${isCompatibilityMode ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}><Camera className="w-4 h-4" /></button>
               <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} accept="image/*" className="hidden" />
             </div>
             <h3 className="font-black text-slate-800 dark:text-white text-lg truncate">{fullName || user?.email?.split('@')[0]}</h3>
@@ -170,8 +180,8 @@ export default function Profile() {
               </div>
               <div><label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">E-mail</label><div className="relative opacity-60"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="email" value={user?.email || ''} disabled className="w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm" /></div></div>
               <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">CPF (Requer SQL)</label>
-                <div className="relative opacity-50"><Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" value={employee ? formatMaskedCPF(cpf) : cpf} disabled className="w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm cursor-not-allowed" /></div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">CPF {isCompatibilityMode && '(Bloqueado)'}</label>
+                <div className="relative opacity-50"><Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" value={employee ? formatMaskedCPF(cpf) : cpf} disabled={isCompatibilityMode || !!employee} onChange={e => setCpf(e.target.value)} className={`w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm ${isCompatibilityMode || !!employee ? 'cursor-not-allowed' : ''}`} placeholder="000.000.000-00" /></div>
               </div>
             </div>
 
@@ -185,7 +195,10 @@ export default function Profile() {
               </div>
             )}
 
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex justify-end gap-3">
+              {isCompatibilityMode && (
+                <button type="button" onClick={() => refreshProfile(true)} className="flex items-center gap-2 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl hover:bg-slate-200 transition-all text-xs uppercase tracking-widest"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Tentar Reconectar</button>
+              )}
               <button type="submit" disabled={saving} className="px-10 py-4 bg-indigo-500 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-indigo-600 transition-all shadow-xl active:scale-95 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Perfil'}</button>
             </div>
           </form>
@@ -193,7 +206,7 @@ export default function Profile() {
           {isCompatibilityMode && (
             <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl animate-fadeIn">
               <h4 className="text-amber-800 dark:text-amber-300 font-bold text-sm flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4" /> Atualização de Banco Pendente</h4>
-              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">O sistema detectou que colunas essenciais (CPF/Foto) ainda não foram criadas no seu Supabase. Os recursos de vínculo automático e avatares estão temporariamente desativados para evitar erros.</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">Para liberar CPF e Foto, rode o SQL no Supabase e clique em **Tentar Reconectar**. O sistema ativará os recursos automaticamente assim que as colunas existirem.</p>
             </div>
           )}
         </div>

@@ -23,7 +23,7 @@ interface AuthContextType {
   loading: boolean;
   needsName: boolean;
   isCompatibilityMode: boolean;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: (forceFullCheck?: boolean) => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
   loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
   saveName: (fullName: string) => Promise<{ success: boolean; message?: string }>;
@@ -44,12 +44,12 @@ function mapCustomRole(cr: any) {
   };
 }
 
-// Persiste o estado do esquema globalmente na sessão da aba para evitar múltiplos 400
-let GLOBAL_COMPATIBILITY_MODE = sessionStorage.getItem('fluxo_compat_mode') === 'true';
+// Variável de runtime (reseta ao dar F5)
+let GLOBAL_COMPATIBILITY_MODE = false;
 
-async function fetchProfile(userId: string): Promise<{ profile: Partial<AppUser>, isCompat: boolean }> {
+async function fetchProfile(userId: string, forceCheck: boolean = false): Promise<{ profile: Partial<AppUser>, isCompat: boolean }> {
   try {
-    if (GLOBAL_COMPATIBILITY_MODE) {
+    if (GLOBAL_COMPATIBILITY_MODE && !forceCheck) {
       const { data } = await supabase.from('profiles').select('role, full_name, custom_role_id, custom_roles(id, name, permissions, color)').eq('id', userId).maybeSingle();
       if (!data) return { profile: {}, isCompat: true };
       const cr = (data as any).custom_roles;
@@ -71,15 +71,15 @@ async function fetchProfile(userId: string): Promise<{ profile: Partial<AppUser>
       .maybeSingle();
 
     if (error) {
-      // Erro 400 ou 42703 (undefined_column) indica que o banco está sem as colunas novas
       if (error.code === '42703' || (error as any).status === 400 || error.message.includes('column')) {
         GLOBAL_COMPATIBILITY_MODE = true;
-        sessionStorage.setItem('fluxo_compat_mode', 'true');
-        return fetchProfile(userId);
+        return fetchProfile(userId); 
       }
       return { profile: {}, isCompat: false };
     }
 
+    // Se chegou aqui com sucesso, o banco tem as colunas
+    GLOBAL_COMPATIBILITY_MODE = false;
     if (!data) return { profile: {}, isCompat: false };
     const cr = (data as any).custom_roles;
 
@@ -196,9 +196,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const refreshProfile = useCallback(async () => {
+  const refreshProfile = useCallback(async (forceFull: boolean = false) => {
     if (!user?.id) return;
-    const { profile, isCompat: compatResult } = await fetchProfile(user.id);
+    const { profile, isCompat: compatResult } = await fetchProfile(user.id, forceFull);
     setUser(prev => prev ? { ...prev, ...profile } : null);
     setIsCompat(compatResult);
   }, [user?.id]);
