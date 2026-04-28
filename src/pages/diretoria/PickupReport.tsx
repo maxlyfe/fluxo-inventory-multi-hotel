@@ -25,11 +25,17 @@ interface OTBRow {
   currentOTB:    number;
   comparisonOTB: number;
   deltaRooms:    number;
+  currentRev:    number;
+  comparisonRev: number;
+  deltaRev:      number;
+  currentADR:    number;
+  comparisonADR: number;
+  deltaADR:      number;
 }
 
 interface WindowBucket { label: string; count: number; revenue: number; }
 interface ChannelBucket { channel: string; count: number; revenue: number; }
-interface PacePoint    { snapshotDate: string; currentOTB: number; stlyOTB: number; }
+interface PacePoint    { snapshotDate: string; currentOTB: number; stlyOTB: number; currentRev: number; }
 
 type ActiveTab = 'table' | 'window' | 'channel' | 'pace';
 
@@ -40,6 +46,10 @@ const QUICK_OFFSETS = [
 ] as const;
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
+
+function fmtBRL(value: number): string {
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
 
 function fmtShortDate(iso: string): string {
   if (!iso) return '';
@@ -69,13 +79,15 @@ function subYears(base: string, n: number): string {
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
 
-function DeltaCell({ val, isDark }: { val: number; isDark: boolean }) {
+function DeltaCell({ val, isDark, type = 'num' }: { val: number; isDark: boolean; type?: 'num' | 'money' }) {
   const color = val > 0 ? '#10b981' : val < 0 ? '#f43f5e' : isDark ? '#94a3b8' : '#64748b';
   const Icon  = val > 0 ? TrendingUp : val < 0 ? TrendingDown : Minus;
+  const formatted = type === 'money' ? fmtBRL(Math.abs(val)) : Math.abs(val).toFixed(0);
+
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 800, color }}>
-      <Icon size={13} />
-      {val > 0 ? '+' : ''}{val}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 800, color, fontSize: type === 'money' ? 12 : 13 }}>
+      <Icon size={type === 'money' ? 11 : 13} />
+      {val > 0 ? '+' : val < 0 ? '-' : ''}{formatted}
     </span>
   );
 }
@@ -93,15 +105,18 @@ function CustomTooltip({ active, payload, label, isDark }: any) {
       <div style={{ fontWeight: 800, marginBottom: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
         {label}
       </div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
-          <span style={{ color: isDark ? '#cbd5e1' : '#475569' }}>{p.name}:</span>
-          <span style={{ fontWeight: 700, color: p.color }}>
-            {typeof p.value === 'number' ? p.value.toFixed(0) : p.value}
-          </span>
-        </div>
-      ))}
+      {payload.map((p: any) => {
+        const isMoney = p.name.toLowerCase().includes('receita') || p.name.toLowerCase().includes('rev') || p.name.toLowerCase().includes('adr');
+        return (
+          <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+            <span style={{ color: isDark ? '#cbd5e1' : '#475569' }}>{p.name}:</span>
+            <span style={{ fontWeight: 700, color: p.color }}>
+              {isMoney ? fmtBRL(p.value) : typeof p.value === 'number' ? p.value.toFixed(0) : p.value}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -138,14 +153,64 @@ export default function PickupReport() {
   interface ExcelPreviewRow { snapshot_date: string; stay_date: string; rooms_otb: number; }
 
   const [showImport,     setShowImport]     = useState(false);
-  const [importTab,      setImportTab]      = useState<'manual' | 'excel'>('manual');
-  const [snapDateInput,  setSnapDateInput]  = useState('');
-  const [manualRows,     setManualRows]     = useState<ManualRow[]>([{ stayDate: '', roomsOtb: '' }]);
-  const [importSaving,   setImportSaving]   = useState(false);
-  const [importMsg,      setImportMsg]      = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
-  const [excelPreview,   setExcelPreview]   = useState<ExcelPreviewRow[]>([]);
-  const [excelFileName,  setExcelFileName]  = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importTab,      setImportTab]      = useState<'manual' | 'excel' | 'manage'>('manual');
+  const [manageSnapshots, setManageSnapshots] = useState<{ snapshot_date: string; count: number }[]>([]);
+  const [manageLoading,   setManageLoading]   = useState(false);
+  const [manageSearch,    setManageSearch]    = useState('');
+
+  const loadSnapshotsList = useCallback(async (hId: string) => {
+    setManageLoading(true);
+    try {
+      // Agrupar por data de snapshot para gerenciar o "caderno"
+      const { data, error } = await supabase.rpc('get_pickup_snapshots_summary', { h_id: hId });
+      if (error) {
+        // Fallback se a RPC não existir: busca simples
+        const { data: raw, error: e2 } = await supabase
+          .from('diretoria_pickup_snapshots')
+          .select('snapshot_date')
+          .eq('hotel_id', hId)
+          .order('snapshot_date', { ascending: false });
+        if (e2) throw e2;
+        
+        const counts = new Map<string, number>();
+        (raw || []).forEach((r: any) => counts.set(r.snapshot_date, (counts.get(r.snapshot_date) || 0) + 1));
+        setManageSnapshots(Array.from(counts.entries()).map(([snapshot_date, count]) => ({ snapshot_date, count })));
+      } else {
+        setManageSnapshots(data);
+      }
+    } catch (e: any) {
+      console.error('Erro ao carregar lista de snapshots:', e);
+    } finally {
+      setManageLoading(false);
+    }
+  }, []);
+
+  async function deleteSnapshot(snapDate: string) {
+    if (!window.confirm(`Deseja excluir permanentemente todas as ${manageSnapshots.find(s => s.snapshot_date === snapDate)?.count} linhas do snapshot de ${fmtFullDate(snapDate)}?`)) return;
+    
+    setManageLoading(true);
+    try {
+      const { error } = await supabase
+        .from('diretoria_pickup_snapshots')
+        .delete()
+        .eq('hotel_id', hotelId)
+        .eq('snapshot_date', snapDate);
+      
+      if (error) throw error;
+      setImportMsg({ type: 'ok', text: 'Snapshot removido com sucesso.' });
+      loadSnapshotsList(hotelId);
+    } catch (e: any) {
+      setImportMsg({ type: 'err', text: 'Erro ao deletar: ' + e.message });
+    } finally {
+      setManageLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (showImport && hotelId) {
+      loadSnapshotsList(hotelId);
+    }
+  }, [showImport, hotelId, loadSnapshotsList]);
 
   // ── Auto-snapshot ────────────────────────────────────────────────────────────
 
@@ -164,16 +229,18 @@ export default function PickupReport() {
     const otbData = await erbonService.fetchOTB(hId, today, endDate);
     if (!otbData.length) return false;
 
-    const rows = otbData.map(d => ({
-      hotel_id:         hId,
-      snapshot_date:    today,
-      stay_date:        d.stayDate.split('T')[0],
-      rooms_otb:        d.totalRoomsDeductedTransient ?? 0,
-      net_room_revenue: d.netRoomRevenueTransient ?? 0,
-      adr:              (d.totalRoomsDeductedTransient ?? 0) > 0
-                          ? (d.netRoomRevenueTransient ?? 0) / (d.totalRoomsDeductedTransient ?? 1)
-                          : 0,
-    }));
+    const rows = otbData.map(d => {
+      const rooms = (d.totalRoomsDeductedTransient ?? 0) + (d.totalRoomsDeductedBlocks ?? 0);
+      const rev   = (d.netRoomRevenueTransient ?? 0) + (d.netRoomRevenueBlocks ?? 0);
+      return {
+        hotel_id:         hId,
+        snapshot_date:    today,
+        stay_date:        d.stayDate.split('T')[0],
+        rooms_otb:        rooms,
+        net_room_revenue: rev,
+        adr:              rooms > 0 ? rev / rooms : 0,
+      };
+    });
 
     const { error: upsErr } = await supabase
       .from('diretoria_pickup_snapshots')
@@ -191,11 +258,11 @@ export default function PickupReport() {
 
     const [{ data: todaySnap, error: e1 }, { data: compSnap, error: e2 }] = await Promise.all([
       supabase.from('diretoria_pickup_snapshots')
-        .select('stay_date,rooms_otb')
+        .select('stay_date,rooms_otb,net_room_revenue,adr')
         .eq('hotel_id', hId).eq('snapshot_date', today)
         .gte('stay_date', today).order('stay_date'),
       supabase.from('diretoria_pickup_snapshots')
-        .select('stay_date,rooms_otb')
+        .select('stay_date,rooms_otb,net_room_revenue,adr')
         .eq('hotel_id', hId).eq('snapshot_date', cDate)
         .gte('stay_date', today).order('stay_date'),
     ]);
@@ -205,12 +272,18 @@ export default function PickupReport() {
     const compMap = new Map((compSnap ?? []).map((r: any) => [r.stay_date, r]));
 
     return (todaySnap ?? []).map((r: any) => {
-      const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0 };
+      const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0, net_room_revenue: 0, adr: 0 };
       return {
         stayDate:      r.stay_date,
         currentOTB:    r.rooms_otb,
         comparisonOTB: c.rooms_otb,
         deltaRooms:    r.rooms_otb - c.rooms_otb,
+        currentRev:    r.net_room_revenue,
+        comparisonRev: c.net_room_revenue,
+        deltaRev:      r.net_room_revenue - c.net_room_revenue,
+        currentADR:    r.adr,
+        comparisonADR: c.adr,
+        deltaADR:      r.adr - c.adr,
       };
     });
   }, []);
@@ -277,17 +350,21 @@ export default function PickupReport() {
 
     const { data, error: pErr } = await supabase
       .from('diretoria_pickup_snapshots')
-      .select('snapshot_date,rooms_otb')
+      .select('snapshot_date,rooms_otb,net_room_revenue')
       .eq('hotel_id', hId)
       .gte('snapshot_date', from60)
       .lte('snapshot_date', today)
       .gte('stay_date', today);
     if (pErr) throw pErr;
 
-    const byDate = new Map<string, number>();
-    (data ?? []).forEach((r: any) =>
-      byDate.set(r.snapshot_date, (byDate.get(r.snapshot_date) ?? 0) + r.rooms_otb)
-    );
+    const byDate = new Map<string, { rooms: number; rev: number }>();
+    (data ?? []).forEach((r: any) => {
+      const existing = byDate.get(r.snapshot_date) ?? { rooms: 0, rev: 0 };
+      byDate.set(r.snapshot_date, {
+        rooms: existing.rooms + (r.rooms_otb || 0),
+        rev:   existing.rev + (r.net_room_revenue || 0),
+      });
+    });
 
     // STLY actuals: ocupação real do mesmo período no ano anterior
     const stlyStart = subYears(today, 1);
@@ -300,9 +377,11 @@ export default function PickupReport() {
 
     return Array.from(byDate.keys()).sort().map(snapDate => {
       const stlyKey = subYears(snapDate, 1);
+      const vals = byDate.get(snapDate)!;
       return {
         snapshotDate: snapDate,
-        currentOTB:   byDate.get(snapDate) ?? 0,
+        currentOTB:   vals.rooms,
+        currentRev:   vals.rev,
         stlyOTB:      stlyMap.get(stlyKey) ?? 0,
       };
     });
@@ -537,10 +616,13 @@ export default function PickupReport() {
             {/* Separador */}
             <div style={{ width: 1, height: 24, background: cardBdr }} />
 
-            {/* Botão Importar Histórico */}
-            <button onClick={() => { setShowImport(true); setImportMsg(null); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem', borderRadius: 10, background: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)', border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`, color: '#8b5cf6', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              <History size={14} /> Importar Histórico
+            {/* Botão Importar Histórico (Icon only) */}
+            <button 
+              onClick={() => { setShowImport(true); setImportMsg(null); }}
+              title="Gerenciar e Importar Histórico de OTB"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: 12, background: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)', border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`, color: '#8b5cf6', cursor: 'pointer', transition: 'all 0.2s' }}
+            >
+              <History size={20} />
             </button>
 
             {/* Separador */}
@@ -614,6 +696,28 @@ export default function PickupReport() {
         {!isLoading && !noErbon && !error && (
           <div className="fade-up">
 
+            {/* ── KPIs de Pick-up ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', marginBottom: '2.5rem' }}>
+              {[
+                { label: 'Pick-up Quartos', val: otbRows.reduce((s, r) => s + r.deltaRooms, 0), icon: <BedDouble size={18} />, color: '#0ea5e9', type: 'num' },
+                { label: 'Pick-up Receita', val: otbRows.reduce((s, r) => s + r.deltaRev, 0),   icon: <TrendingUp size={18} />, color: '#10b981', type: 'money' },
+                { label: 'ADR Médio OTB',   val: otbRows.length ? otbRows.reduce((s, r) => s + r.currentADR, 0) / otbRows.length : 0, icon: <BarChart2 size={18} />, color: '#8b5cf6', type: 'money' },
+                { label: 'Quartos OTB',     val: otbRows.reduce((s, r) => s + r.currentOTB, 0), icon: <Users size={18} />, color: '#f59e0b', type: 'num' },
+              ].map((k, i) => (
+                <div key={i} style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.25rem', display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: `${k.color}15`, color: k.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {k.icon}
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.label}</p>
+                    <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                      {k.type === 'money' ? fmtBRL(k.val) : k.val.toFixed(0)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {/* ── Tabs ── */}
             <div style={{ display: 'flex', gap: 4, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${cardBdr}`, borderRadius: 16, padding: 4, width: 'fit-content', marginBottom: '2rem', flexWrap: 'wrap' }}>
               {([
@@ -652,9 +756,13 @@ export default function PickupReport() {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: `1px solid ${cardBdr}` }}>
-                            {['Data Estadia', 'OTB Hoje', `OTB em ${fmtFullDate(compDate)}`, 'Δ Quartos'].map(h => (
-                              <th key={h} style={{ padding: '1rem 1.25rem', textAlign: h === 'Data Estadia' ? 'left' : 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap' }}>{h}</th>
-                            ))}
+                            <th title="Data da noite de hospedagem" style={{ padding: '1rem 1.25rem', textAlign: 'left', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Data Estadia</th>
+                            <th title="Total de quartos ocupados capturados no snapshot de hoje" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>OTB Hoje</th>
+                            <th title="Variação de quartos entre hoje e a data de comparação (Pick-up de quartos)" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ Quartos</th>
+                            <th title="Receita líquida total de hospedagem projetada para esta data" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Receita Hoje</th>
+                            <th title="Variação de receita entre hoje e a data de comparação (Pick-up financeiro)" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ Receita</th>
+                            <th title="Diária média (Receita / Quartos)" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>ADR Hoje</th>
+                            <th title="Variação da diária média entre os dois snapshots" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ ADR</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -662,8 +770,19 @@ export default function PickupReport() {
                             <tr key={r.stayDate} className="pu-row" style={{ borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none' }}>
                               <td style={{ padding: '0.85rem 1.25rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', whiteSpace: 'nowrap' }}>{fmtFullDate(r.stayDate)}</td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>{r.currentOTB}</td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', color: textSub }}>{r.comparisonOTB}</td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaCell val={r.deltaRooms} isDark={isDark} /></td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentRev > 0 ? (isDark ? '#cbd5e1' : '#475569') : textMute, opacity: r.currentRev > 0 ? 1 : 0.4 }}>
+                                {r.currentRev > 0 ? fmtBRL(r.currentRev) : '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
+                                {r.deltaRev !== 0 ? <DeltaCell val={r.deltaRev} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentADR > 0 ? (isDark ? '#94a3b8' : '#64748b') : textMute, opacity: r.currentADR > 0 ? 1 : 0.4 }}>
+                                {r.currentADR > 0 ? fmtBRL(r.currentADR) : '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
+                                {r.deltaADR !== 0 ? <DeltaCell val={r.deltaADR} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -778,11 +897,13 @@ export default function PickupReport() {
                     <LineChart data={pacePoints} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.2)'} vertical={false} />
                       <XAxis dataKey="snapshotDate" tickFormatter={fmtShortDate} tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="left" tick={{ fill: textMute, fontSize: 11 }} axisLine={false} tickLine={false} label={{ value: 'Quartos', angle: -90, position: 'insideLeft', style: { fill: textMute, fontSize: 10, fontWeight: 700 } }} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fill: '#10b981', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} label={{ value: 'Receita', angle: 90, position: 'insideRight', style: { fill: '#10b981', fontSize: 10, fontWeight: 700 } }} />
                       <Tooltip content={<CustomTooltip isDark={isDark} />} />
                       <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                      <Line type="monotone" dataKey="currentOTB" name="OTB Atual" stroke="#0ea5e9" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
-                      <Line type="monotone" dataKey="stlyOTB" name="STLY" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 5 }} />
+                      <Line yAxisId="left" type="monotone" dataKey="currentOTB" name="Quartos OTB" stroke="#0ea5e9" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
+                      <Line yAxisId="left" type="monotone" dataKey="stlyOTB" name="STLY (Quartos)" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 5 }} />
+                      <Line yAxisId="right" type="monotone" dataKey="currentRev" name="Receita OTB" stroke="#10b981" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
@@ -822,7 +943,8 @@ export default function PickupReport() {
               {([
                 { id: 'manual', label: 'Entrada Manual' },
                 { id: 'excel',  label: 'Importar Excel' },
-              ] as { id: 'manual' | 'excel'; label: string }[]).map(t => (
+                { id: 'manage', label: 'Gerenciar Snapshots' },
+              ] as { id: 'manual' | 'excel' | 'manage'; label: string }[]).map(t => (
                 <button key={t.id} onClick={() => { setImportTab(t.id); setImportMsg(null); }}
                   style={{ padding: '0.5rem 1.25rem', marginBottom: -1, borderRadius: '8px 8px 0 0', fontWeight: 700, fontSize: 13, cursor: 'pointer', border: 'none', borderBottom: importTab === t.id ? `2px solid #8b5cf6` : '2px solid transparent', background: 'transparent', color: importTab === t.id ? '#8b5cf6' : textSub }}>
                   {t.label}
@@ -832,6 +954,52 @@ export default function PickupReport() {
 
             {/* Modal body */}
             <div style={{ overflowY: 'auto', padding: '1.5rem 1.75rem', flex: 1 }}>
+
+              {/* ── Aba: Gerenciar Snapshots ── */}
+              {importTab === 'manage' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                   <div style={{ position: 'relative' }}>
+                    <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: textMute }} />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por data (ex: 20/04)..." 
+                      value={manageSearch}
+                      onChange={e => setManageSearch(e.target.value)}
+                      style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.5rem', borderRadius: 10, border: `1px solid ${isDark ? 'rgba(148,163,184,0.2)' : '#e2e8f0'}`, background: isDark ? 'rgba(30,41,59,0.4)' : '#f8fafc', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, outline: 'none' }} 
+                    />
+                  </div>
+
+                  {manageLoading && manageSnapshots.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: textMute }} /></div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {manageSnapshots
+                        .filter(s => fmtFullDate(s.snapshot_date).includes(manageSearch) || s.snapshot_date.includes(manageSearch))
+                        .map(s => (
+                        <div key={s.snapshot_date} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1.25rem', background: isDark ? 'rgba(30,41,59,0.3)' : '#f8fafc', borderRadius: 12, border: `1px solid ${cardBdr}` }}>
+                          <div>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: isDark ? '#f1f5f9' : '#1e293b' }}>{fmtFullDate(s.snapshot_date)}</p>
+                            <p style={{ margin: 0, fontSize: 12, color: textSub }}>{s.count} linhas de dados OTB</p>
+                          </div>
+                          <button 
+                            onClick={() => deleteSnapshot(s.snapshot_date)}
+                            style={{ width: 32, height: 32, borderRadius: 8, border: 'none', background: 'rgba(244,63,94,0.1)', color: '#f43f5e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                            title="Excluir este snapshot"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      {manageSnapshots.length === 0 && !manageLoading && (
+                        <div style={{ padding: '3rem', textAlign: 'center', color: textMute }}>
+                          <History size={32} style={{ marginBottom: 12, opacity: 0.2 }} />
+                          <p style={{ fontSize: 13, fontWeight: 500 }}>Nenhum snapshot histórico encontrado.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* ── Aba: Entrada Manual ── */}
               {importTab === 'manual' && (
@@ -961,15 +1129,17 @@ export default function PickupReport() {
                 style={{ padding: '0.6rem 1.25rem', borderRadius: 10, border: `1px solid ${cardBdr}`, background: 'transparent', color: textSub, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                 Fechar
               </button>
-              <button
-                onClick={importTab === 'manual' ? saveManual : saveExcel}
-                disabled={importSaving || (importTab === 'excel' && excelPreview.length === 0)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.6rem 1.4rem', borderRadius: 10, border: 'none', background: importSaving ? textMute : '#8b5cf6', color: '#fff', fontWeight: 700, fontSize: 13, cursor: importSaving ? 'not-allowed' : 'pointer', opacity: (importTab === 'excel' && excelPreview.length === 0 && !importSaving) ? 0.4 : 1 }}>
-                {importSaving
-                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</>
-                  : <><Upload size={14} /> {importTab === 'manual' ? 'Salvar Snapshot' : `Importar ${excelPreview.length > 0 ? excelPreview.length + ' linhas' : ''}`}</>
-                }
-              </button>
+              {importTab !== 'manage' && (
+                <button
+                  onClick={importTab === 'manual' ? saveManual : saveExcel}
+                  disabled={importSaving || (importTab === 'excel' && excelPreview.length === 0)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.6rem 1.4rem', borderRadius: 10, border: 'none', background: importSaving ? textMute : '#8b5cf6', color: '#fff', fontWeight: 700, fontSize: 13, cursor: importSaving ? 'not-allowed' : 'pointer', opacity: (importTab === 'excel' && excelPreview.length === 0 && !importSaving) ? 0.4 : 1 }}>
+                  {importSaving
+                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</>
+                    : <><Upload size={14} /> {importTab === 'manual' ? 'Salvar Snapshot' : `Importar ${excelPreview.length > 0 ? excelPreview.length + ' linhas' : ''}`}</>
+                  }
+                </button>
+              )}
             </div>
           </div>
         </div>

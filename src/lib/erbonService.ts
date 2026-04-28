@@ -166,6 +166,8 @@ export interface ErbonOTB {
   totalRoomsDeductedBlocks: number;
   netRoomRevenueTransient: number;
   grossRoomRevenueTransient: number;
+  netRoomRevenueBlocks?: number;
+  grossRoomRevenueBlocks?: number;
   netFBRevenueTransient: number;
   netOtherRevenueTransient: number;
 }
@@ -1314,3 +1316,5 @@ export const erbonService = {
     if (error) throw error;
   },
 };
+
+
