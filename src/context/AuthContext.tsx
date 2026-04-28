@@ -22,6 +22,7 @@ interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
   needsName: boolean;
+  isCompatibilityMode: boolean; // Indica se o banco está sem as colunas novas
   refreshProfile: () => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
   loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
@@ -43,21 +44,23 @@ function mapCustomRole(cr: any) {
   };
 }
 
-// Variável de controle para evitar múltiplas tentativas falhas de carregar colunas inexistentes
-let SCHEMA_HAS_NEW_COLUMNS = true;
+// Variável global para persistir o estado do esquema entre re-renderizações
+let GLOBAL_COMPATIBILITY_MODE = false;
 
-async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
+async function fetchProfile(userId: string): Promise<{ profile: Partial<AppUser>, isCompat: boolean }> {
   try {
-    // Se já sabemos que o esquema está desatualizado, vamos direto para o básico
-    if (!SCHEMA_HAS_NEW_COLUMNS) {
+    if (GLOBAL_COMPATIBILITY_MODE) {
       const { data } = await supabase.from('profiles').select('role, full_name, custom_role_id, custom_roles(id, name, permissions, color)').eq('id', userId).maybeSingle();
-      if (!data) return {};
+      if (!data) return { profile: {}, isCompat: true };
       const cr = (data as any).custom_roles;
       return {
-        role: data.role || 'guest',
-        full_name: data.full_name || undefined,
-        custom_role_id: data.custom_role_id || undefined,
-        custom_role: mapCustomRole(cr),
+        isCompat: true,
+        profile: {
+          role: data.role || 'guest',
+          full_name: data.full_name || undefined,
+          custom_role_id: data.custom_role_id || undefined,
+          custom_role: mapCustomRole(cr),
+        }
       };
     }
 
@@ -69,26 +72,29 @@ async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
 
     if (error) {
       if (error.message.includes('photo_url') || error.message.includes('cpf') || (error as any).status === 400) {
-        SCHEMA_HAS_NEW_COLUMNS = false;
-        return fetchProfile(userId); // Tenta novamente agora com o flag false
+        GLOBAL_COMPATIBILITY_MODE = true;
+        return fetchProfile(userId);
       }
-      return {};
+      return { profile: {}, isCompat: false };
     }
 
-    if (!data) return {};
+    if (!data) return { profile: {}, isCompat: false };
     const cr = (data as any).custom_roles;
 
     return {
-      role:           data.role           || 'guest',
-      full_name:      data.full_name      || undefined,
-      photo_url:      data.photo_url      || undefined,
-      cpf:            data.cpf            || undefined,
-      custom_role_id: data.custom_role_id || undefined,
-      custom_role:    mapCustomRole(cr),
+      isCompat: false,
+      profile: {
+        role:           data.role           || 'guest',
+        full_name:      data.full_name      || undefined,
+        photo_url:      data.photo_url      || undefined,
+        cpf:            data.cpf            || undefined,
+        custom_role_id: data.custom_role_id || undefined,
+        custom_role:    mapCustomRole(cr),
+      }
     };
   } catch (err) {
     console.error('[Auth] Fetch falhou:', err);
-    return {};
+    return { profile: {}, isCompat: false };
   }
 }
 
@@ -102,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession]     = useState<Session | null>(null);
   const [loading, setLoading]     = useState(true);
   const [needsName, setNeedsName] = useState(false);
+  const [isCompat, setIsCompat]   = useState(GLOBAL_COMPATIBILITY_MODE);
 
   useEffect(() => {
     setLoading(true);
@@ -111,8 +118,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session); setUser(null); setLoading(false);
         return;
       }
-      const profile = await fetchProfile(baseUser.id);
+      const { profile, isCompat: compatResult } = await fetchProfile(baseUser.id);
       setUser({ ...baseUser, ...profile });
+      setIsCompat(compatResult);
       setSession(session);
       if (profile.role === 'guest' && !profile.full_name) setNeedsName(true);
       setLoading(false);
@@ -188,8 +196,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (!user?.id) return;
-    const profile = await fetchProfile(user.id);
+    const { profile, isCompat: compatResult } = await fetchProfile(user.id);
     setUser(prev => prev ? { ...prev, ...profile } : null);
+    setIsCompat(compatResult);
   }, [user?.id]);
 
   const forceSignOut = async (userId: string) => {
@@ -203,7 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, needsName, refreshProfile, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
+    <AuthContext.Provider value={{ user, loading, needsName, isCompatibilityMode: isCompat, refreshProfile, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
       {children}
     </AuthContext.Provider>
   );

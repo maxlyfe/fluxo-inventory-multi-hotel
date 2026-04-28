@@ -24,13 +24,14 @@ interface EmployeeLink {
 }
 
 function formatMaskedCPF(cpf: string): string {
+  if (!cpf) return '';
   const clean = cpf.replace(/\D/g, '');
   if (clean.length !== 11) return cpf;
   return `${clean.substring(0, 3)}.***.***-${clean.substring(9, 11)}`;
 }
 
 export default function Profile() {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, isCompatibilityMode } = useAuth();
   const { selectedHotel } = useHotel();
   const navigate = useNavigate();
   
@@ -87,15 +88,14 @@ export default function Profile() {
       const cleanCpf = cpf.replace(/\D/g, '');
       const updateData: any = { full_name: fullName, updated_at: new Date().toISOString() };
       
-      // Tenta atualizar. Se der erro de coluna CPF, removemos e avisamos.
-      const { error } = await supabase.from('profiles').update({ ...updateData, cpf: cleanCpf }).eq('id', user?.id);
-
-      if (error && (error.message.includes('cpf') || (error as any).status === 400)) {
-        await supabase.from('profiles').update(updateData).eq('id', user?.id);
-        setMessage({ type: 'info', text: 'Nome salvo! CPF e Foto desativados (aguardando atualização do banco).' });
-      } else if (error) {
-        throw error;
+      // Se estamos em modo de compatibilidade, nem tentamos o CPF
+      if (isCompatibilityMode) {
+        const { error } = await supabase.from('profiles').update(updateData).eq('id', user?.id);
+        if (error) throw error;
+        setMessage({ type: 'info', text: 'Nome salvo! CPF e Foto desativados no banco.' });
       } else {
+        const { error } = await supabase.from('profiles').update({ ...updateData, cpf: cleanCpf }).eq('id', user?.id);
+        if (error) throw error;
         setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
       }
 
@@ -186,14 +186,14 @@ export default function Profile() {
             )}
 
             <div className="mt-8 flex justify-end">
-              <button type="submit" disabled={saving} className="px-10 py-4 bg-indigo-500 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-indigo-600 transition-all shadow-xl active:scale-95 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Nome'}</button>
+              <button type="submit" disabled={saving} className="px-10 py-4 bg-indigo-500 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-indigo-600 transition-all shadow-xl active:scale-95 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Perfil'}</button>
             </div>
           </form>
           
-          {!SCHEMA_HAS_NEW_COLUMNS && (
-            <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl">
-              <h4 className="text-amber-800 dark:text-amber-300 font-bold text-sm flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4" /> Atualização de Banco Necessária</h4>
-              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">Para habilitar CPF e Fotos, execute o SQL fornecido no painel do Supabase. O sistema está funcionando em modo de compatibilidade.</p>
+          {isCompatibilityMode && (
+            <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl animate-fadeIn">
+              <h4 className="text-amber-800 dark:text-amber-300 font-bold text-sm flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4" /> Atualização de Banco Pendente</h4>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">O sistema detectou que colunas essenciais (CPF/Foto) ainda não foram criadas no seu Supabase. Os recursos de vínculo automático e avatares estão temporariamente desativados para evitar erros.</p>
             </div>
           )}
         </div>
