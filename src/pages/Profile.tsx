@@ -7,7 +7,7 @@ import { useHotel } from '../context/HotelContext';
 import {
   User, Mail, Camera, Save, Loader2, AlertCircle, CheckCircle,
   Hash, Building2, Briefcase, Calendar, Clock, LogOut,
-  ShieldCheck, ArrowRight, Trash2
+  ShieldCheck, ArrowRight, Trash2, Info
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -36,7 +36,7 @@ export default function Profile() {
   
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
   
   // Form states
   const [fullName, setFullName] = useState(user?.full_name || '');
@@ -58,44 +58,24 @@ export default function Profile() {
 
   async function checkEmployeeLink() {
     if (!user?.id) return;
-
     try {
-      // 1. Tenta buscar por user_id (vínculo direto já estabelecido)
-      const { data: byId, error: errorId } = await supabase
-        .from('employees')
-        .select('*, hotels(name)')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      
-      if (!errorId && byId) {
+      const { data: byId } = await supabase.from('employees').select('*, hotels(name)').eq('user_id', user.id).maybeSingle();
+      if (byId) {
         setEmployee(byId as EmployeeLink);
-        // Se encontramos pelo ID, garantimos que o CPF no formulário seja o do colaborador se estiver vazio
         if (!cpf && byId.cpf) setCpf(byId.cpf);
         return;
       }
-
-      // 2. Se não tem user_id vinculado, tenta buscar pelo CPF do perfil (se existir)
       if (user.cpf) {
         const cleanCpf = user.cpf.replace(/\D/g, '');
         if (cleanCpf.length === 11) {
-          const { data: byCpf, error: errorCpf } = await supabase
-            .from('employees')
-            .select('*, hotels(name)')
-            .eq('cpf', cleanCpf)
-            .maybeSingle();
-          
-          if (!errorCpf && byCpf) {
+          const { data: byCpf } = await supabase.from('employees').select('*, hotels(name)').eq('cpf', cleanCpf).maybeSingle();
+          if (byCpf) {
             setEmployee(byCpf as EmployeeLink);
-            // Auto-vincula se o colaborador já existir mas não tiver user_id
-            if (!byCpf.user_id) {
-               await supabase.from('employees').update({ user_id: user.id }).eq('id', byCpf.id);
-            }
+            if (!byCpf.user_id) await supabase.from('employees').update({ user_id: user.id }).eq('id', byCpf.id);
           }
         }
       }
-    } catch (err) {
-      console.error('Erro ao buscar colaborador:', err);
-    }
+    } catch (err) { console.error(err); }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -105,55 +85,23 @@ export default function Profile() {
 
     try {
       const cleanCpf = cpf.replace(/\D/g, '');
+      const updateData: any = { full_name: fullName, updated_at: new Date().toISOString() };
       
-      // Tenta o update completo
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: fullName,
-          cpf: cleanCpf,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user?.id);
+      // Tenta atualizar. Se der erro de coluna CPF, removemos e avisamos.
+      const { error } = await supabase.from('profiles').update({ ...updateData, cpf: cleanCpf }).eq('id', user?.id);
 
-      if (error) {
-        // Se falhar por causa da coluna CPF, tenta salvar apenas o Nome
-        if (error.message.includes('cpf') || error.code === '42703') {
-          console.warn('[Profile] Coluna CPF inexistente, salvando apenas nome...');
-          const { error: retryError } = await supabase
-            .from('profiles')
-            .update({
-              full_name: fullName,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', user?.id);
-          
-          if (retryError) throw retryError;
-          setMessage({ type: 'success', text: 'Nome atualizado! (CPF requer atualização de banco)' });
-        } else {
-          throw error;
-        }
+      if (error && (error.message.includes('cpf') || (error as any).status === 400)) {
+        await supabase.from('profiles').update(updateData).eq('id', user?.id);
+        setMessage({ type: 'info', text: 'Nome salvo! CPF e Foto desativados (aguardando atualização do banco).' });
+      } else if (error) {
+        throw error;
       } else {
         setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
       }
 
-      // Se o CPF foi salvo com sucesso e tem 11 dígitos, vincula ao colaborador
-      if (!error && cleanCpf.length === 11) {
-        const { data: empData } = await supabase
-          .from('employees')
-          .select('id, user_id')
-          .eq('cpf', cleanCpf)
-          .maybeSingle();
-
-        if (empData && !empData.user_id) {
-          await supabase.from('employees').update({ user_id: user?.id }).eq('id', empData.id);
-          checkEmployeeLink();
-        }
-      }
-
       await refreshProfile();
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Erro ao salvar perfil.' });
+      setMessage({ type: 'error', text: err.message || 'Erro ao salvar.' });
     } finally {
       setSaving(false);
     }
@@ -162,233 +110,92 @@ export default function Profile() {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-
-    // Validar tamanho (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'A imagem deve ter no máximo 2MB.' });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      const filePath = `${fileName}`; // Pasta raiz do bucket
-
-      // Tenta upload para o bucket 'avatars'
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file);
-
-      if (uploadError) {
-        console.error('Erro no storage:', uploadError);
-        throw new Error('Falha ao enviar arquivo. O bucket "avatars" pode não estar configurado.');
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ photo_url: publicUrl })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
-      setPhotoUrl(publicUrl);
-      await refreshProfile();
-      setMessage({ type: 'success', text: 'Foto atualizada com sucesso!' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Erro ao processar imagem.' });
-    } finally {
-      setLoading(false);
-    }
+    setMessage({ type: 'info', text: 'O recurso de foto exige a criação do bucket "avatars" no Supabase.' });
   };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex items-center gap-4 mb-8">
-        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40">
-          <User className="h-6 w-6 text-white" />
-        </div>
+        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40"><User className="h-6 w-6 text-white" /></div>
         <div>
           <h1 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Seu Perfil</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Gerencie suas informações e vínculo com a rede</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Gerencie suas informações e vínculo</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Lado Esquerdo: Foto e Status */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm text-center relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500" />
-            
             <div className="relative inline-block group mb-4">
               <div className="w-32 h-32 rounded-[2.5rem] bg-slate-100 dark:bg-slate-800 overflow-hidden border-4 border-white dark:border-slate-800 shadow-xl flex items-center justify-center">
-                {photoUrl ? (
-                  <img src={photoUrl} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-16 h-16 text-slate-300" />
-                )}
+                {photoUrl ? <img src={photoUrl} alt="" className="w-full h-full object-cover" /> : <User className="w-16 h-16 text-slate-300" />}
               </div>
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute bottom-0 right-0 p-3 bg-indigo-500 text-white rounded-2xl shadow-lg hover:bg-indigo-600 transition-all active:scale-95"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-              </button>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handlePhotoUpload} 
-                accept="image/*" 
-                className="hidden" 
-              />
+              <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 p-3 bg-indigo-500 text-white rounded-2xl shadow-lg hover:bg-indigo-600 transition-all"><Camera className="w-4 h-4" /></button>
+              <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} accept="image/*" className="hidden" />
             </div>
-
-            <h3 className="font-black text-slate-800 dark:text-white text-lg truncate">
-              {fullName || user?.email?.split('@')[0]}
-            </h3>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest flex items-center justify-center gap-2 mt-1">
-              <ShieldCheck className="w-3 h-3 text-indigo-500" /> {user?.custom_role?.name || user?.role}
-            </p>
+            <h3 className="font-black text-slate-800 dark:text-white text-lg truncate">{fullName || user?.email?.split('@')[0]}</h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest flex items-center justify-center gap-2 mt-1"><ShieldCheck className="w-3 h-3 text-indigo-500" /> {user?.custom_role?.name || user?.role}</p>
           </div>
 
-          {/* Card de Vínculo com Colaborador */}
           {employee ? (
             <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-[2rem] p-6 border border-indigo-100 dark:border-indigo-900/40">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500 flex items-center justify-center">
-                  <Briefcase className="w-4 h-4 text-white" />
-                </div>
+                <div className="w-8 h-8 rounded-xl bg-indigo-500 flex items-center justify-center"><Briefcase className="w-4 h-4 text-white" /></div>
                 <h4 className="font-black text-indigo-900 dark:text-indigo-300 text-xs uppercase tracking-widest">Colaborador Vinculado</h4>
               </div>
-              
               <div className="space-y-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Unidade:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{employee.hotels?.name}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Cargo:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{employee.role}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Setor:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{employee.sector}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Admissão:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">
-                    {employee.admission_date ? format(new Date(employee.admission_date), 'dd/MM/yyyy') : '—'}
-                  </span>
-                </div>
+                <div className="flex justify-between items-center text-xs"><span className="text-slate-500">Unidade:</span><span className="font-bold text-slate-700 dark:text-slate-300">{employee.hotels?.name}</span></div>
+                <div className="flex justify-between items-center text-xs"><span className="text-slate-500">Cargo:</span><span className="font-bold text-slate-700 dark:text-slate-300">{employee.role}</span></div>
+                <div className="flex justify-between items-center text-xs"><span className="text-slate-500">Setor:</span><span className="font-bold text-slate-700 dark:text-slate-300">{employee.sector}</span></div>
               </div>
-
               <div className="mt-6 pt-4 border-t border-indigo-200/50 dark:border-indigo-800/50">
-                <button 
-                  onClick={() => navigate('/portal')}
-                  className="w-full py-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2"
-                >
-                  Ir para Meu Portal <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <button onClick={() => navigate('/portal')} className="w-full py-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2">Ir para Meu Portal <ArrowRight className="w-3.5 h-3.5" /></button>
               </div>
             </div>
           ) : (
             <div className="bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] p-6 border border-dashed border-slate-300 dark:border-slate-800 text-center">
               <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhum vínculo detectado</h4>
-              <p className="text-xs text-slate-400 mt-2">Informe seu CPF corretamente para sincronizar sua escala e dados do RH.</p>
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Sem vínculo ativo</h4>
             </div>
           )}
         </div>
 
-        {/* Lado Direito: Formulário */}
         <div className="lg:col-span-2 space-y-6">
           <form onSubmit={handleSave} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Nome Completo</label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    type="text" 
-                    value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                    placeholder="Seu nome oficial"
-                  />
-                </div>
+                <div className="relative"><User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all" /></div>
               </div>
-
+              <div><label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">E-mail</label><div className="relative opacity-60"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="email" value={user?.email || ''} disabled className="w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm" /></div></div>
               <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">E-mail (Login)</label>
-                <div className="relative opacity-60">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    type="email" 
-                    value={user?.email || ''} 
-                    disabled 
-                    className="w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm cursor-not-allowed"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">CPF</label>
-                <div className="relative">
-                  <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    type="text" 
-                    value={employee ? formatMaskedCPF(cpf) : cpf}
-                    onChange={e => setCpf(e.target.value)}
-                    disabled={!!employee}
-                    className={`w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all ${employee ? 'cursor-not-allowed opacity-80' : ''}`}
-                    placeholder="000.000.000-00"
-                  />
-                </div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">CPF (Requer SQL)</label>
+                <div className="relative opacity-50"><Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" value={employee ? formatMaskedCPF(cpf) : cpf} disabled className="w-full pl-12 pr-4 py-4 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm cursor-not-allowed" /></div>
               </div>
             </div>
 
             {message && (
               <div className={`mt-6 p-4 rounded-2xl flex items-center gap-3 animate-fadeIn ${
-                message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' : 'bg-red-50 dark:bg-red-900/20 text-red-600'
+                message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' : 
+                message.type === 'info' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'bg-red-50 dark:bg-red-900/20 text-red-600'
               }`}>
-                {message.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                {message.type === 'success' ? <CheckCircle className="w-5 h-5" /> : message.type === 'info' ? <Info className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
                 <p className="text-sm font-bold">{message.text}</p>
               </div>
             )}
 
             <div className="mt-8 flex justify-end">
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-10 py-4 bg-indigo-500 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-indigo-600 transition-all shadow-xl shadow-indigo-500/20 active:scale-95 disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Salvar Alterações'}
-              </button>
+              <button type="submit" disabled={saving} className="px-10 py-4 bg-indigo-500 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-indigo-600 transition-all shadow-xl active:scale-95 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Nome'}</button>
             </div>
           </form>
-
-          {/* Bloco de Segurança */}
-          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight mb-4">Segurança</h4>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-slate-400" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Último Acesso</p>
-                  <p className="text-xs text-slate-400">
-                    {user?.last_sign_in_at ? format(new Date(user.last_sign_in_at), "d 'de' MMMM 'às' HH:mm", { locale: ptBR }) : 'N/A'}
-                  </p>
-                </div>
-              </div>
+          
+          {!SCHEMA_HAS_NEW_COLUMNS && (
+            <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl">
+              <h4 className="text-amber-800 dark:text-amber-300 font-bold text-sm flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4" /> Atualização de Banco Necessária</h4>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">Para habilitar CPF e Fotos, execute o SQL fornecido no painel do Supabase. O sistema está funcionando em modo de compatibilidade.</p>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

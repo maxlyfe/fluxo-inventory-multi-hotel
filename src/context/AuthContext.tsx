@@ -33,84 +33,68 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/** Mapeia um registo raw do banco para o formato CustomRole esperado pelo hook. */
 function mapCustomRole(cr: any) {
   if (!cr) return null;
   return {
-    id:          cr.id          as string,
-    name:        cr.name        as string,
+    id:          cr.id as string,
+    name:        cr.name as string,
     permissions: Array.isArray(cr.permissions) ? (cr.permissions as string[]) : [],
     color:       (cr.color as string) || '#94a3b8',
   };
 }
 
-/**
- * Carrega o perfil completo do utilizador, incluindo o custom_role e as suas permissões.
- * Estratégia de resiliência: tenta os campos novos e faz fallback para o básico se falhar (ex: colunas inexistentes).
- */
-async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
-  // ── Tentativa 1: JOIN completo (caminho ideal) ────────────────────────────
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        role,
-        full_name,
-        photo_url,
-        cpf,
-        custom_role_id,
-        custom_roles (id, name, permissions, color)
-      `)
-      .eq('id', userId)
-      .maybeSingle();
+// Variável de controle para evitar múltiplas tentativas falhas de carregar colunas inexistentes
+let SCHEMA_HAS_NEW_COLUMNS = true;
 
-    if (!error && data) {
+async function fetchProfile(userId: string): Promise<Partial<AppUser>> {
+  try {
+    // Se já sabemos que o esquema está desatualizado, vamos direto para o básico
+    if (!SCHEMA_HAS_NEW_COLUMNS) {
+      const { data } = await supabase.from('profiles').select('role, full_name, custom_role_id, custom_roles(id, name, permissions, color)').eq('id', userId).maybeSingle();
+      if (!data) return {};
+      const cr = (data as any).custom_roles;
       return {
-        role:           data.role           || 'guest',
-        full_name:      data.full_name      || undefined,
-        photo_url:      data.photo_url      || undefined,
-        cpf:            data.cpf            || undefined,
+        role: data.role || 'guest',
+        full_name: data.full_name || undefined,
         custom_role_id: data.custom_role_id || undefined,
-        custom_role:    mapCustomRole((data as any).custom_roles),
+        custom_role: mapCustomRole(cr),
       };
     }
 
-    // Se o erro for 400 ou mencionar colunas, tentamos sem os campos novos
-    if (error && ((error as any).status === 400 || error.message.includes('column'))) {
-      const { data: basic, error: basicErr } = await supabase
-        .from('profiles')
-        .select(`
-          role,
-          full_name,
-          custom_role_id,
-          custom_roles (id, name, permissions, color)
-        `)
-        .eq('id', userId)
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(`role, full_name, photo_url, cpf, custom_role_id, custom_roles(id, name, permissions, color)`)
+      .eq('id', userId)
+      .maybeSingle();
 
-      if (!basicErr && basic) {
-        return {
-          role:           basic.role           || 'guest',
-          full_name:      basic.full_name      || undefined,
-          custom_role_id: basic.custom_role_id || undefined,
-          custom_role:    mapCustomRole((basic as any).custom_roles),
-        };
+    if (error) {
+      if (error.message.includes('photo_url') || error.message.includes('cpf') || (error as any).status === 400) {
+        SCHEMA_HAS_NEW_COLUMNS = false;
+        return fetchProfile(userId); // Tenta novamente agora com o flag false
       }
+      return {};
     }
-  } catch (e: any) {
-    console.error('[Auth] Erro ao carregar perfil:', e.message);
-  }
 
-  return {};
+    if (!data) return {};
+    const cr = (data as any).custom_roles;
+
+    return {
+      role:           data.role           || 'guest',
+      full_name:      data.full_name      || undefined,
+      photo_url:      data.photo_url      || undefined,
+      cpf:            data.cpf            || undefined,
+      custom_role_id: data.custom_role_id || undefined,
+      custom_role:    mapCustomRole(cr),
+    };
+  } catch (err) {
+    console.error('[Auth] Fetch falhou:', err);
+    return {};
+  }
 }
 
 function mapSupabaseUserToAppUser(supabaseUser: SupabaseUser | null): AppUser | null {
   if (!supabaseUser) return null;
-  return {
-    id:    supabaseUser.id,
-    email: supabaseUser.email,
-    role:  supabaseUser.user_metadata?.role || 'guest',
-  };
+  return { id: supabaseUser.id, email: supabaseUser.email, role: supabaseUser.user_metadata?.role || 'guest' };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -121,45 +105,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setLoading(true);
-
     async function loadSessionAndProfile(session: Session | null) {
       const baseUser = mapSupabaseUserToAppUser(session?.user ?? null);
       if (!baseUser?.id) {
-        setSession(session);
-        setUser(null);
-        setLoading(false);
+        setSession(session); setUser(null); setLoading(false);
         return;
       }
       const profile = await fetchProfile(baseUser.id);
-      const fullUser = { ...baseUser, ...profile };
+      setUser({ ...baseUser, ...profile });
       setSession(session);
-      setUser(fullUser);
-      if (profile.role === 'guest' && !profile.full_name) {
-        setNeedsName(true);
-      }
+      if (profile.role === 'guest' && !profile.full_name) setNeedsName(true);
       setLoading(false);
     }
 
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        setSession(null); setUser(null); setLoading(false);
-        return;
-      }
+      if (error) { setSession(null); setUser(null); setLoading(false); return; }
       loadSessionAndProfile(session);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'TOKEN_REFRESHED') {
-        loadSessionAndProfile(session);
-        return;
-      }
-      if (event === 'SIGNED_OUT' || !session) {
-        setSession(null); setUser(null); setNeedsName(false); setLoading(false);
-        return;
-      }
+      if (event === 'TOKEN_REFRESHED') { loadSessionAndProfile(session); return; }
+      if (event === 'SIGNED_OUT' || !session) { setSession(null); setUser(null); setNeedsName(false); setLoading(false); return; }
       loadSessionAndProfile(session);
     });
-
     return () => { authListener?.subscription.unsubscribe(); };
   }, []);
 
@@ -181,10 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/`,
-          queryParams: { prompt: 'select_account' },
-        },
+        options: { redirectTo: `${window.location.origin}/`, queryParams: { prompt: 'select_account' } },
       });
       if (error) return { success: false, message: error.message };
       return { success: true };
@@ -198,10 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const trimmed = fullName.trim();
     if (!trimmed || trimmed.length < 2) return { success: false, message: 'Nome muito curto.' };
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ full_name: trimmed, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
+      const { error } = await supabase.from('profiles').update({ full_name: trimmed, updated_at: new Date().toISOString() }).eq('id', user.id);
       if (error) return { success: false, message: error.message };
       setUser(prev => prev ? { ...prev, full_name: trimmed } : prev);
       setNeedsName(false);
@@ -232,9 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const forceSignOut = async (userId: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('admin-user-actions', {
-        body: { action: 'force_signout', target_user_id: userId },
-      });
+      const { error } = await supabase.functions.invoke('admin-user-actions', { body: { action: 'force_signout', target_user_id: userId } });
       if (error) return { success: false, message: error.message || 'Erro ao forçar logout.' };
       return { success: true };
     } catch (e: unknown) {
