@@ -142,29 +142,31 @@ Toda navegacao e centralizada no array `NAV_GROUPS`:
 3. O valor no input deve ser uma **string** durante a digitacao
 4. Converter para numero somente no **submit/blur**, nunca no `onChange`
 5. Se o state e numerico, adicionar campo `_display` string para o input
-6. Toda conversao: `parseFloat(value.replace(',', '.'))` — NUNCA `parseInt`
+6. Toda conversao: `useFormatters().parseNumber(value)` — NUNCA `parseFloat` manual ou `parseInt`
 
 **Exemplo correto**:
 ```tsx
 // State como string
 const [quantity, setQuantity] = useState('0');
+const { parseNumber } = useFormatters();
 
 // Input
 <input type="text" inputMode="decimal" value={quantity}
   onChange={(e) => setQuantity(e.target.value)} />
 
 // No submit
-const num = parseFloat(quantity.replace(',', '.')) || 0;
+const num = parseNumber(quantity);
 ```
 
 **Exemplo com state numerico + display**:
 ```tsx
 interface Item { quantity: number; quantity_display?: string; }
+const { parseNumber } = useFormatters();
 
 // onChange
-updatedItem.quantity = parseFloat(v.replace(',', '.')) || 0;
+updatedItem.quantity = parseNumber(v);
 updatedItem.quantity_display = v;
-
+```
 // Input
 value={item.quantity_display ?? String(item.quantity)}
 ```

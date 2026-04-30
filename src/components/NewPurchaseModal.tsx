@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Plus, Trash2, PackagePlus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
+import { useFormatters } from '../hooks/useFormatters';
 
 interface Product {
   id: string;
@@ -36,6 +37,7 @@ const NewPurchaseModal: React.FC<NewPurchaseModalProps> = ({
   products
 }) => {
   const { selectedHotel } = useHotel();
+  const { parseNumber } = useFormatters();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -356,7 +358,7 @@ const NewPurchaseModal: React.FC<NewPurchaseModalProps> = ({
                         onChange={(e) => {
                           const v = e.target.value;
                           const newItems = [...items];
-                          newItems[index] = { ...newItems[index], quantity: parseFloat(v.replace(',', '.')) || 0, quantity_display: v };
+                          newItems[index] = { ...newItems[index], quantity: parseNumber(v), quantity_display: v };
                           setItems(newItems);
                         }}
                         className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
@@ -378,7 +380,7 @@ const NewPurchaseModal: React.FC<NewPurchaseModalProps> = ({
                           onChange={(e) => {
                             const v = e.target.value;
                             const newItems = [...items];
-                            newItems[index] = { ...newItems[index], unit_price: parseFloat(v.replace(',', '.')) || 0, unit_price_display: v };
+                            newItems[index] = { ...newItems[index], unit_price: parseNumber(v), unit_price_display: v };
                             setItems(newItems);
                           }}
                           className="w-full pl-8 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"

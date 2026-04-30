@@ -14,6 +14,7 @@ import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { useFormatters } from '../hooks/useFormatters';
 import { whatsappService, SupplierContact } from '../lib/whatsappService';
 import { Product, UNIT_MEASURE_OPTIONS, PRODUCT_TYPE_OPTIONS } from '../types/product';
 
@@ -236,6 +237,8 @@ const NewProductModal = ({
     }
   };
 
+  const { parseNumber } = useFormatters();
+
   // ── submit ─────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -245,9 +248,9 @@ const NewProductModal = ({
     try {
       if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
 
-      const qty    = parseFloat(String(formData.quantity).replace(',', '.'))    || 0;
-      const minQty = parseFloat(String(formData.min_quantity).replace(',', '.')) || 0;
-      const maxQty = parseFloat(String(formData.max_quantity).replace(',', '.')) || 100;
+      const qty    = parseNumber(formData.quantity);
+      const minQty = parseNumber(formData.min_quantity);
+      const maxQty = parseNumber(formData.max_quantity);
       if (minQty > maxQty) throw new Error('Quantidade mínima não pode ser maior que a máxima.');
 
       const contactNames  = supplierContacts.filter(c => selectedContactIds.has(c.id)).map(c => c.company_name);
@@ -256,7 +259,7 @@ const NewProductModal = ({
       const dataToSave = {
         ...formData, supplier: supplierField, quantity: qty, min_quantity: minQty, max_quantity: maxQty,
         mcu_code: formData.mcu_code || null,
-        tax_percentage: parseFloat(String(formData.tax_percentage).replace(',', '.')) || 0,
+        tax_percentage: parseNumber(formData.tax_percentage),
       };
 
       let savedProduct: Product | null = null;

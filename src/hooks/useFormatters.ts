@@ -96,11 +96,34 @@ export const useFormatters = () => {
     }).format(value);
   };
 
+  /**
+   * Converte uma string no formato brasileiro ("1.234,56") para número (1234.56)
+   * @param value - String a ser convertida
+   * @returns Número convertido ou 0 se inválido
+   */
+  const parseNumber = (value: string | number | null | undefined): number => {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return isNaN(value) ? 0 : value;
+
+    try {
+      // Remove pontos de milhar e troca vírgula por ponto
+      const cleanValue = value
+        .replace(/\./g, '')
+        .replace(',', '.');
+      const num = parseFloat(cleanValue);
+      return isNaN(num) ? 0 : num;
+    } catch (error) {
+      console.error("Erro ao converter número:", value, error);
+      return 0;
+    }
+  };
+
   return {
     formatCurrency,
     formatDate,
     formatDateTime,
     formatNumber,
-    formatPercent
+    formatPercent,
+    parseNumber
   };
 };

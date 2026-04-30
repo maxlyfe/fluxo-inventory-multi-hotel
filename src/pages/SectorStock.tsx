@@ -21,6 +21,7 @@ import StockConferenceModal from '../components/StockConferenceModal';
 import StockCountHistoryModal from '../components/StockCountHistoryModal';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { useFormatters } from '../hooks/useFormatters';
 import { processErbonSalesDeductions, type DeductionResult } from '../lib/erbonStockDeductionService';
 import { detectSeason, getApplicableMinMax, type Season, type SeasonInfo } from '../lib/seasonHelper';
 
@@ -118,6 +119,7 @@ const SectorStock = () => {
   const { selectedHotel } = useHotel();
   const { user } = useAuth();
   const { addNotification } = useNotification(); 
+  const { parseNumber } = useFormatters();
   
   const [sector, setSector] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -504,7 +506,7 @@ const SectorStock = () => {
   };
 
   const handleBalanceInputChange = (productId: string, value: string) => {
-    const currentCount = value === '' ? undefined : parseFloat(value.replace(',', '.'));
+    const currentCount = value === '' ? undefined : parseNumber(value);
     setBalanceData(prevData =>
       prevData.map(item => {
         if (item.productId === productId) {
@@ -656,14 +658,14 @@ const SectorStock = () => {
     e.preventDefault();
     if (!selectedEntry || !user || !selectedHotel || !sectorId) return;
 
-    const lossAmt = parseFloat(lossAmount.replace(',', '.')) || 0;
+    const lossAmt = parseNumber(lossAmount);
     if (isNaN(lossAmt) || lossAmt < 0) {
         addNotification('A perda deve ser um número válido (zero ou maior).', 'error');
         return;
     }
     
     const processedItems = portioningItems.map(item => {
-        const yieldQty = parseFloat(item.yieldQuantity.replace(',', '.'));
+        const yieldQty = parseNumber(item.yieldQuantity);
         if (isNaN(yieldQty) || yieldQty <= 0) {
             throw new Error(`A quantidade para "${item.productName}" é inválida.`);
         }
@@ -735,13 +737,7 @@ const SectorStock = () => {
   const handleUpdateStock = async () => {
     if (!productToEdit || !selectedHotel || !sectorId) return;
 
-    const parseNum = (v: string) => {
-      if (!v.trim()) return null;
-      const n = parseFloat(v.replace(',', '.'));
-      return isNaN(n) ? null : n;
-    };
-
-    const quantity = parseNum(newQuantity);
+    const quantity = parseNumber(newQuantity);
     if (quantity == null || quantity < 0) {
       addNotification('Por favor, insira uma quantidade válida.', 'error');
       return;
@@ -753,12 +749,12 @@ const SectorStock = () => {
         .from('sector_stock')
         .update({
           quantity,
-          min_quantity: parseNum(newMinQuantity) ?? 0,
-          max_quantity: parseNum(newMaxQuantity) ?? 0,
-          min_quantity_low: parseNum(newMinLow),
-          max_quantity_low: parseNum(newMaxLow),
-          min_quantity_high: parseNum(newMinHigh),
-          max_quantity_high: parseNum(newMaxHigh),
+          min_quantity: parseNumber(newMinQuantity),
+          max_quantity: parseNumber(newMaxQuantity),
+          min_quantity_low: parseNumber(newMinLow) || null,
+          max_quantity_low: parseNumber(newMaxLow) || null,
+          min_quantity_high: parseNumber(newMinHigh) || null,
+          max_quantity_high: parseNumber(newMaxHigh) || null,
         })
         .eq('hotel_id', selectedHotel.id)
         .eq('sector_id', sectorId)
@@ -839,8 +835,8 @@ const SectorStock = () => {
 
     // Filtra apenas itens com quantidade válida > 0
     const itemsToTransfer = transferItems
-      .map(item => ({ ...item, qty: parseFloat(item.transferQty.replace(',', '.')) }))
-      .filter(item => !isNaN(item.qty) && item.qty > 0);
+      .map(item => ({ ...item, qty: parseNumber(item.transferQty) }))
+      .filter(item => item.qty > 0);
 
     if (itemsToTransfer.length === 0) {
       addNotification('Informe ao menos uma quantidade para transferir.', 'error');
