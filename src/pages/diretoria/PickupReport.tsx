@@ -40,12 +40,23 @@ interface ChannelBucket { channel: string; count: number; revenue: number; }
 interface PacePoint    { snapshotDate: string; currentOTB: number; stlyOTB: number; currentRev: number; }
 
 type ActiveTab = 'table' | 'window' | 'channel' | 'pace';
+type FutureHorizon = 30 | 60 | 90 | 180;
 
-const QUICK_OFFSETS = [
-  { label: 'Ontem',   days: 1  },
-  { label: '7 dias',  days: 7  },
-  { label: '30 dias', days: 30 },
+// Opções de "vs X dias atrás"
+const COMP_OFFSETS = [
+  { label: 'Ontem',    days: 1  },
+  { label: '7 dias',   days: 7  },
+  { label: '30 dias',  days: 30 },
+  { label: '90 dias',  days: 90 },
 ] as const;
+
+// Opções de "quantos dias à frente mostrar"
+const HORIZON_OPTIONS: { label: string; days: FutureHorizon }[] = [
+  { label: '30d',  days: 30  },
+  { label: '60d',  days: 60  },
+  { label: '90d',  days: 90  },
+  { label: '180d', days: 180 },
+];
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
 
@@ -137,13 +148,14 @@ export default function PickupReport() {
   const hotelId           = selectedHotel?.id ?? '';
 
   // Estado
-  const [compDate,     setCompDate]     = useState<string>(() => subDays(todayStr(), 7));
-  const [activeTab,    setActiveTab]    = useState<ActiveTab>('table');
-  const [snapLoading,  setSnapLoading]  = useState(false);
-  const [dataLoading,  setDataLoading]  = useState(false);
-  const [error,        setError]        = useState('');
-  const [noErbon,      setNoErbon]      = useState(false);
-  const [snapTime,     setSnapTime]     = useState('');
+  const [compDate,       setCompDate]       = useState<string>(() => subDays(todayStr(), 7));
+  const [futureHorizon,  setFutureHorizon]  = useState<FutureHorizon>(90);
+  const [activeTab,      setActiveTab]      = useState<ActiveTab>('table');
+  const [snapLoading,    setSnapLoading]    = useState(false);
+  const [dataLoading,    setDataLoading]    = useState(false);
+  const [error,          setError]          = useState('');
+  const [noErbon,        setNoErbon]        = useState(false);
+  const [snapTime,       setSnapTime]       = useState('');
 
   const [otbRows,      setOtbRows]      = useState<OTBRow[]>([]);
   const [winBuckets,   setWinBuckets]   = useState<WindowBucket[]>([]);
@@ -291,19 +303,22 @@ export default function PickupReport() {
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
-  const loadOTBTable = useCallback(async (hId: string, cDate: string): Promise<OTBRow[]> => {
-    const today    = todayStr();
-    const from30   = subDays(today, 30); // janela: 30 dias passados + 90 futuros
+  const loadOTBTable = useCallback(async (
+    hId: string, cDate: string, horizon: FutureHorizon
+  ): Promise<OTBRow[]> => {
+    const today   = todayStr();
+    const from30  = subDays(today, 30);          // passado fixo: 30 dias de actuals
+    const toFuture = addDays(today, horizon);     // futuro variável: 30/60/90/180 dias
 
     const [{ data: todaySnap, error: e1 }, { data: compSnap, error: e2 }] = await Promise.all([
       supabase.from('diretoria_pickup_snapshots')
         .select('stay_date,rooms_otb,net_room_revenue,adr')
         .eq('hotel_id', hId).eq('snapshot_date', today)
-        .gte('stay_date', from30).order('stay_date'),
+        .gte('stay_date', from30).lte('stay_date', toFuture).order('stay_date'),
       supabase.from('diretoria_pickup_snapshots')
         .select('stay_date,rooms_otb,net_room_revenue,adr')
         .eq('hotel_id', hId).eq('snapshot_date', cDate)
-        .gte('stay_date', from30).order('stay_date'),
+        .gte('stay_date', from30).lte('stay_date', toFuture).order('stay_date'),
     ]);
     if (e1) throw e1;
     if (e2) throw e2;
@@ -314,7 +329,7 @@ export default function PickupReport() {
       const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0, net_room_revenue: 0, adr: 0 };
       return {
         stayDate:      r.stay_date,
-        isActual:      r.stay_date < today, // ontem ou antes → actual real
+        isActual:      r.stay_date < today,
         currentOTB:    r.rooms_otb,
         comparisonOTB: c.rooms_otb,
         deltaRooms:    r.rooms_otb - c.rooms_otb,
@@ -328,12 +343,12 @@ export default function PickupReport() {
     });
   }, []);
 
-  const loadBookingAnalysis = useCallback(async (hId: string) => {
+  const loadBookingAnalysis = useCallback(async (hId: string, horizon: FutureHorizon) => {
     const today = todayStr();
 
     // A API Erbon filtra por data de check-in ESPECÍFICA (não por intervalo).
-    // Fazemos 30 chamadas paralelas (uma por dia) e deduplicamos pelo bookingInternalID.
-    const DAYS_AHEAD = 30;
+    // Fazemos N chamadas paralelas (uma por dia) e deduplicamos pelo bookingInternalID.
+    const DAYS_AHEAD = horizon;
     const dates = Array.from({ length: DAYS_AHEAD }, (_, i) => addDays(today, i));
 
     const settled = await Promise.allSettled(
@@ -450,8 +465,8 @@ export default function PickupReport() {
       setDataLoading(true);
       try {
         const [rows, bookAna, pace] = await Promise.all([
-          loadOTBTable(hotelId, compDate),
-          loadBookingAnalysis(hotelId),
+          loadOTBTable(hotelId, compDate, futureHorizon),
+          loadBookingAnalysis(hotelId, futureHorizon),
           loadPace(hotelId),
         ]);
         if (!cancelled) {
@@ -469,7 +484,7 @@ export default function PickupReport() {
 
     run();
     return () => { cancelled = true; };
-  }, [hotelId, compDate, ensureSnapshot, loadOTBTable, loadBookingAnalysis, loadPace]);
+  }, [hotelId, compDate, futureHorizon, ensureSnapshot, loadOTBTable, loadBookingAnalysis, loadPace]);
 
   // ── Funções de importação histórica ──────────────────────────────────────────
 
@@ -633,74 +648,81 @@ export default function PickupReport() {
 
       {/* ── Header ── */}
       <div style={{ borderBottom: `1px solid ${cardBdr}`, padding: '1.25rem 2rem', background: headBg, backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 20 }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* Título */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 16px -4px rgba(14,165,233,0.4)', flexShrink: 0 }}>
-              <TrendingUp size={24} color="#fff" />
+          {/* Linha 1: Título + botão histórico + snapshot badge */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 16px -4px rgba(14,165,233,0.4)', flexShrink: 0 }}>
+                <TrendingUp size={24} color="#fff" />
+              </div>
+              <div>
+                <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.8 }}>Pick-up Report</h1>
+                <p style={{ margin: 0, fontSize: 13, color: textSub, fontWeight: 500 }}>
+                  Comparativo de reservas · horizonte de <strong>{futureHorizon} dias</strong>
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b', letterSpacing: -0.8 }}>Pick-up Report</h1>
-              <p style={{ margin: 0, fontSize: 13, color: textSub, fontWeight: 500 }}>Velocidade de reservas · Próximos 90 dias</p>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Snapshot badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.9rem', background: isDark ? 'rgba(30,41,59,0.6)' : '#f1f5f9', borderRadius: 10, fontSize: 12, fontWeight: 600, color: textSub }}>
+                {snapLoading
+                  ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Capturando...</>
+                  : snapTime
+                    ? <><div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981' }} /> Snapshot {snapTime}</>
+                    : <><div style={{ width: 7, height: 7, borderRadius: '50%', background: textMute }} /> Aguardando...</>
+                }
+              </div>
+              {/* Histórico */}
+              <button onClick={() => { setShowImport(true); setImportMsg(null); }}
+                title="Gerenciar e Importar Histórico de OTB"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 10, background: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)', border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`, color: '#8b5cf6', cursor: 'pointer' }}>
+                <History size={18} />
+              </button>
             </div>
           </div>
 
-          {/* Snapshot badge + offset pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {/* Snapshot status */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.5rem 1rem', background: isDark ? 'rgba(30,41,59,0.6)' : '#f1f5f9', borderRadius: 10, fontSize: 12, fontWeight: 600, color: textSub }}>
-              {snapLoading
-                ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Capturando snapshot...</>
-                : snapTime
-                  ? <><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} /> Snapshot: {snapTime}</>
-                  : <><div style={{ width: 8, height: 8, borderRadius: '50%', background: textMute }} /> Aguardando...</>
-              }
-            </div>
+          {/* Linha 2: Filtros lado a lado */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
 
-            {/* Separador */}
-            <div style={{ width: 1, height: 24, background: cardBdr }} />
-
-            {/* Botão Importar Histórico (Icon only) */}
-            <button 
-              onClick={() => { setShowImport(true); setImportMsg(null); }}
-              title="Gerenciar e Importar Histórico de OTB"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: 12, background: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)', border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`, color: '#8b5cf6', cursor: 'pointer', transition: 'all 0.2s' }}
-            >
-              <History size={20} />
-            </button>
-
-            {/* Separador */}
-            <div style={{ width: 1, height: 24, background: cardBdr }} />
-
-            {/* Comparação: pills rápidos + date picker livre */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: textMute, textTransform: 'uppercase', letterSpacing: 0.8 }}>vs</span>
-
-              {/* Quick pills */}
-              <div style={{ display: 'flex', gap: 4, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${cardBdr}`, borderRadius: 12, padding: 4 }}>
-                {QUICK_OFFSETS.map(({ label, days }) => {
+            {/* Bloco COMPARAR COM */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>Comparar com</span>
+              <div style={{ display: 'flex', gap: 3, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.9)', border: `1px solid ${cardBdr}`, borderRadius: 12, padding: 3 }}>
+                {COMP_OFFSETS.map(({ label, days }) => {
                   const target = subDays(todayStr(), days);
                   const active = compDate === target;
                   return (
                     <button key={days} className="pu-offset-pill" onClick={() => setCompDate(target)}
-                      style={{ padding: '0.4rem 0.9rem', borderRadius: 8, background: active ? '#0ea5e9' : 'transparent', color: active ? '#fff' : textSub, fontWeight: 800, fontSize: 13 }}>
+                      style={{ padding: '0.35rem 0.8rem', borderRadius: 9, background: active ? '#0ea5e9' : 'transparent', color: active ? '#fff' : textSub, fontWeight: 700, fontSize: 12 }}>
                       {label}
                     </button>
                   );
                 })}
               </div>
-
               {/* Date picker livre */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.35rem 0.75rem', background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.8)', border: `1px solid ${QUICK_OFFSETS.some(({ days }) => subDays(todayStr(), days) === compDate) ? cardBdr : '#0ea5e9'}`, borderRadius: 10 }}>
-                <CalendarRange size={13} color={QUICK_OFFSETS.some(({ days }) => subDays(todayStr(), days) === compDate) ? textMute : '#0ea5e9'} />
-                <input
-                  type="date"
-                  value={compDate}
-                  max={subDays(todayStr(), 1)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0.3rem 0.7rem', background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.9)', border: `1px solid ${COMP_OFFSETS.some(({ days }) => subDays(todayStr(), days) === compDate) ? cardBdr : '#0ea5e9'}`, borderRadius: 9 }}>
+                <CalendarRange size={12} color={COMP_OFFSETS.some(({ days }) => subDays(todayStr(), days) === compDate) ? textMute : '#0ea5e9'} />
+                <input type="date" value={compDate} max={subDays(todayStr(), 1)}
                   onChange={e => e.target.value && setCompDate(e.target.value)}
-                  style={{ border: 'none', background: 'transparent', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 13, fontWeight: 700, outline: 'none', cursor: 'pointer', width: 130 }}
-                />
+                  style={{ border: 'none', background: 'transparent', color: isDark ? '#f8fafc' : '#1e293b', fontSize: 12, fontWeight: 700, outline: 'none', cursor: 'pointer', width: 120 }} />
+              </div>
+            </div>
+
+            {/* Separador */}
+            <div style={{ width: 1, height: 28, background: cardBdr }} />
+
+            {/* Bloco HORIZONTE FUTURO */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>Horizonte</span>
+              <div style={{ display: 'flex', gap: 3, background: isDark ? 'rgba(15,23,42,0.8)' : 'rgba(255,255,255,0.9)', border: `1px solid ${cardBdr}`, borderRadius: 12, padding: 3 }}>
+                {HORIZON_OPTIONS.map(({ label, days }) => (
+                  <button key={days} className="pu-offset-pill" onClick={() => setFutureHorizon(days)}
+                    style={{ padding: '0.35rem 0.8rem', borderRadius: 9, background: futureHorizon === days ? '#8b5cf6' : 'transparent', color: futureHorizon === days ? '#fff' : textSub, fontWeight: 700, fontSize: 12 }}>
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -779,88 +801,158 @@ export default function PickupReport() {
             </div>
 
             {/* ── Tab: Tabela OTB ── */}
-            {activeTab === 'table' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* Info banner */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.75rem 1.25rem', background: isDark ? 'rgba(14,165,233,0.08)' : 'rgba(14,165,233,0.06)', border: `1px solid ${isDark ? 'rgba(14,165,233,0.2)' : 'rgba(14,165,233,0.15)'}`, borderRadius: 12, fontSize: 12, color: isDark ? '#7dd3fc' : '#0369a1', fontWeight: 500 }}>
-                  <BedDouble size={14} style={{ flexShrink: 0 }} />
-                  <span>
-                    <strong>Passado (Actual):</strong> receita e ADR reais via fetchOccupancyWithPension. &nbsp;
-                    <strong>Futuro (OTB):</strong> quartos confirmados — receita indisponível pelo Erbon para datas futuras.
-                  </span>
-                </div>
+            {activeTab === 'table' && (() => {
+              // Máximo delta absoluto para escalar a barra visual de pick-up
+              const maxDelta = Math.max(1, ...otbRows.map(r => Math.abs(r.deltaRooms)));
+              const compLabel = fmtFullDate(compDate);
 
-                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, overflow: 'hidden' }}>
-                  {otbRows.length === 0 ? (
-                    <div style={{ padding: '4rem', textAlign: 'center', color: textSub }}>
-                      <BedDouble size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
-                      <p style={{ fontWeight: 600, margin: 0 }}>Nenhum dado OTB disponível para hoje.</p>
-                      <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>O snapshot de comparação ({fmtFullDate(compDate)}) pode não existir ainda. Use "Importar Histórico" para alimentar datas anteriores.</p>
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ borderBottom: `1px solid ${cardBdr}` }}>
-                            <th title="Data da noite de hospedagem" style={{ padding: '1rem 1.25rem', textAlign: 'left', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Data Estadia</th>
-                            <th title="Total de quartos ocupados capturados no snapshot de hoje" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>OTB Hoje</th>
-                            <th title="Variação de quartos entre hoje e a data de comparação (Pick-up de quartos)" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ Quartos</th>
-                            <th title="Receita líquida total de hospedagem projetada para esta data" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Receita Hoje</th>
-                            <th title="Variação de receita entre hoje e a data de comparação (Pick-up financeiro)" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ Receita</th>
-                            <th title="Diária média (Receita / Quartos)" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>ADR Hoje</th>
-                            <th title="Variação da diária média entre os dois snapshots" style={{ padding: '1rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ ADR</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {otbRows.map((r, i) => (
-                            <tr key={r.stayDate} className="pu-row"
-                              style={{
-                                borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none',
-                                background: r.isActual
-                                  ? isDark ? 'rgba(16,185,129,0.03)' : 'rgba(16,185,129,0.025)'
-                                  : 'transparent',
-                              }}>
-                              {/* Data + badge Actual / OTB */}
-                              <td style={{ padding: '0.85rem 1.25rem', whiteSpace: 'nowrap' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>{fmtFullDate(r.stayDate)}</span>
-                                  <span style={{
-                                    fontSize: 9, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase',
-                                    padding: '2px 6px', borderRadius: 4,
-                                    background: r.isActual
-                                      ? isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)'
-                                      : isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)',
-                                    color: r.isActual ? '#10b981' : '#0ea5e9',
-                                  }}>
-                                    {r.isActual ? 'Actual' : 'OTB'}
-                                  </span>
-                                </div>
-                              </td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>{r.currentOTB}</td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaCell val={r.deltaRooms} isDark={isDark} /></td>
-                              {/* Receita — mostra para actuals e OTB com valor */}
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentRev > 0 ? (isDark ? '#cbd5e1' : '#475569') : textMute, opacity: r.currentRev > 0 ? 1 : 0.35 }}>
-                                {r.currentRev > 0 ? fmtBRL(r.currentRev) : (r.isActual ? <span style={{ fontSize: 11 }}>Sem dado</span> : '—')}
-                              </td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
-                                {r.deltaRev !== 0 ? <DeltaCell val={r.deltaRev} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
-                              </td>
-                              {/* ADR — mesmo critério */}
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentADR > 0 ? (isDark ? '#94a3b8' : '#64748b') : textMute, opacity: r.currentADR > 0 ? 1 : 0.35 }}>
-                                {r.currentADR > 0 ? fmtBRL(r.currentADR) : '—'}
-                              </td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
-                                {r.deltaADR !== 0 ? <DeltaCell val={r.deltaADR} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
-                              </td>
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Legend */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '0.6rem 1rem', background: isDark ? 'rgba(14,165,233,0.06)' : 'rgba(14,165,233,0.04)', border: `1px solid ${isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)'}`, borderRadius: 10, fontSize: 11.5, color: textSub, fontWeight: 500 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: '#64748b', display: 'inline-block' }} />
+                      <strong style={{ color: isDark ? '#94a3b8' : '#475569' }}>Col. A</strong> — UHs em {compLabel} (snapshot de comparação)
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: '#0ea5e9', display: 'inline-block' }} />
+                      <strong style={{ color: '#0ea5e9' }}>Col. B</strong> — UHs hoje (OTB atual)
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: '#10b981', display: 'inline-block' }} />
+                      <strong style={{ color: '#10b981' }}>Pick-up</strong> — B − A (quartos ganhos/perdidos)
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 3, background: isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)', color: '#10b981' }}>ACTUAL</span>
+                      receita/ADR real &nbsp;|&nbsp;
+                      <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 3, background: isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)', color: '#0ea5e9' }}>OTB</span>
+                      receita indisponível no Erbon para datas futuras
+                    </span>
+                  </div>
+
+                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 24, overflow: 'hidden' }}>
+                    {otbRows.length === 0 ? (
+                      <div style={{ padding: '4rem', textAlign: 'center', color: textSub }}>
+                        <BedDouble size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                        <p style={{ fontWeight: 600, margin: 0 }}>Nenhum dado disponível para hoje.</p>
+                        <p style={{ fontSize: 13, margin: '8px 0 0', opacity: 0.7 }}>
+                          Snapshot de comparação ({compLabel}) pode não existir ainda.
+                          Use "Importar Histórico" para alimentar snapshots anteriores.
+                        </p>
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: `2px solid ${cardBdr}` }}>
+                              {/* Col data */}
+                              <th style={{ padding: '0.9rem 1.25rem', textAlign: 'left', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap' }}>Data Estadia</th>
+                              {/* Col A */}
+                              <th title={`UHs vendidas no snapshot de ${compLabel}`} style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.08)' : 'rgba(203,213,225,0.4)'}`, cursor: 'help' }}>
+                                A · UHs {compLabel}
+                              </th>
+                              {/* Col B */}
+                              <th title="UHs vendidas no snapshot de hoje (OTB atual)" style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>
+                                B · UHs Hoje
+                              </th>
+                              {/* Col Pick-up */}
+                              <th title="Pick-up = B − A. Verde = ganho de reservas, vermelho = perda." style={{ padding: '0.9rem 1.25rem', textAlign: 'left', fontSize: 10, fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>
+                                Pick-up (B−A)
+                              </th>
+                              {/* Receita A → B */}
+                              <th title={`Receita em ${compLabel}`} style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.08)' : 'rgba(203,213,225,0.4)'}`, cursor: 'help' }}>
+                                Rev {compLabel}
+                              </th>
+                              <th title="Receita hoje" style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>
+                                Rev Hoje
+                              </th>
+                              <th title="Variação de receita" style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ Rev</th>
+                              {/* ADR */}
+                              <th title="ADR hoje" style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.08)' : 'rgba(203,213,225,0.4)'}`, cursor: 'help' }}>ADR</th>
+                              <th title="Variação de ADR" style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontSize: 10, fontWeight: 800, color: textMute, textTransform: 'uppercase', letterSpacing: 1.2, whiteSpace: 'nowrap', cursor: 'help' }}>Δ ADR</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                          </thead>
+                          <tbody>
+                            {otbRows.map((r, i) => {
+                              const barPct  = Math.min(100, (Math.abs(r.deltaRooms) / maxDelta) * 100);
+                              const barColor = r.deltaRooms > 0 ? '#10b981' : r.deltaRooms < 0 ? '#f43f5e' : '#64748b';
+                              return (
+                                <tr key={r.stayDate} className="pu-row"
+                                  style={{
+                                    borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.25)'}` : 'none',
+                                    background: r.isActual
+                                      ? isDark ? 'rgba(16,185,129,0.025)' : 'rgba(16,185,129,0.02)'
+                                      : 'transparent',
+                                  }}>
+                                  {/* Data + badge */}
+                                  <td style={{ padding: '0.8rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                      <span style={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>{fmtFullDate(r.stayDate)}</span>
+                                      <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase', padding: '2px 5px', borderRadius: 3,
+                                        background: r.isActual ? (isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)') : (isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)'),
+                                        color: r.isActual ? '#10b981' : '#0ea5e9' }}>
+                                        {r.isActual ? 'Actual' : 'OTB'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  {/* A — UHs antigo */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` }}>
+                                    {r.comparisonOTB > 0 ? r.comparisonOTB : <span style={{ opacity: 0.3 }}>—</span>}
+                                  </td>
+                                  {/* B — UHs hoje */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#e0f2fe' : '#0369a1' }}>
+                                    {r.currentOTB}
+                                  </td>
+                                  {/* Pick-up barra visual */}
+                                  <td style={{ padding: '0.8rem 1.25rem', minWidth: 160 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      {/* Número */}
+                                      <span style={{ fontWeight: 900, color: barColor, fontSize: 14, minWidth: 32, textAlign: 'right' }}>
+                                        {r.deltaRooms > 0 ? `+${r.deltaRooms}` : r.deltaRooms < 0 ? `${r.deltaRooms}` : '0'}
+                                      </span>
+                                      {/* Barra */}
+                                      <div style={{ flex: 1, height: 6, background: isDark ? 'rgba(148,163,184,0.1)' : '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${barPct}%`, background: barColor, borderRadius: 4, transition: 'width 0.6s ease' }} />
+                                      </div>
+                                      {/* Ícone */}
+                                      {r.deltaRooms > 0
+                                        ? <TrendingUp size={13} color="#10b981" />
+                                        : r.deltaRooms < 0
+                                          ? <TrendingDown size={13} color="#f43f5e" />
+                                          : <Minus size={13} color="#64748b" />}
+                                    </div>
+                                  </td>
+                                  {/* Rev A */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b', fontSize: 12, borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}`, opacity: r.comparisonRev > 0 ? 1 : 0.3 }}>
+                                    {r.comparisonRev > 0 ? fmtBRL(r.comparisonRev) : '—'}
+                                  </td>
+                                  {/* Rev B */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: isDark ? '#bae6fd' : '#0284c7', fontSize: 12, opacity: r.currentRev > 0 ? 1 : 0.3 }}>
+                                    {r.currentRev > 0 ? fmtBRL(r.currentRev) : (r.isActual ? <span style={{ fontSize: 10 }}>Sem dado</span> : '—')}
+                                  </td>
+                                  {/* Δ Rev */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right' }}>
+                                    {r.deltaRev !== 0 ? <DeltaCell val={r.deltaRev} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
+                                  </td>
+                                  {/* ADR hoje */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: r.currentADR > 0 ? '#8b5cf6' : textMute, fontSize: 12, borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}`, opacity: r.currentADR > 0 ? 1 : 0.3 }}>
+                                    {r.currentADR > 0 ? fmtBRL(r.currentADR) : '—'}
+                                  </td>
+                                  {/* Δ ADR */}
+                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right' }}>
+                                    {r.deltaADR !== 0 ? <DeltaCell val={r.deltaADR} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ── Tab: Janela de Reserva ── */}
             {activeTab === 'window' && (
