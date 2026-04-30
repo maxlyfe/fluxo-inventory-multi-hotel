@@ -141,6 +141,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { authListener?.subscription.unsubscribe(); };
   }, []);
 
+  // Realtime — recarrega perfil automaticamente quando o role/custom_role_id muda no banco
+  // Elimina a necessidade de re-login após o admin atribuir ou alterar um perfil de acesso
+  useEffect(() => {
+    if (!user?.id) return;
+    const userId = user.id;
+
+    const channel = supabase
+      .channel(`profile-watch:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        async () => {
+          console.info('[Auth] Perfil alterado no banco — recarregando permissões...');
+          const { profile, isCompat: compatResult } = await fetchProfile(userId);
+          setUser(prev => (prev ? { ...prev, ...profile } : null));
+          setIsCompat(compatResult);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id]);
+
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
