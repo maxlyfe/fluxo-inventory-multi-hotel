@@ -58,6 +58,23 @@ const handler: Handler = async (event: HandlerEvent) => {
   const erbonPath = event.headers['x-erbon-path'];
   const erbonBase = sanitizeBaseUrl(event.headers['x-erbon-base-url']);
 
+  // SEGURANÇA: Validação de SSRF
+  // Garante que o proxy só chame domínios oficiais da Erbon
+  try {
+    const parsedBase = new URL(erbonBase);
+    if (!parsedBase.hostname.endsWith('erbonsoftware.com')) {
+      return {
+        statusCode: 403,
+        body: JSON.stringify({ error: 'Forbidden: Target domain not allowed' }),
+      };
+    }
+  } catch (e) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Invalid x-erbon-base-url' }),
+    };
+  }
+
   if (!erbonPath) {
     return {
       statusCode: 400,
