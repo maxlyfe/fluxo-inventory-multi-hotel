@@ -10,7 +10,7 @@ import { useHotel } from '../../context/HotelContext';
 import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
   Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2, Pencil,
-  Trash2, ChevronDown, ChevronUp, Settings2, ArrowUp, ArrowDown, Plus,
+  Trash2, ChevronDown, ChevronUp, Settings2, ArrowUp, ArrowDown, Plus, Lock, LockOpen,
 } from 'lucide-react';
 import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -1109,6 +1109,11 @@ export default function DPSchedule() {
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
   const [error, setError]             = useState('');
+  // Cadeado: semana atual e passadas são somente-leitura por padrão.
+  // weekUnlocked é volátil — reset sempre que a semana muda ou a página recarrega.
+  const [weekUnlocked, setWeekUnlocked] = useState(false);
+  const isPastOrCurrentWeek = weekStart.getTime() <= getWeekSunday(new Date()).getTime();
+  const isLocked = isPastOrCurrentWeek && !weekUnlocked;
 
   const [cellEditor, setCellEditor]   = useState<{
     empId: string; dayDate: string; sector: string; entry: ScheduleEntry | null;
@@ -1182,6 +1187,9 @@ export default function DPSchedule() {
   }, [weekStart, hotelId]);
 
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
+
+  // Fecha o cadeado sempre que trocar de semana
+  useEffect(() => { setWeekUnlocked(false); }, [weekStart]);
 
   // ---------------------------------------------------------------------------
   const getEntry = (empId: string, day: string) =>
@@ -1365,6 +1373,25 @@ export default function DPSchedule() {
           Semana atual
         </button>
 
+        {/* Cadeado — visível apenas para semana atual e passadas */}
+        {isPastOrCurrentWeek && (
+          <button
+            onClick={() => setWeekUnlocked(u => !u)}
+            title={isLocked
+              ? 'Semana protegida contra edição acidental. Clique para desbloquear temporariamente.'
+              : 'Edição desbloqueada. Clique para voltar a proteger.'}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+              isLocked
+                ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30'
+                : 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30'
+            }`}>
+            {isLocked
+              ? <Lock className="h-3.5 w-3.5" />
+              : <LockOpen className="h-3.5 w-3.5" />}
+            {isLocked ? 'Protegida' : 'Desbloqueada'}
+          </button>
+        )}
+
         {canChangeHotel && hotels.length > 1 && (
           <div className="relative">
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
@@ -1469,9 +1496,11 @@ export default function DPSchedule() {
                       <td className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-100 dark:border-gray-700 group">
                         <div className="flex items-center gap-1">
                           <span
-                            onClick={() => setAutoFillEmp(emp)}
-                            title={emp.name}
-                            className="font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors text-xs cursor-pointer">
+                            onClick={() => { if (!isLocked) setAutoFillEmp(emp); }}
+                            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : emp.name}
+                            className={`font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap transition-colors text-xs ${
+                              isLocked ? 'cursor-not-allowed opacity-60' : 'group-hover:text-blue-600 dark:group-hover:text-blue-400 cursor-pointer'
+                            }`}>
                             {emp.name.split(' ')[0]}&nbsp;
                             <span className="text-gray-400 font-normal">
                               {emp.name.split(' ').slice(1, 2).join('')?.charAt(0) || ''}.
@@ -1504,9 +1533,10 @@ export default function DPSchedule() {
                         const isSun   = di === 0 || di === 7;
                         return (
                           <td key={di}
-                            onClick={e => openCell(e, emp.id, dayStr, emp.sector)}
-                            className={`px-1 py-2 text-center cursor-pointer select-none transition-all
-                              hover:ring-2 hover:ring-inset hover:ring-blue-400 relative
+                            onClick={e => { if (!isLocked) openCell(e, emp.id, dayStr, emp.sector); }}
+                            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : undefined}
+                            className={`px-1 py-2 text-center select-none transition-all relative
+                              ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-blue-400'}
                               ${isToday ? 'bg-blue-50/30 dark:bg-blue-900/10' : isSun ? 'bg-gray-50/60 dark:bg-gray-900/20' : ''}
                               ${style.bg}
                             `}>
