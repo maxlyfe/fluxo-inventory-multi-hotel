@@ -10,7 +10,7 @@ import { useHotel } from '../../context/HotelContext';
 import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
   Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2, Pencil,
-  Trash2, ChevronDown, ChevronUp, Settings2, ArrowUp, ArrowDown, Plus, Lock, LockOpen,
+  Trash2, ChevronDown, ChevronUp, Settings2, ArrowUp, ArrowDown, Plus, Lock, Unlock,
 } from 'lucide-react';
 import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -1387,7 +1387,7 @@ export default function DPSchedule() {
             }`}>
             {isLocked
               ? <Lock className="h-3.5 w-3.5" />
-              : <LockOpen className="h-3.5 w-3.5" />}
+              : <Unlock className="h-3.5 w-3.5" />}
             {isLocked ? 'Protegida' : 'Desbloqueada'}
           </button>
         )}
