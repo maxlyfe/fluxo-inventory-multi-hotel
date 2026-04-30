@@ -23,6 +23,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 interface OTBRow {
   stayDate:      string;
+  isActual:      boolean; // true = data passada com receita real, false = OTB futuro
   currentOTB:    number;
   comparisonOTB: number;
   deltaRooms:    number;
@@ -234,13 +235,13 @@ export default function PickupReport() {
       return false; // já existia
     }
 
-    const endDate = addDays(today, 90);
-    const otbData = await erbonService.fetchOTB(hId, today, endDate);
-    if (!otbData.length) return false;
+    // ── 1. OTB futuro: próximos 90 dias ──────────────────────────────────────
+    const endDate  = addDays(today, 90);
+    const otbData  = await erbonService.fetchOTB(hId, today, endDate);
 
-    const rows = otbData.map(d => {
+    const futureRows = otbData.map(d => {
       const rooms = (d.totalRoomsDeductedTransient ?? 0) + (d.totalRoomsDeductedBlocks ?? 0);
-      const rev   = (d.netRoomRevenueTransient ?? 0) + (d.netRoomRevenueBlocks ?? 0);
+      const rev   = (d.netRoomRevenueTransient   ?? 0) + (d.netRoomRevenueBlocks   ?? 0);
       return {
         hotel_id:         hId,
         snapshot_date:    today,
@@ -251,29 +252,58 @@ export default function PickupReport() {
       };
     });
 
+    // ── 2. Actuals passados: últimos 30 dias via fetchOccupancyWithPension ───
+    // totalDailyRate = receita líquida de quartos; adr já calculado pela API
+    const pastStart = subDays(today, 30);
+    const pastEnd   = subDays(today, 1); // ontem (hoje ainda está a acontecer)
+    let pastRows: typeof futureRows = [];
+    try {
+      const occData = await erbonService.fetchOccupancyWithPension(hId, pastStart, pastEnd);
+      pastRows = occData.map(o => {
+        const stayDate = o.date.split('T')[0];
+        const rooms    = o.roomSalledConfirmed ?? 0;
+        const rev      = o.totalDailyRate      ?? 0; // receita de quartos (sem F&B)
+        const adr      = rooms > 0 ? rev / rooms : (o.adr ?? 0);
+        return {
+          hotel_id:         hId,
+          snapshot_date:    today,
+          stay_date:        stayDate,
+          rooms_otb:        rooms,
+          net_room_revenue: rev,
+          adr,
+        };
+      });
+    } catch {
+      // Actuals indisponíveis — snapshot só com futuro
+    }
+
+    const allRows = [...pastRows, ...futureRows];
+    if (!allRows.length) return false;
+
     const { error: upsErr } = await supabase
       .from('diretoria_pickup_snapshots')
-      .upsert(rows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
+      .upsert(allRows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
     if (upsErr) throw upsErr;
 
     setSnapTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-    return true; // capturado agora
+    return true;
   }, []);
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
   const loadOTBTable = useCallback(async (hId: string, cDate: string): Promise<OTBRow[]> => {
-    const today = todayStr();
+    const today    = todayStr();
+    const from30   = subDays(today, 30); // janela: 30 dias passados + 90 futuros
 
     const [{ data: todaySnap, error: e1 }, { data: compSnap, error: e2 }] = await Promise.all([
       supabase.from('diretoria_pickup_snapshots')
         .select('stay_date,rooms_otb,net_room_revenue,adr')
         .eq('hotel_id', hId).eq('snapshot_date', today)
-        .gte('stay_date', today).order('stay_date'),
+        .gte('stay_date', from30).order('stay_date'),
       supabase.from('diretoria_pickup_snapshots')
         .select('stay_date,rooms_otb,net_room_revenue,adr')
         .eq('hotel_id', hId).eq('snapshot_date', cDate)
-        .gte('stay_date', today).order('stay_date'),
+        .gte('stay_date', from30).order('stay_date'),
     ]);
     if (e1) throw e1;
     if (e2) throw e2;
@@ -284,6 +314,7 @@ export default function PickupReport() {
       const c: any = compMap.get(r.stay_date) ?? { rooms_otb: 0, net_room_revenue: 0, adr: 0 };
       return {
         stayDate:      r.stay_date,
+        isActual:      r.stay_date < today, // ontem ou antes → actual real
         currentOTB:    r.rooms_otb,
         comparisonOTB: c.rooms_otb,
         deltaRooms:    r.rooms_otb - c.rooms_otb,
@@ -754,7 +785,8 @@ export default function PickupReport() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.75rem 1.25rem', background: isDark ? 'rgba(14,165,233,0.08)' : 'rgba(14,165,233,0.06)', border: `1px solid ${isDark ? 'rgba(14,165,233,0.2)' : 'rgba(14,165,233,0.15)'}`, borderRadius: 12, fontSize: 12, color: isDark ? '#7dd3fc' : '#0369a1', fontWeight: 500 }}>
                   <BedDouble size={14} style={{ flexShrink: 0 }} />
                   <span>
-                    O endpoint OTB do Erbon retorna receita apenas para datas passadas (actuals). Para datas futuras, a tabela exibe quartos confirmados — a métrica principal de pick-up.
+                    <strong>Passado (Actual):</strong> receita e ADR reais via fetchOccupancyWithPension. &nbsp;
+                    <strong>Futuro (OTB):</strong> quartos confirmados — receita indisponível pelo Erbon para datas futuras.
                   </span>
                 </div>
 
@@ -781,17 +813,40 @@ export default function PickupReport() {
                         </thead>
                         <tbody>
                           {otbRows.map((r, i) => (
-                            <tr key={r.stayDate} className="pu-row" style={{ borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none' }}>
-                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', whiteSpace: 'nowrap' }}>{fmtFullDate(r.stayDate)}</td>
+                            <tr key={r.stayDate} className="pu-row"
+                              style={{
+                                borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` : 'none',
+                                background: r.isActual
+                                  ? isDark ? 'rgba(16,185,129,0.03)' : 'rgba(16,185,129,0.025)'
+                                  : 'transparent',
+                              }}>
+                              {/* Data + badge Actual / OTB */}
+                              <td style={{ padding: '0.85rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>{fmtFullDate(r.stayDate)}</span>
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase',
+                                    padding: '2px 6px', borderRadius: 4,
+                                    background: r.isActual
+                                      ? isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)'
+                                      : isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)',
+                                    color: r.isActual ? '#10b981' : '#0ea5e9',
+                                  }}>
+                                    {r.isActual ? 'Actual' : 'OTB'}
+                                  </span>
+                                </div>
+                              </td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#f8fafc' : '#1e293b' }}>{r.currentOTB}</td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}><DeltaCell val={r.deltaRooms} isDark={isDark} /></td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentRev > 0 ? (isDark ? '#cbd5e1' : '#475569') : textMute, opacity: r.currentRev > 0 ? 1 : 0.4 }}>
-                                {r.currentRev > 0 ? fmtBRL(r.currentRev) : '—'}
+                              {/* Receita — mostra para actuals e OTB com valor */}
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentRev > 0 ? (isDark ? '#cbd5e1' : '#475569') : textMute, opacity: r.currentRev > 0 ? 1 : 0.35 }}>
+                                {r.currentRev > 0 ? fmtBRL(r.currentRev) : (r.isActual ? <span style={{ fontSize: 11 }}>Sem dado</span> : '—')}
                               </td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
                                 {r.deltaRev !== 0 ? <DeltaCell val={r.deltaRev} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
                               </td>
-                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentADR > 0 ? (isDark ? '#94a3b8' : '#64748b') : textMute, opacity: r.currentADR > 0 ? 1 : 0.4 }}>
+                              {/* ADR — mesmo critério */}
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: 800, color: r.currentADR > 0 ? (isDark ? '#94a3b8' : '#64748b') : textMute, opacity: r.currentADR > 0 ? 1 : 0.35 }}>
                                 {r.currentADR > 0 ? fmtBRL(r.currentADR) : '—'}
                               </td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
