@@ -207,15 +207,37 @@ await supabase.rpc('decrement_sector_stock', {
 ---
 
 ### Padrao de CRUD
+... (existente) ...
+- Sempre try/catch com mensagem de erro para o usuario via `sanitizeError(err)`
+
+### Tratamento de Erros (Sanitização)
+**CRÍTICO**: Nunca exiba mensagens técnicas brutas do banco de dados ou APIs para o usuário final. Isso evita o vazamento de informações da infraestrutura (Info Leakage).
+
+**Regra**:
+1. Use o utilitário `src/utils/errorHandler.ts`.
+2. Envolva chamadas assíncronas em `try/catch`.
+3. No Toast ou Alerta, passe o erro pela função `sanitizeError`.
+
+**Exemplo Errado (Proibido)**:
+```tsx
+} catch (err: any) {
+  addNotification(err.message, 'error'); // Expõe detalhes técnicos
+}
+```
+
+**Exemplo Correto (Obrigatório)**:
+```tsx
+import { sanitizeError } from '../utils/errorHandler';
 ...
-- Modal generico `<Modal>` para formularios
-- Toast notification via `addNotification('Mensagem', 'success' | 'error')`
-- Loading state com spinner durante operacoes
-- Sempre try/catch com mensagem de erro para o usuario
+} catch (err: any) {
+  addNotification(sanitizeError(err), 'error'); // Mensagem amigável e segura
+}
+```
 
 ---
 
-## 7. Banco de Dados (Supabase)
+### Banco de Dados (Supabase)
+...
 
 ### Convencoes de Tabelas
 - UUID primary key: `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`

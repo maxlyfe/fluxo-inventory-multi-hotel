@@ -2,6 +2,7 @@
 // Serviço de integração com a API Erbon PMS
 
 import { supabase } from './supabase';
+import { sanitizeError } from '../utils/errorHandler';
 
 // Em dev, usa proxy do Vite. Em prod, usa Netlify Function para evitar CORS.
 const ERBON_PROXY_PREFIX = '/erbon-api';
@@ -414,28 +415,32 @@ export const erbonService = {
   },
 
   async getToken(hotelId: string, forceRefresh = false): Promise<string> {
-    if (!forceRefresh) {
-      const cached = tokenCache.get(hotelId);
-      if (cached && Date.now() < cached.expiresAt) {
-        return cached.token;
-      }
-    }
-
-    const config = await this.getConfig(hotelId);
-    if (!config) throw new Error('Configuração Erbon não encontrada para este hotel');
-    if (!config.is_active) throw new Error('Integração Erbon desativada para este hotel');
-
-    const token = await this.authenticate(config);
-
-    // Extrair exp real do JWT para não cachear além da validade do token
-    let expiresAt = Date.now() + TOKEN_LIFETIME_MS;
     try {
-      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-      if (payload.exp) expiresAt = (payload.exp * 1000) - (5 * 60 * 1000); // 5min antes do exp real
-    } catch { /* usa o padrão 23h se não conseguir decodificar */ }
+      if (!forceRefresh) {
+        const cached = tokenCache.get(hotelId);
+        if (cached && Date.now() < cached.expiresAt) {
+          return cached.token;
+        }
+      }
 
-    tokenCache.set(hotelId, { token, expiresAt });
-    return token;
+      const config = await this.getConfig(hotelId);
+      if (!config) throw new Error('Configuração Erbon não encontrada para este hotel');
+      if (!config.is_active) throw new Error('Integração Erbon desativada para este hotel');
+
+      const token = await this.authenticate(config);
+
+      // Extrair exp real do JWT para não cachear além da validade do token
+      let expiresAt = Date.now() + TOKEN_LIFETIME_MS;
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        if (payload.exp) expiresAt = (payload.exp * 1000) - (5 * 60 * 1000); // 5min antes do exp real
+      } catch { /* usa o padrão 23h se não conseguir decodificar */ }
+
+      tokenCache.set(hotelId, { token, expiresAt });
+      return token;
+    } catch (err: any) {
+      throw new Error(sanitizeError(err));
+    }
   },
 
   // ── Test Connection ─────────────────────────────────────────────────────
@@ -1157,20 +1162,24 @@ export const erbonService = {
   // ── OTB (On The Books) ────────────────────────────────────────────────
 
   async fetchOTB(hotelId: string, dateFrom: string, dateTo: string): Promise<ErbonOTB[]> {
-    const config = await this.getConfig(hotelId);
-    if (!config) throw new Error('Configuração Erbon não encontrada');
-    const token = await this.getToken(hotelId);
-    const path = `/hotel/${config.erbon_hotel_id}/sales/otb`;
-    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'dateFrom': dateFrom,
-        'dateTo': dateTo,
-        ...proxyHeaders(config.erbon_base_url, path),
-      },
-    });
-    if (!res.ok) throw new Error(`Erro ao buscar OTB (${res.status})`);
-    return await res.json();
+    try {
+      const config = await this.getConfig(hotelId);
+      if (!config) throw new Error('Configuração Erbon não encontrada');
+      const token = await this.getToken(hotelId);
+      const path = `/hotel/${config.erbon_hotel_id}/sales/otb`;
+      const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'dateFrom': dateFrom,
+          'dateTo': dateTo,
+          ...proxyHeaders(config.erbon_base_url, path),
+        },
+      });
+      if (!res.ok) throw new Error(`Erro ao buscar OTB (${res.status})`);
+      return await res.json();
+    } catch (err: any) {
+      throw new Error(sanitizeError(err));
+    }
   },
 
   // ── Occupancy with Pension ────────────────────────────────────────────
