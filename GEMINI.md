@@ -175,18 +175,39 @@ value={item.quantity_display ?? String(item.quantity)}
 - **Moeda**: `useFormatters().formatCurrency(value)` → `R$ 1.234,56`
 - **Data**: Formato `dd/mm/yyyy` (pt-BR)
 - **Porcentagem**: `10,00%` com virgula
-
 ### Padrao de Queries Supabase
-```ts
-const { data, error } = await supabase
-  .from('tabela')
-  .select('campos')
-  .eq('hotel_id', selectedHotel.id)
-  .order('nome');
-if (error) throw error;
+... (existente) ...
+
+### Operações de Estoque (Atomicidade)
+**CRÍTICO**: Nunca calcule o novo saldo de estoque no Frontend e envie via `.update()`. Isso causa "Race Conditions" onde um desconto sobrescreve o outro.
+
+**Regra**:
+1. Toda alteração de estoque (baixa, entrada, transferência) deve ser feita via função RPC no banco de dados.
+2. O Frontend envia apenas a **quantidade a ser alterada** (o delta), nunca o saldo final.
+3. Use a função `decrement_sector_stock` ou `increment_sector_stock`.
+
+**Exemplo Errado (Proibido)**:
+```tsx
+// Errado: Risco de duplicidade e erro de saldo
+const novoSaldo = disponivel - digitado;
+await supabase.from('sector_stock').update({ quantity: novoSaldo })...
 ```
 
+**Exemplo Correto (Obrigatório)**:
+```tsx
+// Correto: O banco resolve a fila de processamento
+await supabase.rpc('decrement_sector_stock', {
+  p_hotel_id: hotel.id,
+  p_sector_id: setor.id,
+  p_product_id: produto.id,
+  p_quantity: digitado
+});
+```
+
+---
+
 ### Padrao de CRUD
+...
 - Modal generico `<Modal>` para formularios
 - Toast notification via `addNotification('Mensagem', 'success' | 'error')`
 - Loading state com spinner durante operacoes

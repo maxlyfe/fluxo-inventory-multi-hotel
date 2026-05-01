@@ -864,18 +864,18 @@ const SectorStock = () => {
         : '';
 
       for (const item of itemsToTransfer) {
-        // 1. Desconta do setor de origem
-        const { error: srcError } = await supabase
-          .from('sector_stock')
-          .update({ quantity: item.availableQty - item.qty, updated_at: new Date().toISOString() })
-          .eq('hotel_id', selectedHotel!.id)
-          .eq('sector_id', sectorId!)
-          .eq('product_id', item.productId);
+        // 1. Desconta do setor de origem DE FORMA ATÔMICA
+        const { error: srcError } = await supabase.rpc('decrement_sector_stock', {
+          p_hotel_id:   selectedHotel!.id,
+          p_sector_id:  sectorId!,
+          p_product_id: item.productId,
+          p_quantity:   item.qty,
+        });
 
         if (srcError) throw new Error(`Erro ao descontar "${item.productName}": ${srcError.message}`);
 
         if (isInterHotel) {
-          // 2a. Inter-hotel: soma no setor do hotel destino
+          // 2a. Inter-hotel: soma no setor do hotel destino (Já usa RPC atômico)
           const { error: dstError } = await supabase.rpc('update_sector_stock_on_delivery', {
             p_hotel_id: transferDestHotel,
             p_sector_id: transferDestSector,
