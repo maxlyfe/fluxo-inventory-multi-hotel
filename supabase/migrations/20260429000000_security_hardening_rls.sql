@@ -12,7 +12,12 @@ RETURNS boolean AS $$
     SELECT 1 FROM public.profiles p
     LEFT JOIN public.custom_roles r ON p.custom_role_id = r.id
     WHERE p.id = auth.uid() 
-    AND (r.name ILIKE '%admin%' OR r.name ILIKE '%dev%' OR p.role IN ('admin', 'dev'))
+    AND (
+      r.name ILIKE '%admin%' 
+      OR r.name ILIKE '%dev%' 
+      OR p.role = 'admin' 
+      OR p.role = 'dev'
+    )
   );
 $$ LANGUAGE sql SECURITY DEFINER;
 
