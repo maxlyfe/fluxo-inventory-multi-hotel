@@ -234,20 +234,6 @@ const SectorStock = () => {
     }
   });
 
-  // ── Sincronização em Tempo Real ──────────────────────────────────────────
-  useRealtimeSubscription('sector_stock', `hotel_id=eq.${selectedHotel?.id}`, (payload) => {
-    if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-      const updatedItem = payload.new as any;
-      if (updatedItem.sector_id === sectorId) {
-        setProducts(prev => prev.map(p => 
-          p.id === updatedItem.product_id 
-            ? { ...p, quantity: updatedItem.quantity } 
-            : p
-        ));
-      }
-    }
-  });
-
   // As funções de busca de dados (fetchSectorAndStockData, etc.) permanecem as mesmas
   const fetchSectorAndStockData = useCallback(async () => {
     try {
@@ -775,6 +761,7 @@ const SectorStock = () => {
 
     setIsUpdatingStock(true);
     try {
+      const oldQuantity = productToEdit.quantity;
       const { error: updateError } = await supabase
         .from('sector_stock')
         .update({
@@ -791,6 +778,17 @@ const SectorStock = () => {
         .eq('product_id', productToEdit.id);
 
       if (updateError) throw updateError;
+
+      // Registrar log da alteração manual
+      await supabase.rpc('log_action', {
+        p_hotel_id: selectedHotel.id,
+        p_table_name: 'sector_stock',
+        p_record_id: `${sectorId}:${productToEdit.id}`,
+        p_action: 'UPDATE_MANUAL',
+        p_old_data: { quantity: oldQuantity },
+        p_new_data: { quantity: quantity },
+        p_notes: `Ajuste manual de estoque no setor ${sector?.name || ''}`
+      });
 
       addNotification(`Estoque de "${productToEdit.name}" atualizado com sucesso!`, 'success');
       setShowEditModal(false);
@@ -1033,72 +1031,65 @@ const SectorStock = () => {
   if (!sector) return <div className="p-6 text-center">Setor não encontrado.</div>;
 
   return (
-    <div className="container mx-auto p-4 md:p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
-      {/* O cabeçalho e a seção de porcionamento permanecem os mesmos */}
-      <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
-        <button onClick={() => navigate(-1)} className="flex items-center text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 self-start sm:self-center">
-          <ArrowLeft size={20} className="mr-1" /> Voltar
-        </button>
-        <div className="text-center flex-grow">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">Estoque: {sector.name}</h1>
-          {seasonInfo && (
-            <span className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-              seasonInfo.season === 'alta'
-                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400'
-                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
-            }`}>
-              {seasonInfo.season === 'alta' ? '\u2600\uFE0F' : '\u2744\uFE0F'} Temporada {seasonInfo.season}
-              {seasonInfo.source === 'auto' && seasonInfo.occupancyAvg != null && (
-                <span className="font-normal ml-1">({seasonInfo.occupancyAvg}% ocup.)</span>
-              )}
-            </span>
-          )}
+    <div className="max-w-full mx-auto p-3 sm:p-6 bg-slate-50 dark:bg-slate-950 min-h-screen space-y-4 overflow-x-hidden">
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <button onClick={() => navigate(-1)} 
+            className="flex items-center justify-center w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all shadow-sm shrink-0">
+            <ArrowLeft size={18} />
+          </button>
+          
+          <div className="text-center min-w-0 flex-1">
+            <h1 className="text-lg sm:text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight truncate">
+              {sector.name}
+            </h1>
+            {seasonInfo && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                seasonInfo.season === 'alta'
+                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400'
+                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+              }`}>
+                {seasonInfo.season === 'alta' ? '☀️' : '❄️'} {seasonInfo.season}
+              </span>
+            )}
+          </div>
+
+          <div className="w-9 h-9 shrink-0" /> {/* Spacer for balance */}
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
-          <button 
-            onClick={() => setShowAddInventoryItemModal(true)}
-            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
-          >
-            <Plus size={18} className="mr-2"/> Adicionar do Inventário
+
+        {/* ── AÇÕES RÁPIDAS (Horizontal Scroll) ────────────────────────────── */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar -mx-3 px-3 snap-x snap-mandatory">
+          <button onClick={() => setShowAddInventoryItemModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
+            <Plus size={14}/> Adicionar
           </button>
-          <button
-            onClick={() => setShowNewProductModal(true)}
-            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-orange-500 hover:bg-orange-600 text-white transition-colors"
-          >
-            <Plus size={18} className="mr-2"/> Criar Novo Item
+          <button onClick={() => setShowNewProductModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white shadow-sm shadow-orange-500/20 shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
+            <Plus size={14}/> Criar Novo
           </button>
-          <button 
-            onClick={() => setShowConferenceModal(true)}
-            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
-          >
-            <ListChecks size={18} className="mr-2"/> Conferência
+          <button onClick={() => setShowConferenceModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-slate-700 text-white shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
+            <ListChecks size={14}/> Conferência
           </button>
-          <button
-            onClick={openTransferModal}
-            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-teal-600 hover:bg-teal-700 text-white transition-colors"
-          >
-            <ArrowRightLeft size={18} className="mr-2"/> Transferir
+          <button onClick={openTransferModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
+            <ArrowRightLeft size={14}/> Transferir
           </button>
-          <button 
-            onClick={() => setShowCountHistoryModal(true)}
-            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-gray-600 hover:bg-gray-700 text-white transition-colors"
-          >
-            <History size={18} className="mr-2"/> Histórico Conf.
+          <button onClick={() => { setSalesDeductionResult(null); setShowSalesDeductionModal(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
+            <ArrowDownLeft size={14}/> Vendas
           </button>
-          <button
-            onClick={() => { setSalesDeductionResult(null); setShowSalesDeductionModal(true); }}
-            className="w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white transition-colors"
-          >
-            <ArrowDownLeft size={18} className="mr-2"/> Atualizar Vendas
+          <button onClick={() => setShowCountHistoryModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
+            <History size={14}/> Histórico
           </button>
-          <button 
-            onClick={() => setIsBalancing(prev => !prev ? (startBalanceProcess(), true) : false)}
-            className={`w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center transition-colors ${
-              isBalancing ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'
-            }`}
-          >
-            {isBalancing ? <X size={18} className="mr-2"/> : <CalendarCheck size={18} className="mr-2"/>}
-            {isBalancing ? 'Cancelar Balanço' : 'Realizar Balanço'}
+          <button onClick={() => setIsBalancing(prev => !prev ? (startBalanceProcess(), true) : false)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start transition-colors ${
+              isBalancing ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'
+            }`}>
+            {isBalancing ? <X size={14}/> : <CalendarCheck size={14}/>}
+            {isBalancing ? 'Cancelar' : 'Balanço'}
           </button>
         </div>
       </div>
