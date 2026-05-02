@@ -398,13 +398,13 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
 
             <NotificationBell />
 
-            {/* ── Menu mobile (hamburguer) ─────────────────────────────── */}
+            {/* ── Menu mobile (hamburguer) — agora abre a Sidebar ──────────────── */}
             <button
               className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hidden transition-colors"
-              onClick={() => setMobileMenuOpen(prev => !prev)}
+              onClick={onMenuToggle}
             >
               <span className="sr-only">Abrir menu</span>
-              {mobileMenuOpen ? <XIcon className="h-5 w-5" /> : <MenuIconLucide className="h-5 w-5" />}
+              <MenuIconLucide className="h-5 w-5" />
             </button>
 
             {/* ── Avatar dropdown (desktop) ────────────────────────────── */}
