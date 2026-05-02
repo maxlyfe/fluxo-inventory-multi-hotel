@@ -502,6 +502,150 @@ const Inventory = () => {
     activeProducts.reduce((sum, p) => sum + ((p.average_price || 0) * p.quantity), 0),
   [activeProducts]);
 
+  // ─ Render Helpers ──────────────────────────────────────────────────────────
+  const EmptyState = ({ onAction }: { onAction: () => void }) => (
+    <div className="flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500 py-16">
+      <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+        <Package className="w-7 h-7" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Nenhum produto encontrado</p>
+        <p className="text-xs mt-0.5">Tente ajustar os filtros ou a busca</p>
+      </div>
+      <button onClick={onAction}
+        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium text-sm hover:bg-blue-700 transition-colors mt-1">
+        <Plus className="w-4 h-4" /> Adicionar primeiro item
+      </button>
+    </div>
+  );
+
+  const renderRow = (product: Product) => {
+    const isLowStock = product.is_active && product.quantity <= product.min_quantity;
+    return (
+      <tr key={product.id}
+        className={`group transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40
+          ${!product.is_active ? 'opacity-50' : ''}
+          ${isLowStock ? 'bg-amber-50/40 dark:bg-amber-900/5 hover:bg-amber-50 dark:hover:bg-amber-900/10' : ''}`}>
+
+        {/* Star */}
+        <td className="pl-3 py-3 text-center">
+          <button onClick={e => handleToggleStar(e, product.id, !!product.is_starred)}
+            className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            title={product.is_starred ? 'Remover dos principais' : 'Adicionar aos principais'}>
+            <Star className={`w-4 h-4 transition-colors ${product.is_starred ? 'text-amber-400 fill-current' : 'text-slate-300 dark:text-slate-600 group-hover:text-amber-300'}`} />
+          </button>
+        </td>
+
+        {/* Item */}
+        <td className="px-4 py-3 cursor-pointer" onClick={() => handleEdit(product)}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600 group-hover:border-blue-200 dark:group-hover:border-blue-800 transition-colors">
+              {product.image_url && !imageErrors[product.id]
+                ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" onError={() => handleImageError(product.id)} loading="lazy" />
+                : <Package className="w-4 h-4 text-slate-400 dark:text-slate-500" />}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate max-w-[180px]" title={product.name}>{product.name}</p>
+              {product.description
+                ? <p className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[180px]">{product.description}</p>
+                : product.supplier && <p className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[180px]">{product.supplier}</p>
+              }
+            </div>
+          </div>
+        </td>
+
+        {/* Estoque */}
+        <td className="px-3 py-3">
+          <div className="flex flex-col gap-1">
+            <StockBar qty={product.quantity} min={product.min_quantity} max={product.max_quantity} />
+            {isLowStock && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="w-2.5 h-2.5" /> Estoque baixo
+              </span>
+            )}
+            {product.unit_measure && product.unit_measure !== 'und' && (
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">{UNIT_MEASURE_LABELS[product.unit_measure] || product.unit_measure}</span>
+            )}
+          </div>
+        </td>
+
+        {/* Min / Max */}
+        <td className="px-3 py-3 text-center">
+          <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{product.min_quantity}</span>
+        </td>
+        <td className="px-3 py-3 text-center">
+          <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{product.max_quantity}</span>
+        </td>
+
+        {/* Categoria */}
+        <td className="px-3 py-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate max-w-[110px]">{product.category}</span>
+            {product.product_type === 'controle' && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 self-start">CTRL</span>
+            )}
+          </div>
+        </td>
+
+        {/* Preço médio (hidden em telas pequenas) */}
+        <td className="px-3 py-3 hidden lg:table-cell">
+          {product.average_price != null ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                {product.average_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
+              {product.last_purchase_date && (
+                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  {new Date(product.last_purchase_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
+          )}
+        </td>
+
+        {/* Status */}
+        <td className="px-3 py-3 text-center">
+          <button onClick={() => toggleActiveStatus(product.id, product.name, product.is_active)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors
+              ${product.is_active
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'
+                : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}
+            title={product.is_active ? 'Clique para inativar' : 'Clique para ativar'}>
+            {product.is_active ? <><Eye className="w-3 h-3" /> Ativo</> : <><EyeOff className="w-3 h-3" /> Inativo</>}
+          </button>
+        </td>
+
+        {/* Ações */}
+        <td className="px-3 py-3">
+          <div className="flex items-center justify-center gap-0.5">
+            <button onClick={() => handleStockAdjustment(product.id, product.name, 1)}
+              className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors" title="+1 estoque">
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => handleStockAdjustment(product.id, product.name, -1)}
+              className="p-1.5 rounded-lg text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors" title="-1 estoque">
+              <ArrowUpRight className="w-3.5 h-3.5 rotate-90" />
+            </button>
+            <button onClick={() => { setLinkProduct(product); setShowLinkModal(true); }}
+              className="p-1.5 rounded-lg text-indigo-500 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" title="Vincular produto">
+              <Link2 className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => handleEdit(product)}
+              className="p-1.5 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Editar">
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => triggerDelete(product)}
+              className="p-1.5 rounded-lg text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors" title="Excluir">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   // ─ Loading / empty states ──────────────────────────────────────────────────
   if (loading && products.length === 0) {
     return (
