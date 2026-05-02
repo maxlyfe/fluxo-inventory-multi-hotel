@@ -464,9 +464,7 @@ export const erbonService = {
       });
 
       if (!authRes.ok) {
-        const errText = await authRes.text().catch(() => '');
-        console.error('[Erbon] Auth failed:', authRes.status, errText);
-        return { success: false, error: `Autenticação falhou (${authRes.status}): ${errText}` };
+        return { success: false, error: `Autenticação falhou (${authRes.status})` };
       }
 
       // Parse token (pode vir como string pura, JSON string, ou objeto)
@@ -574,7 +572,7 @@ export const erbonService = {
           }
         });
       } catch (err) {
-        console.error('[Erbon] Fallback de departamentos via produtos falhou:', err);
+        // Fallback falhou silenciadamente
       }
     }
 
@@ -904,10 +902,7 @@ export const erbonService = {
     const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/guest/new`;
 
     const body = buildGuestBody(guestData, null);
-    console.log('[Erbon] addGuest path:', path);
-    console.log('[Erbon] addGuest body:', JSON.stringify(body));
-    console.log('[Erbon] addGuest token (primeiros 20):', token.substring(0, 20));
-
+    // Logging removido por segurança
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
       method: 'POST',
       headers: {
@@ -918,13 +913,10 @@ export const erbonService = {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      console.error('[Erbon] addGuest response:', res.status, txt);
-      throw new Error(`Erro ao adicionar hóspede (${res.status}): ${txt}`);
+      throw new Error(`Erro ao adicionar hóspede (${res.status})`);
     }
 
     const created = await res.json().catch(() => ({} as any));
-    console.log('[Erbon] addGuest created:', JSON.stringify(created));
 
     // Extrair ID do hóspede recém-criado (pode vir como `id`, `guestID`, `idGuest`)
     const newGuestId: number | undefined =
@@ -993,8 +985,7 @@ export const erbonService = {
     const path = `/hotel/${config.erbon_hotel_id}/guests/update`;
 
     const body = buildGuestBody(guestData, guestId);
-    console.log('[Erbon] updateGuest payload:', JSON.stringify(body));
-
+    // Logging removido por segurança
     const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
       method: 'PUT',
       headers: {
@@ -1005,9 +996,7 @@ export const erbonService = {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      console.error('[Erbon] updateGuest response:', res.status, txt);
-      throw new Error(`Erro ao atualizar hóspede (${res.status}): ${txt}`);
+      throw new Error(`Erro ao atualizar hóspede (${res.status})`);
     }
     return await res.json().catch(() => ({}));
   },
@@ -1107,7 +1096,6 @@ export const erbonService = {
       headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
     });
     if (!res.ok) {
-      console.warn(`[Erbon] fetchBookingByInternalId ${bookingInternalId} → ${res.status}`);
       return null;
     }
     const data = await res.json();
@@ -1233,7 +1221,6 @@ export const erbonService = {
     });
     if (!res.ok) throw new Error(`Erro ao buscar contas a receber (${res.status})`);
     const data = await res.json();
-    console.log('[Erbon] AccountsReceivable raw (first 3):', JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
     return Array.isArray(data) ? data : [];
   },
 
@@ -1252,11 +1239,9 @@ export const erbonService = {
       headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
     });
     if (!res.ok) {
-      console.log(`[Erbon] BookingAccount ${path} → ${res.status}`);
       return [];
     }
     const data = await res.json();
-    console.log(`[Erbon] BookingAccount (${Array.isArray(data) ? data.length : 0} items):`, JSON.stringify(Array.isArray(data) ? data.slice(0, 3) : data));
     return Array.isArray(data) ? data : data ? [data] : [];
   },
 
@@ -1283,32 +1268,27 @@ export const erbonService = {
       const token = await this.getToken(hotelId);
       const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/currentaccount`;
 
-      const body = { ...charge, idSource: charge.idSource ?? 'PDV' };
-      console.log('[Erbon] postCharge payload:', JSON.stringify(body));
+    const body = { ...charge, idSource: charge.idSource ?? 'PDV' };
+    // Logging removido por segurança
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+      body: JSON.stringify(body),
+    });
 
-      const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          ...proxyHeaders(config.erbon_base_url, path),
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        console.error(`[Erbon] postCharge booking=${bookingInternalId} → ${res.status}`, txt);
-        return { success: false, error: `Erbon ${res.status}: ${txt}` };
-      }
-
-      console.log(`[Erbon] postCharge OK → booking=${bookingInternalId} service=${charge.idService}`);
-      return { success: true };
-    } catch (err: any) {
-      console.error('[Erbon] postCharge exception:', err.message);
-      return { success: false, error: err.message };
+    if (!res.ok) {
+      throw new Error(`Erro ao lançar consumo (${res.status})`);
     }
-  },
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+},
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────
 

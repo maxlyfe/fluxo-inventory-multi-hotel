@@ -142,8 +142,7 @@ export const createNotification = async (params: CreateNotificationParams | stri
       .single();
 
     if (typeError || !notificationType) {
-      console.error("Erro ao buscar tipo de notificação:", typeError);
-      // Se não encontrar o tipo, ainda tentamos criar a notificação sem o tipo específico
+      // Falha silenciosa ou log genérico
     }
 
     // Usar template padrão se não fornecido
@@ -171,8 +170,7 @@ export const createNotification = async (params: CreateNotificationParams | stri
       .single();
 
     if (insertError) {
-      console.error("Erro ao criar notificação no banco:", insertError);
-      throw insertError;
+      throw new Error('Falha ao registrar notificação');
     }
 
     if (sendPush && newNotification) {
@@ -242,7 +240,6 @@ export const createNotificationsForEvent = async (
       .eq("notification_type_id", notificationType.id);
 
     if (preferencesError) {
-      console.error("Erro ao buscar preferências:", preferencesError);
       return [];
     }
 
@@ -305,7 +302,7 @@ export const createNotificationsForEvent = async (
           notifications.push(notification);
         }
       } catch (error) {
-        console.error(`Erro ao criar notificação para usuário ${pref.user_id}:`, error);
+        // Falha individual ignorada para não travar o loop
       }
     }
 
@@ -339,7 +336,6 @@ export const getNotificationsForUser = async (
     .range(offset, offset + limit - 1);
 
   if (dataError) {
-    console.error("Erro ao buscar notificações paginadas:", dataError);
     return { data: [], count: 0 };
   }
 
@@ -350,7 +346,6 @@ export const getNotificationsForUser = async (
     .eq("user_id", userId);
 
   if (countError) {
-    console.error("Erro ao buscar contagem total de notificações:", countError);
     return { data: data || [], count: 0 }; 
   }
 

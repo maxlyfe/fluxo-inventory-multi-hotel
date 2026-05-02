@@ -194,8 +194,7 @@ export const whatsappService = {
       });
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return { success: false, error: errData?.error?.message || `HTTP ${res.status}` };
+        return { success: false, error: 'Falha ao verificar número do WhatsApp' };
       }
 
       const data = await res.json();
@@ -254,10 +253,10 @@ export const whatsappService = {
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        return { success: false, error: data?.error?.message || `HTTP ${res.status}` };
+        return { success: false, error: 'O WhatsApp recusou o envio do template. Verifique o cadastro na Meta.' };
       }
 
       const messageId = data?.messages?.[0]?.id || null;
