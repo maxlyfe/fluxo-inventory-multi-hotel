@@ -533,94 +533,103 @@ const Inventory = () => {
 
   // ─ Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-full mx-auto px-4 py-6 space-y-5">
+    <div className="max-w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5">
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <Package className="w-5 h-5 text-white" />
-            </div>
-            Inventário
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 ml-[46px]">{selectedHotel.name}</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2.5">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
+                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              </div>
+              Inventário
+            </h1>
+            <p className="text-[10px] sm:text-sm text-slate-500 dark:text-slate-400 mt-1 ml-[42px] sm:ml-[46px] uppercase font-bold tracking-wider">{selectedHotel.name}</p>
+          </div>
+
+          <div className="flex items-center gap-2 self-end xs:self-center">
+            <button onClick={() => setShowDirectDeliveryModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 transition-all text-xs sm:text-sm font-semibold shadow-sm shadow-indigo-600/20">
+              <ArrowUpRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span>Entrega Direta</span>
+            </button>
+
+            <button onClick={handleCreateNew}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 active:scale-95 transition-all text-xs sm:text-sm shadow-sm shadow-blue-600/20">
+              <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Novo</span><span className="hidden sm:inline">Item</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
           <button onClick={() => setShowStarredModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors text-sm font-medium">
-            <Star className="w-3.5 h-3.5 fill-current" /> Principais
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight">
+            <Star className="w-3 h-3 fill-current" /> Favoritos
             {starredProducts.length > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400 dark:bg-amber-600 text-white text-[10px] font-bold">{starredProducts.length}</span>
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400 dark:bg-amber-600 text-white text-[9px] font-black">{starredProducts.length}</span>
             )}
           </button>
           <button onClick={() => setShowConferenceModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors text-sm font-medium">
-            <ListChecks className="w-3.5 h-3.5" /> Conferência
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight">
+            <ListChecks className="w-3 h-3" /> Conferência
           </button>
           <button onClick={() => setShowCountHistoryModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-sm font-medium">
-            <History className="w-3.5 h-3.5" /> Histórico
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight">
+            <History className="w-3 h-3" /> Histórico
           </button>
 
-          <div className="flex items-center gap-1 pl-1 border-l border-slate-200 dark:border-slate-700">
-            <button onClick={exportInventory} title="Exportar Excel"
-              className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
-              <Download className="w-4 h-4" />
-            </button>
-            <Link to="/inventory/new-purchase" title="Nova Entrada"
-              className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
-              <DollarSign className="w-4 h-4" />
-            </Link>
-            <button onClick={() => setShowSyncModal(true)} title="Sincronizar"
-              className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            <button onClick={() => setShowTransferModal(true)} title="Transferência entre hotéis"
-              className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
-              <ArrowLeftRight className="w-4 h-4" />
-            </button>
-          </div>
+          <div className="h-6 w-px bg-slate-200 dark:border-slate-700 mx-1 shrink-0" />
 
-          <button onClick={() => setShowDirectDeliveryModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 transition-all text-sm font-semibold shadow-sm shadow-indigo-600/20">
-            <ArrowUpRight className="w-4 h-4" />
-            <span className="hidden sm:inline">Entrega Direta</span>
+          <button onClick={exportInventory} title="Exportar Excel"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 transition-colors">
+            <Download className="w-4 h-4" />
           </button>
-
-          <button onClick={handleCreateNew}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 active:scale-95 transition-all text-sm shadow-sm shadow-blue-600/20">
-            <Plus className="w-4 h-4" /> Novo Item
+          <Link to="/inventory/new-purchase" title="Nova Entrada"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 transition-colors">
+            <DollarSign className="w-4 h-4" />
+          </Link>
+          <button onClick={() => setShowSyncModal(true)} title="Sincronizar"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 transition-colors">
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button onClick={() => setShowTransferModal(true)} title="Transferência entre hotéis"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 transition-colors">
+            <ArrowLeftRight className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* ── STATS ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Total de itens"  value={products.length}       icon={<Package className="w-5 h-5" />}      accent="blue" />
-        <StatCard label="Estoque baixo"   value={lowStockItems.length}  icon={<TrendingDown className="w-5 h-5" />} accent={lowStockItems.length > 0 ? 'amber' : 'emerald'} />
-        <StatCard label="Itens ativos"    value={activeProducts.length} icon={<CheckCircle className="w-5 h-5" />}  accent="emerald" />
-        <StatCard
-          label="Valor inventário"
-          value={totalInventoryValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-          sub="pelo preço médio"
-          icon={<DollarSign className="w-5 h-5" />}
-          accent="slate"
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        <StatCard label="Total de itens"  value={products.length}       icon={<Package className="w-4 h-4 sm:w-5 sm:h-5" />}      accent="blue" />
+        <StatCard label="Estoque baixo"   value={lowStockItems.length}  icon={<TrendingDown className="w-4 h-4 sm:w-5 sm:h-5" />} accent={lowStockItems.length > 0 ? 'amber' : 'emerald'} />
+        <StatCard label="Itens ativos"    value={activeProducts.length} icon={<CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />}  accent="emerald" />
+        <div className="hidden sm:block">
+          <StatCard
+            label="Valor inventário"
+            value={totalInventoryValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            sub="pelo preço médio"
+            icon={<DollarSign className="w-5 h-5" />}
+            accent="slate"
+          />
+        </div>
+        <div className="sm:hidden flex items-center justify-center px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+           <p className="text-[10px] font-black text-slate-500 uppercase">R$ { (totalInventoryValue / 1000).toFixed(1) }k Total</p>
+        </div>
       </div>
 
       {/* ── SEARCH + FILTERS ───────────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-        <div className="flex items-center gap-2">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4 space-y-3">
+        <div className="flex flex-col xs:flex-row items-stretch gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text" value={searchTerm}
               onChange={e => { setSearchTerm(e.target.value); setBarcodeFilterProductId(null); }}
               onKeyDown={e => { if (e.key === 'Enter' && searchTerm.trim().length >= 4) { e.preventDefault(); searchByBarcode(searchTerm); } }}
-              placeholder="Buscar por nome, categoria, fornecedor ou código de barras…"
-              className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
+              placeholder="Buscar..."
+              className="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
             />
             {searchTerm && (
               <button onClick={() => { setSearchTerm(''); setBarcodeFilterProductId(null); }}
@@ -629,51 +638,53 @@ const Inventory = () => {
               </button>
             )}
           </div>
-          <button onClick={() => setShowBarcodeScanner(true)} title="Câmera barcode"
-            className="flex items-center gap-1.5 px-3 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors shrink-0">
-            <Barcode className="w-4 h-4" />
-            <span className="hidden sm:inline">Escanear</span>
-          </button>
-          <button onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors shrink-0
-              ${showFilters
-                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400'
-                : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
-            <Filter className="w-4 h-4" />
-            {showFilters ? 'Fechar' : 'Filtros'}
-            {(selectedCategory || selectedProductType || showInactive) && (
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-0.5" />
-            )}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowBarcodeScanner(true)} title="Câmera barcode"
+              className="flex-1 xs:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shrink-0">
+              <Barcode className="w-4 h-4" />
+              <span>Escanear</span>
+            </button>
+            <button onClick={() => setShowFilters(!showFilters)}
+              className={`flex-1 xs:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border transition-colors shrink-0
+                ${showFilters
+                  ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400'
+                  : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+              <Filter className="w-4 h-4" />
+              {showFilters ? 'Fechar' : 'Filtros'}
+              {(selectedCategory || selectedProductType || showInactive) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-0.5" />
+              )}
+            </button>
+          </div>
         </div>
 
         {showFilters && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 dark:border-slate-700">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Categoria</label>
+              <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">Categoria</label>
               <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-white text-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors">
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-white text-xs py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors">
                 <option value="">Todas as categorias</option>
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Tipo</label>
+              <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">Tipo</label>
               <select value={selectedProductType} onChange={e => setSelectedProductType(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-white text-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors">
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-white text-xs py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors">
                 <option value="">Todos os tipos</option>
                 <option value="controle">Controle</option>
                 <option value="consumo">Consumo</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Status</label>
+              <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">Status</label>
               <button onClick={() => setShowInactive(!showInactive)}
-                className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border text-sm font-medium transition-colors
+                className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border text-xs font-bold transition-all active:scale-95
                   ${showInactive
                     ? 'border-slate-300 dark:border-slate-500 bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-200'
                     : 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'}`}>
-                {showInactive ? <><EyeOff className="w-3.5 h-3.5" /> Mostrar inativos</> : <><Eye className="w-3.5 h-3.5" /> Apenas ativos</>}
+                {showInactive ? <><EyeOff className="w-3.5 h-3.5" /> Ocultar Inativos</> : <><Eye className="w-3.5 h-3.5" /> Mostrar Inativos</>}
               </button>
             </div>
           </div>
@@ -683,42 +694,40 @@ const Inventory = () => {
         {(barcodeFilterProductId || selectedCategory || selectedProductType) && (
           <div className="flex flex-wrap gap-2 pt-1">
             {barcodeFilterProductId && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                <Barcode className="w-3 h-3" /> Código: {barcodeFilterCode}
-                <button onClick={() => { setBarcodeFilterProductId(null); setBarcodeFilterCode(''); }}><X className="w-2.5 h-2.5 ml-0.5" /></button>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                <Barcode className="w-3 h-3" /> {barcodeFilterCode}
+                <button onClick={() => { setBarcodeFilterProductId(null); setBarcodeFilterCode(''); }} className="hover:text-red-500 transition-colors"><X className="w-2.5 h-2.5 ml-0.5" /></button>
               </span>
             )}
             {selectedCategory && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 uppercase">
                 {selectedCategory}
-                <button onClick={() => setSelectedCategory('')}><X className="w-2.5 h-2.5" /></button>
-              </span>
-            )}
-            {selectedProductType && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                {selectedProductType === 'controle' ? 'Controle' : 'Consumo'}
-                <button onClick={() => setSelectedProductType('')}><X className="w-2.5 h-2.5" /></button>
+                <button onClick={() => setSelectedCategory('')} className="hover:text-red-500 transition-colors"><X className="w-2.5 h-2.5 ml-0.5" /></button>
               </span>
             )}
           </div>
         )}
       </div>
 
-      {/* ── RESULTS SUMMARY ────────────────────────────────────────────────── */}
+      {/* ── LIST ───────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-1">
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredProducts.length}</span> produto{filteredProducts.length !== 1 ? 's' : ''}
-          {(searchTerm || selectedCategory || selectedProductType || barcodeFilterProductId) && ' encontrado(s)'}
+        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+          Mostrando <span className="font-bold text-slate-700 dark:text-slate-200">{filteredProducts.length}</span> produtos
         </p>
-        {loading && products.length > 0 && (
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <RefreshCw className="w-3 h-3 animate-spin" /> Atualizando…
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+           <button onClick={() => toggleSort('name')} className="text-[10px] font-black text-blue-500 uppercase tracking-tighter sm:hidden">
+             Ordenar {sortDir === 'asc' ? 'A-Z' : 'Z-A'}
+           </button>
+           {loading && (
+             <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase">
+               <RefreshCw className="w-3 h-3 animate-spin" /> Atualizando
+             </div>
+           )}
+        </div>
       </div>
 
-      {/* ── TABLE ──────────────────────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      {/* ── DESKTOP TABLE ──────────────────────────────────────────────────── */}
+      <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
@@ -744,154 +753,120 @@ const Inventory = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
               {filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500">
-                      <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
-                        <Package className="w-7 h-7" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">Nenhum produto encontrado</p>
-                        <p className="text-xs mt-0.5">Tente ajustar os filtros ou a busca</p>
-                      </div>
-                      <button onClick={handleCreateNew}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium text-sm hover:bg-blue-700 transition-colors mt-1">
-                        <Plus className="w-4 h-4" /> Adicionar primeiro item
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <EmptyState onAction={handleCreateNew} />
               ) : (
-                filteredProducts.map(product => {
-                  const isLowStock = product.is_active && product.quantity <= product.min_quantity;
-                  return (
-                    <tr key={product.id}
-                      className={`group transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40
-                        ${!product.is_active ? 'opacity-50' : ''}
-                        ${isLowStock ? 'bg-amber-50/40 dark:bg-amber-900/5 hover:bg-amber-50 dark:hover:bg-amber-900/10' : ''}`}>
-
-                      {/* Star */}
-                      <td className="pl-3 py-3 text-center">
-                        <button onClick={e => handleToggleStar(e, product.id, !!product.is_starred)}
-                          className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                          title={product.is_starred ? 'Remover dos principais' : 'Adicionar aos principais'}>
-                          <Star className={`w-4 h-4 transition-colors ${product.is_starred ? 'text-amber-400 fill-current' : 'text-slate-300 dark:text-slate-600 group-hover:text-amber-300'}`} />
-                        </button>
-                      </td>
-
-                      {/* Item */}
-                      <td className="px-4 py-3 cursor-pointer" onClick={() => handleEdit(product)}>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600 group-hover:border-blue-200 dark:group-hover:border-blue-800 transition-colors">
-                            {product.image_url && !imageErrors[product.id]
-                              ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" onError={() => handleImageError(product.id)} loading="lazy" />
-                              : <Package className="w-4 h-4 text-slate-400 dark:text-slate-500" />}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate max-w-[180px]" title={product.name}>{product.name}</p>
-                            {product.description
-                              ? <p className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[180px]">{product.description}</p>
-                              : product.supplier && <p className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[180px]">{product.supplier}</p>
-                            }
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Estoque */}
-                      <td className="px-3 py-3">
-                        <div className="flex flex-col gap-1">
-                          <StockBar qty={product.quantity} min={product.min_quantity} max={product.max_quantity} />
-                          {isLowStock && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                              <AlertTriangle className="w-2.5 h-2.5" /> Estoque baixo
-                            </span>
-                          )}
-                          {product.unit_measure && product.unit_measure !== 'und' && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">{UNIT_MEASURE_LABELS[product.unit_measure] || product.unit_measure}</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Min / Max */}
-                      <td className="px-3 py-3 text-center">
-                        <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{product.min_quantity}</span>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{product.max_quantity}</span>
-                      </td>
-
-                      {/* Categoria */}
-                      <td className="px-3 py-3">
-                        <div className="flex flex-col gap-1">
-                          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate max-w-[110px]">{product.category}</span>
-                          {product.product_type === 'controle' && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 self-start">CTRL</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Preço médio (hidden em telas pequenas) */}
-                      <td className="px-3 py-3 hidden lg:table-cell">
-                        {product.average_price != null ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                              {product.average_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                            {product.last_purchase_date && (
-                              <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                                {new Date(product.last_purchase_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-3 py-3 text-center">
-                        <button onClick={() => toggleActiveStatus(product.id, product.name, product.is_active)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors
-                            ${product.is_active
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'
-                              : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}
-                          title={product.is_active ? 'Clique para inativar' : 'Clique para ativar'}>
-                          {product.is_active ? <><Eye className="w-3 h-3" /> Ativo</> : <><EyeOff className="w-3 h-3" /> Inativo</>}
-                        </button>
-                      </td>
-
-                      {/* Ações */}
-                      <td className="px-3 py-3">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <button onClick={() => handleStockAdjustment(product.id, product.name, 1)}
-                            className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors" title="+1 estoque">
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleStockAdjustment(product.id, product.name, -1)}
-                            className="p-1.5 rounded-lg text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors" title="-1 estoque">
-                            <ArrowUpRight className="w-3.5 h-3.5 rotate-90" />
-                          </button>
-                          <button onClick={() => { setLinkProduct(product); setShowLinkModal(true); }}
-                            className="p-1.5 rounded-lg text-indigo-500 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" title="Vincular produto">
-                            <Link2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleEdit(product)}
-                            className="p-1.5 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors" title="Editar">
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => triggerDelete(product)}
-                            className="p-1.5 rounded-lg text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors" title="Excluir">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                filteredProducts.map(product => renderRow(product))
               )}
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* ── MOBILE CARD LIST ───────────────────────────────────────────────── */}
+      <div className="md:hidden flex flex-col gap-3">
+        {filteredProducts.length === 0 ? (
+          <EmptyState onAction={handleCreateNew} />
+        ) : (
+          filteredProducts.map(product => (
+            <div key={product.id} className={`bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm relative overflow-hidden ${!product.is_active ? 'opacity-60' : ''}`}>
+              {product.product_type === 'controle' && (
+                <span className="absolute top-0 right-0 px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[8px] font-black uppercase rounded-bl-lg">CTRL</span>
+              )}
+              
+              <div className="flex gap-3 mb-4">
+                <div className="w-16 h-16 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 flex items-center justify-center shrink-0 overflow-hidden">
+                  {product.image_url && !imageErrors[product.id]
+                    ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" onError={() => handleImageError(product.id)} />
+                    : <Package className="w-6 h-6 text-slate-300 dark:text-slate-600" />
+                  }
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-white line-clamp-2 leading-tight">{product.name}</h3>
+                    <button onClick={e => handleToggleStar(e, product.id, !!product.is_starred)} className="shrink-0 p-1">
+                      <Star className={`w-4 h-4 ${product.is_starred ? 'text-amber-400 fill-current' : 'text-slate-300'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[9px] font-bold rounded uppercase tracking-wider">{product.category}</span>
+                    <button onClick={() => toggleActiveStatus(product.id, product.name, product.is_active)} className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition-colors ${product.is_active ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'}`}>
+                      {product.is_active ? 'Ativo' : 'Inativo'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estoque Atual</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400 font-bold uppercase">{product.unit_measure || 'unid'}</span>
+                    <span className={`text-lg font-black tabular-nums ${product.quantity <= product.min_quantity ? 'text-amber-500' : 'text-blue-500'}`}>
+                      {product.quantity}
+                    </span>
+                  </div>
+                </div>
+                <StockBar qty={product.quantity} min={product.min_quantity} max={product.max_quantity} />
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
+                  <span>Mín: {product.min_quantity}</span>
+                  <span>Máx: {product.max_quantity}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-4">
+                <div className="flex-1 grid grid-cols-2 gap-2">
+                  <button onClick={() => handleStockAdjustment(product.id, product.name, 1)} className="flex items-center justify-center gap-1.5 py-2.5 bg-emerald-500 text-white rounded-xl active:scale-95 transition-all text-xs font-black shadow-sm shadow-emerald-500/20">
+                    <ArrowUp className="w-3.5 h-3.5" /> +1
+                  </button>
+                  <button onClick={() => handleStockAdjustment(product.id, product.name, -1)} className="flex items-center justify-center gap-1.5 py-2.5 bg-amber-500 text-white rounded-xl active:scale-95 transition-all text-xs font-black shadow-sm shadow-amber-500/20">
+                    <ArrowUpRight className="w-3.5 h-3.5 rotate-90" /> -1
+                  </button>
+                </div>
+                <button onClick={() => setOpenActionsId(openActionsId === product.id ? null : product.id)} className="p-2.5 bg-slate-100 dark:bg-slate-700 rounded-xl text-slate-600 dark:text-slate-300 active:scale-90 transition-all border border-slate-200 dark:border-slate-600">
+                  <MoreHorizontal className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Menu de ações mobile expandido */}
+              {openActionsId === product.id && (
+                <div className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm z-10 flex flex-col p-4 animate-in fade-in zoom-in duration-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Ações Rápidas</h4>
+                    <button onClick={() => setOpenActionsId(null)} className="p-1.5 bg-slate-100 dark:bg-slate-800 rounded-full"><X className="w-4 h-4" /></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 flex-1 overflow-y-auto">
+                    <button onClick={() => { handleEdit(product); setOpenActionsId(null); }} className="flex flex-col items-center justify-center gap-2 p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl border border-blue-100 dark:border-blue-800/50">
+                      <Edit2 className="w-5 h-5" /> <span className="text-[10px] font-black uppercase">Editar</span>
+                    </button>
+                    <button onClick={() => { setLinkProduct(product); setShowLinkModal(true); setOpenActionsId(null); }} className="flex flex-col items-center justify-center gap-2 p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-2xl border border-indigo-100 dark:border-indigo-800/50">
+                      <Link2 className="w-5 h-5" /> <span className="text-[10px] font-black uppercase">Vincular</span>
+                    </button>
+                    <button onClick={() => { triggerDelete(product); setOpenActionsId(null); }} className="flex flex-col items-center justify-center gap-2 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl border border-red-100 dark:border-red-800/50">
+                      <Trash2 className="w-5 h-5" /> <span className="text-[10px] font-black uppercase">Excluir</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Footer com resumo de valor (Mobile) */}
+      <div className="md:hidden sticky bottom-4 left-0 w-full px-1 z-20">
+        <div className="bg-slate-900/90 dark:bg-slate-800/95 backdrop-blur shadow-xl rounded-2xl p-4 flex items-center justify-between border border-white/10">
+          <div className="min-w-0">
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Total Filtrado</p>
+             <p className="text-sm font-black text-white truncate">
+                {filteredProducts.reduce((s, p) => s + ((p.average_price || 0) * p.quantity), 0)
+                  .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+             </p>
+          </div>
+          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="w-9 h-9 rounded-xl bg-white/10 text-white flex items-center justify-center border border-white/10">
+             <ArrowUp className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
 
         {/* Footer da tabela com totais */}
         {filteredProducts.length > 0 && (
