@@ -91,14 +91,14 @@ const StatCard: React.FC<{
   return (
     <div
       onClick={onClick}
-      className={`bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3 ${onClick ? 'cursor-pointer hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all' : ''}`}>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accents[accent]}`}>
-        {icon}
+      className={`bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4 flex items-center gap-2 sm:gap-3 ${onClick ? 'cursor-pointer hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition-all' : ''}`}>
+      <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 ${accents[accent]}`}>
+        {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4 sm:w-5 sm:h-5' })}
       </div>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate">{label}</p>
-        <p className="text-lg font-bold text-slate-800 dark:text-white tabular-nums leading-tight">{value}</p>
-        {sub && <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">{sub}</p>}
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium truncate">{label}</p>
+        <p className="text-sm sm:text-lg font-bold text-slate-800 dark:text-white tabular-nums leading-tight truncate" title={String(value)}>{value}</p>
+        {sub && <p className="text-[8px] sm:text-[10px] text-slate-400 dark:text-slate-500 leading-tight truncate">{sub}</p>}
       </div>
     </div>
   );
@@ -677,7 +677,7 @@ const Inventory = () => {
 
   // ─ Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5">
+    <div className="max-w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5 overflow-x-hidden">
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4">
@@ -706,9 +706,9 @@ const Inventory = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar px-1 snap-x snap-mandatory">
           <button onClick={() => setShowStarredModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight snap-start">
             <Star className="w-3 h-3 fill-current" /> Favoritos
             {starredProducts.length > 0 && (
               <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400 dark:bg-amber-600 text-white text-[9px] font-black">{starredProducts.length}</span>
@@ -997,7 +997,7 @@ const Inventory = () => {
       </div>
 
       {/* Footer com resumo de valor (Mobile) */}
-      <div className="md:hidden sticky bottom-4 left-0 w-full px-1 z-20">
+      <div className="md:hidden sticky bottom-4 z-20 w-full px-1">
         <div className="bg-slate-900/90 dark:bg-slate-800/95 backdrop-blur shadow-xl rounded-2xl p-4 flex items-center justify-between border border-white/10">
           <div className="min-w-0">
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Total Filtrado</p>
@@ -1006,7 +1006,7 @@ const Inventory = () => {
                   .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
              </p>
           </div>
-          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="w-9 h-9 rounded-xl bg-white/10 text-white flex items-center justify-center border border-white/10">
+          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="w-9 h-9 rounded-xl bg-white/10 text-white flex items-center justify-center border border-white/10 shrink-0 ml-4">
              <ArrowUp className="w-5 h-5" />
           </button>
         </div>
