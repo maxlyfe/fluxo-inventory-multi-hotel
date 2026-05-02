@@ -125,29 +125,29 @@ const Home = () => {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 pb-20">
-      <div className="sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 lg:px-8 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-              <Layout className="w-5 h-5 text-indigo-500" />
+      <div className="sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 lg:px-8 py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 shrink-0">
+              <Layout className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500" />
             </div>
-            <div>
-              <h1 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Centro de Comando</h1>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{selectedHotel.name}</p>
+            <div className="min-w-0">
+              <h1 className="text-[10px] sm:text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight truncate">Centro de Comando</h1>
+              <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{selectedHotel.name}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {!isEditing ? (
-              <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-blue-500 transition-all active:scale-95 shadow-sm">
-                <Settings2 className="w-3.5 h-3.5" /> Personalizar
+              <button onClick={() => setIsEditing(true)} className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] sm:text-xs font-bold text-slate-600 dark:text-slate-300 hover:border-blue-500 transition-all active:scale-95 shadow-sm">
+                <Settings2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span className="hidden xs:inline">Personalizar</span><span className="xs:hidden">Editar</span>
               </button>
             ) : (
               <>
-                <button onClick={() => setShowMarketplace(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-all active:scale-95 shadow-lg">
-                  <Plus className="w-3.5 h-3.5" /> Adicionar
+                <button onClick={() => setShowMarketplace(true)} className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-indigo-500 text-white text-[10px] sm:text-xs font-bold hover:bg-indigo-600 transition-all active:scale-95 shadow-lg">
+                  <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span className="hidden xs:inline">Adicionar</span><span className="xs:hidden">+</span>
                 </button>
-                <button onClick={() => setIsEditing(false)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-all active:scale-95 shadow-lg">
-                  <Save className="w-3.5 h-3.5" /> Concluir
+                <button onClick={() => setIsEditing(false)} className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-emerald-500 text-white text-[10px] sm:text-xs font-bold hover:bg-emerald-600 transition-all active:scale-95 shadow-lg">
+                  <Save className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span className="hidden xs:inline">Concluir</span><span className="xs:hidden">OK</span>
                 </button>
               </>
             )}
@@ -155,8 +155,8 @@ const Home = () => {
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-12 gap-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+        <div className="grid grid-cols-12 gap-3 sm:gap-6">
           {widgets.map((userWidget) => {
             const definition = AVAILABLE_WIDGETS.find(w => w.id === userWidget.widget_id);
             if (!definition) return null;
@@ -194,56 +194,56 @@ const Home = () => {
         <Dialog as="div" className="relative z-[100]" onClose={() => setShowMarketplace(false)}>
           <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm" />
           <div className="fixed inset-0 z-10 overflow-y-auto">
-            <div className="flex min-h-full items-center justify-center p-4">
-              <Dialog.Panel className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <div>
-                    <h3 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Adicionar ao Dashboard</h3>
-                    <p className="text-sm text-slate-400 mt-1">Crie atalhos diretos ou adicione widgets de dados.</p>
+            <div className="flex min-h-full items-center justify-center p-2 sm:p-4">
+              <Dialog.Panel className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl sm:rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-8">
+                <div className="flex items-center justify-between mb-6 sm:mb-8">
+                  <div className="min-w-0">
+                    <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight truncate">Adicionar</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 mt-1">Crie atalhos ou widgets de dados.</p>
                   </div>
-                  <button onClick={() => setShowMarketplace(false)} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full hover:text-red-500 transition-all">
-                    <X className="w-6 h-6" />
+                  <button onClick={() => setShowMarketplace(false)} className="p-2 sm:p-3 bg-slate-100 dark:bg-slate-800 rounded-full hover:text-red-500 transition-all shrink-0">
+                    <X className="w-5 h-5 sm:w-6 sm:h-6" />
                   </button>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
                   <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest px-2">Módulos de Dados</h4>
-                    <div className="space-y-2">
+                    <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-1 gap-2">
                       {standardWidgets.map(w => (
-                        <button key={w.id} onClick={() => { addWidget(w.id); setShowMarketplace(false); }} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 hover:bg-indigo-900/10 border border-slate-100 dark:border-slate-700 transition-all text-left">
-                          <div className="p-2.5 bg-white dark:bg-slate-800 rounded-xl shadow-sm"><w.icon className="w-5 h-5 text-indigo-500" /></div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-800 dark:text-white">{w.label}</p>
-                            <p className="text-[10px] text-slate-400">{w.description}</p>
+                        <button key={w.id} onClick={() => { addWidget(w.id); setShowMarketplace(false); }} className="w-full flex items-center gap-3 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-50 dark:bg-slate-800/50 hover:bg-indigo-900/10 border border-slate-100 dark:border-slate-700 transition-all text-left">
+                          <div className="p-2 bg-white dark:bg-slate-800 rounded-lg sm:rounded-xl shadow-sm shrink-0"><w.icon className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500" /></div>
+                          <div className="min-w-0">
+                            <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-white truncate">{w.label}</p>
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 line-clamp-1">{w.description}</p>
                           </div>
                         </button>
                       ))}
                     </div>
                   </div>
                   <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between px-2">
-                      <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Atalhos de Acesso Rápido</h4>
-                      <div className="relative">
+                    <div className="flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 px-2">
+                      <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Atalhos Rápidos</h4>
+                      <div className="relative w-full xs:w-48">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input type="text" placeholder="Buscar destino..." value={searchTerm} onChange={e => setSearchTarget(e.target.value)} className="pl-8 pr-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none w-48" />
+                        <input type="text" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTarget(e.target.value)} className="w-full pl-8 pr-4 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[40vh] sm:max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin">
                       {filteredTargets.map(target => (
-                        <div key={target.id} className="group p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
+                        <div key={target.id} className="group p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 flex flex-col gap-2 sm:gap-3">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm" style={{ backgroundColor: `${target.color}15` }}>
-                              <target.icon className="w-5 h-5" style={{ color: target.color }} />
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 shadow-sm" style={{ backgroundColor: `${target.color}15` }}>
+                              <target.icon className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: target.color }} />
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs font-black text-slate-800 dark:text-white uppercase truncate">{target.label}</p>
-                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{target.sub}</p>
+                              <p className="text-[10px] sm:text-xs font-black text-slate-800 dark:text-white uppercase truncate">{target.label}</p>
+                              <p className="text-[8px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-tight truncate">{target.sub}</p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => handleAddAction(target, 'small')} className="flex-1 py-1.5 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">Pequeno</button>
-                            <button onClick={() => handleAddAction(target, 'medium')} className="flex-1 py-1.5 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">Médio</button>
-                            <button onClick={() => handleAddAction(target, 'large')} className="flex-1 py-1.5 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">Grande</button>
+                          <div className="flex gap-1.5">
+                            <button onClick={() => handleAddAction(target, 'small')} className="flex-1 py-1 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[8px] sm:text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">P</button>
+                            <button onClick={() => handleAddAction(target, 'medium')} className="flex-1 py-1 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[8px] sm:text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">M</button>
+                            <button onClick={() => handleAddAction(target, 'large')} className="flex-1 py-1 bg-white dark:bg-slate-700 hover:bg-blue-500 hover:text-white text-[8px] sm:text-[9px] font-black uppercase rounded-lg border border-slate-200 dark:border-slate-600 transition-all">G</button>
                           </div>
                         </div>
                       ))}
