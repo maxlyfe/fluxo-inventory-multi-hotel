@@ -179,10 +179,18 @@ const Navbar = () => {
           {/* pl-10: espaço para o botão hamburger fixo no mobile */}
           <div className="flex items-center flex-shrink-0 gap-1 pl-10 lg:pl-0">
             <Link to="/" className="flex items-center gap-2 group">
-              <HotelIcon className="h-6 w-6 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-              <span className="text-sm sm:text-base font-bold text-gray-800 dark:text-white whitespace-nowrap truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                {hotelDisplayName}
-              </span>
+              <div className="relative">
+                <HotelIcon className="h-6 w-6 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 animate-hotel-pulse">
+                <span className="text-xs font-black text-blue-700 dark:text-blue-300 tracking-tighter">
+                  {hotelDisplayName}
+                </span>
+              </div>
             </Link>
 
             {/* Hotel switcher dropdown */}

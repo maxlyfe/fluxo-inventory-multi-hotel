@@ -22,6 +22,8 @@ import StockCountHistoryModal from '../components/StockCountHistoryModal';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { useFormatters } from '../hooks/useFormatters';
+import { useRealtimeSubscription } from '../hooks/useRealtime';
+import { LiveFlash } from '../components/ui/LiveFlash';
 import { processErbonSalesDeductions, type DeductionResult } from '../lib/erbonStockDeductionService';
 import { detectSeason, getApplicableMinMax, type Season, type SeasonInfo } from '../lib/seasonHelper';
 
@@ -217,6 +219,34 @@ const SectorStock = () => {
 
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── Sincronização em Tempo Real ──────────────────────────────────────────
+  useRealtimeSubscription('sector_stock', `hotel_id=eq.${selectedHotel?.id}`, (payload) => {
+    if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+      const updatedItem = payload.new as any;
+      if (updatedItem.sector_id === sectorId) {
+        setProducts(prev => prev.map(p => 
+          p.id === updatedItem.product_id 
+            ? { ...p, quantity: updatedItem.quantity } 
+            : p
+        ));
+      }
+    }
+  });
+
+  // ── Sincronização em Tempo Real ──────────────────────────────────────────
+  useRealtimeSubscription('sector_stock', `hotel_id=eq.${selectedHotel?.id}`, (payload) => {
+    if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+      const updatedItem = payload.new as any;
+      if (updatedItem.sector_id === sectorId) {
+        setProducts(prev => prev.map(p => 
+          p.id === updatedItem.product_id 
+            ? { ...p, quantity: updatedItem.quantity } 
+            : p
+        ));
+      }
+    }
+  });
 
   // As funções de busca de dados (fetchSectorAndStockData, etc.) permanecem as mesmas
   const fetchSectorAndStockData = useCallback(async () => {
@@ -1274,10 +1304,12 @@ const SectorStock = () => {
                   const aboveMax = product.quantity > max;
                   return (
                     <>
-                      <p className={`text-2xl font-bold mb-2 ${belowMin ? 'text-red-500 dark:text-red-400' : (aboveMax ? 'text-yellow-500 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-200')}`}>
-                        {product.quantity}
-                        {belowMin && <AlertTriangle size={16} className="inline ml-1 mb-1 text-red-500 dark:text-red-400" />}
-                      </p>
+                      <LiveFlash value={product.quantity}>
+                        <p className={`text-2xl font-bold mb-2 ${belowMin ? 'text-red-500 dark:text-red-400' : (aboveMax ? 'text-yellow-500 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-200')}`}>
+                          {product.quantity}
+                          {belowMin && <AlertTriangle size={16} className="inline ml-1 mb-1 text-red-500 dark:text-red-400" />}
+                        </p>
+                      </LiveFlash>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                         <span>Min: {min} / Max: {max}</span>
                       </div>
