@@ -43,7 +43,7 @@ const hotelNameMapping: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Navbar
 // ---------------------------------------------------------------------------
-const Navbar = () => {
+const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   const { user, logout: authLogout } = useAuth();
   const { can, isAdmin, isDev, canAccessContacts } = usePermissions();
   const { selectedHotel, setSelectedHotel } = useHotel();
@@ -51,7 +51,6 @@ const Navbar = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hotelDisplayName, setHotelDisplayName] = useState("");
   const [allHotels, setAllHotels] = useState<{ id: string; name: string }[]>([]);
 
@@ -484,161 +483,6 @@ const Navbar = () => {
 
           </div>
         </div>
-
-        {/* ── Menu mobile expandido ───────────────────────────────────────── */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden absolute top-14 left-0 w-full bg-white dark:bg-gray-900 shadow-lg pb-4 z-40 border-t border-gray-100 dark:border-gray-800 max-h-[80vh] overflow-y-auto">
-
-            {/* Sub-itens contextuais (seção ativa) */}
-            {activeSection && contextItems.length > 0 && (
-              <div className="px-3 pt-3 pb-2">
-                <p className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <activeSection.icon className="h-3.5 w-3.5" />
-                  {activeSection.label}
-                </p>
-                <div className="space-y-0.5">
-                  {contextItems.map(item => (
-                    <Link
-                      key={item.href}
-                      to={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={classNames(
-                        isActive(item.href)
-                          ? "bg-blue-600 text-white"
-                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800",
-                        "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium"
-                      )}
-                    >
-                      <item.icon className="h-5 w-5 flex-shrink-0" />
-                      {item.label}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Todos os módulos */}
-            <div className="px-3 pt-2 pb-2">
-              {activeSection && <div className="border-t border-gray-100 dark:border-gray-700 my-2" />}
-              <p className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                Módulos
-              </p>
-              <div className="space-y-0.5">
-                <Link
-                  to="/"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={classNames(
-                    location.pathname === '/'
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800",
-                    "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium"
-                  )}
-                >
-                  <Home className="h-5 w-5 flex-shrink-0" />
-                  Dashboard
-                </Link>
-                {visibleSections.map(section => {
-                  const isCurrentSection = activeSection?.key === section.key;
-                  const hasSubItems = section.items.length > 1;
-                  const mainHref = section.items[0]?.href || '/';
-                  return (
-                    <div key={section.key}>
-                      {/* Section header — link direto se só tem 1 item */}
-                      {!hasSubItems ? (
-                        <Link
-                          to={mainHref}
-                          onClick={() => setMobileMenuOpen(false)}
-                          className={classNames(
-                            isCurrentSection
-                              ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
-                              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800",
-                            "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium"
-                          )}
-                        >
-                          <section.icon className="h-5 w-5 flex-shrink-0" />
-                          {section.label}
-                        </Link>
-                      ) : (
-                        <>
-                          {/* Section label (não-clicável) */}
-                          <p className={classNames(
-                            "flex items-center gap-3 px-3 py-2 text-sm font-semibold mt-1",
-                            isCurrentSection
-                              ? "text-blue-600 dark:text-blue-400"
-                              : "text-gray-500 dark:text-gray-400"
-                          )}>
-                            <section.icon className="h-5 w-5 flex-shrink-0" />
-                            {section.label}
-                          </p>
-                          {/* Sub-itens */}
-                          <div className="ml-5 space-y-0.5">
-                            {section.items.map(item => (
-                              <Link
-                                key={item.href}
-                                to={item.href}
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={classNames(
-                                  isActive(item.href)
-                                    ? "bg-blue-600 text-white"
-                                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800",
-                                  "flex items-center gap-3 px-3 py-2 rounded-xl text-sm"
-                                )}
-                              >
-                                <item.icon className="h-4 w-4 flex-shrink-0" />
-                                {item.label}
-                              </Link>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* User info + actions */}
-            <div className="border-t border-gray-100 dark:border-gray-700 mt-2 pt-3 px-3 space-y-1">
-              <div className="flex items-center gap-3 px-3 py-2 mb-2">
-                <div className="h-10 w-10 rounded-full overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-                  {user.photo_url ? (
-                    <img className="h-full w-full object-cover" src={user.photo_url} alt="Avatar" />
-                  ) : (
-                    <img
-                      className="h-full w-full"
-                      src={`https://ui-avatars.com/api/?name=${user.email || "U"}&background=random&color=fff`}
-                      alt="Avatar"
-                    />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">
-                    {user.email?.split("@")[0]}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate">{user.email}</p>
-                </div>
-              </div>
-
-              <Link to="/profile"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
-                <ProfileIcon className="h-5 w-5" />Seu Perfil
-              </Link>
-
-              <Link to="/settings"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
-                <SettingsIcon className="h-5 w-5" />Configurações
-              </Link>
-
-              <button
-                onClick={() => { handleSignOut(); setMobileMenuOpen(false); }}
-                className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10">
-                <LogOutIcon className="h-5 w-5" />Sair
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </nav>
   );

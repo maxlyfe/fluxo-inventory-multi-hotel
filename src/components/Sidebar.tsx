@@ -18,7 +18,12 @@ interface SectorRow { id: string; name: string; color: string | null; }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-const Sidebar = () => {
+interface SidebarProps {
+  isMobileOpen?: boolean;
+  setIsMobileOpen?: (open: boolean) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen }) => {
   const { user, logout: authLogout }         = useAuth();
   const { can, isAdmin, isDev, canAccessContacts } = usePermissions();
   const { selectedHotel }                    = useHotel();
@@ -26,15 +31,15 @@ const Sidebar = () => {
 
   // Desktop: hover-to-expand
   const [isHovered,       setIsHovered]       = useState(false);
-  // Mobile: toggle overlay
-  const [isMobileOpen,    setIsMobileOpen]    = useState(false);
   // Accordion
   const [expandedGroups,  setExpandedGroups]  = useState<Record<string, boolean>>({});
   // Dynamic sectors
   const [allSectors, setAllSectors] = useState<SectorRow[]>([]);
 
   // Fecha overlay ao navegar
-  useEffect(() => { setIsMobileOpen(false); }, [location.pathname]);
+  useEffect(() => { 
+    if (setIsMobileOpen) setIsMobileOpen(false); 
+  }, [location.pathname, setIsMobileOpen]);
 
   // Carrega setores do hotel selecionado
   useEffect(() => {
@@ -274,8 +279,15 @@ const Sidebar = () => {
         {sidebarContent}
       </aside>
 
+      {/* ── Overlay backdrop mobile ─────────────────────────────────────────── */}
+      {isMobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-[65] bg-black/40 backdrop-blur-sm"
+          onClick={() => setIsMobileOpen?.(false)}
+        />
+      )}
+
       {/* ── Sidebar mobile (slide-in) — agora controlado pelo Navbar ───────── */}
-      {/* Removemos o botão hamburger fixo daqui pois ele já existe no Navbar.tsx */}
       <aside
         className={classNames(
           "lg:hidden fixed left-0 top-0 h-full z-[70] w-64",
@@ -286,7 +298,7 @@ const Sidebar = () => {
       >
         {/* Botão fechar */}
         <button
-          onClick={() => setIsMobileOpen(false)}
+          onClick={() => setIsMobileOpen?.(false)}
           className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           aria-label="Fechar menu"
         >
