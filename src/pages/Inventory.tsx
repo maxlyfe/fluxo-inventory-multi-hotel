@@ -868,20 +868,6 @@ const Inventory = () => {
         </div>
       </div>
 
-        {/* Footer da tabela com totais */}
-        {filteredProducts.length > 0 && (
-          <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/80 flex items-center justify-between">
-            <span className="text-xs text-slate-400">{filteredProducts.length} item{filteredProducts.length !== 1 ? 's' : ''}</span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Valor filtrado: <span className="font-semibold text-slate-700 dark:text-slate-200">
-                {filteredProducts.reduce((s, p) => s + ((p.average_price || 0) * p.quantity), 0)
-                  .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* ── MODAIS ─────────────────────────────────────────────────────────── */}
 
       <StarredItemsModal isOpen={showStarredModal} onClose={() => setShowStarredModal(false)} starredProducts={starredProducts} />
