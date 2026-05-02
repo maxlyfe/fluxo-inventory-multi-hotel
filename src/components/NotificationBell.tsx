@@ -174,7 +174,7 @@ const NotificationBell: React.FC = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 z-50 overflow-hidden">
+        <div className="absolute right-[-10px] sm:right-0 mt-2 w-[calc(100vw-20px)] sm:w-96 max-w-[384px] bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 z-50 overflow-hidden">
           <div className="p-3 flex justify-between items-center border-b dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Notificações</h3>
             <button onClick={() => setIsOpen(false)} aria-label="Fechar notificações" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5">

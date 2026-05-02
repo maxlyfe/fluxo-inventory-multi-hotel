@@ -274,29 +274,13 @@ const Sidebar = () => {
         {sidebarContent}
       </aside>
 
-      {/* ── Botão hamburger — visível apenas em mobile ──────────────────────── */}
-      <button
-        onClick={() => setIsMobileOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-[70] p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-        aria-label="Abrir menu"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
-
-      {/* ── Overlay backdrop mobile ─────────────────────────────────────────── */}
-      {isMobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-[65] bg-black/40 backdrop-blur-sm"
-          onClick={() => setIsMobileOpen(false)}
-        />
-      )}
-
-      {/* ── Sidebar mobile (slide-in) ────────────────────────────────────────── */}
+      {/* ── Sidebar mobile (slide-in) — agora controlado pelo Navbar ───────── */}
+      {/* Removemos o botão hamburger fixo daqui pois ele já existe no Navbar.tsx */}
       <aside
         className={classNames(
           "lg:hidden fixed left-0 top-0 h-full z-[70] w-64",
           "bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800",
-          "transition-transform duration-300 ease-in-out",
+          "transition-transform duration-300 ease-in-out shadow-2xl",
           isMobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
