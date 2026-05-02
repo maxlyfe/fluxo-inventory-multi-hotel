@@ -751,6 +751,7 @@ const SectorStock = () => {
    * Chama o Supabase para atualizar a quantidade na tabela sector_stock.
    */
   const handleUpdateStock = async () => {
+    if (isUpdatingStock) return; // Proteção contra duplo clique
     if (!productToEdit || !selectedHotel || !sectorId) return;
 
     const quantity = parseNumber(newQuantity);

@@ -243,6 +243,8 @@ const NewProductModal = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return; // Proteção contra duplo clique
+
     setError('');
     setIsSaving(true);
     try {

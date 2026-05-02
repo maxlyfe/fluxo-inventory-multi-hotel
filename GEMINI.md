@@ -211,27 +211,36 @@ await supabase.rpc('decrement_sector_stock', {
 - Sempre try/catch com mensagem de erro para o usuario via `sanitizeError(err)`
 
 ### Tratamento de Erros (Sanitização)
-**CRÍTICO**: Nunca exiba mensagens técnicas brutas do banco de dados ou APIs para o usuário final. Isso evita o vazamento de informações da infraestrutura (Info Leakage).
+... (existente) ...
+
+### Idempotência e Proteção de Duplo Clique
+**CRÍTICO**: Operações de escrita (salvar, excluir, transferir, lançar) devem ser protegidas contra múltiplos cliques rápidos para evitar duplicidade de dados no banco ou em APIs externas.
 
 **Regra**:
-1. Use o utilitário `src/utils/errorHandler.ts`.
-2. Envolva chamadas assíncronas em `try/catch`.
-3. No Toast ou Alerta, passe o erro pela função `sanitizeError`.
-
-**Exemplo Errado (Proibido)**:
-```tsx
-} catch (err: any) {
-  addNotification(err.message, 'error'); // Expõe detalhes técnicos
-}
-```
+1. Toda função de `handleSubmit` ou `handleSave` deve verificar o estado de `loading` no início.
+2. O botão de submissão deve ser desabilitado (`disabled={loading}`) enquanto a operação estiver em curso.
+3. Se o estado `loading` for verdadeiro, a função deve retornar imediatamente (`if (loading) return;`).
 
 **Exemplo Correto (Obrigatório)**:
 ```tsx
-import { sanitizeError } from '../utils/errorHandler';
-...
-} catch (err: any) {
-  addNotification(sanitizeError(err), 'error'); // Mensagem amigável e segura
-}
+const [isSaving, setIsSaving] = useState(false);
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (isSaving) return; // Trava de segurança
+
+  setIsSaving(true);
+  try {
+    await api.call(...);
+  } finally {
+    setIsSaving(false);
+  }
+};
+
+// No JSX
+<button disabled={isSaving}>
+  {isSaving ? <Spinner /> : 'Salvar'}
+</button>
 ```
 
 ---

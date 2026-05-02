@@ -769,7 +769,9 @@ const GuestEditModal: React.FC<{
   });
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSaveGuest = async () => {
+    if (saving) return; // Proteção contra duplo clique
+
     if (!form.name.trim()) {
       addNotification('Nome é obrigatório', 'error');
       return;
