@@ -184,7 +184,7 @@ function LogRow({
   );
 }
 
-// ── Tab: Fichas Enviadas (Logs) ───────────────────────────────────────────────
+// ── Tab: Fichas Enviadas (Logs Grouped) ───────────────────────────────────────
 
 function TabLogs({ hotelId }: { hotelId: string }) {
   const { addNotification } = useNotification();
@@ -226,30 +226,20 @@ function TabLogs({ hotelId }: { hotelId: string }) {
     }
   }
 
-  const counts = {
-    sucesso:  logs.filter(l => l.status === 'SUCESSO' || l.status === 'CHECKOUT_ENVIADO').length,
-    pendente: logs.filter(l => l.status === 'PENDENTE').length,
-    erro:     logs.filter(l => l.status === 'ERRO').length,
-  };
+  // Agrupar logs por número de reserva
+  const grouped = logs.reduce((acc, log) => {
+    const key = log.numero_reserva || 'Sem Reserva';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(log);
+    return acc;
+  }, {} as Record<string, FNRHSyncLog[]>);
+
+  const bookingNumbers = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
   return (
     <div className="space-y-5">
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Enviados',  count: counts.sucesso,  cls: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/20' },
-          { label: 'Pendentes', count: counts.pendente, cls: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-          { label: 'Com Erro',  count: counts.erro,     cls: 'text-red-600 dark:text-red-400',     bg: 'bg-red-50 dark:bg-red-900/20'     },
-        ].map(s => (
-          <div key={s.label} className={`${s.bg} rounded-xl p-4 text-center`}>
-            <p className={`text-2xl font-black ${s.cls}`}>{s.count}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{s.label}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label className={labelCls}>Status</label>
@@ -282,7 +272,6 @@ function TabLogs({ hotelId }: { hotelId: string }) {
         </div>
       </div>
 
-      {/* List */}
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
       ) : logs.length === 0 ? (
@@ -291,14 +280,106 @@ function TabLogs({ hotelId }: { hotelId: string }) {
             <ClipboardList className="w-8 h-8 text-gray-300 dark:text-gray-600" />
           </div>
           <p className="text-gray-500 dark:text-gray-400 font-medium">Nenhum log encontrado</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-            Os logs aparecerão aqui após o job noturno ou envios manuais.
-          </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {logs.map(log => (
-            <LogRow key={log.id} log={log} onReenviar={handleReenviar} />
+        <div className="space-y-6">
+          {bookingNumbers.map(bn => (
+            <div key={bn} className="space-y-2">
+              <div className="flex items-center gap-2 px-1">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reserva</span>
+                <span className="text-sm font-black text-blue-600 dark:text-blue-400">#{bn}</span>
+                <div className="h-px flex-1 bg-slate-100 dark:bg-slate-800 ml-2" />
+              </div>
+              <div className="space-y-2">
+                {grouped[bn].map(log => (
+                  <LogRow key={log.id} log={log} onReenviar={handleReenviar} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Pendentes (Unsent Checkins) ──────────────────────────────────────────
+
+function TabPendentes({ hotelId }: { hotelId: string }) {
+  const { addNotification } = useNotification();
+  const [fichas, setFichas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadPendentes = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 1. Buscar fichas assinadas recentes (últimos 3 dias)
+      const { data: rawFichas, error: fErr } = await supabase
+        .from('wci_checkin_fichas')
+        .select(`
+          id, booking_number, guest_name, checkin_date, created_at,
+          wci_checkin_guests(*)
+        `)
+        .eq('hotel_id', hotelId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (fErr) throw fErr;
+
+      // 2. Buscar logs de SUCESSO para filtrar o que já foi enviado
+      const { data: sentLogs } = await supabase
+        .from('fnrh_sync_log')
+        .select('numero_reserva, status')
+        .eq('hotel_id', hotelId)
+        .eq('status', 'SUCESSO')
+        .eq('action', 'CHECKIN');
+
+      const sentReservas = new Set((sentLogs || []).map(l => l.numero_reserva));
+      
+      // 3. Filtrar apenas o que não tem log de sucesso
+      const pending = (rawFichas || []).filter(f => !sentReservas.has(f.booking_number));
+      setFichas(pending);
+    } catch (e: any) {
+      addNotification('Erro ao buscar fichas pendentes', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [hotelId]);
+
+  useEffect(() => { loadPendentes(); }, [hotelId]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200">Fichas assinadas aguardando transmissão</h3>
+        <button onClick={loadPendentes} className="text-xs text-blue-600 font-bold uppercase hover:underline">Atualizar</button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
+      ) : fichas.length === 0 ? (
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700">
+           <p className="text-gray-500 dark:text-gray-400">Nenhuma ficha pendente de envio encontrada.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {fichas.map(f => (
+            <div key={f.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-tighter mb-0.5">Reserva #{f.booking_number || '—'}</p>
+                <h4 className="font-bold text-gray-900 dark:text-white truncate">{f.guest_name}</h4>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold">
+                  {f.wci_checkin_guests?.length || 0} hóspede(s) • Assinado em {new Date(f.created_at).toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                 <button 
+                  onClick={() => addNotification('Envio manual em lote em desenvolvimento. O job noturno processará esta ficha às 23:50.', 'info')}
+                  className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold shadow-sm hover:bg-emerald-700 transition-all"
+                 >
+                   Enviar ao Gov
+                 </button>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -308,193 +389,18 @@ function TabLogs({ hotelId }: { hotelId: string }) {
 
 // ── Tab: Consulta Gov ─────────────────────────────────────────────────────────
 
-interface FNRHGovRecord {
-  Id: string;
-  Status: string;
-  StatusFichaLabel: string;
-  Nome: string;
-  NumeroDocumento: string;
-  TipoDocumentoId: string;
-  PaisNacionalidade_id: string;
-  CheckinEm: string;
-  SaidaPrevistaEm: string;
-  UF?: string;
-  Cidade?: string;
-}
-
-function GovRecordCard({ record, isDark }: { record: FNRHGovRecord; isDark: boolean }) {
-  const statusCls = record.Status === 'CHECK_OUT_CONFIRMADO' 
-    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusCls}`}>
-              {record.StatusFichaLabel || record.Status}
-            </span>
-            <span className="text-[10px] text-gray-400 font-mono">ID: {record.Id.split('-')[0]}...</span>
-          </div>
-          <h4 className="font-bold text-gray-900 dark:text-white truncate">{record.Nome}</h4>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {record.TipoDocumentoId}: {record.NumeroDocumento} • {record.PaisNacionalidade_id}
-            {record.UF && ` • ${record.UF}`}
-          </p>
-        </div>
-        
-        <div className="text-right shrink-0">
-          <div className="flex flex-col gap-1">
-             <div className="flex items-center justify-end gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                <Clock className="w-3 h-3 text-emerald-500" />
-                <span>In: {new Date(record.CheckinEm).toLocaleDateString('pt-BR')}</span>
-             </div>
-             <div className="flex items-center justify-end gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-                <div className="w-3 h-3 border-b border-r border-gray-400" />
-                <span>Out: {new Date(record.SaidaPrevistaEm).toLocaleDateString('pt-BR')}</span>
-             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TabConsulta({ hotelId }: { hotelId: string }) {
-  const { addNotification } = useNotification();
-  const [isDark]         = useState(document.documentElement.classList.contains('dark'));
-  const [loading,      setLoading]      = useState(false);
-  const [data,         setData]         = useState<any>(null);
-  const [page,         setPage]         = useState(1);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [dateFrom,     setDateFrom]     = useState('');
-  const [dateTo,       setDateTo]       = useState('');
-
-  async function handleConsultar(pg: number = page) {
-    const cfg = await fnrhService.getConfig(hotelId);
-    if (!cfg?.is_active) {
-      addNotification('A integração FNRH não está ativa para este hotel. Configure em Admin → FNRH Gov.', 'error');
-      return;
-    }
-    setLoading(true);
-    setData(null);
-    try {
-      const result = await fnrhService.consultarFichas(cfg, {
-        page_number:  pg,
-        status:       statusFilter || undefined,
-        data_inicial: dateFrom     || undefined,
-        data_final:   dateTo       || undefined,
-      });
-      setData(result);
-    } catch (e: any) {
-      addNotification(e.message || 'Erro ao consultar FNRH Gov', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const govRecords = (data?.dados || []) as FNRHGovRecord[];
-  const pagination = data?.pagination;
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-          <Search className="w-4 h-4 text-emerald-500" /> Consultar Fichas no Gov
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div>
-            <label className={labelCls}>Página</label>
-            <input type="number" min={1} className={inputCls} value={page}
-              onChange={e => setPage(Number(e.target.value) || 1)} />
-          </div>
-          <div>
-            <label className={labelCls}>Status</label>
-            <select
-              className={inputCls}
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-            >
-              {CONSULTA_STATUS_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Data Inicial</label>
-            <input type="date" className={inputCls} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls}>Data Final</label>
-            <input type="date" className={inputCls} value={dateTo} onChange={e => setDateTo(e.target.value)} />
-          </div>
-        </div>
-        <div className="flex gap-3 flex-wrap items-center">
-          <button type="button" onClick={() => handleConsultar(page)} disabled={loading} className={btnPrimary}>
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            Consultar FNRH Gov
-          </button>
-          
-          {pagination && (
-            <span className="text-xs text-gray-500 font-medium">
-              Página {pagination.PaginaAtual} de {pagination.TotalPaginas} ({pagination.TotalRegistros} fichas)
-            </span>
-          )}
-
-          {data && (
-            <div className="flex gap-2 ml-auto">
-              <button type="button"
-                onClick={() => { const p = Math.max(1, page - 1); setPage(p); handleConsultar(p); }}
-                disabled={loading || page <= 1} className={btnSecondary}>
-                ← Anterior
-              </button>
-              <button type="button"
-                onClick={() => { const p = page + 1; setPage(p); handleConsultar(p); }}
-                disabled={loading || (pagination && page >= pagination.TotalPaginas)} className={btnSecondary}>
-                Próxima →
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
-      ) : govRecords.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {govRecords.map(record => (
-            <GovRecordCard key={record.Id} record={record} isDark={isDark} />
-          ))}
-        </div>
-      ) : data && (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700">
-           <p className="text-gray-500 dark:text-gray-400">Nenhum registro retornado pelo Governo para este filtro.</p>
-        </div>
-      )}
-      
-      {/* Botão para ver JSON bruto (debug) */}
-      {data && (
-        <button 
-          onClick={() => console.log('FNRH Raw:', data)}
-          className="text-[10px] text-gray-400 hover:text-gray-600 underline block mx-auto"
-        >
-          Ver dados técnicos no console
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ── Main ──────────────────────────────────────────────────────────────────────
+
+type TabId = 'logs' | 'pendentes' | 'consulta';
 
 export default function FNRHReception() {
   const { selectedHotel } = useHotel();
   const [activeTab, setActiveTab] = useState<TabId>('logs');
 
   const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-    { id: 'logs',     label: 'Fichas Enviadas', icon: <ClipboardList className="w-4 h-4" /> },
-    { id: 'consulta', label: 'Consulta Gov',    icon: <Search        className="w-4 h-4" /> },
+    { id: 'logs',      label: 'Fichas Enviadas', icon: <ClipboardList className="w-4 h-4" /> },
+    { id: 'pendentes', label: 'Pendentes de Envio', icon: <Clock className="w-4 h-4" /> },
+    { id: 'consulta',  label: 'Consulta Gov',    icon: <Search        className="w-4 h-4" /> },
   ];
 
   if (!selectedHotel) {
@@ -515,20 +421,20 @@ export default function FNRHReception() {
         <div>
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">FNRH Gov — Fichas</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            Fichas enviadas ao Governo Federal e consulta na API FNRH SERPRO
+            Gerencie o envio de fichas ao Governo e consulte o status em tempo real.
           </p>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700">
-        <div className="flex gap-1">
+        <div className="flex gap-1 overflow-x-auto no-scrollbar">
           {TABS.map(tab => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -543,8 +449,9 @@ export default function FNRHReception() {
 
       {/* Tab content */}
       <div>
-        {activeTab === 'logs'     && <TabLogs     hotelId={selectedHotel.id} />}
-        {activeTab === 'consulta' && <TabConsulta hotelId={selectedHotel.id} />}
+        {activeTab === 'logs'      && <TabLogs      hotelId={selectedHotel.id} />}
+        {activeTab === 'pendentes' && <TabPendentes hotelId={selectedHotel.id} />}
+        {activeTab === 'consulta'  && <TabConsulta  hotelId={selectedHotel.id} />}
       </div>
     </div>
   );
