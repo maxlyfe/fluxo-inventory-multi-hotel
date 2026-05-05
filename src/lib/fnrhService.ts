@@ -154,14 +154,21 @@ export const fnrhService = {
     if (error) throw error;
   },
 
-  async testConnection(config: Pick<FNRHConfig, 'usuario' | 'senha' | 'cpf_responsavel' | 'ambiente'>): Promise<{ ok: boolean; message: string }> {
+  async testConnection(config: Pick<FNRHConfig, 'usuario' | 'senha' | 'cpf_responsavel' | 'ambiente'>): Promise<{ ok: boolean; message: string; detail?: string }> {
     try {
       const { status, data } = await fnrhFetch(config, '/dominios/fnrh/meios_transporte', 'GET');
       if (status === 200) {
         return { ok: true, message: 'Conexão estabelecida com sucesso!' };
       }
-      const msg = (data as any)?.erro || (data as any)?.mensagem || `HTTP ${status}`;
-      return { ok: false, message: `Erro ${status}: ${msg}` };
+      const d = data as any;
+      // Tenta extrair mensagem de erro do SERPRO em vários formatos possíveis
+      const msg = d?.mensagem || d?.erro || d?.message || d?.error
+        || d?.errors?.[0]?.message || d?.errors?.[0]
+        || (typeof d === 'string' ? d : null)
+        || `HTTP ${status}`;
+      // Resposta bruta para debug
+      const detail = typeof d === 'object' ? JSON.stringify(d, null, 2) : String(d ?? '');
+      return { ok: false, message: `Erro ${status}: ${msg}`, detail };
     } catch (e: any) {
       return { ok: false, message: e.message || 'Erro de conexão' };
     }

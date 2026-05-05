@@ -37,7 +37,7 @@ function TabConfig({ hotelId }: { hotelId: string }) {
   const [loading,    setLoading]   = useState(true);
   const [saving,     setSaving]    = useState(false);
   const [testing,    setTesting]   = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; detail?: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -166,16 +166,29 @@ function TabConfig({ hotelId }: { hotelId: string }) {
 
       {/* Test result */}
       {testResult && (
-        <div className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium ${
+        <div className={`p-3 rounded-xl border text-sm ${
           testResult.ok
             ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/40 text-green-700 dark:text-green-300'
             : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700/40 text-red-700 dark:text-red-300'
         }`}>
-          {testResult.ok
-            ? <CheckCircle className="w-4 h-4 shrink-0" />
-            : <WifiOff className="w-4 h-4 shrink-0" />
-          }
-          {testResult.message}
+          <div className="flex items-center gap-2 font-medium">
+            {testResult.ok
+              ? <CheckCircle className="w-4 h-4 shrink-0" />
+              : <WifiOff className="w-4 h-4 shrink-0" />
+            }
+            {testResult.message}
+          </div>
+          {/* Resposta bruta do SERPRO — ajuda a diagnosticar o problema */}
+          {!testResult.ok && testResult.detail && (
+            <pre className="mt-2 text-[11px] bg-red-100/60 dark:bg-red-900/20 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all opacity-80">
+              {testResult.detail}
+            </pre>
+          )}
+          {!testResult.ok && (
+            <p className="mt-2 text-xs opacity-70">
+              Verifique: usuário, senha e CPF corretos? Conta ativa no portal FNRH? Ambiente (Produção/Homologação) correto?
+            </p>
+          )}
         </div>
       )}
 
