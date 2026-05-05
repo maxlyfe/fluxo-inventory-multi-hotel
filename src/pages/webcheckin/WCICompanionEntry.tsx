@@ -561,6 +561,9 @@ export default function WCICompanionEntry() {
       }
     }
 
+    const addressCountry = (country && country !== 'OTHER') ? country : (nationality !== 'BR' ? nationality : 'BR');
+    const isBR           = addressCountry === 'BR';
+
     setSaving(true);
     setError('');
     try {
@@ -574,13 +577,13 @@ export default function WCICompanionEntry() {
         nationality: nationality || undefined,
         profession: profession.trim() || undefined,
         vehicleRegistration: vehicleRegistration.trim() || undefined,
-        documents: documentNumber.trim() ? [{ documentType, number: documentNumber.trim(), country: country || 'BR' }] : [],
+        documents: documentNumber.trim() ? [{ documentType, number: documentNumber.trim(), country: addressCountry }] : [],
         address: {
-          country: country || 'BR',
-          state:        state        || undefined,
+          country:      addressCountry,
+          state:        isBR ? (state        || undefined) : undefined,
+          zipcode:      isBR ? (zipcode      || undefined) : undefined,
           city:         city         || undefined,
           street:       street       || undefined,
-          zipcode:      zipcode      || undefined,
           neighborhood: neighborhood || undefined,
         },
       };

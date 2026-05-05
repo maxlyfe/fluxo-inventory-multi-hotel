@@ -264,16 +264,17 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
     ? (data.birthDate.includes('T') ? data.birthDate : `${data.birthDate}T00:00:00`)
     : null;
 
-  const docCountryFallback = data.address?.country?.trim() || 'BR';
+  const country = data.address?.country?.trim() || 'BR';
+  const isBrazil = country.toUpperCase() === 'BR';
 
   const addressObj = data.address
     ? {
-        country: data.address.country?.trim() || 'BR',
-        ...(data.address.state?.trim()        ? { state:        data.address.state.trim() }        : {}),
+        country,
+        ...(isBrazil && data.address.state?.trim()        ? { state:        data.address.state.trim() }        : {}),
         ...(data.address.city?.trim()         ? { city:         data.address.city.trim() }         : {}),
         ...(data.address.street?.trim()       ? { street:       data.address.street.trim() }       : {}),
         ...(data.address.neighborhood?.trim() ? { neighborhood: data.address.neighborhood.trim() } : {}),
-        ...(data.address.zipcode?.replace(/\D/g, '') ? { zipcode: data.address.zipcode!.replace(/\D/g, '') } : {}),
+        ...(isBrazil && data.address.zipcode?.replace(/\D/g, '') ? { zipcode: data.address.zipcode!.replace(/\D/g, '') } : {}),
       }
     : {};
 
@@ -295,7 +296,7 @@ function buildGuestBody(data: ErbonGuestPayload, existingId: number | null): Rec
       documentType: d.documentType,
       number: d.number?.replace(/[\.\-\/\s]/g, '') || d.number,
       ...(d.expirationDate ? { expirationDate: d.expirationDate } : {}),
-      country: (d.country && d.country.trim()) || docCountryFallback,
+      country: (d.country && d.country.trim()) || country,
     })),
   };
 }
@@ -913,7 +914,8 @@ export const erbonService = {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`Erro ao adicionar hóspede (${res.status})`);
+      const errTxt = await res.text().catch(() => '');
+      throw new Error(`Erro ao adicionar hóspede (${res.status}): ${errTxt}`);
     }
 
     const created = await res.json().catch(() => ({} as any));

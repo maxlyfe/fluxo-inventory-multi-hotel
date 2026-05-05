@@ -278,7 +278,7 @@ export default function WCIFNRHForm() {
       }
     }
 
-    const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'BR';
+    const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : (domNationality !== 'BR' ? domNationality : 'BR');
     const isBR           = addressCountry === 'BR';
 
     setSaving(true);
