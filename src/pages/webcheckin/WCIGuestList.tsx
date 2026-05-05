@@ -292,11 +292,6 @@ export default function WCIGuestList() {
           <h1 style={{ fontSize: 'clamp(1.2rem,4vw,1.8rem)', fontWeight: 800, color: '#fff', margin: 0, textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
             {t('guestList')}
           </h1>
-          {bookingRef && (
-            <p style={{ color: 'rgba(255,255,255,0.6)', margin: '0.5rem 0 0', fontSize: '0.9rem' }}>
-              {t('bookingId')} #{bookingRef}
-            </p>
-          )}
         </div>
 
         {/* Info */}

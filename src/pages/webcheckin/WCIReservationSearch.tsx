@@ -87,7 +87,7 @@ export default function WCIReservationSearch() {
         result.booking.bookingInternalID,
         realHotelId,
         result.guests as WebCheckinGuest[],
-        result.booking.bookingNumber || null
+        result.booking.bookingNumber || (result.booking as any).erbonNumber?.toString() || null
       );
       navigate(`/web-checkin/${wciCode}/guests/${token}`);
     } catch (err: any) {

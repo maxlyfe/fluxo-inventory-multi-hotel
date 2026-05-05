@@ -300,11 +300,6 @@ export default function WCISignatureAndTerms() {
           }}>
             Termos e Assinatura
           </h1>
-          {sessionToken && (
-            <p style={{ color: 'rgba(255,255,255,0.55)', margin: '0.4rem 0 0', fontSize: '0.88rem' }}>
-              {t('bookingId')} #{sessionToken}
-            </p>
-          )}
         </div>
 
         {/* Termos do Hotel */}

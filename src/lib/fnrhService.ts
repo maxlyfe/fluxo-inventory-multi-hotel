@@ -2,6 +2,7 @@
 // Serviço de integração com a API FNRH Gov (SERPRO) v2
 
 import { supabase } from './supabase';
+import { sanitizeError } from '../utils/errorHandler';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,6 @@ export interface FNRHRegistrarPayload {
 // ── Proxy URL ─────────────────────────────────────────────────────────────────
 
 function fnrhProxyUrl(): string {
-  if (import.meta.env.DEV) return '/.netlify/functions/fnrh-proxy';
   return '/.netlify/functions/fnrh-proxy';
 }
 
@@ -119,15 +119,19 @@ async function fnrhFetch(
   method: string = 'GET',
   body?: unknown
 ): Promise<{ status: number; data: unknown }> {
-  const res = await fetch(fnrhProxyUrl(), {
-    method: 'POST',           // sempre POST para o proxy — método real vai no header
-    headers: proxyHeaders(config, path, method),
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  let data: unknown;
-  try { data = JSON.parse(text); } catch { data = text; }
-  return { status: res.status, data };
+  try {
+    const res = await fetch(fnrhProxyUrl(), {
+      method: 'POST',           // sempre POST para o proxy
+      headers: proxyHeaders(config, path, method),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let data: unknown;
+    try { data = JSON.parse(text); } catch { data = text; }
+    return { status: res.status, data };
+  } catch (err: any) {
+    throw new Error('Falha de comunicação com o servidor FNRH');
+  }
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -160,6 +164,15 @@ export const fnrhService = {
       if (status === 200) {
         return { ok: true, message: 'Conexão estabelecida com sucesso!' };
       }
+
+      if (status === 401) {
+        return { ok: false, message: 'Usuário ou Senha do SERPRO inválidos.' };
+      }
+
+      if (status === 403) {
+        return { ok: false, message: 'Acesso negado pelo SERPRO. Verifique as permissões da conta.' };
+      }
+
       const d = data as any;
       // Tenta extrair mensagem de erro do SERPRO em vários formatos possíveis
       const msg = d?.mensagem || d?.erro || d?.message || d?.error
@@ -170,7 +183,7 @@ export const fnrhService = {
       const detail = typeof d === 'object' ? JSON.stringify(d, null, 2) : String(d ?? '');
       return { ok: false, message: `Erro ${status}: ${msg}`, detail };
     } catch (e: any) {
-      return { ok: false, message: e.message || 'Erro de conexão' };
+      return { ok: false, message: sanitizeError(e) };
     }
   },
 
@@ -182,7 +195,8 @@ export const fnrhService = {
   ): Promise<{ reserva_id: string; hospede_id: string; pessoa_id: string }> {
     const { status, data } = await fnrhFetch(config, '/hospedagem/registrar', 'POST', payload);
     if (status !== 200) {
-      throw { code: status, message: (data as any)?.mensagem || 'Erro ao registrar hospedagem', body: JSON.stringify(data) };
+      const msg = (data as any)?.mensagem || 'Erro ao registrar hospedagem';
+      throw { code: status, message: status === 401 ? 'Credenciais SERPRO expiradas ou inválidas' : msg, body: JSON.stringify(data) };
     }
     const d = data as any;
     return {
@@ -228,7 +242,10 @@ export const fnrhService = {
     if (params.data_inicial) qs.set('data_inicial', params.data_inicial);
     if (params.data_final)   qs.set('data_final', params.data_final);
     const { status, data } = await fnrhFetch(config, `/fichas?${qs.toString()}`, 'GET');
-    if (status !== 200) throw new Error(`HTTP ${status}`);
+    
+    if (status === 401) throw new Error('Credenciais SERPRO inválidas ou expiradas.');
+    if (status !== 200) throw new Error(`Erro FNRH Gov (${status})`);
+    
     return data;
   },
 

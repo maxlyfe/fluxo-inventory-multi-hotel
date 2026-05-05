@@ -214,15 +214,15 @@ export default function FNRHIntegration() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-6 overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-start gap-4">
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 shrink-0">
-          <FileText className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
+      <div className="flex items-center sm:items-start gap-3 sm:gap-4">
+        <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 shrink-0">
+          <FileText className="w-6 h-6 sm:w-7 sm:h-7 text-emerald-600 dark:text-emerald-400" />
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">FNRH Gov — Configuração</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate">FNRH Gov — Configuração</h1>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">
             Credenciais e sincronização automática com a API FNRH SERPRO
           </p>
         </div>

@@ -27,18 +27,22 @@ const handler: Handler = async (event: HandlerEvent) => {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
 
-  const usuario   = event.headers['x-fnrh-usuario'];
-  const senha     = event.headers['x-fnrh-senha'];
-  const cpf       = event.headers['x-fnrh-cpf'];
-  const ambiente  = event.headers['x-fnrh-ambiente'] || 'producao';
-  const fnrhPath  = event.headers['x-fnrh-path'];           // ex: /dominios/fnrh/meios_transporte
-  const fnrhMethod = event.headers['x-fnrh-method'] || event.httpMethod;
+  const headers = Object.fromEntries(
+    Object.entries(event.headers).map(([k, v]) => [k.toLowerCase(), v])
+  );
+
+  const usuario   = headers['x-fnrh-usuario'];
+  const senha     = headers['x-fnrh-senha'];
+  const cpf       = headers['x-fnrh-cpf'];
+  const ambiente  = headers['x-fnrh-ambiente'] || 'producao';
+  const fnrhPath  = headers['x-fnrh-path'];
+  const fnrhMethod = headers['x-fnrh-method'] || event.httpMethod;
 
   if (!usuario || !senha) {
     return {
       statusCode: 400,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Missing x-fnrh-usuario or x-fnrh-senha headers' }),
+      body: JSON.stringify({ error: 'Credenciais ausentes (x-fnrh-usuario/senha)' }),
     };
   }
 
@@ -46,7 +50,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     return {
       statusCode: 400,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Missing x-fnrh-path header' }),
+      body: JSON.stringify({ error: 'Caminho ausente (x-fnrh-path)' }),
     };
   }
 
