@@ -174,6 +174,16 @@ export const fnrhService = {
       }
 
       const d = data as any;
+      const statusStr = String(status);
+
+      if (statusStr === '504' || statusStr === '502') {
+        return { 
+          ok: false, 
+          message: 'Lentidão ou Bloqueio no Governo.',
+          detail: 'O servidor do SERPRO não respondeu. Isso pode ser manutenção programada ou o Firewall do Governo bloqueando acessos externos (Netlify). Tente novamente em alguns minutos.'
+        };
+      }
+
       // Tenta extrair mensagem de erro do SERPRO em vários formatos possíveis
       const msg = d?.mensagem || d?.erro || d?.message || d?.error
         || d?.errors?.[0]?.message || d?.errors?.[0]
