@@ -346,10 +346,10 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   
-  // Datas padrão: últimos 30 dias para evitar timeout e carga excessiva
+  // Datas padrão: últimos 10 dias (otimizado para evitar timeouts)
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() - 10);
     return d.toISOString().split('T')[0];
   });
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
@@ -362,6 +362,18 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
       addNotification('A integração FNRH não está ativa para este hotel.', 'error'); 
       return; 
     }
+
+    // Validação de intervalo (Máx 31 dias recomendado pelo SERPRO para performance)
+    const d1 = new Date(dateFrom);
+    const d2 = new Date(dateTo);
+    const diffTime = Math.abs(d2.getTime() - d1.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays > 31) {
+      addNotification('Por favor, selecione um período de no máximo 31 dias para evitar lentidão.', 'warning');
+      return;
+    }
+
     setLoading(true);
     setData(null);
     try {
@@ -373,16 +385,20 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
       });
       setData(result);
     } catch (e: any) {
-      addNotification('Erro ao consultar dados no Governo. Verifique o período.', 'error');
+      if (e.message?.includes('504') || e.message?.includes('Timeout')) {
+        addNotification('O servidor do Governo demorou muito para responder (Timeout). Tente um período menor ou aguarde alguns instantes.', 'error');
+      } else {
+        addNotification('Falha ao consultar Governo. Verifique suas credenciais ou o período.', 'error');
+      }
     } finally {
       setLoading(false);
     }
   }, [hotelId, page, statusFilter, dateFrom, dateTo, addNotification]);
 
-  // Consulta automática ao carregar o componente para já trazer dados
+  // Consulta automática ao carregar o componente
   useEffect(() => {
     handleConsultar(1);
-  }, [hotelId]); // Dispara ao selecionar o hotel ou montar o tab
+  }, [hotelId]);
 
   const govRecords = (data?.dados || []) as FNRHGovRecord[];
   const pagination = data?.pagination;
@@ -395,7 +411,7 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
           <div><label className={labelCls}>Página</label><input type="number" min={1} className={inputCls} value={page} onChange={e => setPage(Number(e.target.value) || 1)} /></div>
           <div><label className={labelCls}>Status Ficha</label><select className={inputCls} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>{CONSULTA_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></div>
           <div><label className={labelCls}>Data Inicial</label><input type="date" className={inputCls} value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
-          <div><label className={labelCls}>Data Final</label><input type="date" className={inputCls} value={dateTo} onChange={e => setPage(1) || setDateTo(e.target.value)} /></div>
+          <div><label className={labelCls}>Data Final</label><input type="date" className={inputCls} value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
         </div>
         <div className="flex flex-wrap gap-3 items-center pt-2">
           <button onClick={() => { setPage(1); handleConsultar(1); }} disabled={loading} className={btnPrimary}>{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Consultar</button>
