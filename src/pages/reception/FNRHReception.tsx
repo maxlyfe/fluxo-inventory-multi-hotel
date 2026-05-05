@@ -93,7 +93,6 @@ function ActionBadge({ action }: { action: string }) {
 function LogRow({ log, onReenviar }: { log: FNRHSyncLog; onReenviar: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [sending,  setSending]  = useState(false);
-  const isDark = document.documentElement.classList.contains('dark');
 
   const dateLabel = (() => {
     try {
@@ -270,7 +269,7 @@ function TabPendentes({ hotelId }: { hotelId: string }) {
   const loadPendentes = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Buscar fichas assinadas recentes (foco em wci_checkin_fichas)
+      // 1. Buscar fichas assinadas recentes
       const { data: rawFichas, error: fErr } = await supabase
         .from('wci_checkin_fichas')
         .select('id, booking_number, guest_name, checkin_date, created_at')
@@ -279,7 +278,7 @@ function TabPendentes({ hotelId }: { hotelId: string }) {
         .limit(60);
       if (fErr) throw fErr;
 
-      // 2. Buscar números de reserva que já tiveram sucesso (logica de exclusão)
+      // 2. Buscar números de reserva que já tiveram sucesso
       const { data: sentLogs } = await supabase
         .from('fnrh_sync_log')
         .select('numero_reserva')
@@ -346,6 +345,15 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
   const [data, setData] = useState<any>(null);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
+  
+  // Datas padrão: últimos 30 dias para evitar timeout e carga excessiva
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  
   const isDark = document.documentElement.classList.contains('dark');
 
   const handleConsultar = useCallback(async (pg: number = page) => {
@@ -357,14 +365,24 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
     setLoading(true);
     setData(null);
     try {
-      const result = await fnrhService.consultarFichas(cfg, { page_number: pg, status: statusFilter || undefined });
+      const result = await fnrhService.consultarFichas(cfg, { 
+        page_number: pg, 
+        status: statusFilter || undefined,
+        data_inicial: dateFrom || undefined,
+        data_final:   dateTo   || undefined
+      });
       setData(result);
     } catch (e: any) {
-      addNotification('Erro ao consultar dados no Governo.', 'error');
+      addNotification('Erro ao consultar dados no Governo. Verifique o período.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [hotelId, page, statusFilter, addNotification]);
+  }, [hotelId, page, statusFilter, dateFrom, dateTo, addNotification]);
+
+  // Consulta automática ao carregar o componente para já trazer dados
+  useEffect(() => {
+    handleConsultar(1);
+  }, [hotelId]); // Dispara ao selecionar o hotel ou montar o tab
 
   const govRecords = (data?.dados || []) as FNRHGovRecord[];
   const pagination = data?.pagination;
@@ -376,9 +394,11 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
           <div><label className={labelCls}>Página</label><input type="number" min={1} className={inputCls} value={page} onChange={e => setPage(Number(e.target.value) || 1)} /></div>
           <div><label className={labelCls}>Status Ficha</label><select className={inputCls} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>{CONSULTA_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></div>
+          <div><label className={labelCls}>Data Inicial</label><input type="date" className={inputCls} value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+          <div><label className={labelCls}>Data Final</label><input type="date" className={inputCls} value={dateTo} onChange={e => setPage(1) || setDateTo(e.target.value)} /></div>
         </div>
         <div className="flex flex-wrap gap-3 items-center pt-2">
-          <button onClick={() => handleConsultar(page)} disabled={loading} className={btnPrimary}>{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Consultar</button>
+          <button onClick={() => { setPage(1); handleConsultar(1); }} disabled={loading} className={btnPrimary}>{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Consultar</button>
           {pagination && <div className="text-[10px] font-black text-gray-400 uppercase bg-gray-100 dark:bg-gray-900 px-3 py-1.5 rounded-full">Total: {pagination.TotalRegistros}</div>}
           {data && (
             <div className="flex gap-2 ml-auto">
