@@ -274,6 +274,19 @@ const COUNTRY_FLAGS = [
   { code: 'OTHER', label: 'Outro' },
 ];
 
+// ── Helper: calcula idade ─────────────────────────────────────────────────────
+
+function calcAge(birthDateStr: string): number | null {
+  if (!birthDateStr) return null;
+  const birth = new Date(birthDateStr);
+  if (isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 // ── Componente principal ─────────────────────────────────────────────────────
 
 export default function WCICompanionEntry() {
@@ -331,6 +344,22 @@ export default function WCICompanionEntry() {
   const [cepLoading, setCepLoading]         = useState(false);
   const [birthDateDisplay, setBirthDateDisplay] = useState(''); // DD/MM/AAAA
 
+  // ── Campos FNRH Gov ───────────────────────────────────────────────────────
+  const [racaId,             setRacaId]            = useState('NAOINFORMAR');
+  const [deficienciaId,      setDeficienciaId]      = useState('NAO');
+  const [tipoDeficienciaId,  setTipoDeficienciaId]  = useState('');
+  const [motivoViagemId,     setMotivoViagemId]     = useState('LAZER_FERIAS');
+  const [meioTransporteId,   setMeioTransporteId]   = useState('AUTOMOVEL');
+  // Menor de idade
+  const [grauParentescoId,     setGrauParentescoId]     = useState('');
+  const [responsavelGuestId,   setResponsavelGuestId]   = useState('');
+  const [responsavelDocumento, setResponsavelDocumento] = useState('');
+  const [responsavelDocTipo,   setResponsavelDocTipo]   = useState('CPF');
+  const [adultGuests,          setAdultGuests]          = useState<WebCheckinGuest[]>([]);
+
+  // isMinor é derivado em tempo real da birthDate
+  const isMinorGuest = calcAge(birthDate) !== null && (calcAge(birthDate) as number) < 18;
+
   // ── Máscara de data DD/MM/AAAA ────────────────────────────────────────────
   const handleDateInput = (raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 8);
@@ -381,6 +410,17 @@ export default function WCICompanionEntry() {
     // Dispara lookup ao perder foco (útil quando usuário cola o CEP inteiro)
     const digits = zipcode.replace(/\D/g, '');
     if (digits.length === 8) lookupCep(digits);
+  };
+
+  // Auto-preenche documento do responsável ao selecionar hóspede adulto da reserva
+  const handleResponsavelGuestSelect = (guestIdStr: string) => {
+    setResponsavelGuestId(guestIdStr);
+    if (!guestIdStr) { setResponsavelDocumento(''); return; }
+    const g = adultGuests.find(ag => String(ag.id) === guestIdStr);
+    if (g?.documents?.length) {
+      setResponsavelDocumento(g.documents[0].number || '');
+      setResponsavelDocTipo(g.documents[0].documentType === 'PASSPORT' ? 'PASSAPORTE' : 'CPF');
+    }
   };
 
   // ── Resolver tokens + pré-carregar dados (efeito único) ──────────────────
@@ -451,8 +491,31 @@ export default function WCICompanionEntry() {
             }
 
             if (g.fnrhCompleted) setStep('signature');
+
+            // Pré-preenche campos FNRH se já preenchidos
+            if (g.fnrh_extra) {
+              if (g.fnrh_extra.raca_id)              setRacaId(g.fnrh_extra.raca_id);
+              if (g.fnrh_extra.deficiencia_id)       setDeficienciaId(g.fnrh_extra.deficiencia_id);
+              if (g.fnrh_extra.tipo_deficiencia_id)  setTipoDeficienciaId(g.fnrh_extra.tipo_deficiencia_id);
+              if (g.fnrh_extra.motivo_viagem_id)     setMotivoViagemId(g.fnrh_extra.motivo_viagem_id);
+              if (g.fnrh_extra.meio_transporte_id)   setMeioTransporteId(g.fnrh_extra.meio_transporte_id);
+              if (g.fnrh_extra.grau_parentesco_id)   setGrauParentescoId(g.fnrh_extra.grau_parentesco_id);
+              if (g.fnrh_extra.responsavel_documento) setResponsavelDocumento(g.fnrh_extra.responsavel_documento);
+              if (g.fnrh_extra.responsavel_doc_tipo)  setResponsavelDocTipo(g.fnrh_extra.responsavel_doc_tipo);
+            }
           }
         }
+      }
+
+      // Carrega hóspedes adultos para dropdown de responsável de menor
+      if (session) {
+        const allG = session.guests || [];
+        const adults = allG.filter((g: WebCheckinGuest) => {
+          if (!g.birthDate) return true;
+          const age = calcAge(g.birthDate);
+          return age === null || age >= 18;
+        }).filter((g: WebCheckinGuest) => g.id !== existingGuestId);
+        setAdultGuests(adults);
       }
 
       setResolving(false); // formulário aparece apenas aqui (já preenchido)
@@ -486,6 +549,18 @@ export default function WCICompanionEntry() {
     if (!email.trim())          { setError('E-mail é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
 
+    // Validação de menor de idade
+    if (isMinorGuest) {
+      if (!grauParentescoId) {
+        setError(t('errorMinorRelationship'));
+        return;
+      }
+      if (!responsavelDocumento.trim()) {
+        setError(t('errorMinorDocument'));
+        return;
+      }
+    }
+
     setSaving(true);
     setError('');
     try {
@@ -514,22 +589,43 @@ export default function WCICompanionEntry() {
       if (hasErbon && realBookingId) {
         newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, payload);
       } else {
-        // Hotel sem API Erbon: usa ID sintético (não enviado para nenhuma API externa)
         newId = existingGuestId && existingGuestId > 0 ? existingGuestId : (savedGuestId ?? 0);
       }
       setSavedGuestId(newId);
+
+      // Monta fnrh_extra para persistir na sessão
+      const fnrhExtra: WebCheckinGuest['fnrh_extra'] = {
+        raca_id:               racaId,
+        deficiencia_id:        deficienciaId,
+        tipo_deficiencia_id:   deficienciaId === 'SIM' ? tipoDeficienciaId : undefined,
+        motivo_viagem_id:      motivoViagemId,
+        meio_transporte_id:    meioTransporteId,
+        grau_parentesco_id:    isMinorGuest ? grauParentescoId   || undefined : undefined,
+        responsavel_documento: isMinorGuest ? responsavelDocumento.replace(/[\.\-\/\s]/g, '') || undefined : undefined,
+        responsavel_doc_tipo:  isMinorGuest ? responsavelDocTipo  || undefined : undefined,
+      };
 
       const stored = (await loadGuestsFromServer(realBookingId)) || loadGuestsFromStorage(realBookingId) || [];
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: newId, name: domName, email: email.trim(), phone: phone.trim(),
           documents: payload.documents, fnrhCompleted: true, isMainGuest: false,
+          birthDate: birthDate || undefined,
+          genderID: genderID || undefined,
+          nationality: nationality || undefined,
+          address: payload.address,
+          fnrh_extra: fnrhExtra,
         };
         await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId);
       } else {
         await saveGuestsToStorage(realBookingId, stored.map(g =>
           g.id === existingGuestId
-            ? { ...g, id: newId, name: domName, email: email.trim(), phone: phone.trim(), fnrhCompleted: true }
+            ? { ...g, id: newId, name: domName, email: email.trim(), phone: phone.trim(),
+                birthDate: birthDate || g.birthDate,
+                genderID: genderID || g.genderID,
+                nationality: nationality || g.nationality,
+                address: payload.address,
+                fnrhCompleted: true, fnrh_extra: fnrhExtra }
             : g
         ), realHotelId);
       }
@@ -707,6 +803,15 @@ export default function WCICompanionEntry() {
           addressNeighborhood: neighborhood || undefined,
           documentFrontUrl: docFrontUrl,
           documentBackUrl:  docBackUrl,
+          // Campos FNRH Gov
+          fnrhRacaId:            racaId,
+          fnrhDeficienciaId:     deficienciaId,
+          fnrhTipoDeficienciaId: deficienciaId === 'SIM' ? tipoDeficienciaId : undefined,
+          fnrhMotivoViagemId:    motivoViagemId,
+          fnrhMeioTransporteId:  meioTransporteId,
+          fnrhGrauParentescoId:    isMinorGuest ? grauParentescoId                                        || undefined : undefined,
+          fnrhResponsavelDocumento: isMinorGuest ? responsavelDocumento.replace(/[\.\-\/\s]/g, '') || undefined : undefined,
+          fnrhResponsavelDocTipo:   isMinorGuest ? responsavelDocTipo                                     || undefined : undefined,
         };
 
         // Monta lista: outros hóspedes da sessão + hóspede atual com dados completos
@@ -729,8 +834,16 @@ export default function WCICompanionEntry() {
             addressStreet:  g.address?.street,
             addressZipcode: g.address?.zipcode,
             addressNeighborhood: g.address?.neighborhood,
-            documentFrontUrl: g.documentFrontUrl,
-            documentBackUrl:  g.documentBackUrl,
+            documentFrontUrl:    g.documentFrontUrl,
+            documentBackUrl:     g.documentBackUrl,
+            fnrhRacaId:            g.fnrh_extra?.raca_id,
+            fnrhDeficienciaId:     g.fnrh_extra?.deficiencia_id,
+            fnrhTipoDeficienciaId: g.fnrh_extra?.tipo_deficiencia_id,
+            fnrhMotivoViagemId:    g.fnrh_extra?.motivo_viagem_id,
+            fnrhMeioTransporteId:  g.fnrh_extra?.meio_transporte_id,
+            fnrhGrauParentescoId:    g.fnrh_extra?.grau_parentesco_id,
+            fnrhResponsavelDocumento: g.fnrh_extra?.responsavel_documento,
+            fnrhResponsavelDocTipo:   g.fnrh_extra?.responsavel_doc_tipo,
           }));
 
         const guestsForDb = [...othersForDb, currentGuestData];
@@ -941,6 +1054,176 @@ export default function WCICompanionEntry() {
                   <input style={inputStyle} type="text" value={street} onChange={e => setStreet(e.target.value)} placeholder="Rua, número" />
                 </div>
               </div>
+
+              {/* ── Informações da Viagem (FNRH Gov) ── */}
+              <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.12)', paddingBottom: '0.4rem' }}>
+                {t('travelInfoSection')}
+              </p>
+
+              {/* Raça / Etnia */}
+              <div>
+                <label style={labelStyle}>{t('racaLabel')}</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {[
+                    { value: 'BRANCA',      key: 'racaBranca' },
+                    { value: 'PRETA',       key: 'racaPreta' },
+                    { value: 'PARDA',       key: 'racaParda' },
+                    { value: 'AMARELA',     key: 'racaAmarela' },
+                    { value: 'INDIGENA',    key: 'racaIndigena' },
+                    { value: 'NAOINFORMAR', key: 'racaNaoInformar' },
+                  ].map(op => (
+                    <button key={op.value} type="button" onClick={() => setRacaId(op.value)} style={{
+                      padding: '0.4rem 0.8rem', borderRadius: 50, border: '1px solid',
+                      borderColor: racaId === op.value ? '#0085ae' : 'rgba(255,255,255,0.2)',
+                      background: racaId === op.value ? 'rgba(0,133,174,0.35)' : 'rgba(255,255,255,0.07)',
+                      color: racaId === op.value ? '#fff' : 'rgba(255,255,255,0.6)',
+                      fontSize: '0.8rem', fontWeight: racaId === op.value ? 700 : 400,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}>{t(op.key)}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Deficiência */}
+              <div>
+                <label style={labelStyle}>{t('deficienciaLabel')}</label>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: deficienciaId === 'SIM' ? '0.5rem' : 0 }}>
+                  {[
+                    { value: 'NAO',         key: 'defNao' },
+                    { value: 'SIM',         key: 'defSim' },
+                    { value: 'NAOINFORMAR', key: 'defNaoInformar' },
+                  ].map(op => (
+                    <button key={op.value} type="button" onClick={() => { setDeficienciaId(op.value); if (op.value !== 'SIM') setTipoDeficienciaId(''); }} style={{
+                      padding: '0.4rem 0.8rem', borderRadius: 50, border: '1px solid',
+                      borderColor: deficienciaId === op.value ? '#0085ae' : 'rgba(255,255,255,0.2)',
+                      background: deficienciaId === op.value ? 'rgba(0,133,174,0.35)' : 'rgba(255,255,255,0.07)',
+                      color: deficienciaId === op.value ? '#fff' : 'rgba(255,255,255,0.6)',
+                      fontSize: '0.8rem', fontWeight: deficienciaId === op.value ? 700 : 400,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}>{t(op.key)}</button>
+                  ))}
+                </div>
+                {deficienciaId === 'SIM' && (
+                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={tipoDeficienciaId} onChange={e => setTipoDeficienciaId(e.target.value)}>
+                    <option value=""                style={{ color: '#000' }}>— {t('tipoDefLabel')}</option>
+                    <option value="FISICA"          style={{ color: '#000' }}>{t('tipoDefFisica')}</option>
+                    <option value="AUDITIVA_SURDEZ" style={{ color: '#000' }}>{t('tipoDefAuditiva')}</option>
+                    <option value="VISUAL"          style={{ color: '#000' }}>{t('tipoDefVisual')}</option>
+                    <option value="INTELECTUAL"     style={{ color: '#000' }}>{t('tipoDefIntelectual')}</option>
+                    <option value="MULTIPLA"        style={{ color: '#000' }}>{t('tipoDefMultipla')}</option>
+                  </select>
+                )}
+              </div>
+
+              {/* Motivo viagem + Meio transporte */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={labelStyle}>{t('motivoViagemLabel')}</label>
+                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={motivoViagemId} onChange={e => setMotivoViagemId(e.target.value)}>
+                    <option value="LAZER_FERIAS"    style={{ color: '#000' }}>{t('motivoLazer')}</option>
+                    <option value="NEGOCIOS"        style={{ color: '#000' }}>{t('motivoNegocios')}</option>
+                    <option value="COMPRAS"         style={{ color: '#000' }}>{t('motivoCompras')}</option>
+                    <option value="CONGRESSO_FEIRA" style={{ color: '#000' }}>{t('motivoCongresso')}</option>
+                    <option value="ESTUDOS_CURSOS"  style={{ color: '#000' }}>{t('motivoEstudos')}</option>
+                    <option value="PARENTES_AMIGOS" style={{ color: '#000' }}>{t('motivoParentes')}</option>
+                    <option value="RELIGIAO"        style={{ color: '#000' }}>{t('motivoReligiao')}</option>
+                    <option value="SAUDE"           style={{ color: '#000' }}>{t('motivoSaude')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('meioTransporteLabel')}</label>
+                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={meioTransporteId} onChange={e => setMeioTransporteId(e.target.value)}>
+                    <option value="AUTOMOVEL"   style={{ color: '#000' }}>{t('transAutomovel')}</option>
+                    <option value="AVIAO"       style={{ color: '#000' }}>{t('transAviao')}</option>
+                    <option value="ONIBUS"      style={{ color: '#000' }}>{t('transOnibus')}</option>
+                    <option value="MOTO"        style={{ color: '#000' }}>{t('transMoto')}</option>
+                    <option value="NAVIO_BARCO" style={{ color: '#000' }}>{t('transNavio')}</option>
+                    <option value="TREM"        style={{ color: '#000' }}>{t('transTrem')}</option>
+                    <option value="BICICLETA"   style={{ color: '#000' }}>{t('transBicicleta')}</option>
+                    <option value="PE"          style={{ color: '#000' }}>{t('transPe')}</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* ── Menor de Idade ── aparece automaticamente quando age < 18 */}
+              {isMinorGuest && (
+                <>
+                  {/* Banner */}
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '0.65rem',
+                    background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)',
+                    borderRadius: 12, padding: '0.75rem 1rem',
+                  }}>
+                    <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>⚠️</span>
+                    <div>
+                      <p style={{ margin: 0, color: '#fbbf24', fontWeight: 700, fontSize: '0.85rem' }}>{t('minorBannerTitle')}</p>
+                      <p style={{ margin: '0.2rem 0 0', color: 'rgba(255,255,255,0.65)', fontSize: '0.78rem', lineHeight: 1.5 }}>
+                        {t('minorBannerDesc')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p style={{ margin: 0, fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(251,191,36,0.25)', paddingBottom: '0.4rem' }}>
+                    {t('minorSection')}
+                  </p>
+
+                  {/* Grau de parentesco */}
+                  <div>
+                    <label style={labelStyle}>{t('grauParentescoLabel')}</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      {[
+                        { value: 'PAI',               key: 'grauPai' },
+                        { value: 'MAE',               key: 'grauMae' },
+                        { value: 'AVO',               key: 'grauAvo' },
+                        { value: 'IRMAO',             key: 'grauIrmao' },
+                        { value: 'TIO',               key: 'grauTio' },
+                        { value: 'RESPONSAVEL_LEGAL', key: 'grauRespLegal' },
+                        { value: 'TUTOR',             key: 'grauTutor' },
+                        { value: 'OUTRO',             key: 'grauOutro' },
+                      ].map(op => (
+                        <button key={op.value} type="button" onClick={() => setGrauParentescoId(op.value)} style={{
+                          padding: '0.4rem 0.8rem', borderRadius: 50, border: '1px solid',
+                          borderColor: grauParentescoId === op.value ? '#fbbf24' : 'rgba(255,255,255,0.2)',
+                          background: grauParentescoId === op.value ? 'rgba(251,191,36,0.25)' : 'rgba(255,255,255,0.07)',
+                          color: grauParentescoId === op.value ? '#fff' : 'rgba(255,255,255,0.6)',
+                          fontSize: '0.8rem', fontWeight: grauParentescoId === op.value ? 700 : 400,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}>{t(op.key)}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Selecionar responsável da reserva */}
+                  {adultGuests.length > 0 && (
+                    <div>
+                      <label style={labelStyle}>{t('responsavelReservaLabel')}</label>
+                      <select style={{ ...inputStyle, cursor: 'pointer' }} value={responsavelGuestId} onChange={e => handleResponsavelGuestSelect(e.target.value)}>
+                        <option value="" style={{ color: '#000' }}>{t('responsavelReservaPlaceholder')}</option>
+                        {adultGuests.map(ag => (
+                          <option key={ag.id} value={String(ag.id)} style={{ color: '#000' }}>
+                            {ag.name}{ag.documents?.[0]?.number ? ` — ${ag.documents[0].number}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Documento do responsável */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={labelStyle}>{t('responsavelDocTipoLabel')}</label>
+                      <select style={{ ...inputStyle, cursor: 'pointer' }} value={responsavelDocTipo} onChange={e => setResponsavelDocTipo(e.target.value)}>
+                        <option value="CPF"        style={{ color: '#000' }}>CPF</option>
+                        <option value="PASSAPORTE" style={{ color: '#000' }}>{t('passport')}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>{t('responsavelDocNumeroLabel')}</label>
+                      <input style={inputStyle} type="text" value={responsavelDocumento} onChange={e => setResponsavelDocumento(e.target.value)} placeholder="000.000.000-00" autoComplete="off" />
+                    </div>
+                  </div>
+                </>
+              )}
 
               {error && (
                 <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10, padding: '0.75rem 1rem' }}>

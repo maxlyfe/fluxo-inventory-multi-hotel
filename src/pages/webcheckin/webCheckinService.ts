@@ -44,6 +44,18 @@ export interface WebCheckinGuest {
   };
   documentFrontUrl?: string;
   documentBackUrl?: string;
+  // Campos exclusivos FNRH Gov (não enviados à Erbon)
+  fnrh_extra?: {
+    raca_id?:                string;  // AMARELA|BRANCA|INDIGENA|PARDA|PRETA|NAOINFORMAR
+    deficiencia_id?:         string;  // SIM|NAO|NAOINFORMAR
+    tipo_deficiencia_id?:    string;  // FISICA|AUDITIVA_SURDEZ|VISUAL|INTELECTUAL|MULTIPLA
+    motivo_viagem_id?:       string;  // LAZER_FERIAS|NEGOCIOS|COMPRAS|...
+    meio_transporte_id?:     string;  // AUTOMOVEL|AVIAO|ONIBUS|...
+    // Menores de idade
+    grau_parentesco_id?:     string;  // PAI|MAE|AVO|IRMAO|TIO|RESPONSAVEL_LEGAL|TUTOR|OUTRO
+    responsavel_documento?:  string;  // Nº do documento do responsável adulto
+    responsavel_doc_tipo?:   string;  // CPF | PASSAPORTE
+  };
 }
 
 // ── Cache em memória (evita chamadas Supabase repetidas por navegação) ─────
@@ -179,6 +191,16 @@ export interface SaveFichaGuestParams {
   addressNeighborhood?: string;
   documentFrontUrl?: string;
   documentBackUrl?: string;
+  // Campos FNRH Gov
+  fnrhRacaId?:               string;
+  fnrhDeficienciaId?:        string;
+  fnrhTipoDeficienciaId?:    string;
+  fnrhMotivoViagemId?:       string;
+  fnrhMeioTransporteId?:     string;
+  // Menor de idade
+  fnrhGrauParentescoId?:     string;
+  fnrhResponsavelDocumento?:  string;
+  fnrhResponsavelDocTipo?:    string;
 }
 
 export interface SaveFichaParams {
@@ -255,6 +277,15 @@ export async function saveFichaToDatabase(params: SaveFichaParams): Promise<stri
     address_neighborhood: g.addressNeighborhood || null,
     document_front_url: g.documentFrontUrl || null,
     document_back_url: g.documentBackUrl || null,
+    // Campos FNRH Gov
+    fnrh_raca_id:              g.fnrhRacaId               || null,
+    fnrh_deficiencia_id:       g.fnrhDeficienciaId        || null,
+    fnrh_tipo_deficiencia_id:  g.fnrhTipoDeficienciaId    || null,
+    fnrh_motivo_viagem_id:     g.fnrhMotivoViagemId       || null,
+    fnrh_meio_transporte_id:   g.fnrhMeioTransporteId     || null,
+    fnrh_grau_parentesco_id:   g.fnrhGrauParentescoId     || null,
+    fnrh_responsavel_documento: g.fnrhResponsavelDocumento || null,
+    fnrh_responsavel_doc_tipo:  g.fnrhResponsavelDocTipo   || null,
   }));
 
   const { error: guestsError } = await anonClient

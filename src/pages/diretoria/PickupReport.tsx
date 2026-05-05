@@ -8,7 +8,7 @@ import {
   TrendingUp, TrendingDown, Minus, Loader2, AlertCircle,
   Users, BedDouble, BarChart2, CalendarRange, RefreshCw,
   Upload, Plus, Trash2, Download, X, History, CheckCircle2,
-  Search,
+  Search, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -156,6 +156,7 @@ export default function PickupReport() {
   const [error,          setError]          = useState('');
   const [noErbon,        setNoErbon]        = useState(false);
   const [snapTime,       setSnapTime]       = useState('');
+  const [showPast,       setShowPast]       = useState(false);
 
   const [otbRows,      setOtbRows]      = useState<OTBRow[]>([]);
   const [winBuckets,   setWinBuckets]   = useState<WindowBucket[]>([]);
@@ -873,78 +874,103 @@ export default function PickupReport() {
                             </tr>
                           </thead>
                           <tbody>
-                            {otbRows.map((r, i) => {
-                              const barPct  = Math.min(100, (Math.abs(r.deltaRooms) / maxDelta) * 100);
-                              const barColor = r.deltaRooms > 0 ? '#10b981' : r.deltaRooms < 0 ? '#f43f5e' : '#64748b';
-                              return (
-                                <tr key={r.stayDate} className="pu-row"
-                                  style={{
-                                    borderBottom: i < otbRows.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.25)'}` : 'none',
-                                    background: r.isActual
-                                      ? isDark ? 'rgba(16,185,129,0.025)' : 'rgba(16,185,129,0.02)'
-                                      : 'transparent',
-                                  }}>
-                                  {/* Data + badge */}
-                                  <td style={{ padding: '0.8rem 1.25rem', whiteSpace: 'nowrap' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                      <span style={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>{fmtFullDate(r.stayDate)}</span>
-                                      <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase', padding: '2px 5px', borderRadius: 3,
-                                        background: r.isActual ? (isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)') : (isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)'),
-                                        color: r.isActual ? '#10b981' : '#0ea5e9' }}>
-                                        {r.isActual ? 'Actual' : 'OTB'}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  {/* A — UHs antigo */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` }}>
-                                    {r.comparisonOTB > 0 ? r.comparisonOTB : <span style={{ opacity: 0.3 }}>—</span>}
-                                  </td>
-                                  {/* B — UHs hoje */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#e0f2fe' : '#0369a1' }}>
-                                    {r.currentOTB}
-                                  </td>
-                                  {/* Pick-up barra visual */}
-                                  <td style={{ padding: '0.8rem 1.25rem', minWidth: 160 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                      {/* Número */}
-                                      <span style={{ fontWeight: 900, color: barColor, fontSize: 14, minWidth: 32, textAlign: 'right' }}>
-                                        {r.deltaRooms > 0 ? `+${r.deltaRooms}` : r.deltaRooms < 0 ? `${r.deltaRooms}` : '0'}
-                                      </span>
-                                      {/* Barra */}
-                                      <div style={{ flex: 1, height: 6, background: isDark ? 'rgba(148,163,184,0.1)' : '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
-                                        <div style={{ height: '100%', width: `${barPct}%`, background: barColor, borderRadius: 4, transition: 'width 0.6s ease' }} />
+                            {/* Toggle Dados Passados */}
+                            {otbRows.some(r => r.isActual) && (
+                              <tr style={{ background: isDark ? 'rgba(15,23,42,0.4)' : '#f8fafc', borderBottom: `1px solid ${cardBdr}` }}>
+                                <td colSpan={9} style={{ padding: '0.6rem 1.25rem' }}>
+                                  <button 
+                                    onClick={() => setShowPast(!showPast)}
+                                    style={{ 
+                                      background: isDark ? 'rgba(14,165,233,0.1)' : 'rgba(14,165,233,0.05)', 
+                                      border: `1px solid ${isDark ? 'rgba(14,165,233,0.2)' : 'rgba(14,165,233,0.1)'}`, 
+                                      cursor: 'pointer', color: '#0ea5e9', fontSize: 11, fontWeight: 800, 
+                                      display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, 
+                                      textTransform: 'uppercase', letterSpacing: 0.5
+                                    }}
+                                  >
+                                    {showPast ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    {showPast ? 'Ocultar Realizado (Passado)' : 'Ver Realizado (Últimos 30 dias)'}
+                                  </button>
+                                </td>
+                              </tr>
+                            )}
+
+                            {otbRows
+                              .filter(r => showPast || !r.isActual)
+                              .map((r, i, arr) => {
+                                const barPct  = Math.min(100, (Math.abs(r.deltaRooms) / maxDelta) * 100);
+                                const barColor = r.deltaRooms > 0 ? '#10b981' : r.deltaRooms < 0 ? '#f43f5e' : '#64748b';
+                                return (
+                                  <tr key={r.stayDate} className="pu-row"
+                                    style={{
+                                      borderBottom: i < arr.length - 1 ? `1px solid ${isDark ? 'rgba(148,163,184,0.05)' : 'rgba(203,213,225,0.25)'}` : 'none',
+                                      background: r.isActual
+                                        ? isDark ? 'rgba(16,185,129,0.025)' : 'rgba(16,185,129,0.02)'
+                                        : 'transparent',
+                                      opacity: r.isActual && !showPast ? 0 : 1, // Segurança extra se o filter falhar
+                                      display: r.isActual && !showPast ? 'none' : 'table-row',
+                                    }}>
+                                    {/* Data + badge */}
+                                    <td style={{ padding: '0.8rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                        <span style={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>{fmtFullDate(r.stayDate)}</span>
+                                        <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase', padding: '2px 5px', borderRadius: 3,
+                                          background: r.isActual ? (isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)') : (isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)'),
+                                          color: r.isActual ? '#10b981' : '#0ea5e9' }}>
+                                          {r.isActual ? 'Actual' : 'OTB'}
+                                        </span>
                                       </div>
-                                      {/* Ícone */}
-                                      {r.deltaRooms > 0
-                                        ? <TrendingUp size={13} color="#10b981" />
-                                        : r.deltaRooms < 0
-                                          ? <TrendingDown size={13} color="#f43f5e" />
-                                          : <Minus size={13} color="#64748b" />}
-                                    </div>
-                                  </td>
-                                  {/* Rev A */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b', fontSize: 12, borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}`, opacity: r.comparisonRev > 0 ? 1 : 0.3 }}>
-                                    {r.comparisonRev > 0 ? fmtBRL(r.comparisonRev) : '—'}
-                                  </td>
-                                  {/* Rev B */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: isDark ? '#bae6fd' : '#0284c7', fontSize: 12, opacity: r.currentRev > 0 ? 1 : 0.3 }}>
-                                    {r.currentRev > 0 ? fmtBRL(r.currentRev) : (r.isActual ? <span style={{ fontSize: 10 }}>Sem dado</span> : '—')}
-                                  </td>
-                                  {/* Δ Rev */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right' }}>
-                                    {r.deltaRev !== 0 ? <DeltaCell val={r.deltaRev} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
-                                  </td>
-                                  {/* ADR hoje */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: r.currentADR > 0 ? '#8b5cf6' : textMute, fontSize: 12, borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}`, opacity: r.currentADR > 0 ? 1 : 0.3 }}>
-                                    {r.currentADR > 0 ? fmtBRL(r.currentADR) : '—'}
-                                  </td>
-                                  {/* Δ ADR */}
-                                  <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right' }}>
-                                    {r.deltaADR !== 0 ? <DeltaCell val={r.deltaADR} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                    </td>
+                                    {/* A — UHs antigo */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}` }}>
+                                      {r.comparisonOTB > 0 ? r.comparisonOTB : <span style={{ opacity: 0.3 }}>—</span>}
+                                    </td>
+                                    {/* B — UHs hoje */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 900, color: isDark ? '#e0f2fe' : '#0369a1' }}>
+                                      {r.currentOTB}
+                                    </td>
+                                    {/* Pick-up barra visual */}
+                                    <td style={{ padding: '0.8rem 1.25rem', minWidth: 160 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        {/* Número */}
+                                        <span style={{ fontWeight: 900, color: barColor, fontSize: 14, minWidth: 32, textAlign: 'right' }}>
+                                          {r.deltaRooms > 0 ? `+${r.deltaRooms}` : r.deltaRooms < 0 ? `${r.deltaRooms}` : '0'}
+                                        </span>
+                                        {/* Barra */}
+                                        <div style={{ flex: 1, height: 6, background: isDark ? 'rgba(148,163,184,0.1)' : '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+                                          <div style={{ height: '100%', width: `${barPct}%`, background: barColor, borderRadius: 4, transition: 'width 0.6s ease' }} />
+                                        </div>
+                                        {/* Ícone */}
+                                        {r.deltaRooms > 0
+                                          ? <TrendingUp size={13} color="#10b981" />
+                                          : r.deltaRooms < 0
+                                            ? <TrendingDown size={13} color="#f43f5e" />
+                                            : <Minus size={13} color="#64748b" />}
+                                      </div>
+                                    </td>
+                                    {/* Rev A */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b', fontSize: 12, borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}`, opacity: r.comparisonRev > 0 ? 1 : 0.3 }}>
+                                      {r.comparisonRev > 0 ? fmtBRL(r.comparisonRev) : '—'}
+                                    </td>
+                                    {/* Rev B */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: isDark ? '#bae6fd' : '#0284c7', fontSize: 12, opacity: r.currentRev > 0 ? 1 : 0.3 }}>
+                                      {r.currentRev > 0 ? fmtBRL(r.currentRev) : (r.isActual ? <span style={{ fontSize: 10 }}>Sem dado</span> : '—')}
+                                    </td>
+                                    {/* Δ Rev */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right' }}>
+                                      {r.deltaRev !== 0 ? <DeltaCell val={r.deltaRev} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
+                                    </td>
+                                    {/* ADR hoje */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right', fontWeight: 700, color: r.currentADR > 0 ? '#8b5cf6' : textMute, fontSize: 12, borderLeft: `1px solid ${isDark ? 'rgba(148,163,184,0.06)' : 'rgba(203,213,225,0.3)'}`, opacity: r.currentADR > 0 ? 1 : 0.3 }}>
+                                      {r.currentADR > 0 ? fmtBRL(r.currentADR) : '—'}
+                                    </td>
+                                    {/* Δ ADR */}
+                                    <td style={{ padding: '0.8rem 1.25rem', textAlign: 'right' }}>
+                                      {r.deltaADR !== 0 ? <DeltaCell val={r.deltaADR} isDark={isDark} type="money" /> : <span style={{ color: textMute, fontSize: 12 }}>—</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                           </tbody>
                         </table>
                       </div>

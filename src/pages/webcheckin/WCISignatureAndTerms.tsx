@@ -203,6 +203,15 @@ export default function WCISignatureAndTerms() {
         addressNeighborhood: g.address?.neighborhood,
         documentFrontUrl: g.documentFrontUrl,
         documentBackUrl: g.documentBackUrl,
+        // Campos FNRH Gov — passados da sessão para o banco permanente
+        fnrhRacaId:             g.fnrh_extra?.raca_id,
+        fnrhDeficienciaId:      g.fnrh_extra?.deficiencia_id,
+        fnrhTipoDeficienciaId:  g.fnrh_extra?.tipo_deficiencia_id,
+        fnrhMotivoViagemId:     g.fnrh_extra?.motivo_viagem_id,
+        fnrhMeioTransporteId:   g.fnrh_extra?.meio_transporte_id,
+        fnrhGrauParentescoId:   g.fnrh_extra?.grau_parentesco_id,
+        fnrhResponsavelDocumento: g.fnrh_extra?.responsavel_documento,
+        fnrhResponsavelDocTipo:  g.fnrh_extra?.responsavel_doc_tipo,
       }));
 
       const fichaId = await saveFichaToDatabase({

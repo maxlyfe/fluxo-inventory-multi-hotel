@@ -2,7 +2,7 @@
 // Formulário FNRH — leitura via FormData (bulletproof contra autofill e timing React)
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ClipboardList, Loader2, CheckCircle } from 'lucide-react';
+import { ClipboardList, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useWCI } from './WebCheckinLayout';
 import {
   loadGuestsFromStorage,
@@ -14,6 +14,18 @@ import {
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
+
+// ── Helper ────────────────────────────────────────────────────────────────────
+function calcAge(birthDateStr: string): number | null {
+  if (!birthDateStr) return null;
+  const birth = new Date(birthDateStr);
+  if (isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
 
 const glassCard: React.CSSProperties = {
   background: 'rgba(255,255,255,0.10)',
@@ -105,12 +117,50 @@ export default function WCIFNRHForm() {
   const [zipcode,       setZipcode]       = useState('');
   const [neighborhood,  setNeighborhood]  = useState('');
 
+  // ── Campos FNRH Gov (adicionais) ───────────────────────────────────────────
+  const [racaId,             setRacaId]            = useState('NAOINFORMAR');
+  const [deficienciaId,      setDeficienciaId]      = useState('NAO');
+  const [tipoDeficienciaId,  setTipoDeficienciaId]  = useState('');
+  const [motivoViagemId,     setMotivoViagemId]     = useState('LAZER_FERIAS');
+  const [meioTransporteId,   setMeioTransporteId]   = useState('AUTOMOVEL');
+
+  // ── Menor de idade ──────────────────────────────────────────────────────────
+  const [grauParentescoId,     setGrauParentescoId]     = useState('');
+  const [responsavelGuestId,   setResponsavelGuestId]   = useState('');   // id do hóspede adulto selecionado
+  const [responsavelDocumento, setResponsavelDocumento] = useState('');
+  const [responsavelDocTipo,   setResponsavelDocTipo]   = useState('CPF');
+  const [adultGuests,          setAdultGuests]          = useState<WebCheckinGuest[]>([]);
+
+  const isMinor = calcAge(birthDate) !== null && (calcAge(birthDate) as number) < 18;
+
   // Ref para controle DOM do bloco CEP/UF
   const cepUfRef = useRef<HTMLDivElement>(null);
 
   // Pré-preencher de localStorage se estiver editando hóspede existente
+  // + carrega hóspedes adultos da sessão para seleção de responsável
   useEffect(() => {
     if (!bookingId) return;
+
+    // Carrega hóspedes adultos (para dropdown de responsável de menor)
+    resolveSession(bookingId).then(session => {
+      const guests = session?.guests || loadGuestsFromStorage(bookingId) || [];
+      const adults = guests.filter(g => {
+        if (!g.birthDate) return true; // sem data → assume adulto
+        const age = calcAge(g.birthDate);
+        return age === null || age >= 18;
+      }).filter(g => g.id !== guestId); // exclui o próprio hóspede
+      setAdultGuests(adults);
+    }).catch(() => {
+      // fallback: carrega do storage local
+      const stored = loadGuestsFromStorage(bookingId) || [];
+      const adults = stored.filter(g => {
+        if (!g.birthDate) return true;
+        const age = calcAge(g.birthDate);
+        return age === null || age >= 18;
+      }).filter(g => g.id !== guestId);
+      setAdultGuests(adults);
+    });
+
     const stored = loadGuestsFromStorage(bookingId);
     if (!stored) return;
     const guest = stored.find(g => g.id === guestId);
@@ -126,7 +176,33 @@ export default function WCIFNRHForm() {
       setDocumentType(guest.documents[0].documentType || 'CPF');
       setDocumentNumber(guest.documents[0].number || '');
     }
+
+    // Pré-preenche campos FNRH se já preenchidos anteriormente
+    if (guest.fnrh_extra) {
+      if (guest.fnrh_extra.raca_id)             setRacaId(guest.fnrh_extra.raca_id);
+      if (guest.fnrh_extra.deficiencia_id)      setDeficienciaId(guest.fnrh_extra.deficiencia_id);
+      if (guest.fnrh_extra.tipo_deficiencia_id) setTipoDeficienciaId(guest.fnrh_extra.tipo_deficiencia_id);
+      if (guest.fnrh_extra.motivo_viagem_id)    setMotivoViagemId(guest.fnrh_extra.motivo_viagem_id);
+      if (guest.fnrh_extra.meio_transporte_id)  setMeioTransporteId(guest.fnrh_extra.meio_transporte_id);
+      if (guest.fnrh_extra.grau_parentesco_id)  setGrauParentescoId(guest.fnrh_extra.grau_parentesco_id);
+      if (guest.fnrh_extra.responsavel_documento) setResponsavelDocumento(guest.fnrh_extra.responsavel_documento);
+      if (guest.fnrh_extra.responsavel_doc_tipo)  setResponsavelDocTipo(guest.fnrh_extra.responsavel_doc_tipo);
+    }
   }, [bookingId, guestId]);
+
+  // Quando usuário seleciona um adulto da reserva como responsável → auto-preenche documento
+  const handleResponsavelGuestSelect = (guestIdStr: string) => {
+    setResponsavelGuestId(guestIdStr);
+    if (!guestIdStr) {
+      setResponsavelDocumento('');
+      return;
+    }
+    const g = adultGuests.find(ag => String(ag.id) === guestIdStr);
+    if (g?.documents?.length) {
+      setResponsavelDocumento(g.documents[0].number || '');
+      setResponsavelDocTipo(g.documents[0].documentType === 'PASSPORT' ? 'PASSAPORTE' : 'CPF');
+    }
+  };
 
   const handleCountryChange = (value: string) => {
     setCountry(value);
@@ -171,10 +247,36 @@ export default function WCIFNRHForm() {
     const domZipcode      = fd(data, 'zipcode').replace(/\D/g, '');
     const domNeighborhood = fd(data, 'neighborhood');
 
-    // Validação
+    // Campos FNRH Gov
+    const domRacaId            = fd(data, 'raca_id')             || 'NAOINFORMAR';
+    const domDeficienciaId     = fd(data, 'deficiencia_id')      || 'NAO';
+    const domTipoDeficienciaId = fd(data, 'tipo_deficiencia_id') || '';
+    const domMotivoViagemId    = fd(data, 'motivo_viagem_id')    || 'LAZER_FERIAS';
+    const domMeioTransporteId  = fd(data, 'meio_transporte_id')  || 'AUTOMOVEL';
+
+    // Campos de menor de idade
+    const domGrauParentesco    = fd(data, 'grau_parentesco_id')      || grauParentescoId;
+    const domRespDoc           = fd(data, 'responsavel_documento').replace(/[\.\-\/\s]/g, '') || responsavelDocumento.replace(/[\.\-\/\s]/g, '');
+    const domRespDocTipo       = fd(data, 'responsavel_doc_tipo')     || responsavelDocTipo || 'CPF';
+
+    // Validação — campos obrigatórios
     if (!domName)       { setError('Nome completo é obrigatório.');        return; }
     if (!domEmail)      { setError('E-mail é obrigatório.');               return; }
     if (!domDocNumber)  { setError('Número do documento é obrigatório.');  return; }
+
+    // Validação — menor de idade
+    const ageNow = calcAge(domBirthDate);
+    const guestIsMinor = ageNow !== null && ageNow < 18;
+    if (guestIsMinor) {
+      if (!domGrauParentesco) {
+        setError('Para hóspedes menores de idade, informe o grau de parentesco com o responsável.');
+        return;
+      }
+      if (!domRespDoc) {
+        setError('Para hóspedes menores de idade, informe o documento do responsável.');
+        return;
+      }
+    }
 
     const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : 'BR';
     const isBR           = addressCountry === 'BR';
@@ -259,6 +361,17 @@ export default function WCIFNRHForm() {
         fnrhCompleted:    true,
         documentFrontUrl: docFrontUrl,
         documentBackUrl:  docBackUrl,
+        // Campos FNRH Gov
+        fnrh_extra: {
+          raca_id:               domRacaId,
+          deficiencia_id:        domDeficienciaId,
+          tipo_deficiencia_id:   domTipoDeficienciaId  || undefined,
+          motivo_viagem_id:      domMotivoViagemId,
+          meio_transporte_id:    domMeioTransporteId,
+          grau_parentesco_id:    guestIsMinor ? (domGrauParentesco || undefined) : undefined,
+          responsavel_documento: guestIsMinor ? (domRespDoc        || undefined) : undefined,
+          responsavel_doc_tipo:  guestIsMinor ? (domRespDocTipo    || undefined) : undefined,
+        },
       };
 
       if (isNew) {
@@ -466,6 +579,274 @@ export default function WCIFNRHForm() {
                 </div>
               </Row>
             </div>
+
+            {/* ── Nacionalidade ── */}
+            <div>
+              <p style={sectionTitle}>Origem</p>
+              <Row>
+                <Field label="Nacionalidade">
+                  <select
+                    name="nationality"
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                    value={nationality} onChange={e => setNationality(e.target.value)}
+                  >
+                    <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
+                    <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
+                    <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
+                    <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
+                    <option value="CL" style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
+                    <option value="BO" style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
+                    <option value="PE" style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
+                    <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
+                    <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
+                    <option value="US" style={{ color: '#000' }}>🇺🇸 United States (US)</option>
+                    <option value="DE" style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
+                    <option value="FR" style={{ color: '#000' }}>🇫🇷 France (FR)</option>
+                    <option value="IT" style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
+                    <option value="ES" style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
+                    <option value="PT" style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
+                    <option value="GB" style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
+                    <option value="OTHER" style={{ color: '#000' }}>Outro</option>
+                  </select>
+                </Field>
+              </Row>
+            </div>
+
+            {/* ── Ficha FNRH Gov ── */}
+            <div>
+              <p style={sectionTitle}>Informações da Viagem</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+                {/* Raça / Etnia */}
+                <Field label="Raça / Etnia">
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    {[
+                      { value: 'BRANCA',      label: 'Branca' },
+                      { value: 'PRETA',       label: 'Preta' },
+                      { value: 'PARDA',       label: 'Parda' },
+                      { value: 'AMARELA',     label: 'Amarela' },
+                      { value: 'INDIGENA',    label: 'Indígena' },
+                      { value: 'NAOINFORMAR', label: 'Prefiro não informar' },
+                    ].map(op => (
+                      <button
+                        key={op.value}
+                        type="button"
+                        onClick={() => setRacaId(op.value)}
+                        style={{
+                          padding: '0.45rem 0.9rem',
+                          borderRadius: 50,
+                          border: '1px solid',
+                          borderColor: racaId === op.value ? '#0085ae' : 'rgba(255,255,255,0.25)',
+                          background: racaId === op.value ? 'rgba(0,133,174,0.35)' : 'rgba(255,255,255,0.08)',
+                          color: racaId === op.value ? '#fff' : 'rgba(255,255,255,0.65)',
+                          fontSize: '0.82rem', fontWeight: racaId === op.value ? 700 : 400, cursor: 'pointer',
+                          transition: 'all 0.15s',
+                        }}
+                      >{op.label}</button>
+                    ))}
+                  </div>
+                  <input type="hidden" name="raca_id" value={racaId} />
+                </Field>
+
+                {/* Deficiência */}
+                <Field label="Deficiência">
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                    {[
+                      { value: 'NAO',         label: 'Não' },
+                      { value: 'SIM',         label: 'Sim' },
+                      { value: 'NAOINFORMAR', label: 'Prefiro não informar' },
+                    ].map(op => (
+                      <button
+                        key={op.value}
+                        type="button"
+                        onClick={() => { setDeficienciaId(op.value); if (op.value !== 'SIM') setTipoDeficienciaId(''); }}
+                        style={{
+                          padding: '0.45rem 0.9rem',
+                          borderRadius: 50,
+                          border: '1px solid',
+                          borderColor: deficienciaId === op.value ? '#0085ae' : 'rgba(255,255,255,0.25)',
+                          background: deficienciaId === op.value ? 'rgba(0,133,174,0.35)' : 'rgba(255,255,255,0.08)',
+                          color: deficienciaId === op.value ? '#fff' : 'rgba(255,255,255,0.65)',
+                          fontSize: '0.82rem', fontWeight: deficienciaId === op.value ? 700 : 400, cursor: 'pointer',
+                          transition: 'all 0.15s',
+                        }}
+                      >{op.label}</button>
+                    ))}
+                  </div>
+                  <input type="hidden" name="deficiencia_id" value={deficienciaId} />
+                  {deficienciaId === 'SIM' && (
+                    <select
+                      name="tipo_deficiencia_id"
+                      style={{ ...inputStyle, marginTop: '0.5rem', cursor: 'pointer' }}
+                      value={tipoDeficienciaId}
+                      onChange={e => setTipoDeficienciaId(e.target.value)}
+                    >
+                      <option value=""      style={{ color: '#000' }}>— Tipo de deficiência</option>
+                      <option value="FISICA"           style={{ color: '#000' }}>Física</option>
+                      <option value="AUDITIVA_SURDEZ"  style={{ color: '#000' }}>Auditiva / Surdez</option>
+                      <option value="VISUAL"           style={{ color: '#000' }}>Visual</option>
+                      <option value="INTELECTUAL"      style={{ color: '#000' }}>Intelectual</option>
+                      <option value="MULTIPLA"         style={{ color: '#000' }}>Múltipla</option>
+                    </select>
+                  )}
+                  {deficienciaId !== 'SIM' && <input type="hidden" name="tipo_deficiencia_id" value="" />}
+                </Field>
+
+                <Row>
+                  {/* Motivo da Viagem */}
+                  <Field label="Motivo da Viagem">
+                    <select
+                      name="motivo_viagem_id"
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                      value={motivoViagemId} onChange={e => setMotivoViagemId(e.target.value)}
+                    >
+                      <option value="LAZER_FERIAS"       style={{ color: '#000' }}>Lazer / Férias</option>
+                      <option value="NEGOCIOS"           style={{ color: '#000' }}>Negócios</option>
+                      <option value="COMPRAS"            style={{ color: '#000' }}>Compras</option>
+                      <option value="CONGRESSO_FEIRA"    style={{ color: '#000' }}>Congresso / Feira</option>
+                      <option value="ESTUDOS_CURSOS"     style={{ color: '#000' }}>Estudos / Cursos</option>
+                      <option value="PARENTES_AMIGOS"    style={{ color: '#000' }}>Visitar Parentes / Amigos</option>
+                      <option value="RELIGIAO"           style={{ color: '#000' }}>Religião</option>
+                      <option value="SAUDE"              style={{ color: '#000' }}>Saúde</option>
+                    </select>
+                  </Field>
+
+                  {/* Meio de Transporte */}
+                  <Field label="Como vai chegar">
+                    <select
+                      name="meio_transporte_id"
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                      value={meioTransporteId} onChange={e => setMeioTransporteId(e.target.value)}
+                    >
+                      <option value="AUTOMOVEL"   style={{ color: '#000' }}>Automóvel</option>
+                      <option value="AVIAO"        style={{ color: '#000' }}>Avião</option>
+                      <option value="ONIBUS"       style={{ color: '#000' }}>Ônibus</option>
+                      <option value="MOTO"         style={{ color: '#000' }}>Moto</option>
+                      <option value="NAVIO_BARCO"  style={{ color: '#000' }}>Navio / Barco</option>
+                      <option value="TREM"         style={{ color: '#000' }}>Trem</option>
+                      <option value="BICICLETA"    style={{ color: '#000' }}>Bicicleta</option>
+                      <option value="PE"           style={{ color: '#000' }}>A pé</option>
+                    </select>
+                  </Field>
+                </Row>
+
+              </div>
+            </div>
+
+            {/* ── Menor de Idade ── (visível apenas se age < 18 e data de nascimento preenchida) */}
+            {isMinor && (
+              <div>
+                {/* Banner de aviso */}
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                  background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.4)',
+                  borderRadius: 12, padding: '0.9rem 1rem', marginBottom: '1.25rem',
+                }}>
+                  <AlertTriangle size={20} color="#fbbf24" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <p style={{ margin: 0, color: '#fbbf24', fontWeight: 700, fontSize: '0.9rem' }}>
+                      Hóspede Menor de Idade
+                    </p>
+                    <p style={{ margin: '0.25rem 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
+                      A legislação brasileira exige a identificação do responsável legal para hóspedes com menos de 18 anos. Preencha os dados abaixo.
+                    </p>
+                  </div>
+                </div>
+
+                <p style={sectionTitle}>Responsável pelo Menor</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+                  {/* Grau de parentesco */}
+                  <Field label="Grau de Parentesco / Relação com o Responsável *">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {[
+                        { value: 'PAI',               label: 'Pai' },
+                        { value: 'MAE',               label: 'Mãe' },
+                        { value: 'AVO',               label: 'Avô / Avó' },
+                        { value: 'IRMAO',             label: 'Irmão / Irmã' },
+                        { value: 'TIO',               label: 'Tio / Tia' },
+                        { value: 'RESPONSAVEL_LEGAL', label: 'Responsável Legal' },
+                        { value: 'TUTOR',             label: 'Tutor' },
+                        { value: 'OUTRO',             label: 'Outro' },
+                      ].map(op => (
+                        <button
+                          key={op.value}
+                          type="button"
+                          onClick={() => setGrauParentescoId(op.value)}
+                          style={{
+                            padding: '0.45rem 0.9rem',
+                            borderRadius: 50,
+                            border: '1px solid',
+                            borderColor: grauParentescoId === op.value ? '#fbbf24' : 'rgba(255,255,255,0.25)',
+                            background: grauParentescoId === op.value ? 'rgba(251,191,36,0.25)' : 'rgba(255,255,255,0.08)',
+                            color: grauParentescoId === op.value ? '#fff' : 'rgba(255,255,255,0.65)',
+                            fontSize: '0.82rem', fontWeight: grauParentescoId === op.value ? 700 : 400,
+                            cursor: 'pointer', transition: 'all 0.15s',
+                          }}
+                        >{op.label}</button>
+                      ))}
+                    </div>
+                    <input type="hidden" name="grau_parentesco_id" value={grauParentescoId} />
+                  </Field>
+
+                  {/* Selecionar responsável da reserva ou digitar manualmente */}
+                  {adultGuests.length > 0 && (
+                    <Field label="Selecionar Responsável da Reserva">
+                      <select
+                        style={{ ...inputStyle, cursor: 'pointer' }}
+                        value={responsavelGuestId}
+                        onChange={e => handleResponsavelGuestSelect(e.target.value)}
+                      >
+                        <option value="" style={{ color: '#000' }}>— Digitar manualmente</option>
+                        {adultGuests.map(ag => (
+                          <option key={ag.id} value={String(ag.id)} style={{ color: '#000' }}>
+                            {ag.name} {ag.documents?.[0]?.number ? `— ${ag.documents[0].documentType}: ${ag.documents[0].number}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)' }}>
+                        Outros hóspedes adultos desta reserva. Ao selecionar, o documento é preenchido automaticamente.
+                      </p>
+                    </Field>
+                  )}
+
+                  {/* Documento do responsável */}
+                  <Row>
+                    <Field label="Tipo do Documento do Responsável *">
+                      <select
+                        name="responsavel_doc_tipo"
+                        style={{ ...inputStyle, cursor: 'pointer' }}
+                        value={responsavelDocTipo}
+                        onChange={e => setResponsavelDocTipo(e.target.value)}
+                      >
+                        <option value="CPF"       style={{ color: '#000' }}>CPF</option>
+                        <option value="PASSAPORTE" style={{ color: '#000' }}>Passaporte</option>
+                      </select>
+                    </Field>
+                    <Field label="Número do Documento do Responsável *">
+                      <input
+                        name="responsavel_documento"
+                        style={inputStyle} type="text"
+                        value={responsavelDocumento}
+                        onChange={e => setResponsavelDocumento(e.target.value)}
+                        placeholder="000.000.000-00"
+                        autoComplete="off"
+                      />
+                    </Field>
+                  </Row>
+
+                </div>
+              </div>
+            )}
+
+            {/* hidden inputs when NOT minor — ensures FormData keys are always present */}
+            {!isMinor && (
+              <>
+                <input type="hidden" name="grau_parentesco_id"    value="" />
+                <input type="hidden" name="responsavel_documento" value="" />
+                <input type="hidden" name="responsavel_doc_tipo"  value="" />
+              </>
+            )}
 
             {/* ── Endereço ── */}
             <div>

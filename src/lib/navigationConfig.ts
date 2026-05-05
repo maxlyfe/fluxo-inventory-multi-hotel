@@ -5,7 +5,7 @@
 //     O Sidebar e o Navbar importam daqui automaticamente.
 
 import {
-  ShoppingCart, FileText, ShieldCheck, ClipboardList, Phone,
+  ShoppingCart, FileText, ShieldCheck, ClipboardList, Phone, Send,
   Boxes, ArrowLeftRight,
   BarChart2, BarChart3,
   DollarSign, CreditCard,
@@ -183,11 +183,12 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'reception',
     activePrefixes: ['/reception'],
     items: [
-      { module: 'reception', label: "Rack de UH's",   href: '/reception/rack',       icon: BedDouble,     iconName: 'BedDouble',     color: '#14b8a6' },
-      { module: 'reception', label: 'Check-in',        href: '/reception/checkin',    icon: LogIn,         iconName: 'LogIn',         color: '#22c55e' },
-      { module: 'reception', label: 'Check-out',       href: '/reception/checkout',   icon: LogOut,        iconName: 'LogOut',        color: '#ef4444' },
-      { module: 'reception', label: 'In House',        href: '/reception/inhouse',    icon: Users,         iconName: 'Users',         color: '#3b82f6' },
-      { module: 'reception', label: 'Fichas Web CI',   href: '/reception/wci-fichas', icon: ClipboardList, iconName: 'ClipboardList', color: '#0085ae' },
+      { module: 'reception', label: "Rack de UH's",   href: '/reception/rack',         icon: BedDouble,     iconName: 'BedDouble',     color: '#14b8a6' },
+      { module: 'reception', label: 'Check-in',        href: '/reception/checkin',      icon: LogIn,         iconName: 'LogIn',         color: '#22c55e' },
+      { module: 'reception', label: 'Check-out',       href: '/reception/checkout',     icon: LogOut,        iconName: 'LogOut',        color: '#ef4444' },
+      { module: 'reception', label: 'In House',        href: '/reception/inhouse',      icon: Users,         iconName: 'Users',         color: '#3b82f6' },
+      { module: 'reception', label: 'Fichas Web CI',   href: '/reception/wci-fichas',   icon: ClipboardList, iconName: 'ClipboardList', color: '#0085ae' },
+      { module: 'reception', label: 'FNRH Gov',        href: '/reception/fnrh-fichas',  icon: Send,          iconName: 'Send',          color: '#10b981' },
     ],
   },
   {
@@ -235,13 +236,14 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Configurações',
     icon: SettingsIcon,
     adminOnly: true,
-    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/erbon', '/admin/whatsapp'],
+    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/erbon', '/admin/whatsapp', '/admin/fnrh'],
     items: [
       { module: 'users_management',   label: 'Usuários',          href: '/users',          icon: UsersRound,    iconName: 'UsersRound',    color: '#6366f1' },
       { module: 'roles_management',   label: 'Gestão de Perfis',  href: '/admin/roles',    icon: UserCog,       iconName: 'UserCog',       color: '#f59e0b' },
       { module: 'sectors_management', label: 'Gestão de Setores', href: '/admin/sectors',  icon: LayoutGrid,    iconName: 'LayoutGrid',    color: '#14b8a6' },
       { module: 'erbon_pms',          label: 'Erbon PMS',         href: '/admin/erbon',    icon: Link2,         iconName: 'Link2',         color: '#0ea5e9' },
       { module: 'whatsapp_integration', label: 'WhatsApp',        href: '/admin/whatsapp', icon: MessageSquare, iconName: 'MessageSquare', color: '#22c55e' },
+      { module: 'fnrh_integration',    label: 'FNRH Gov',         href: '/admin/fnrh',     icon: FileText,      iconName: 'FileText',      color: '#10b981' },
     ],
   },
 ];

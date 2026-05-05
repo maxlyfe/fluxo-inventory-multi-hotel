@@ -34,6 +34,16 @@ interface FichaGuest {
   address_country: string | null;
   document_front_url: string | null;
   document_back_url: string | null;
+  // Campos FNRH Gov
+  fnrh_raca_id: string | null;
+  fnrh_deficiencia_id: string | null;
+  fnrh_tipo_deficiencia_id: string | null;
+  fnrh_motivo_viagem_id: string | null;
+  fnrh_meio_transporte_id: string | null;
+  // Menor de idade
+  fnrh_grau_parentesco_id: string | null;
+  fnrh_responsavel_documento: string | null;
+  fnrh_responsavel_doc_tipo: string | null;
 }
 
 interface Ficha {
@@ -64,7 +74,10 @@ const GUEST_QUERY = `
   birth_date, gender_id, nationality, profession, vehicle_registration,
   address_street, address_neighborhood, address_city, address_state,
   address_zipcode, address_country,
-  document_front_url, document_back_url
+  document_front_url, document_back_url,
+  fnrh_raca_id, fnrh_deficiencia_id, fnrh_tipo_deficiencia_id,
+  fnrh_motivo_viagem_id, fnrh_meio_transporte_id,
+  fnrh_grau_parentesco_id, fnrh_responsavel_documento, fnrh_responsavel_doc_tipo
 `;
 
 const FICHA_QUERY = `
@@ -86,6 +99,33 @@ function fmtDate(d: string | null | undefined) {
 }
 
 const GENDER: Record<number, string> = { 1: 'Masculino', 2: 'Feminino', 3: 'Outro' };
+
+const RACA_LABEL: Record<string, string> = {
+  BRANCA: 'Branca', PRETA: 'Preta', PARDA: 'Parda',
+  AMARELA: 'Amarela', INDIGENA: 'Indígena', NAOINFORMAR: 'Não informado',
+};
+const DEFICIENCIA_LABEL: Record<string, string> = {
+  SIM: 'Sim', NAO: 'Não', NAOINFORMAR: 'Não informado',
+};
+const TIPO_DEF_LABEL: Record<string, string> = {
+  FISICA: 'Física', AUDITIVA_SURDEZ: 'Auditiva/Surdez',
+  VISUAL: 'Visual', INTELECTUAL: 'Intelectual', MULTIPLA: 'Múltipla',
+};
+const MOTIVO_LABEL: Record<string, string> = {
+  LAZER_FERIAS: 'Lazer/Férias', NEGOCIOS: 'Negócios', COMPRAS: 'Compras',
+  CONGRESSO_FEIRA: 'Congresso/Feira', ESTUDOS_CURSOS: 'Estudos/Cursos',
+  PARENTES_AMIGOS: 'Parentes/Amigos', RELIGIAO: 'Religião', SAUDE: 'Saúde',
+};
+const TRANSPORTE_LABEL: Record<string, string> = {
+  AUTOMOVEL: 'Automóvel', AVIAO: 'Avião', ONIBUS: 'Ônibus',
+  MOTO: 'Moto', NAVIO_BARCO: 'Navio/Barco', TREM: 'Trem',
+  BICICLETA: 'Bicicleta', PE: 'A pé',
+};
+const GRAU_PARENTESCO_LABEL: Record<string, string> = {
+  PAI: 'Pai', MAE: 'Mãe', AVO: 'Avô/Avó', IRMAO: 'Irmão/Irmã',
+  TIO: 'Tio/Tia', RESPONSAVEL_LEGAL: 'Responsável Legal',
+  TUTOR: 'Tutor', OUTRO: 'Outro',
+};
 
 // ── Source badge ──────────────────────────────────────────────────────────────
 
@@ -239,6 +279,77 @@ function GuestCard({ guest }: { guest: FichaGuest }) {
           )}
         </div>
       )}
+
+      {/* Campos FNRH Gov */}
+      {(guest.fnrh_raca_id || guest.fnrh_deficiencia_id || guest.fnrh_motivo_viagem_id || guest.fnrh_meio_transporte_id) && (
+        <div className="border-t border-slate-200 dark:border-slate-600 pt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400 mb-2">
+            Dados FNRH Gov
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2">
+            {guest.fnrh_raca_id && (
+              <div>
+                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px]">Raça/Etnia</span>
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mt-0.5">
+                  {RACA_LABEL[guest.fnrh_raca_id] ?? guest.fnrh_raca_id}
+                </p>
+              </div>
+            )}
+            {guest.fnrh_deficiencia_id && (
+              <div>
+                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px]">Deficiência</span>
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mt-0.5">
+                  {DEFICIENCIA_LABEL[guest.fnrh_deficiencia_id] ?? guest.fnrh_deficiencia_id}
+                  {guest.fnrh_tipo_deficiencia_id && ` (${TIPO_DEF_LABEL[guest.fnrh_tipo_deficiencia_id] ?? guest.fnrh_tipo_deficiencia_id})`}
+                </p>
+              </div>
+            )}
+            {guest.fnrh_motivo_viagem_id && (
+              <div>
+                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px]">Motivo</span>
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mt-0.5">
+                  {MOTIVO_LABEL[guest.fnrh_motivo_viagem_id] ?? guest.fnrh_motivo_viagem_id}
+                </p>
+              </div>
+            )}
+            {guest.fnrh_meio_transporte_id && (
+              <div>
+                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px]">Transporte</span>
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mt-0.5">
+                  {TRANSPORTE_LABEL[guest.fnrh_meio_transporte_id] ?? guest.fnrh_meio_transporte_id}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Menor de Idade — responsável */}
+      {guest.fnrh_grau_parentesco_id && (
+        <div className="border-t border-amber-200 dark:border-amber-700/50 pt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-2 flex items-center gap-1">
+            <span>⚠</span> Menor de Idade — Responsável
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+            <div>
+              <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px]">Grau de Parentesco</span>
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mt-0.5">
+                {GRAU_PARENTESCO_LABEL[guest.fnrh_grau_parentesco_id] ?? guest.fnrh_grau_parentesco_id}
+              </p>
+            </div>
+            {guest.fnrh_responsavel_documento && (
+              <div>
+                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px]">
+                  Doc. Responsável{guest.fnrh_responsavel_doc_tipo ? ` (${guest.fnrh_responsavel_doc_tipo})` : ''}
+                </span>
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-200 mt-0.5">
+                  {guest.fnrh_responsavel_documento}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -287,92 +398,171 @@ function SignedDocSection({
   );
 }
 
-// ── Ficha row ─────────────────────────────────────────────────────────────────
+// ── Reserva group (accordion por reserva) ─────────────────────────────────────
 
-function FichaRow({ ficha, expanded, onToggle }: { ficha: Ficha; expanded: boolean; onToggle: () => void }) {
-  const dateLabel = (() => {
-    try { return format(parseISO(ficha.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }); } catch { return ficha.created_at; }
-  })();
-  const guestCount = ficha.wci_checkin_guests.length;
+interface ReservaGroup {
+  bookingNumber: string;      // Nº da reserva (ou 'sem-reserva')
+  fichas: Ficha[];            // todas as fichas desta reserva
+}
+
+function groupByBooking(fichas: Ficha[]): ReservaGroup[] {
+  const map = new Map<string, Ficha[]>();
+  for (const f of fichas) {
+    const key = f.booking_number || 'sem-reserva';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(f);
+  }
+  // Ordena: reservas numéricas primeiro, depois "sem-reserva"
+  const entries = Array.from(map.entries()).sort(([a], [b]) => {
+    if (a === 'sem-reserva') return 1;
+    if (b === 'sem-reserva') return -1;
+    return Number(b) - Number(a); // mais recente primeiro
+  });
+  return entries.map(([bookingNumber, fichas]) => ({ bookingNumber, fichas }));
+}
+
+function ReservaGroupRow({ group }: { group: ReservaGroup }) {
+  const [expanded, setExpanded]     = useState(false);
+  const [expandedFicha, setExpandedFicha] = useState<string | null>(null);
+
+  // Todos os hóspedes de todas as fichas desta reserva
+  const allGuests = group.fichas.flatMap(f => f.wci_checkin_guests);
+  const mainFicha = group.fichas[0];
+
+  // Determina badge da reserva: verde se todas OK, amarelo se alguma partial, vermelho se cancelada
+  const allComplete = group.fichas.every(f => f.status === 'completed');
+  const hasPartial  = group.fichas.some(f => f.status === 'partial');
+  const allCancel   = group.fichas.every(f => f.status === 'cancelled');
+
+  const reservaBadgeCls = allComplete
+    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+    : allCancel
+      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+      : hasPartial
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+        : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300';
+
+  const reservaBadgeLabel = allComplete ? 'Completo' : allCancel ? 'Cancelado' : 'Parcial';
+
+  const checkinDate  = mainFicha?.checkin_date;
+  const checkoutDate = mainFicha?.checkout_date;
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-      <button type="button" onClick={onToggle}
-        className="w-full text-left px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+      {/* Accordion header — reserva */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full text-left px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+      >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap w-32 shrink-0">{dateLabel}</span>
-          {ficha.room_number && (
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Apt {ficha.room_number}</span>
-          )}
-          <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm flex-1 min-w-[140px] truncate">{ficha.guest_name}</span>
-          {ficha.booking_number && (
-            <span className="text-xs text-slate-500 dark:text-slate-400">Res. #{ficha.booking_number}</span>
-          )}
-          {guestCount > 0 && (
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${reservaBadgeCls}`}>
+            {reservaBadgeLabel}
+          </span>
+
+          <span className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+            {group.bookingNumber === 'sem-reserva'
+              ? 'Sem nº de reserva'
+              : `Reserva #${group.bookingNumber}`
+            }
+          </span>
+
+          <span className="font-medium text-slate-600 dark:text-slate-300 text-sm flex-1 min-w-[120px] truncate">
+            {mainFicha?.guest_name || ''}
+          </span>
+
+          {allGuests.length > 0 && (
             <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
-              <Users className="w-3.5 h-3.5" /> {guestCount} hósp.
+              <Users className="w-3.5 h-3.5" /> {allGuests.length} hósp.
             </span>
           )}
-          <SourceBadge source={ficha.source} />
-          <StatusBadge status={ficha.status} />
-          <BoolIcon value={ficha.hotel_terms_accepted} label="Regulamento" />
-          <BoolIcon value={ficha.lgpd_accepted} label="LGPD" />
+
+          {(checkinDate || checkoutDate) && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {fmtDate(checkinDate)} → {fmtDate(checkoutDate)}
+            </span>
+          )}
+
+          {mainFicha?.room_number && (
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Apt {mainFicha.room_number}
+            </span>
+          )}
+
           <span className="ml-auto text-slate-400 dark:text-slate-500 shrink-0">
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </span>
         </div>
       </button>
 
+      {/* Expanded content */}
       {expanded && (
-        <div className="border-t border-slate-100 dark:border-slate-700 px-4 py-4 space-y-5">
-          {/* Datas previstas */}
-          {(ficha.checkin_date || ficha.checkout_date) && (
-            <div className="flex gap-6 text-xs text-slate-500 dark:text-slate-400">
-              {ficha.checkin_date && <span>Check-in previsto: <strong className="text-slate-700 dark:text-slate-200">{fmtDate(ficha.checkin_date)}</strong></span>}
-              {ficha.checkout_date && <span>Check-out previsto: <strong className="text-slate-700 dark:text-slate-200">{fmtDate(ficha.checkout_date)}</strong></span>}
-            </div>
-          )}
-
-          {/* Hóspedes */}
-          {ficha.wci_checkin_guests.length > 0 ? (
+        <div className="border-t border-slate-100 dark:border-slate-700 px-5 py-4 space-y-4">
+          {/* Hóspedes de todas as fichas */}
+          {allGuests.length > 0 ? (
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                Hóspedes ({ficha.wci_checkin_guests.length})
+                Hóspedes ({allGuests.length})
               </p>
-              {ficha.wci_checkin_guests.map(g => <GuestCard key={g.id} guest={g} />)}
+              {allGuests.map(g => <GuestCard key={g.id} guest={g} />)}
             </div>
           ) : (
-            <p className="text-xs text-slate-400 dark:text-slate-500 italic">Nenhum hóspede cadastrado nesta ficha.</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 italic">Nenhum hóspede cadastrado.</p>
           )}
 
-          {/* Assinatura */}
-          {ficha.signature_data && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">Assinatura</p>
-              <img src={ficha.signature_data} alt="Assinatura" className="max-h-24 border border-slate-200 dark:border-slate-600 rounded-xl bg-white" />
-            </div>
-          )}
-
-          {/* Termos aceitos */}
-          {(ficha.hotel_rules_doc_url || ficha.hotel_terms_text || ficha.lgpd_doc_url || ficha.lgpd_terms_text) && (
+          {/* Sub-acordeões por ficha */}
+          {group.fichas.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Documentos Assinados</p>
-              {(ficha.hotel_rules_doc_url || ficha.hotel_terms_text) && (
-                <SignedDocSection
-                  label="Regulamento do Hotel"
-                  docUrl={ficha.hotel_rules_doc_url}
-                  text={ficha.hotel_terms_text}
-                  icon={<FileText className="w-3.5 h-3.5 text-teal-500" />}
-                />
-              )}
-              {(ficha.lgpd_doc_url || ficha.lgpd_terms_text) && (
-                <SignedDocSection
-                  label="Política de Privacidade (LGPD)"
-                  docUrl={ficha.lgpd_doc_url}
-                  text={ficha.lgpd_terms_text}
-                  icon={<Shield className="w-3.5 h-3.5 text-teal-500" />}
-                />
-              )}
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Fichas ({group.fichas.length})
+              </p>
+              {group.fichas.map(ficha => {
+                const isOpen = expandedFicha === ficha.id;
+                const dateLabel = (() => {
+                  try { return format(parseISO(ficha.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }); } catch { return ficha.created_at; }
+                })();
+                return (
+                  <div key={ficha.id} className="rounded-xl border border-slate-200 dark:border-slate-600 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedFicha(p => p === ficha.id ? null : ficha.id)}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-400 dark:text-slate-500">{dateLabel}</span>
+                        <SourceBadge source={ficha.source} />
+                        <StatusBadge status={ficha.status} />
+                        <BoolIcon value={ficha.hotel_terms_accepted} label="Regulamento" />
+                        <BoolIcon value={ficha.lgpd_accepted} label="LGPD" />
+                      </div>
+                      {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 py-3 space-y-4">
+                        {/* Assinatura */}
+                        {ficha.signature_data && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">Assinatura</p>
+                            <img src={ficha.signature_data} alt="Assinatura" className="max-h-24 border border-slate-200 dark:border-slate-600 rounded-xl bg-white" />
+                          </div>
+                        )}
+                        {/* Documentos assinados */}
+                        {(ficha.hotel_rules_doc_url || ficha.hotel_terms_text || ficha.lgpd_doc_url || ficha.lgpd_terms_text) && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Documentos Assinados</p>
+                            {(ficha.hotel_rules_doc_url || ficha.hotel_terms_text) && (
+                              <SignedDocSection label="Regulamento do Hotel" docUrl={ficha.hotel_rules_doc_url} text={ficha.hotel_terms_text} icon={<FileText className="w-3.5 h-3.5 text-teal-500" />} />
+                            )}
+                            {(ficha.lgpd_doc_url || ficha.lgpd_terms_text) && (
+                              <SignedDocSection label="Política de Privacidade (LGPD)" docUrl={ficha.lgpd_doc_url} text={ficha.lgpd_terms_text} icon={<Shield className="w-3.5 h-3.5 text-teal-500" />} />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -385,9 +575,9 @@ function FichaRow({ ficha, expanded, onToggle }: { ficha: Ficha; expanded: boole
 
 export default function WCIFichasView() {
   const { selectedHotel } = useHotel();
-  const [fichas, setFichas]     = useState<Ficha[]>([]);
-  const [loading, setLoading]   = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [fichas,  setFichas]  = useState<Ficha[]>([]);
+  const [groups,  setGroups]  = useState<ReservaGroup[]>([]);
+  const [loading, setLoading] = useState(false);
   const [searchName, setSearchName]         = useState('');
   const [searchDocument, setSearchDocument] = useState('');
   const [searchBooking, setSearchBooking]   = useState('');
@@ -419,6 +609,7 @@ export default function WCIFichasView() {
       results = results.filter(f => f.wci_checkin_guests.some(g => g.document_number?.toLowerCase().includes(d)));
     }
     setFichas(results);
+    setGroups(groupByBooking(results));
     setLoading(false);
   }
 
@@ -447,7 +638,7 @@ export default function WCIFichasView() {
             <h1 className="text-xl font-bold text-slate-800 dark:text-white">Fichas de Web Check-in</h1>
             {!loading && (
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
-                {fichas.length} {fichas.length === 1 ? 'ficha' : 'fichas'}
+                {groups.length} {groups.length === 1 ? 'reserva' : 'reservas'} · {fichas.length} {fichas.length === 1 ? 'ficha' : 'fichas'}
               </span>
             )}
           </div>
@@ -502,7 +693,7 @@ export default function WCIFichasView() {
         <div className="space-y-3">
           {[1, 2, 3].map(i => <div key={i} className="h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse" />)}
         </div>
-      ) : fichas.length === 0 ? (
+      ) : groups.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="p-4 rounded-2xl bg-slate-100 dark:bg-slate-800 mb-4">
             <ClipboardCheck className="w-10 h-10 text-slate-300 dark:text-slate-600" />
@@ -512,8 +703,8 @@ export default function WCIFichasView() {
         </div>
       ) : (
         <div className="space-y-3">
-          {fichas.map(f => (
-            <FichaRow key={f.id} ficha={f} expanded={expandedId === f.id} onToggle={() => setExpandedId(p => p === f.id ? null : f.id)} />
+          {groups.map(g => (
+            <ReservaGroupRow key={g.bookingNumber} group={g} />
           ))}
         </div>
       )}

@@ -77,6 +77,7 @@ import RolesManagement    from './pages/admin/RolesManagement';
 import SectorsManagement  from './pages/admin/SectorsManagement';
 import ErbonIntegration     from './pages/admin/ErbonIntegration';
 import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
+import FNRHIntegration    from './pages/admin/FNRHIntegration';
 import SupplierContacts    from './pages/SupplierContacts';
 import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages';
 import PublicSectorsPage   from './pages/PublicSectorsPage';
@@ -100,6 +101,7 @@ import Profile      from './pages/Profile';
 import PDVPage           from './pages/pdv/PDV';
 import PDVHistory        from './pages/pdv/PDVHistory';
 import WCIFichasView     from './pages/reception/WCIFichasView';
+import FNRHReception    from './pages/reception/FNRHReception';
 import RoomRack          from './pages/erbon/RoomRack';
 import InHouse           from './pages/erbon/InHouse';
 import CheckInList       from './pages/erbon/CheckInList';
@@ -370,6 +372,12 @@ function App() {
                       </PrivateRoute>
                     } />
 
+                    <Route path="/admin/fnrh" element={
+                      <PrivateRoute module="fnrh_integration">
+                        <FNRHIntegration />
+                      </PrivateRoute>
+                    } />
+
                     <Route path="/admin/supplier-contacts" element={
                       <ContactsRouteGuard>
                         <SupplierContacts />
@@ -584,6 +592,11 @@ function App() {
                     <Route path="/reception/wci-fichas" element={
                       <PrivateRoute module="reception">
                         <WCIFichasView />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/reception/fnrh-fichas" element={
+                      <PrivateRoute module="reception">
+                        <FNRHReception />
                       </PrivateRoute>
                     } />
 
