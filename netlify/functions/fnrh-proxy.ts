@@ -63,13 +63,19 @@ const handler: Handler = async (event: HandlerEvent) => {
   try {
     const reqHeaders: Record<string, string> = {
       'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      'Accept':        'application/json',
+      'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     };
+
+    // Só envia Content-Type se houver corpo (POST/PUT)
+    const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(fnrhMethod.toUpperCase());
+    if (isWrite) {
+      reqHeaders['Content-Type'] = 'application/json';
+    }
 
     // cpf_solicitante: obrigatório em endpoints de dados pessoais
     if (cpf) {
-      reqHeaders['cpf_solicitante'] = cpf;
+      reqHeaders['cpf_solicitante'] = String(cpf);
     }
 
     // Timeout de 25 segundos para não estourar os 30s do Netlify
@@ -80,7 +86,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       const res = await fetch(targetUrl, {
         method: fnrhMethod,
         headers: reqHeaders,
-        body: ['GET', 'HEAD'].includes(fnrhMethod.toUpperCase()) ? undefined : (event.body || undefined),
+        body: isWrite ? (event.body || undefined) : undefined,
         signal: controller.signal,
       });
 
@@ -97,15 +103,19 @@ const handler: Handler = async (event: HandlerEvent) => {
       };
     } catch (err: any) {
       clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        return {
-          statusCode: 504,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'O servidor do Governo (SERPRO) não respondeu a tempo (Timeout de 25s). Tente novamente mais tarde.' }),
-        };
-      }
-      throw err;
+      const isTimeout = err.name === 'AbortError';
+      return {
+        statusCode: isTimeout ? 504 : 502,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          error: isTimeout 
+            ? `O servidor do Governo não respondeu em 25s. URL: ${targetUrl}` 
+            : `Erro de rede: ${err.message}`,
+          target: targetUrl
+        }),
+      };
     }
+
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return {
