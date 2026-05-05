@@ -72,22 +72,40 @@ const handler: Handler = async (event: HandlerEvent) => {
       reqHeaders['cpf_solicitante'] = cpf;
     }
 
-    const res = await fetch(targetUrl, {
-      method: fnrhMethod,
-      headers: reqHeaders,
-      body: ['GET', 'HEAD'].includes(fnrhMethod.toUpperCase()) ? undefined : (event.body || undefined),
-    });
+    // Timeout de 25 segundos para não estourar os 30s do Netlify
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-    const responseBody = await res.text();
+    try {
+      const res = await fetch(targetUrl, {
+        method: fnrhMethod,
+        headers: reqHeaders,
+        body: ['GET', 'HEAD'].includes(fnrhMethod.toUpperCase()) ? undefined : (event.body || undefined),
+        signal: controller.signal,
+      });
 
-    return {
-      statusCode: res.status,
-      headers: {
-        ...CORS_HEADERS,
-        'Content-Type': res.headers.get('content-type') || 'application/json',
-      },
-      body: responseBody,
-    };
+      const responseBody = await res.text();
+      clearTimeout(timeoutId);
+
+      return {
+        statusCode: res.status,
+        headers: {
+          ...CORS_HEADERS,
+          'Content-Type': res.headers.get('content-type') || 'application/json',
+        },
+        body: responseBody,
+      };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        return {
+          statusCode: 504,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'O servidor do Governo (SERPRO) não respondeu a tempo (Timeout de 25s). Tente novamente mais tarde.' }),
+        };
+      }
+      throw err;
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return {
