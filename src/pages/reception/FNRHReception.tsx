@@ -308,10 +308,64 @@ function TabLogs({ hotelId }: { hotelId: string }) {
 
 // ── Tab: Consulta Gov ─────────────────────────────────────────────────────────
 
+interface FNRHGovRecord {
+  Id: string;
+  Status: string;
+  StatusFichaLabel: string;
+  Nome: string;
+  NumeroDocumento: string;
+  TipoDocumentoId: string;
+  PaisNacionalidade_id: string;
+  CheckinEm: string;
+  SaidaPrevistaEm: string;
+  UF?: string;
+  Cidade?: string;
+}
+
+function GovRecordCard({ record, isDark }: { record: FNRHGovRecord; isDark: boolean }) {
+  const statusCls = record.Status === 'CHECK_OUT_CONFIRMADO' 
+    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${statusCls}`}>
+              {record.StatusFichaLabel || record.Status}
+            </span>
+            <span className="text-[10px] text-gray-400 font-mono">ID: {record.Id.split('-')[0]}...</span>
+          </div>
+          <h4 className="font-bold text-gray-900 dark:text-white truncate">{record.Nome}</h4>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {record.TipoDocumentoId}: {record.NumeroDocumento} • {record.PaisNacionalidade_id}
+            {record.UF && ` • ${record.UF}`}
+          </p>
+        </div>
+        
+        <div className="text-right shrink-0">
+          <div className="flex flex-col gap-1">
+             <div className="flex items-center justify-end gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                <Clock className="w-3 h-3 text-emerald-500" />
+                <span>In: {new Date(record.CheckinEm).toLocaleDateString('pt-BR')}</span>
+             </div>
+             <div className="flex items-center justify-end gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                <div className="w-3 h-3 border-b border-r border-gray-400" />
+                <span>Out: {new Date(record.SaidaPrevistaEm).toLocaleDateString('pt-BR')}</span>
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TabConsulta({ hotelId }: { hotelId: string }) {
   const { addNotification } = useNotification();
+  const [isDark]         = useState(document.documentElement.classList.contains('dark'));
   const [loading,      setLoading]      = useState(false);
-  const [data,         setData]         = useState<unknown>(null);
+  const [data,         setData]         = useState<any>(null);
   const [page,         setPage]         = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFrom,     setDateFrom]     = useState('');
@@ -340,8 +394,11 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
     }
   }
 
+  const govRecords = (data?.dados || []) as FNRHGovRecord[];
+  const pagination = data?.pagination;
+
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5">
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
         <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
           <Search className="w-4 h-4 text-emerald-500" /> Consultar Fichas no Gov
@@ -373,11 +430,18 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
             <input type="date" className={inputCls} value={dateTo} onChange={e => setDateTo(e.target.value)} />
           </div>
         </div>
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap items-center">
           <button type="button" onClick={() => handleConsultar(page)} disabled={loading} className={btnPrimary}>
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             Consultar FNRH Gov
           </button>
+          
+          {pagination && (
+            <span className="text-xs text-gray-500 font-medium">
+              Página {pagination.PaginaAtual} de {pagination.TotalPaginas} ({pagination.TotalRegistros} fichas)
+            </span>
+          )}
+
           {data && (
             <div className="flex gap-2 ml-auto">
               <button type="button"
@@ -387,7 +451,7 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
               </button>
               <button type="button"
                 onClick={() => { const p = page + 1; setPage(p); handleConsultar(p); }}
-                disabled={loading} className={btnSecondary}>
+                disabled={loading || (pagination && page >= pagination.TotalPaginas)} className={btnSecondary}>
                 Próxima →
               </button>
             </div>
@@ -395,15 +459,28 @@ function TabConsulta({ hotelId }: { hotelId: string }) {
         </div>
       </div>
 
-      {data && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">
-            Resposta da API Gov — Página {page}
-          </p>
-          <pre className="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 overflow-auto text-gray-700 dark:text-gray-300 leading-relaxed max-h-[600px]">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
+      ) : govRecords.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {govRecords.map(record => (
+            <GovRecordCard key={record.Id} record={record} isDark={isDark} />
+          ))}
         </div>
+      ) : data && (
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-300 dark:border-gray-700">
+           <p className="text-gray-500 dark:text-gray-400">Nenhum registro retornado pelo Governo para este filtro.</p>
+        </div>
+      )}
+      
+      {/* Botão para ver JSON bruto (debug) */}
+      {data && (
+        <button 
+          onClick={() => console.log('FNRH Raw:', data)}
+          className="text-[10px] text-gray-400 hover:text-gray-600 underline block mx-auto"
+        >
+          Ver dados técnicos no console
+        </button>
       )}
     </div>
   );
