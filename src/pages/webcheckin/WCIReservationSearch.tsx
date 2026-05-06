@@ -97,17 +97,17 @@ export default function WCIReservationSearch() {
     }
   };
 
-  // Formulário manual (não-Erbon): nome + número de reserva opcional
+  // Formulário manual (não-Erbon): apenas número de reserva
   const handleManualCheckin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!guestName.trim() || !realHotelId || !wciCode) return;
+    if (!bookingNumber.trim() || !realHotelId || !wciCode) return;
     setLoading(true);
     setError('');
     try {
       const token = await createManualSession(
         realHotelId,
-        guestName,
-        bookingNumber.trim() || undefined
+        '', // Nome vazio inicialmente, o hóspede se cadastrará na lista
+        bookingNumber.trim()
       );
       navigate(`/web-checkin/${wciCode}/guests/${token}`);
     } catch (err: any) {
@@ -137,18 +137,21 @@ export default function WCIReservationSearch() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem' }}>
               <Loader2 size={32} color="#0085ae" style={{ animation: 'spin 1s linear infinite' }} />
             </div>
-          ) : hasErbon ? (
-            /* ── Modo Erbon: busca por reserva ── */
-            <form onSubmit={handleSearch} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          ) : (
+            <form onSubmit={hasErbon ? handleSearch : handleManualCheckin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
                   {t('searchPlaceholder')}
                 </label>
                 <input
                   type="text"
-                  value={query}
-                  onChange={e => { setQuery(e.target.value); setError(''); }}
-                  placeholder="Ex: 12345 / email@hotel.com"
+                  value={hasErbon ? query : bookingNumber}
+                  onChange={e => { 
+                    if (hasErbon) setQuery(e.target.value); 
+                    else setBookingNumber(e.target.value);
+                    setError(''); 
+                  }}
+                  placeholder={hasErbon ? "Ex: 12345 / email@hotel.com" : "Digite o nº da sua reserva"}
                   autoFocus
                   style={{
                     width: '100%', boxSizing: 'border-box',
@@ -175,106 +178,24 @@ export default function WCIReservationSearch() {
 
               <button
                 type="submit"
-                disabled={loading || !query.trim() || !realHotelId}
+                disabled={loading || (hasErbon ? !query.trim() : !bookingNumber.trim()) || !realHotelId}
                 style={{
                   padding: '1rem', borderRadius: 50, border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
                   background: loading ? 'rgba(0,133,174,0.5)' : '#0085ae',
                   color: '#fff', fontWeight: 700, fontSize: '1.05rem',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  transition: 'all 0.2s', opacity: !query.trim() ? 0.5 : 1,
+                  transition: 'all 0.2s', opacity: (hasErbon ? !query.trim() : !bookingNumber.trim()) ? 0.5 : 1,
                 }}
               >
                 {loading
                   ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> {t('searching')}</>
-                  : <><Search size={20} /> {t('search')}</>
-                }
-              </button>
-            </form>
-          ) : (
-            /* ── Modo manual: sem Erbon ── */
-            <form onSubmit={handleManualCheckin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <p style={{ margin: 0, fontSize: '0.9rem', color: 'rgba(255,255,255,0.75)', textAlign: 'center' }}>
-                Informe seu nome para começar o preenchimento da ficha.
-              </p>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
-                  Nome completo *
-                </label>
-                <input
-                  type="text"
-                  value={guestName}
-                  onChange={e => { setGuestName(e.target.value); setError(''); }}
-                  placeholder="Seu nome completo"
-                  autoFocus
-                  required
-                  style={{
-                    width: '100%', boxSizing: 'border-box',
-                    padding: '1rem 1.25rem',
-                    fontSize: '1.1rem',
-                    background: 'rgba(255,255,255,0.12)',
-                    border: error ? '2px solid #ef4444' : '1px solid rgba(255,255,255,0.3)',
-                    borderRadius: 12,
-                    color: '#fff',
-                    outline: 'none',
-                    transition: 'border-color 0.2s',
-                  }}
-                  onFocus={e => (e.target.style.borderColor = '#0085ae')}
-                  onBlur={e => (e.target.style.borderColor = error ? '#ef4444' : 'rgba(255,255,255,0.3)')}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
-                  Número da reserva *
-                </label>
-                <input
-                  type="text"
-                  value={bookingNumber}
-                  onChange={e => { setBookingNumber(e.target.value); setError(''); }}
-                  placeholder="Ex: 12345"
-                  required
-                  style={{
-                    width: '100%', boxSizing: 'border-box',
-                    padding: '1rem 1.25rem',
-                    fontSize: '1.1rem',
-                    background: 'rgba(255,255,255,0.12)',
-                    border: '1px solid rgba(255,255,255,0.3)',
-                    borderRadius: 12,
-                    color: '#fff',
-                    outline: 'none',
-                    transition: 'border-color 0.2s',
-                  }}
-                  onFocus={e => (e.target.style.borderColor = '#0085ae')}
-                  onBlur={e => (e.target.style.borderColor = 'rgba(255,255,255,0.3)')}
-                />
-              </div>
-
-              {error && (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10, padding: '0.75rem 1rem' }}>
-                  <AlertCircle size={18} color="#ef4444" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span style={{ color: '#fca5a5', fontSize: '0.9rem' }}>{error}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading || !guestName.trim() || !bookingNumber.trim() || !realHotelId}
-                style={{
-                  padding: '1rem', borderRadius: 50, border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
-                  background: loading ? 'rgba(0,133,174,0.5)' : '#0085ae',
-                  color: '#fff', fontWeight: 700, fontSize: '1.05rem',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  transition: 'all 0.2s', opacity: (!guestName.trim() || !bookingNumber.trim()) ? 0.5 : 1,
-                }}
-              >
-                {loading
-                  ? <><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> Aguarde...</>
-                  : 'Iniciar Check-in'
+                  : <><Search size={20} /> {hasErbon ? t('search') : 'Iniciar Check-in'}</>
                 }
               </button>
             </form>
           )}
+        </div>
+}
         </div>
 
         <button

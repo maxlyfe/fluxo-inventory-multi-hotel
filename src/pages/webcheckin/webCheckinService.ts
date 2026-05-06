@@ -181,12 +181,12 @@ export async function createManualSession(
   // 2. Senão encontrou, cria uma nova sessão normalmente
   const syntheticBookingId = Date.now();
   const token = generateToken();
-  const guests: WebCheckinGuest[] = [{
+  const guests: WebCheckinGuest[] = guestName.trim() ? [{
     id: 0,
     name: guestName.trim(),
     fnrhCompleted: false,
     isMainGuest: true,
-  }];
+  }] : [];
   localStorage.setItem(STORAGE_KEY(syntheticBookingId), JSON.stringify(guests));
   try {
     await anonClient.from('wci_sessions').upsert({
