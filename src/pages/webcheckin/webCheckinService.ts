@@ -145,6 +145,40 @@ export async function createManualSession(
   guestName: string,
   bookingNumber?: string
 ): Promise<string> {
+  // 1. Se informou número de reserva, tenta achar uma sessão ATIVA no hotel para este número
+  if (bookingNumber) {
+    const { data: existing } = await anonClient
+      .from('wci_sessions')
+      .select('booking_id, session_token, guests')
+      .eq('hotel_id', hotelId)
+      .eq('booking_number', bookingNumber.trim())
+      .maybeSingle();
+
+    if (existing) {
+      const guests = (existing.guests as WebCheckinGuest[]) || [];
+      const exists = guests.some(g => g.name.toLowerCase() === guestName.trim().toLowerCase());
+      
+      // Se o hóspede ainda não está na lista, adiciona como acompanhante
+      if (!exists) {
+        guests.push({
+          id: guests.length, // ID sequencial simples para manual
+          name: guestName.trim(),
+          fnrhCompleted: false,
+          isMainGuest: false,
+        });
+        await saveGuestsToStorage(existing.booking_id, guests, hotelId, bookingNumber.trim());
+      }
+      
+      _sessionCache.set(existing.session_token, { 
+        bookingId: Number(existing.booking_id) || 0, 
+        guests, 
+        bookingNumber: bookingNumber.trim() 
+      });
+      return existing.session_token;
+    }
+  }
+
+  // 2. Senão encontrou, cria uma nova sessão normalmente
   const syntheticBookingId = Date.now();
   const token = generateToken();
   const guests: WebCheckinGuest[] = [{
