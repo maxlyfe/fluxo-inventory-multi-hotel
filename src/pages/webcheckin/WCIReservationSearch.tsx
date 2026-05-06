@@ -14,27 +14,9 @@ import {
   WebCheckinGuest,
 } from './webCheckinService';
 import { supabase } from '../../lib/supabase';
+import { getErbonStatusInfo, resolveErbonStatus } from '../../lib/erbonStatuses';
 
-// Allowlist: únicos status que permitem web check-in
-// Qualquer outro status (cancelado, check-in feito, checkout, etc.) é bloqueado
-const ALLOWED_STATUSES = [
-  'BOOKING',                                              // Erbon: reserva activa
-  'CONFIRMED', 'CONFIRMADA', 'CONFIRMADO',
-  'PENDING', 'PENDENTE', 'PENDING_CONFIRMATION',
-  'RESERVED', 'RESERVADO', 'RESERVADA',
-];
-
-// Mensagens específicas para statuses conhecidos
-function getStatusError(status: string): string {
-  const s = status.toUpperCase();
-  if (['CHECKIN','CHECK-IN','CHECKEDIN','CHECKED-IN','CHECKED_IN','CHECKEDIN'].some(v => s.includes(v.replace('-','').replace('_',''))))
-    return 'Check-in já realizado. Dirija-se à recepção se precisar de ajuda.';
-  if (['CANCELLED','CANCELADA','CANCELADO','CANCEL','CANCELADO'].some(v => s.includes(v)))
-    return 'Esta reserva está cancelada.';
-  if (['CHECKOUT','CHECK-OUT','CHECKEDOUT','CHECKED-OUT','CHECKOUTDONE'].some(v => s.includes(v.replace('-','').replace('_',''))))
-    return 'Check-out já realizado para esta reserva.';
-  return `Esta reserva não está disponível para web check-in (status: ${status}).`;
-}
+// Status tratados via ERBON_STATUS_MAP em src/lib/erbonStatuses.ts
 
 const glassCard: React.CSSProperties = {
   background: 'rgba(255,255,255,0.10)',
@@ -87,16 +69,13 @@ export default function WCIReservationSearch() {
         return;
       }
 
-      // Bloquear reservas com status que impedem novo check-in
-      // Usa allowlist: só CONFIRMED/PENDING passam; tudo o mais é bloqueado
-      const rawStatus  = result.booking.status         || '';
-      const rawConfirm = result.booking.confirmedStatus || '';
-      // Log para diagnóstico — ver no DevTools Console
-      console.log('[WCI] booking status:', rawStatus, '| confirmedStatus:', rawConfirm, '| full:', result.booking);
-
-      const effectiveStatus = rawStatus || rawConfirm;
-      if (!ALLOWED_STATUSES.includes(effectiveStatus.toUpperCase())) {
-        setError(getStatusError(effectiveStatus || 'desconhecido'));
+      // Verificar se o status da reserva permite web check-in
+      const effectiveStatus = resolveErbonStatus(result.booking.status, result.booking.confirmedStatus);
+      // Log diagnóstico — remove após confirmar todos os statuses mapeados
+      console.log('[WCI] status:', result.booking.status, '| confirmedStatus:', result.booking.confirmedStatus);
+      const statusInfo = getErbonStatusInfo(effectiveStatus);
+      if (!statusInfo.allowWCI) {
+        setError(statusInfo.wciError!);
         return;
       }
 

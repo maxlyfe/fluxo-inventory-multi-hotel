@@ -39,16 +39,24 @@ function getNights(a?: string, b?: string) {
 // ── Status badge ─────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
+  BOOKING:    'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
   CONFIRMED:  'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
   PENDING:    'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
   CHECKIN:    'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+  CHECKOUT:   'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
   CANCELLED:  'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  CANCELADA:  'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  NOSHOW:     'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
 };
 const STATUS_LABEL: Record<string, string> = {
+  BOOKING:   'Reserva',
   CONFIRMED: 'Confirmada',
   PENDING:   'Pendente',
   CHECKIN:   'Check-in Feito',
+  CHECKOUT:  'Check-out Feito',
   CANCELLED: 'Cancelada',
+  CANCELADA: 'Cancelada',
+  NOSHOW:    'No-Show',
 };
 
 // ── Small shared UI ───────────────────────────────────────────────────────────

@@ -11,20 +11,25 @@ type SearchField = 'checkin' | 'checkout' | 'status' | 'bookingNumber' | 'guestE
 
 const STATUSES = [
   { value: '', label: 'Todos' },
+  { value: 'BOOKING',   label: 'Reserva' },
   { value: 'CONFIRMED', label: 'Confirmada' },
-  { value: 'CHECKIN', label: 'Check-in' },
-  { value: 'CHECKOUT', label: 'Check-out' },
-  { value: 'CANCELED', label: 'Cancelada' },
-  { value: 'NOSHOW', label: 'No-Show' },
+  { value: 'PENDING',   label: 'Pendente' },
+  { value: 'CHECKIN',   label: 'Check-in' },
+  { value: 'CHECKOUT',  label: 'Check-out' },
+  { value: 'CANCELLED', label: 'Cancelada' },
+  { value: 'NOSHOW',    label: 'No-Show' },
 ];
 
 const statusColor: Record<string, string> = {
+  BOOKING:   'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
   CONFIRMED: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-  CHECKIN: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
-  CHECKOUT: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
-  CANCELED: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
-  NOSHOW: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
-  PENDING: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
+  PENDING:   'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
+  CHECKIN:   'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+  CHECKOUT:  'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+  CANCELLED: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  CANCELED:  'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  CANCELADA: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  NOSHOW:    'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
 };
 
 const BookingSearch: React.FC = () => {
