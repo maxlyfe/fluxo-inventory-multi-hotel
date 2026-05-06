@@ -7,8 +7,10 @@ import {
   Search, DollarSign, RefreshCw, ArrowLeftRight,
   Eye, EyeOff, Star, ListChecks, History, Barcode,
   TrendingDown, CheckCircle, Link2, ChevronUp, ChevronDown,
-  MoreHorizontal, ArrowUpDown,
+  MoreHorizontal, ArrowUpDown, Loader2, Copy, Check as CheckIcon,
 } from 'lucide-react';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 import ImportInventory from '../components/ImportInventory';
 import { useHotel } from '../context/HotelContext';
@@ -161,6 +163,13 @@ const Inventory = () => {
   const [openActionsId, setOpenActionsId]               = useState<string | null>(null);
   const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
   const [allSectors, setAllSectors]                     = useState<{id: string, name: string}[]>([]);
+  // Delegação de contagem
+  const [showDelegateModal, setShowDelegateModal]       = useState(false);
+  const [delegateLink, setDelegateLink]                 = useState('');
+  const [delegateLinkExpiry, setDelegateLinkExpiry]     = useState('');
+  const [generatingDelegate, setGeneratingDelegate]     = useState(false);
+  const [delegateLinkCopied, setDelegateLinkCopied]     = useState(false);
+  const [preloadCountId, setPreloadCountId]             = useState<string | null>(null);
 
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -396,6 +405,39 @@ const Inventory = () => {
     try { XLSX.writeFile(wb, `inventario_${selectedHotel?.code || 'geral'}_${new Date().toISOString().split('T')[0]}.xlsx`); addNotification('success', 'Inventário exportado!'); }
     catch { addNotification('error', 'Erro ao exportar inventário.'); }
   };
+
+  // ── Delegação de contagem ─────────────────────────────────────────────────
+  const handleGenerateDelegate = async () => {
+    if (!selectedHotel?.id || !user?.id) return;
+    setGeneratingDelegate(true);
+    try {
+      const { data, error } = await supabase
+        .from('stock_count_tokens')
+        .insert({ hotel_id: selectedHotel.id, sector_id: null, created_by: user.id })
+        .select('token, expires_at')
+        .single();
+      if (error) throw error;
+      setDelegateLink(`${window.location.origin}/stock-count/${data.token}`);
+      setDelegateLinkExpiry(format(new Date(data.expires_at), "dd/MM 'às' HH:mm", { locale: ptBR }));
+      setDelegateLinkCopied(false);
+      setShowDelegateModal(true);
+    } catch (err: any) {
+      addNotification('error', 'Erro ao gerar link: ' + (err.message || 'Erro desconhecido'));
+    } finally {
+      setGeneratingDelegate(false);
+    }
+  };
+
+  const handleCopyDelegate = async () => {
+    try {
+      await navigator.clipboard.writeText(delegateLink);
+      setDelegateLinkCopied(true);
+      setTimeout(() => setDelegateLinkCopied(false), 2500);
+    } catch {
+      addNotification('error', 'Não foi possível copiar. Copie manualmente.');
+    }
+  };
+  // ── FIM: Delegação ────────────────────────────────────────────────────────
 
   const handleSaveSnapshot = async () => {
     if (!selectedHotel?.id) { addNotification('error', 'Hotel não selecionado.'); return; }
@@ -714,7 +756,7 @@ const Inventory = () => {
               <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400 dark:bg-amber-600 text-white text-[9px] font-black">{starredProducts.length}</span>
             )}
           </button>
-          <button onClick={() => setShowConferenceModal(true)}
+          <button onClick={() => { setPreloadCountId(null); setShowConferenceModal(true); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight">
             <ListChecks className="w-3 h-3" /> Conferência
           </button>
@@ -1015,8 +1057,26 @@ const Inventory = () => {
       {/* ── MODAIS ─────────────────────────────────────────────────────────── */}
 
       <StarredItemsModal isOpen={showStarredModal} onClose={() => setShowStarredModal(false)} starredProducts={starredProducts} />
-      <StockConferenceModal isOpen={showConferenceModal} onClose={() => setShowConferenceModal(false)} products={products} hotelId={selectedHotel?.id || ''} onFinished={fetchProducts} />
-      <StockCountHistoryModal isOpen={showCountHistoryModal} onClose={() => setShowCountHistoryModal(false)} hotelId={selectedHotel?.id || ''} onReopened={fetchProducts} />
+      <StockConferenceModal
+        isOpen={showConferenceModal}
+        onClose={() => { setShowConferenceModal(false); setPreloadCountId(null); }}
+        products={products}
+        hotelId={selectedHotel?.id || ''}
+        onFinished={fetchProducts}
+        preloadCountId={preloadCountId}
+        onDelegate={handleGenerateDelegate}
+      />
+      <StockCountHistoryModal
+        isOpen={showCountHistoryModal}
+        onClose={() => setShowCountHistoryModal(false)}
+        hotelId={selectedHotel?.id || ''}
+        onReopened={fetchProducts}
+        onOpenForFinalization={(countId, _name) => {
+          setPreloadCountId(countId);
+          setShowConferenceModal(true);
+          setShowCountHistoryModal(false);
+        }}
+      />
 
       {showForm && (
         <NewProductModal isOpen={showForm} onClose={() => setShowForm(false)} onSave={() => fetchProducts()} editingProduct={editingProduct} categories={categories} />
@@ -1162,6 +1222,62 @@ const Inventory = () => {
         sectors={allSectors}
         onConfirm={handleConfirmDirectDelivery}
       />
+
+      {/* ── Modal de link delegado (Inventário) ─────────────────────────────── */}
+      {showDelegateModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+                  <Link2 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-white">Link de Contagem</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Inventário geral</p>
+                </div>
+              </div>
+              <button onClick={() => setShowDelegateModal(false)}
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="flex-1 text-[11px] text-slate-600 dark:text-slate-300 break-all leading-relaxed font-mono select-all">
+                  {delegateLink}
+                </p>
+                <button onClick={handleCopyDelegate}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    delegateLinkCopied
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-violet-600 hover:bg-violet-700 text-white'
+                  }`}>
+                  {delegateLinkCopied ? <CheckIcon className="w-3 h-3"/> : <Copy className="w-3 h-3"/>}
+                  {delegateLinkCopied ? 'Copiado!' : 'Copiar'}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
+                  Expira em <strong>{delegateLinkExpiry}</strong> — válido por 24 horas
+                </p>
+              </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
+                O colaborador não precisa de login. Ao finalizar, a contagem aparece em <strong>Histórico</strong> para você revisar.
+              </p>
+
+              <button onClick={() => setShowDelegateModal(false)}
+                className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

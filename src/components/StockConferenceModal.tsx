@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   X, Search, CheckCircle2, Save, ListChecks, AlertCircle,
   Camera, Barcode, Plus, ZapOff, Package, ChevronLeft, ChevronRight,
-  Loader2, Check,
+  Loader2, Check, Share2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNotification } from '../context/NotificationContext';
@@ -28,6 +28,10 @@ interface StockConferenceModalProps {
   hotelId: string;
   sectorId?: string;
   onFinished: () => void;
+  /** Quando definido, pré-carrega os counts de uma contagem delegada (delegated_pending) */
+  preloadCountId?: string | null;
+  /** Chamado ao clicar no botão de delegar (compartilhar link) — gerenciado pelo pai */
+  onDelegate?: () => void;
 }
 
 // ── Stepper de quantidade — mobile-first (touch targets ≥44px) ───────────────
@@ -99,7 +103,7 @@ const QtyInput: React.FC<{
 // ── Componente principal ───────────────────────────────────────────────────────
 
 const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
-  isOpen, onClose, products, hotelId, sectorId, onFinished,
+  isOpen, onClose, products, hotelId, sectorId, onFinished, preloadCountId, onDelegate,
 }) => {
   const { addNotification } = useNotification();
   // Mapa de refs dos inputs de quantidade para navegação por Enter
@@ -131,6 +135,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const [isSaving, setIsSaving]           = useState(false);
   const [activeCountId, setActiveCountId] = useState<string | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
+  const [countedByName, setCountedByName] = useState<string | null>(null);
 
   const [showScanner,            setShowScanner]            = useState(false);
   const [scanProduct,            setScanProduct]            = useState<Product | null>(null);
@@ -188,13 +193,18 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      checkExistingDraft();
+      if (preloadCountId) {
+        loadDelegatedCount(preloadCountId);
+      } else {
+        checkExistingDraft();
+      }
       loadProductBarcodes();
     } else {
       setCounts({}); setSearchTerm(''); setCurrentCatIdx(0);
       setActiveCountId(null); setProductBarcodes({}); setImgErrors({});
+      setCountedByName(null);
     }
-  }, [isOpen, hotelId, sectorId]);
+  }, [isOpen, hotelId, sectorId, preloadCountId]);
 
   const checkExistingDraft = async () => {
     setIsLoadingDraft(true);
@@ -214,6 +224,27 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
         addNotification('Rascunho de conferência retomado.', 'info');
       }
     } catch (err) { console.error('Erro ao buscar rascunho:', err); }
+    finally { setIsLoadingDraft(false); }
+  };
+
+  const loadDelegatedCount = async (countId: string) => {
+    setIsLoadingDraft(true);
+    try {
+      const { data, error } = await supabase
+        .from('stock_counts')
+        .select('id, counted_by_name, items:stock_count_items(product_id, counted_quantity)')
+        .eq('id', countId)
+        .single();
+      if (error) throw error;
+      if (data) {
+        const loaded: Record<string, number> = {};
+        data.items.forEach((item: any) => { loaded[item.product_id] = item.counted_quantity; });
+        setCounts(loaded);
+        setActiveCountId(data.id);
+        setCountedByName(data.counted_by_name || null);
+        addNotification(`Contagem de "${data.counted_by_name || 'colaborador'}" carregada. Clique em Finalizar para confirmar.`, 'info');
+      }
+    } catch (err) { console.error('Erro ao carregar contagem delegada:', err); }
     finally { setIsLoadingDraft(false); }
   };
 
@@ -355,6 +386,15 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
           {/* ── Header compacto — título + ações + progresso inline ──────── */}
           <div className="flex-shrink-0 bg-indigo-600 dark:bg-indigo-700">
+            {/* Banner: contagem delegada */}
+            {countedByName && (
+              <div className="flex items-center gap-2 px-3 pt-2 pb-0">
+                <span className="text-[11px] bg-amber-400/30 text-amber-100 rounded-lg px-2 py-1 flex items-center gap-1.5 font-medium">
+                  <Check className="w-3 h-3 shrink-0" />
+                  Contagem de <strong>{countedByName}</strong> — revise e clique Finalizar
+                </span>
+              </div>
+            )}
             {/* Linha 1: título + botões de ação */}
             <div className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2 min-w-0">
@@ -395,6 +435,19 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                   <Camera className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">Escanear</span>
                 </button>
+
+                {/* Delegar — botão sutil, só aparece se pai fornecer handler */}
+                {onDelegate && !preloadCountId && (
+                  <button
+                    onClick={onDelegate}
+                    style={{ touchAction: 'manipulation' }}
+                    title="Delegar contagem (gerar link)"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-white/60
+                      hover:text-white hover:bg-white/20 active:scale-95 transition-all"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                )}
 
                 {/* Fechar */}
                 <button

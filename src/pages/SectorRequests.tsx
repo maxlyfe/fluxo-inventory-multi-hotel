@@ -159,7 +159,10 @@ const SectorRequests = () => {
           .select('product_id')
           .eq('sector_id', sectorId);
         if (visibilityError) throw visibilityError;
-        setVisibleForSectorIds(new Set(visibilityData.map(v => v.product_id)));
+        const visibleIds = new Set((visibilityData || []).map((v: any) => v.product_id));
+        setVisibleForSectorIds(visibleIds);
+        // Se nenhum produto foi configurado para este setor, mostrar todos automaticamente
+        if (visibleIds.size === 0) setFilterMode('all');
 
         if (productsData) {
           const uniqueCategories = [...new Set(productsData.map(p => p.category))];
@@ -667,6 +670,14 @@ const SectorRequests = () => {
             </div>
           </div>
 
+          {/* Banner: setor sem produtos configurados */}
+          {!loading && visibleForSectorIds.size === 0 && filterMode === 'all' && (
+            <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>Nenhum produto foi configurado para este setor — exibindo todos os produtos do hotel. Um administrador pode definir a visibilidade em <strong>Estoque → Setor</strong>.</span>
+            </div>
+          )}
+
           {/* Produtos */}
           {loading ? (
             <div className="flex justify-center items-center py-20">
@@ -675,7 +686,19 @@ const SectorRequests = () => {
           ) : filteredProducts.length === 0 ? (
             <div className="text-center py-20 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400">Nenhum produto encontrado.</p>
+              <p className="text-gray-500 dark:text-gray-400">
+                {filterMode === 'sector' && visibleForSectorIds.size === 0
+                  ? 'Nenhum produto configurado para este setor.'
+                  : 'Nenhum produto encontrado.'}
+              </p>
+              {filterMode === 'sector' && visibleForSectorIds.size === 0 && (
+                <button
+                  onClick={() => setFilterMode('all')}
+                  className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                >
+                  Ver todos os produtos →
+                </button>
+              )}
             </div>
           ) : (
             <div className={

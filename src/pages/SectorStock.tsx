@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { 
+import {
   ArrowLeft, Search, Plus, AlertTriangle,
   Package, Scale, History, ChevronDown, ChevronUp,
   ImageIcon, Trash2,
   CalendarCheck, X, ListChecks, Filter,
   ChevronLeftSquare, ChevronRightSquare, GitCommit, Loader2, Edit2, ArrowRightLeft,
-  ArrowUpRight, ArrowDownLeft, Barcode
+  ArrowUpRight, ArrowDownLeft, Barcode, Link2, Copy, Check as CheckIcon,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
@@ -147,6 +147,13 @@ const SectorStock = () => {
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [showConferenceModal, setShowConferenceModal] = useState(false);
   const [showCountHistoryModal, setShowCountHistoryModal] = useState(false);
+  // Delegação de contagem
+  const [showLinkModal, setShowLinkModal]     = useState(false);
+  const [generatedLink, setGeneratedLink]     = useState('');
+  const [linkExpiry, setLinkExpiry]           = useState('');
+  const [generatingLink, setGeneratingLink]   = useState(false);
+  const [linkCopied, setLinkCopied]           = useState(false);
+  const [preloadCountId, setPreloadCountId]   = useState<string | null>(null);
   const [barcodeFilterProductId, setBarcodeFilterProductId] = useState<string | null>(null);
   const [barcodeFilterCode, setBarcodeFilterCode] = useState('');
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
@@ -1012,6 +1019,44 @@ const SectorStock = () => {
 
   // --- FIM: Transferência ---
 
+  // ── Delegação de contagem ─────────────────────────────────────────────────
+  const handleGenerateLink = async () => {
+    if (!selectedHotel?.id || !user?.id) return;
+    setGeneratingLink(true);
+    try {
+      const { data, error } = await supabase
+        .from('stock_count_tokens')
+        .insert({
+          hotel_id: selectedHotel.id,
+          sector_id: sectorId || null,
+          created_by: user.id,
+        })
+        .select('token, expires_at')
+        .single();
+      if (error) throw error;
+      setGeneratedLink(`${window.location.origin}/stock-count/${data.token}`);
+      const expiresDate = new Date(data.expires_at);
+      setLinkExpiry(format(expiresDate, "dd/MM 'às' HH:mm", { locale: ptBR }));
+      setLinkCopied(false);
+      setShowLinkModal(true);
+    } catch (err: any) {
+      addNotification('Erro ao gerar link: ' + (err.message || 'Erro desconhecido'), 'error');
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    } catch {
+      addNotification('Não foi possível copiar. Copie manualmente.', 'error');
+    }
+  };
+  // ── FIM: Delegação ────────────────────────────────────────────────────────
+
   const filteredProducts = products.filter(p => {
     if (barcodeFilterProductId) return p.id === barcodeFilterProductId;
     return p.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -1069,7 +1114,7 @@ const SectorStock = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white shadow-sm shadow-orange-500/20 shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
             <Plus size={14}/> Criar Novo
           </button>
-          <button onClick={() => setShowConferenceModal(true)}
+          <button onClick={() => { setPreloadCountId(null); setShowConferenceModal(true); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-slate-700 text-white shrink-0 text-[11px] font-bold uppercase tracking-tight snap-start">
             <ListChecks size={14}/> Conferência
           </button>
@@ -1586,11 +1631,13 @@ const SectorStock = () => {
 
       <StockConferenceModal
         isOpen={showConferenceModal}
-        onClose={() => setShowConferenceModal(false)}
+        onClose={() => { setShowConferenceModal(false); setPreloadCountId(null); }}
         products={products}
         hotelId={selectedHotel?.id || ''}
         sectorId={sectorId}
         onFinished={fetchSectorAndStockData}
+        preloadCountId={preloadCountId}
+        onDelegate={handleGenerateLink}
       />
 
       <StockCountHistoryModal
@@ -1599,6 +1646,11 @@ const SectorStock = () => {
         hotelId={selectedHotel?.id || ''}
         sectorId={sectorId}
         onReopened={fetchSectorAndStockData}
+        onOpenForFinalization={(countId, _name) => {
+          setPreloadCountId(countId);
+          setShowConferenceModal(true);
+          setShowCountHistoryModal(false);
+        }}
       />
 
       {/* Modal de baixa de vendas (Erbon) */}
@@ -1934,6 +1986,66 @@ const SectorStock = () => {
           title="Escanear Código de Barras"
           hint="Aponte para o código de barras do produto"
         />
+      )}
+
+      {/* ── Modal de link delegado ──────────────────────────────────────────── */}
+      {showLinkModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            {/* Header */}
+            <div className="px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+                  <Link2 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-white">Link de Contagem</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Compartilhe com o colaborador</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLinkModal(false)}
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* URL box */}
+              <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                <p className="flex-1 text-[11px] text-slate-600 dark:text-slate-300 break-all leading-relaxed font-mono select-all">
+                  {generatedLink}
+                </p>
+                <button onClick={handleCopyLink}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    linkCopied
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-violet-600 hover:bg-violet-700 text-white'
+                  }`}>
+                  {linkCopied ? <CheckIcon size={13}/> : <Copy size={13}/>}
+                  {linkCopied ? 'Copiado!' : 'Copiar'}
+                </button>
+              </div>
+
+              {/* Expiry badge */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
+                  Expira em <strong>{linkExpiry}</strong> — válido por 24 horas
+                </p>
+              </div>
+
+              {/* Instruction */}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
+                O colaborador não precisa de login. Ao finalizar, a contagem aparece em <strong>Histórico</strong> para você revisar e finalizar.
+              </p>
+
+              <button onClick={() => setShowLinkModal(false)}
+                className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
