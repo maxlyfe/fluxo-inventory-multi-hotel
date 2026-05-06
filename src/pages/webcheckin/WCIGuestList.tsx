@@ -209,11 +209,11 @@ export default function WCIGuestList() {
           return cached ? { ...eg, fnrhCompleted: cached.fnrhCompleted } : eg;
         });
 
-        await saveGuestsToStorage(realBookingId, merged, realHotelId);
+        const ref = (booking as any).bookingNumber || booking.erbonNumber;
+        await saveGuestsToStorage(realBookingId, merged, realHotelId, ref ? String(ref) : bookingRef);
         setGuests(merged);
         // Exibe bookingNumber (cliente-facing), nunca o internal ID
-        const ref = (booking as any).bookingNumber || booking.erbonNumber;
-        setBookingRef(ref ? String(ref) : '');
+        if (ref) setBookingRef(String(ref));
       } else {
         // Fallback: cache local (Erbon offline / erro de rede)
         if (sessionGuests && sessionGuests.length > 0) {

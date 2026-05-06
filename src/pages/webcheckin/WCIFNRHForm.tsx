@@ -130,6 +130,7 @@ export default function WCIFNRHForm() {
   const [responsavelDocumento, setResponsavelDocumento] = useState('');
   const [responsavelDocTipo,   setResponsavelDocTipo]   = useState('CPF');
   const [adultGuests,          setAdultGuests]          = useState<WebCheckinGuest[]>([]);
+  const [bookingRef,           setBookingRef]           = useState<string | null>(null);
 
   const isMinor = calcAge(birthDate) !== null && (calcAge(birthDate) as number) < 18;
 
@@ -143,6 +144,7 @@ export default function WCIFNRHForm() {
 
     // Carrega hóspedes adultos (para dropdown de responsável de menor)
     resolveSession(bookingId).then(session => {
+      if (session?.bookingNumber) setBookingRef(session.bookingNumber);
       const guests = session?.guests || loadGuestsFromStorage(bookingId) || [];
       const adults = guests.filter(g => {
         if (!g.birthDate) return true; // sem data → assume adulto
@@ -380,12 +382,12 @@ export default function WCIFNRHForm() {
           isMainGuest: false,
           ...guestProfile,
         } as WebCheckinGuest;
-        saveGuestsToStorage(numericBookingId, [...stored, newGuest], hotelUUID);
+        saveGuestsToStorage(numericBookingId, [...stored, newGuest], hotelUUID, bookingRef);
       } else {
         const updated = stored.map(g =>
           g.id === guestId ? { ...g, ...guestProfile } : g
         );
-        saveGuestsToStorage(numericBookingId, updated, hotelUUID);
+        saveGuestsToStorage(numericBookingId, updated, hotelUUID, bookingRef);
       }
 
       setSaved(true);

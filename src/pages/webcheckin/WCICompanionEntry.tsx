@@ -356,6 +356,7 @@ export default function WCICompanionEntry() {
   const [responsavelDocumento, setResponsavelDocumento] = useState('');
   const [responsavelDocTipo,   setResponsavelDocTipo]   = useState('CPF');
   const [adultGuests,          setAdultGuests]          = useState<WebCheckinGuest[]>([]);
+  const [bookingRef,           setBookingRef]           = useState<string | null>(null);
 
   // isMinor é derivado em tempo real da birthDate
   const isMinorGuest = calcAge(birthDate) !== null && (calcAge(birthDate) as number) < 18;
@@ -449,6 +450,7 @@ export default function WCICompanionEntry() {
 
       if (session) {
         setRealBookingId(session.bookingId);
+        if (session.bookingNumber) setBookingRef(session.bookingNumber);
 
         // Pré-preencher campos se estiver editando um hóspede existente
         // (feito ANTES de setResolving(false) → formulário já aparece preenchido)
@@ -619,7 +621,7 @@ export default function WCICompanionEntry() {
           address: payload.address,
           fnrh_extra: fnrhExtra,
         };
-        await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId);
+        await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId, bookingRef);
       } else {
         await saveGuestsToStorage(realBookingId, stored.map(g =>
           g.id === existingGuestId
@@ -630,9 +632,8 @@ export default function WCICompanionEntry() {
                 address: payload.address,
                 fnrhCompleted: true, fnrh_extra: fnrhExtra }
             : g
-        ), realHotelId);
+        ), realHotelId, bookingRef);
       }
-
       setStep('documents');
     } catch (err: any) {
       setError(err.message || t('errorGeneral'));

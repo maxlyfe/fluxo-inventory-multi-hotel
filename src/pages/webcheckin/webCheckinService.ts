@@ -164,7 +164,7 @@ export async function createManualSession(
       updated_at: new Date().toISOString(),
     }, { onConflict: 'booking_id' });
   } catch { /* best-effort */ }
-  _sessionCache.set(token, { bookingId: syntheticBookingId, guests });
+  _sessionCache.set(token, { bookingId: syntheticBookingId, guests, bookingNumber: bookingNumber || null });
   return token;
 }
 
@@ -648,20 +648,29 @@ export async function resolveSession(
 export async function saveGuestsToStorage(
   bookingId: string | number,
   guests: WebCheckinGuest[],
-  hotelId?: string
+  hotelId?: string,
+  bookingNumber?: string | null
 ): Promise<void> {
   localStorage.setItem(STORAGE_KEY(bookingId), JSON.stringify(guests));
   try {
-    await anonClient.from('wci_sessions').upsert({
+    const updates: any = {
       booking_id: String(bookingId),
       hotel_id: hotelId || '',
       guests,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'booking_id' });
-    // Atualiza guests em qualquer entrada do cache de sessão para este booking
+    };
+    if (bookingNumber) updates.booking_number = bookingNumber;
+
+    await anonClient.from('wci_sessions').upsert(updates, { onConflict: 'booking_id' });
+    
+    // Atualiza guests e bookingNumber em qualquer entrada do cache de sessão para este booking
     for (const [tkn, session] of _sessionCache.entries()) {
       if (session && session.bookingId === Number(bookingId)) {
-        _sessionCache.set(tkn, { ...session, guests });
+        _sessionCache.set(tkn, { 
+          ...session, 
+          guests, 
+          bookingNumber: bookingNumber || session.bookingNumber 
+        });
       }
     }
   } catch { /* best-effort */ }
