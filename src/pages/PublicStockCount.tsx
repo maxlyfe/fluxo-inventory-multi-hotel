@@ -198,28 +198,45 @@ export default function PublicStockCount() {
       }
       setProducts(prods.sort((a, b) => a.name.localeCompare(b.name)));
 
-      // Verificar rascunho existente para este token
-      if (data.stock_count_id) {
-        const { data: sc } = await supabase
-          .from('stock_counts')
-          .select('id, counted_by_name, status, items:stock_count_items(product_id, counted_quantity)')
-          .eq('id', data.stock_count_id)
-          .in('status', ['delegated_draft', 'delegated_pending'])
-          .maybeSingle();
-        if (sc && sc.status === 'delegated_pending') {
-          setStep('done');
-          return;
-        }
-        if (sc) {
-          const draft: Record<string, number> = {};
-          (sc.items || []).forEach((it: any) => { draft[it.product_id] = it.counted_quantity; });
-          setCounts(draft);
-          setActiveCountId(sc.id);
-          if (sc.counted_by_name) setCollaboratorName(sc.counted_by_name);
+      // Verificar rascunho existente para este token (por stock_count_id ou fallback por hotel/setor)
+      let restoredDraft = false;
+
+      const draftQuery = data.stock_count_id
+        ? supabase
+            .from('stock_counts')
+            .select('id, counted_by_name, status, items:stock_count_items(product_id, counted_quantity)')
+            .eq('id', data.stock_count_id)
+            .in('status', ['delegated_draft', 'delegated_pending'])
+            .maybeSingle()
+        : supabase
+            .from('stock_counts')
+            .select('id, counted_by_name, status, items:stock_count_items(product_id, counted_quantity)')
+            .eq('hotel_id', data.hotel_id)
+            .eq(data.sector_id ? 'sector_id' : 'status', data.sector_id ?? 'delegated_draft')
+            .in('status', ['delegated_draft', 'delegated_pending'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+      const { data: sc } = await draftQuery;
+
+      if (sc && sc.status === 'delegated_pending') {
+        setStep('done');
+        return;
+      }
+      if (sc) {
+        const draft: Record<string, number> = {};
+        (sc.items || []).forEach((it: any) => { draft[it.product_id] = it.counted_quantity; });
+        setCounts(draft);
+        setActiveCountId(sc.id);
+        if (sc.counted_by_name) {
+          setCollaboratorName(sc.counted_by_name);
+          restoredDraft = true;
         }
       }
 
-      setStep('name');
+      // Se rascunho com nome conhecido → pula direto para contagem
+      setStep(restoredDraft ? 'counting' : 'name');
     })();
   }, [token]);
 
@@ -293,10 +310,12 @@ export default function PublicStockCount() {
       await supabase.from('stock_count_items').delete().eq('stock_count_id', countId!);
       await supabase.from('stock_count_items').insert(items);
 
+      // Sempre vincula o token ao count (rascunho ou final) — garante restore ao recarregar
+      await supabase.from('stock_count_tokens')
+        .update({ stock_count_id: countId })
+        .eq('token', token!);
+
       if (isFinal) {
-        await supabase.from('stock_count_tokens')
-          .update({ stock_count_id: countId })
-          .eq('token', token!);
         setStep('done');
       }
     } catch (err: any) {
@@ -488,6 +507,14 @@ export default function PublicStockCount() {
 
       {/* Header com progresso */}
       <div style={{ background: 'rgba(99,102,241,0.9)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 20 }}>
+        {activeCountId && countedProducts > 0 && (
+          <div style={{ padding: '4px 1rem', background: 'rgba(16,185,129,0.25)', borderBottom: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11 }}>✓</span>
+            <p style={{ margin: 0, fontSize: 11, color: '#6ee7b7', fontWeight: 600 }}>
+              Rascunho restaurado — {countedProducts} item{countedProducts !== 1 ? 's' : ''} já contado{countedProducts !== 1 ? 's' : ''}
+            </p>
+          </div>
+        )}
         <div style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <p style={{ margin: 0, fontWeight: 800, fontSize: 14, color: '#fff' }}>
