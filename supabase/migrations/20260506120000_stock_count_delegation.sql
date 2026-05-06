@@ -52,6 +52,11 @@ CREATE POLICY "anon_all_stock_count_items"
   ON public.stock_count_items FOR ALL TO anon
   USING (true) WITH CHECK (true);
 
+-- stock_counts: anon SELECT (necessário para RETURNING id no INSERT via PostgREST)
+CREATE POLICY "anon_select_stock_counts"
+  ON public.stock_counts FOR SELECT TO anon
+  USING (true);
+
 -- sector_stock: anon SELECT (ler quantidades actuais do setor)
 CREATE POLICY "anon_read_sector_stock"
   ON public.sector_stock FOR SELECT TO anon
