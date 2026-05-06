@@ -229,8 +229,9 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'maintenance',
     activePrefixes: ['/maintenance'],
     items: [
-      { module: 'maintenance', label: 'Manutenções',  href: '/maintenance',           icon: HardHat, iconName: 'HardHat', color: '#f97316' },
-      { module: 'maintenance', label: 'Equipamentos', href: '/maintenance/equipment', icon: Wrench,  iconName: 'Wrench',  color: '#0ea5e9' },
+      { module: 'maintenance', label: 'Manutenções',      href: '/maintenance',           icon: HardHat,   iconName: 'HardHat',   color: '#f97316' },
+      { module: 'maintenance', label: 'Rack Manutenção',  href: '/maintenance/rack',      icon: BedDouble, iconName: 'BedDouble', color: '#f59e0b' },
+      { module: 'maintenance', label: 'Equipamentos',     href: '/maintenance/equipment', icon: Wrench,    iconName: 'Wrench',    color: '#0ea5e9' },
     ],
   },
   {
