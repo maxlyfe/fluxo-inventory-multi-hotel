@@ -16,13 +16,23 @@ import {
 import { supabase } from '../../lib/supabase';
 
 // Statuses Erbon que bloqueiam o web check-in
-const BLOCKED_STATUSES = ['CHECKIN', 'CANCELLED', 'CHECKOUT', 'CHECKOUTDONE'];
-const BLOCKED_LABELS: Record<string, string> = {
-  CHECKIN:     'Check-in já realizado. Dirija-se à recepção se precisar de ajuda.',
-  CANCELLED:   'Esta reserva está cancelada.',
-  CHECKOUT:    'Check-out já realizado para esta reserva.',
-  CHECKOUTDONE:'Check-out já realizado para esta reserva.',
-};
+// Inclui variantes em inglês e português para cobrir todas as versões da API
+const BLOCKED_STATUSES = [
+  'CHECKIN', 'CHECK-IN', 'CHECKEDIN', 'CHECKED-IN', 'CHECKED_IN',
+  'CANCELLED', 'CANCELADA', 'CANCELADO', 'CANCEL',
+  'CHECKOUT', 'CHECK-OUT', 'CHECKEDOUT', 'CHECKED-OUT', 'CHECKED_OUT', 'CHECKOUTDONE',
+];
+
+function getBlockedLabel(rawStatus: string): string | null {
+  const s = rawStatus.toUpperCase();
+  if (['CHECKIN','CHECK-IN','CHECKEDIN','CHECKED-IN','CHECKED_IN'].includes(s))
+    return 'Check-in já realizado. Dirija-se à recepção se precisar de ajuda.';
+  if (['CANCELLED','CANCELADA','CANCELADO','CANCEL'].includes(s))
+    return 'Esta reserva está cancelada.';
+  if (['CHECKOUT','CHECK-OUT','CHECKEDOUT','CHECKED-OUT','CHECKED_OUT','CHECKOUTDONE'].includes(s))
+    return 'Check-out já realizado para esta reserva.';
+  return null;
+}
 
 const glassCard: React.CSSProperties = {
   background: 'rgba(255,255,255,0.10)',
@@ -76,9 +86,11 @@ export default function WCIReservationSearch() {
       }
 
       // Bloquear reservas com status que impedem novo check-in
-      const rawStatus = result.booking.status?.toUpperCase() || '';
-      if (BLOCKED_STATUSES.includes(rawStatus)) {
-        setError(BLOCKED_LABELS[rawStatus] || 'Esta reserva não está disponível para web check-in.');
+      // Verifica status e confirmedStatus (o Erbon usa os dois campos)
+      const rawStatus = (result.booking.status || result.booking.confirmedStatus || '').toUpperCase();
+      const blockedLabel = getBlockedLabel(rawStatus);
+      if (blockedLabel) {
+        setError(blockedLabel);
         return;
       }
 
