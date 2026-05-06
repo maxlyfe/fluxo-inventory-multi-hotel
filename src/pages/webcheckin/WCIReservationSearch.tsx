@@ -18,7 +18,8 @@ import { supabase } from '../../lib/supabase';
 // Allowlist: únicos status que permitem web check-in
 // Qualquer outro status (cancelado, check-in feito, checkout, etc.) é bloqueado
 const ALLOWED_STATUSES = [
-  'CONFIRMED', 'CONFIRMADA', 'CONFIRMADO', 'CONFIRMADO',
+  'BOOKING',                                              // Erbon: reserva activa
+  'CONFIRMED', 'CONFIRMADA', 'CONFIRMADO',
   'PENDING', 'PENDENTE', 'PENDING_CONFIRMATION',
   'RESERVED', 'RESERVADO', 'RESERVADA',
 ];
