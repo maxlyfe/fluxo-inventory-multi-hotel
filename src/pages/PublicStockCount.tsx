@@ -1,7 +1,6 @@
 // src/pages/PublicStockCount.tsx
 // Página pública de contagem delegada de estoque.
 // Rota: /stock-count/:token  (sem autenticação)
-// O colaborador informa o nome, conta produtos, salva rascunho ou finaliza.
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
@@ -30,7 +29,7 @@ interface Product {
 
 type Step = 'validating' | 'invalid' | 'expired' | 'name' | 'counting' | 'done';
 
-// ── Estilos inline (design glass kiosk, igual PublicSectorsPage) ──────────────
+// ── Estilos inline ─────────────────────────────────────────────────────────────
 
 const bg: React.CSSProperties = {
   minHeight: '100dvh',
@@ -57,20 +56,20 @@ const inputStyle: React.CSSProperties = {
 };
 
 const btnPrimary: React.CSSProperties = {
-  width: '100%', padding: '0.9rem', borderRadius: 14,
+  padding: '0.85rem 1rem', borderRadius: 14,
   background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-  color: '#fff', fontWeight: 700, fontSize: '1rem',
+  color: '#fff', fontWeight: 700, fontSize: '0.95rem',
   border: 'none', cursor: 'pointer', transition: 'opacity 0.15s',
 };
 
 const btnSecondary: React.CSSProperties = {
-  width: '100%', padding: '0.9rem', borderRadius: 14,
+  padding: '0.85rem 1rem', borderRadius: 14,
   background: 'rgba(255,255,255,0.10)',
-  color: '#fff', fontWeight: 600, fontSize: '0.95rem',
+  color: '#fff', fontWeight: 600, fontSize: '0.9rem',
   border: '1px solid rgba(255,255,255,0.15)', cursor: 'pointer',
 };
 
-// ── QtyInput ─────────────────────────────────────────────────────────────────
+// ── QtyInput ──────────────────────────────────────────────────────────────────
 
 const QtyInput: React.FC<{
   value: number | undefined;
@@ -82,20 +81,20 @@ const QtyInput: React.FC<{
   useEffect(() => { setRaw(value !== undefined ? String(value) : ''); }, [value]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); onNext?.(); }
+    if (e.key === 'Enter' || e.key === 'Next') { e.preventDefault(); onNext?.(); }
   };
 
-  const btnStyle: React.CSSProperties = {
+  const btnS: React.CSSProperties = {
     width: 44, height: 44, borderRadius: 12, border: 'none',
     background: 'rgba(255,255,255,0.12)', color: '#fff',
     fontSize: 20, fontWeight: 700, cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0,
+    flexShrink: 0, WebkitTapHighlightColor: 'transparent',
   };
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <button type="button" style={btnStyle}
+      <button type="button" style={btnS}
         onClick={() => { const v = Math.max(0, (value ?? 0) - 1); onChange(String(v)); }}>−</button>
       <input
         ref={inputRef}
@@ -105,12 +104,13 @@ const QtyInput: React.FC<{
         onKeyDown={handleKey}
         placeholder="—"
         style={{
-          width: 64, height: 44, textAlign: 'center', fontSize: '1rem', fontWeight: 700,
+          width: 60, height: 44, textAlign: 'center', fontSize: '1rem', fontWeight: 700,
           borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)',
           background: 'rgba(255,255,255,0.10)', color: '#fff', outline: 'none',
+          flexShrink: 0,
         }}
       />
-      <button type="button" style={btnStyle}
+      <button type="button" style={btnS}
         onClick={() => { const v = (value ?? 0) + 1; onChange(String(v)); }}>+</button>
     </div>
   );
@@ -121,18 +121,42 @@ const QtyInput: React.FC<{
 export default function PublicStockCount() {
   const { token } = useParams<{ token: string }>();
 
-  const [step, setStep]                 = useState<Step>('validating');
-  const [tokenData, setTokenData]       = useState<TokenData | null>(null);
-  const [products, setProducts]         = useState<Product[]>([]);
-  const [counts, setCounts]             = useState<Record<string, number>>({});
+  const [step, setStep]                         = useState<Step>('validating');
+  const [tokenData, setTokenData]               = useState<TokenData | null>(null);
+  const [products, setProducts]                 = useState<Product[]>([]);
+  const [counts, setCounts]                     = useState<Record<string, number>>({});
   const [collaboratorName, setCollaboratorName] = useState('');
   const [activeCountId, setActiveCountId]       = useState<string | null>(null);
-  const [saving, setSaving]             = useState(false);
-  const [searchTerm, setSearchTerm]     = useState('');
-  const [currentCatIdx, setCurrentCatIdx] = useState(0);
+  const [saving, setSaving]                     = useState(false);
+  const [searchTerm, setSearchTerm]             = useState('');
+  const [currentCatIdx, setCurrentCatIdx]       = useState(0);
+
+  // Long-press para nome completo
+  const [tooltipName, setTooltipName]           = useState<string | null>(null);
+  const pressTimerRef                           = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissTimerRef                         = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Confirmação de finalização
+  const [showConfirm, setShowConfirm]           = useState(false);
+
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
-  // ── Validar token ──────────────────────────────────────────────────────────
+  // ── Long-press handlers ───────────────────────────────────────────────────
+
+  const startPress = (name: string) => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => {
+      setTooltipName(name);
+      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = setTimeout(() => setTooltipName(null), 3500);
+    }, 600);
+  };
+
+  const cancelPress = () => {
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+  };
+
+  // ── Validar token ─────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!token) { setStep('invalid'); return; }
@@ -172,7 +196,7 @@ export default function PublicStockCount() {
           .order('name');
         prods = (ps || []).map((p: any) => ({ ...p, category: p.category || 'Sem Categoria' }));
       }
-      setProducts(prods);
+      setProducts(prods.sort((a, b) => a.name.localeCompare(b.name)));
 
       // Verificar rascunho existente para este token
       if (data.stock_count_id) {
@@ -183,7 +207,6 @@ export default function PublicStockCount() {
           .in('status', ['delegated_draft', 'delegated_pending'])
           .maybeSingle();
         if (sc && sc.status === 'delegated_pending') {
-          // Já finalizado pelo colaborador
           setStep('done');
           return;
         }
@@ -200,7 +223,7 @@ export default function PublicStockCount() {
     })();
   }, [token]);
 
-  // ── Categorias ─────────────────────────────────────────────────────────────
+  // ── Categorias ────────────────────────────────────────────────────────────
 
   const categories = [...new Set(products.map(p => p.category))].sort();
   const currentCategory = categories[currentCatIdx] ?? '';
@@ -213,39 +236,40 @@ export default function PublicStockCount() {
   const countedProducts = Object.keys(counts).length;
   const progressPct     = totalProducts > 0 ? Math.round((countedProducts / totalProducts) * 100) : 0;
 
-  // ── Navegação Enter entre inputs ──────────────────────────────────────────
+  // ── Navegação Enter ───────────────────────────────────────────────────────
 
-  const getNextRef = useCallback((productId: string): (() => void) => {
+  const getNextFocus = useCallback((productId: string) => {
     return () => {
-      const idx = filteredProducts.findIndex(p => p.id === productId);
-      if (idx >= 0 && idx < filteredProducts.length - 1) {
-        const next = filteredProducts[idx + 1];
-        inputRefs.current.get(next.id)?.focus();
+      const list = filteredProducts;
+      const idx = list.findIndex(p => p.id === productId);
+      if (idx >= 0 && idx < list.length - 1) {
+        const nextId = list[idx + 1].id;
+        const el = inputRefs.current.get(nextId);
+        if (el) { el.focus(); el.select(); }
       }
     };
   }, [filteredProducts]);
 
-  // ── Salvar ─────────────────────────────────────────────────────────────────
+  // ── Salvar ────────────────────────────────────────────────────────────────
 
   const handleSave = async (isFinal: boolean) => {
     if (Object.keys(counts).length === 0) return;
     setSaving(true);
+    setShowConfirm(false);
     try {
       const now = new Date().toISOString();
-
-      // Upsert stock_counts
       let countId = activeCountId;
       if (!countId) {
         const { data: sc, error: sce } = await supabase
           .from('stock_counts')
           .insert({
-            hotel_id:         tokenData!.hotel_id,
-            sector_id:        tokenData!.sector_id,
-            status:           isFinal ? 'delegated_pending' : 'delegated_draft',
-            started_at:       now,
-            finished_at:      isFinal ? now : null,
-            counted_by_name:  collaboratorName,
-            notes:            tokenData!.sector_id ? 'Contagem delegada — Setor' : 'Contagem delegada — Inventário',
+            hotel_id:        tokenData!.hotel_id,
+            sector_id:       tokenData!.sector_id,
+            status:          isFinal ? 'delegated_pending' : 'delegated_draft',
+            started_at:      now,
+            finished_at:     isFinal ? now : null,
+            counted_by_name: collaboratorName,
+            notes:           tokenData!.sector_id ? 'Contagem delegada — Setor' : 'Contagem delegada — Inventário',
           })
           .select('id')
           .single();
@@ -260,7 +284,6 @@ export default function PublicStockCount() {
         }).eq('id', countId);
       }
 
-      // Items
       const items = Object.entries(counts).map(([productId, countedQty]) => ({
         stock_count_id:    countId,
         product_id:        productId,
@@ -270,7 +293,6 @@ export default function PublicStockCount() {
       await supabase.from('stock_count_items').delete().eq('stock_count_id', countId!);
       await supabase.from('stock_count_items').insert(items);
 
-      // Vincular token
       if (isFinal) {
         await supabase.from('stock_count_tokens')
           .update({ stock_count_id: countId })
@@ -290,19 +312,7 @@ export default function PublicStockCount() {
     else if (value === '') setCounts(prev => { const next = { ...prev }; delete next[productId]; return next; });
   };
 
-  // ── Render por step ────────────────────────────────────────────────────────
-
-  const renderHeader = () => (
-    <div style={{ padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(148,163,184,0.08)', background: 'rgba(15,23,42,0.7)', position: 'sticky', top: 0, zIndex: 10 }}>
-      <span style={{ fontWeight: 800, fontSize: 16, color: '#f1f5f9' }}>📦 Conferência de Estoque</span>
-      {tokenData && (
-        <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-          {tokenData.hotel?.name}
-          {tokenData.sector && ` · ${tokenData.sector.name}`}
-        </span>
-      )}
-    </div>
-  );
+  // ── Telas de estado ───────────────────────────────────────────────────────
 
   if (step === 'validating') return (
     <div style={{ ...bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -326,7 +336,7 @@ export default function PublicStockCount() {
     <div style={{ ...bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 }}>
       <div style={{ fontSize: 48 }}>⏰</div>
       <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0 }}>Link expirado</h2>
-      <p style={{ color: '#64748b', margin: 0, textAlign: 'center' }}>Este link de contagem expirou (válido por 24h). Solicite um novo link ao responsável.</p>
+      <p style={{ color: '#64748b', margin: 0, textAlign: 'center' }}>Este link expirou (válido por 24h). Solicite um novo link ao responsável.</p>
     </div>
   );
 
@@ -339,7 +349,7 @@ export default function PublicStockCount() {
       </p>
       <div style={{ ...card, maxWidth: 340, width: '100%', textAlign: 'center' }}>
         <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-          O supervisor irá verificar e finalizar a contagem em breve. Não é necessária nenhuma ação adicional.
+          O supervisor irá verificar e finalizar a contagem em breve.
         </p>
       </div>
     </div>
@@ -347,7 +357,15 @@ export default function PublicStockCount() {
 
   if (step === 'name') return (
     <div style={bg}>
-      {renderHeader()}
+      {/* Header */}
+      <div style={{ padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(148,163,184,0.08)', background: 'rgba(15,23,42,0.7)', position: 'sticky', top: 0, zIndex: 10 }}>
+        <span style={{ fontWeight: 800, fontSize: 16, color: '#f1f5f9' }}>📦 Conferência de Estoque</span>
+        {tokenData && (
+          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+            {tokenData.hotel?.name}{tokenData.sector && ` · ${tokenData.sector.name}`}
+          </span>
+        )}
+      </div>
       <div style={{ maxWidth: 480, margin: '0 auto', padding: '2rem 1.25rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
@@ -378,7 +396,7 @@ export default function PublicStockCount() {
         </div>
 
         <button
-          style={{ ...btnPrimary, opacity: collaboratorName.trim() ? 1 : 0.4 }}
+          style={{ ...btnPrimary, width: '100%', opacity: collaboratorName.trim() ? 1 : 0.4 }}
           disabled={!collaboratorName.trim()}
           onClick={() => setStep('counting')}
         >
@@ -394,9 +412,80 @@ export default function PublicStockCount() {
     </div>
   );
 
-  // step === 'counting'
+  // ── step === 'counting' ───────────────────────────────────────────────────
   return (
     <div style={{ ...bg, display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+
+      {/* Tooltip de nome completo (long-press) */}
+      {tooltipName && (
+        <div
+          onClick={() => setTooltipName(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            padding: '0 1rem 2rem',
+          }}
+        >
+          <div style={{
+            background: 'rgba(30,41,59,0.98)',
+            border: '1px solid rgba(99,102,241,0.4)',
+            borderRadius: 18, padding: '1.25rem 1.5rem',
+            maxWidth: 380, width: '100%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            textAlign: 'center',
+          }}>
+            <p style={{ margin: '0 0 4px', fontSize: 11, color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Produto</p>
+            <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#f1f5f9', lineHeight: 1.4 }}>{tooltipName}</p>
+            <p style={{ margin: '12px 0 0', fontSize: 12, color: '#475569' }}>Toque para fechar</p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação de finalização */}
+      {showConfirm && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+            padding: '0 1rem 1.5rem',
+          }}
+        >
+          <div style={{
+            background: 'rgba(15,23,42,0.98)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 24, padding: '1.75rem 1.5rem',
+            maxWidth: 380, width: '100%',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ fontSize: 42, marginBottom: 10 }}>📋</div>
+              <h3 style={{ margin: '0 0 8px', fontWeight: 800, fontSize: 18, color: '#f1f5f9' }}>Finalizar contagem?</h3>
+              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8', lineHeight: 1.5 }}>
+                Você contou <strong style={{ color: '#f1f5f9' }}>{countedProducts}</strong> de <strong style={{ color: '#f1f5f9' }}>{totalProducts}</strong> produtos.
+                Após finalizar não será possível editar.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                style={{ ...btnSecondary, flex: 1 }}
+                onClick={() => setShowConfirm(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                style={{ ...btnPrimary, flex: 1, opacity: saving ? 0.5 : 1 }}
+                disabled={saving}
+                onClick={() => handleSave(true)}
+              >
+                {saving ? '⏳ Enviando…' : '✅ Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header com progresso */}
       <div style={{ background: 'rgba(99,102,241,0.9)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 20 }}>
         <div style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -407,11 +496,9 @@ export default function PublicStockCount() {
             <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{collaboratorName}</p>
           </div>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 99 }}>
-            {countedProducts}/{totalProducts}
-            {progressPct === 100 && ' ✓'}
+            {countedProducts}/{totalProducts}{progressPct === 100 && ' ✓'}
           </span>
         </div>
-        {/* Barra de progresso */}
         <div style={{ height: 3, background: 'rgba(255,255,255,0.2)' }}>
           <div style={{ height: '100%', width: `${progressPct}%`, background: progressPct === 100 ? '#4ade80' : 'rgba(255,255,255,0.9)', transition: 'width 0.4s ease' }} />
         </div>
@@ -428,7 +515,7 @@ export default function PublicStockCount() {
         />
       </div>
 
-      {/* Pills de categoria (só sem busca) */}
+      {/* Pills de categoria */}
       {!searchTerm && (
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '0.75rem 1rem', background: 'rgba(15,23,42,0.6)', borderBottom: '1px solid rgba(148,163,184,0.06)', scrollbarWidth: 'none' }}>
           {categories.map((cat, i) => (
@@ -440,6 +527,7 @@ export default function PublicStockCount() {
                 border: 'none', cursor: 'pointer', transition: 'all 0.15s',
                 background: i === currentCatIdx ? '#6366f1' : 'rgba(255,255,255,0.08)',
                 color: i === currentCatIdx ? '#fff' : '#94a3b8',
+                WebkitTapHighlightColor: 'transparent',
               }}
             >
               {cat}
@@ -449,7 +537,7 @@ export default function PublicStockCount() {
       )}
 
       {/* Lista de produtos */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem 1rem', paddingBottom: '7rem' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem 1rem', paddingBottom: '6rem' }}>
         {filteredProducts.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: '#475569' }}>
             <p style={{ fontSize: 36 }}>📦</p>
@@ -458,7 +546,7 @@ export default function PublicStockCount() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {filteredProducts.map(product => {
-              const counted = counts[product.id];
+              const counted  = counts[product.id];
               const isCounted = counted !== undefined;
               return (
                 <div key={product.id} style={{
@@ -476,13 +564,21 @@ export default function PublicStockCount() {
                     }
                   </div>
 
-                  {/* Nome */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Nome — long-press para ver completo */}
+                  <div
+                    style={{ flex: 1, minWidth: 0, userSelect: 'none', WebkitUserSelect: 'none', cursor: 'default' }}
+                    onTouchStart={() => startPress(product.name)}
+                    onTouchEnd={cancelPress}
+                    onTouchMove={cancelPress}
+                    onMouseDown={() => startPress(product.name)}
+                    onMouseUp={cancelPress}
+                    onMouseLeave={cancelPress}
+                  >
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {product.name}
                     </p>
                     <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>
-                      Estoque: {product.quantity}
+                      Atual: {product.quantity} · <span style={{ color: '#475569', fontSize: 10 }}>segure para ver</span>
                     </p>
                   </div>
 
@@ -494,7 +590,7 @@ export default function PublicStockCount() {
                       if (el) inputRefs.current.set(product.id, el);
                       else inputRefs.current.delete(product.id);
                     }}
-                    onNext={getNextRef(product.id)}
+                    onNext={getNextFocus(product.id)}
                   />
                 </div>
               );
@@ -506,24 +602,25 @@ export default function PublicStockCount() {
       {/* Botões fixos no rodapé */}
       <div style={{
         position: 'fixed', bottom: 0, left: 0, right: 0,
-        padding: '1rem', background: 'rgba(15,23,42,0.95)',
+        padding: '0.85rem 1rem',
+        background: 'rgba(15,23,42,0.97)',
         borderTop: '1px solid rgba(148,163,184,0.1)',
-        backdropFilter: 'blur(12px)',
+        backdropFilter: 'blur(16px)',
         display: 'flex', gap: 10, zIndex: 30,
       }}>
         <button
-          style={{ ...btnSecondary, flex: 1, opacity: saving ? 0.5 : 1 }}
+          style={{ ...btnSecondary, flex: 1, opacity: saving || Object.keys(counts).length === 0 ? 0.4 : 1, fontSize: '0.82rem' }}
           disabled={saving || Object.keys(counts).length === 0}
           onClick={() => handleSave(false)}
         >
-          {saving ? '⏳ Salvando…' : '💾 Salvar Rascunho'}
+          {saving ? '⏳' : '💾'} Salvar Rascunho
         </button>
         <button
-          style={{ ...btnPrimary, flex: 2, opacity: saving || Object.keys(counts).length === 0 ? 0.4 : 1 }}
+          style={{ ...btnPrimary, flex: 1, opacity: saving || Object.keys(counts).length === 0 ? 0.4 : 1, fontSize: '0.82rem' }}
           disabled={saving || Object.keys(counts).length === 0}
-          onClick={() => handleSave(true)}
+          onClick={() => setShowConfirm(true)}
         >
-          {saving ? '⏳ Enviando…' : '✅ Finalizar Contagem'}
+          ✅ Finalizar
         </button>
       </div>
     </div>
