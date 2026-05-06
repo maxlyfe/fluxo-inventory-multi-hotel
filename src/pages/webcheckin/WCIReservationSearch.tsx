@@ -15,23 +15,24 @@ import {
 } from './webCheckinService';
 import { supabase } from '../../lib/supabase';
 
-// Statuses Erbon que bloqueiam o web check-in
-// Inclui variantes em inglês e português para cobrir todas as versões da API
-const BLOCKED_STATUSES = [
-  'CHECKIN', 'CHECK-IN', 'CHECKEDIN', 'CHECKED-IN', 'CHECKED_IN',
-  'CANCELLED', 'CANCELADA', 'CANCELADO', 'CANCEL',
-  'CHECKOUT', 'CHECK-OUT', 'CHECKEDOUT', 'CHECKED-OUT', 'CHECKED_OUT', 'CHECKOUTDONE',
+// Allowlist: únicos status que permitem web check-in
+// Qualquer outro status (cancelado, check-in feito, checkout, etc.) é bloqueado
+const ALLOWED_STATUSES = [
+  'CONFIRMED', 'CONFIRMADA', 'CONFIRMADO', 'CONFIRMADO',
+  'PENDING', 'PENDENTE', 'PENDING_CONFIRMATION',
+  'RESERVED', 'RESERVADO', 'RESERVADA',
 ];
 
-function getBlockedLabel(rawStatus: string): string | null {
-  const s = rawStatus.toUpperCase();
-  if (['CHECKIN','CHECK-IN','CHECKEDIN','CHECKED-IN','CHECKED_IN'].includes(s))
+// Mensagens específicas para statuses conhecidos
+function getStatusError(status: string): string {
+  const s = status.toUpperCase();
+  if (['CHECKIN','CHECK-IN','CHECKEDIN','CHECKED-IN','CHECKED_IN','CHECKEDIN'].some(v => s.includes(v.replace('-','').replace('_',''))))
     return 'Check-in já realizado. Dirija-se à recepção se precisar de ajuda.';
-  if (['CANCELLED','CANCELADA','CANCELADO','CANCEL'].includes(s))
+  if (['CANCELLED','CANCELADA','CANCELADO','CANCEL','CANCELADO'].some(v => s.includes(v)))
     return 'Esta reserva está cancelada.';
-  if (['CHECKOUT','CHECK-OUT','CHECKEDOUT','CHECKED-OUT','CHECKED_OUT','CHECKOUTDONE'].includes(s))
+  if (['CHECKOUT','CHECK-OUT','CHECKEDOUT','CHECKED-OUT','CHECKOUTDONE'].some(v => s.includes(v.replace('-','').replace('_',''))))
     return 'Check-out já realizado para esta reserva.';
-  return null;
+  return `Esta reserva não está disponível para web check-in (status: ${status}).`;
 }
 
 const glassCard: React.CSSProperties = {
@@ -86,11 +87,15 @@ export default function WCIReservationSearch() {
       }
 
       // Bloquear reservas com status que impedem novo check-in
-      // Verifica status e confirmedStatus (o Erbon usa os dois campos)
-      const rawStatus = (result.booking.status || result.booking.confirmedStatus || '').toUpperCase();
-      const blockedLabel = getBlockedLabel(rawStatus);
-      if (blockedLabel) {
-        setError(blockedLabel);
+      // Usa allowlist: só CONFIRMED/PENDING passam; tudo o mais é bloqueado
+      const rawStatus  = result.booking.status         || '';
+      const rawConfirm = result.booking.confirmedStatus || '';
+      // Log para diagnóstico — ver no DevTools Console
+      console.log('[WCI] booking status:', rawStatus, '| confirmedStatus:', rawConfirm, '| full:', result.booking);
+
+      const effectiveStatus = rawStatus || rawConfirm;
+      if (!ALLOWED_STATUSES.includes(effectiveStatus.toUpperCase())) {
+        setError(getStatusError(effectiveStatus || 'desconhecido'));
         return;
       }
 
