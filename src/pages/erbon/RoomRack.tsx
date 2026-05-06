@@ -7,9 +7,12 @@ import {
   Edit2, Trash2, UserPlus, Save,
 } from 'lucide-react';
 import { erbonService, ErbonRoom, ErbonBooking, ErbonGuest } from '../../lib/erbonService';
+import { governanceService, RoomWorkflowStatus } from '../../lib/governanceService';
 import { useErbonData } from '../../hooks/useErbonData';
 import { useHotel } from '../../context/HotelContext';
+import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
+import { supabase } from '../../lib/supabase';
 import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
 import Modal from '../../components/Modal';
 import { format, parseISO, differenceInDays } from 'date-fns';
@@ -43,6 +46,14 @@ function getMealIcon(p: string | null | undefined) {
   if (u === 'HB') return Moon;
   return Coffee;
 }
+
+const STATUS_WF_META: Record<string, { label: string; color: string; bg: string }> = {
+  pending_maint: { label: 'Vistoria Mant.', color: 'text-slate-400', bg: 'bg-slate-500/10' },
+  maint_ok:      { label: 'Pronto Limpeza', color: 'text-blue-400',  bg: 'bg-blue-500/10'  },
+  cleaning:      { label: 'Em Limpeza',     color: 'text-amber-400', bg: 'bg-amber-500/10' },
+  clean:         { label: 'Limpo/Lib',      color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  contested:     { label: 'Contestado',      color: 'text-rose-400',  bg: 'bg-rose-500/10'  },
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SVG DOOR ILLUSTRATIONS
@@ -130,12 +141,13 @@ const DoorDND: React.FC<{ className?: string }> = ({ className }) => (
 
 interface RoomCardProps {
   room: ErbonRoom;
+  workflowStatus?: RoomWorkflowStatus;
   onSelect: () => void;
   onToggleStatus: (e: React.MouseEvent) => void;
   isUpdating: boolean;
 }
 
-const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onSelect, onToggleStatus, isUpdating }) => {
+const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, workflowStatus, onSelect, onToggleStatus, isUpdating }) => {
   const isOccupied = room.currentlyOccupiedOrAvailable === 'Ocupado';
   const isClean = room.idHousekeepingStatus === 'CLEAN';
   const isMaint = room.inMaintenance;
@@ -219,6 +231,13 @@ const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, onSelect, onToggle
             </span>
           )}
         </div>
+
+        {/* Workflow indicator bottom overlay */}
+        {wf && workflowStatus !== 'clean' && (
+          <div className={`absolute bottom-0 left-0 right-0 py-0.5 text-[8px] font-black uppercase text-center backdrop-blur-md ${wf.bg} ${wf.color} border-t border-white/5`}>
+            {wf.label}
+          </div>
+        )}
 
         {/* Floor badge top-left */}
         {room.numberFloor > 0 && (
@@ -1078,10 +1097,29 @@ const RoomRack: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
   const [updatingRoom, setUpdatingRoom] = useState<number | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<ErbonRoom | null>(null);
+  const [workflows, setWorkflows] = useState<Record<string, RoomWorkflowStatus>>({});
 
   const { data: rooms, loading, error, refetch, erbonConfigured } = useErbonData<ErbonRoom[]>(
     (hotelId) => erbonService.fetchHousekeeping(hotelId), [], { autoRefreshMs: 60_000 }
   );
+
+  const fetchWorkflows = useCallback(async () => {
+    if (!selectedHotel) return;
+    try {
+      const { data } = await supabase
+        .from('hotel_room_workflow')
+        .select('room_id, status')
+        .eq('hotel_id', selectedHotel.id);
+      
+      const map: Record<string, RoomWorkflowStatus> = {};
+      (data || []).forEach(w => map[w.room_id] = w.status as RoomWorkflowStatus);
+      setWorkflows(map);
+    } catch { /* ignore */ }
+  }, [selectedHotel]);
+
+  useEffect(() => {
+    if (selectedHotel) fetchWorkflows();
+  }, [selectedHotel, fetchWorkflows, rooms]);
 
   const handleToggleStatus = useCallback(async (room: ErbonRoom, e: React.MouseEvent) => {
     e.stopPropagation();
