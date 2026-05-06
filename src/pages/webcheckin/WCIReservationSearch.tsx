@@ -13,6 +13,7 @@ import {
   createManualSession,
   WebCheckinGuest,
 } from './webCheckinService';
+import { supabase } from '../../lib/supabase';
 
 // Statuses Erbon que bloqueiam o web check-in
 const BLOCKED_STATUSES = ['CHECKIN', 'CANCELLED', 'CHECKOUT', 'CHECKOUTDONE'];
@@ -103,6 +104,19 @@ export default function WCIReservationSearch() {
     setLoading(true);
     setError('');
     try {
+      // Check if this booking number is locked by the hotel staff
+      const { data: lockData } = await supabase
+        .from('wci_booking_locks')
+        .select('id')
+        .eq('hotel_id', realHotelId)
+        .eq('booking_number', bookingNumber.trim())
+        .maybeSingle();
+
+      if (lockData) {
+        setError('Esta reserva está bloqueada para edição. Por favor, dirija-se à recepção.');
+        return;
+      }
+
       const token = await createManualSession(
         realHotelId,
         '', // Nome vazio inicialmente, o hóspede se cadastrará na lista

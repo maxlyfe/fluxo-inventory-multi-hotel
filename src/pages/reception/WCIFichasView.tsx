@@ -1,10 +1,10 @@
 // src/pages/reception/WCIFichasView.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ClipboardCheck, ChevronDown, ChevronUp, Search, X,
   FileImage, Check, AlertCircle, Loader2, User, Users,
   MapPin, Car, Briefcase, Globe, CalendarDays, FileText, Shield,
-  Copy, ExternalLink,
+  Copy, ExternalLink, Lock, Unlock,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -421,7 +421,14 @@ function groupByBooking(fichas: Ficha[]): ReservaGroup[] {
   return entries.map(([bookingNumber, fichas]) => ({ bookingNumber, fichas }));
 }
 
-function ReservaGroupRow({ group }: { group: ReservaGroup }) {
+interface ReservaGroupRowProps {
+  group: ReservaGroup;
+  isLocked: boolean;
+  togglingLock: boolean;
+  onToggleLock: (bookingNumber: string, currentlyLocked: boolean) => void;
+}
+
+function ReservaGroupRow({ group, isLocked, togglingLock, onToggleLock }: ReservaGroupRowProps) {
   const [expanded, setExpanded]     = useState(false);
   const [expandedFicha, setExpandedFicha] = useState<string | null>(null);
 
@@ -448,17 +455,26 @@ function ReservaGroupRow({ group }: { group: ReservaGroup }) {
   const checkoutDate = mainFicha?.checkout_date;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+    <div className={`bg-white dark:bg-slate-800 rounded-2xl border shadow-sm overflow-hidden transition-colors ${
+      isLocked
+        ? 'border-red-300 dark:border-red-700/60'
+        : 'border-slate-200 dark:border-slate-700'
+    }`}>
       {/* Accordion header — reserva */}
-      <button
-        type="button"
+      <div
         onClick={() => setExpanded(v => !v)}
-        className="w-full text-left px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+        className="w-full text-left px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer select-none"
       >
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${reservaBadgeCls}`}>
             {reservaBadgeLabel}
           </span>
+
+          {isLocked && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+              <Lock className="w-3 h-3" /> Bloqueado
+            </span>
+          )}
 
           <span className="font-bold text-slate-800 dark:text-slate-100 text-sm">
             {group.bookingNumber === 'sem-reserva'
@@ -489,11 +505,36 @@ function ReservaGroupRow({ group }: { group: ReservaGroup }) {
             </span>
           )}
 
+          {/* Lock toggle — only for real booking numbers */}
+          {group.bookingNumber !== 'sem-reserva' && (
+            <button
+              type="button"
+              title={isLocked ? 'Desbloquear reserva' : 'Bloquear reserva (impede novo web check-in)'}
+              disabled={togglingLock}
+              onClick={e => {
+                e.stopPropagation();
+                onToggleLock(group.bookingNumber, isLocked);
+              }}
+              className={`ml-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all active:scale-95 ${
+                isLocked
+                  ? 'border-red-300 dark:border-red-700/60 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40'
+                  : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-600 hover:text-slate-700 dark:hover:text-slate-200'
+              } ${togglingLock ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              {togglingLock
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : isLocked
+                  ? <><Lock className="w-3 h-3" /> Bloqueado</>
+                  : <><Unlock className="w-3 h-3" /> Bloquear</>
+              }
+            </button>
+          )}
+
           <span className="ml-auto text-slate-400 dark:text-slate-500 shrink-0">
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </span>
         </div>
-      </button>
+      </div>
 
       {/* Expanded content */}
       {expanded && (
@@ -584,6 +625,47 @@ export default function WCIFichasView() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
 
+  // Lock state
+  const [lockedBookings, setLockedBookings] = useState<Set<string>>(new Set());
+  const [togglingLock, setTogglingLock]     = useState<string | null>(null); // booking number being toggled
+
+  const loadLocks = useCallback(async () => {
+    if (!selectedHotel) return;
+    const { data } = await supabase
+      .from('wci_booking_locks')
+      .select('booking_number')
+      .eq('hotel_id', selectedHotel.id);
+    setLockedBookings(new Set((data || []).map((r: { booking_number: string }) => r.booking_number)));
+  }, [selectedHotel]);
+
+  const handleToggleLock = async (bookingNumber: string, currentlyLocked: boolean) => {
+    if (!selectedHotel || togglingLock) return;
+    setTogglingLock(bookingNumber);
+    try {
+      if (currentlyLocked) {
+        await supabase
+          .from('wci_booking_locks')
+          .delete()
+          .eq('hotel_id', selectedHotel.id)
+          .eq('booking_number', bookingNumber);
+        setLockedBookings(prev => {
+          const next = new Set(prev);
+          next.delete(bookingNumber);
+          return next;
+        });
+      } else {
+        await supabase
+          .from('wci_booking_locks')
+          .insert({ hotel_id: selectedHotel.id, booking_number: bookingNumber });
+        setLockedBookings(prev => new Set([...prev, bookingNumber]));
+      }
+    } catch {
+      // silently fail — lock state remains unchanged
+    } finally {
+      setTogglingLock(null);
+    }
+  };
+
   async function loadFichas(overrides?: Partial<{ name: string; doc: string; booking: string; from: string; to: string }>) {
     if (!selectedHotel) return;
     setLoading(true);
@@ -617,6 +699,7 @@ export default function WCIFichasView() {
     if (selectedHotel?.id) {
       setSearchName(''); setSearchDocument(''); setSearchBooking(''); setDateFrom(''); setDateTo('');
       loadFichas({ name: '', doc: '', booking: '', from: '', to: '' });
+      loadLocks();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHotel?.id]);
@@ -704,7 +787,13 @@ export default function WCIFichasView() {
       ) : (
         <div className="space-y-3">
           {groups.map(g => (
-            <ReservaGroupRow key={g.bookingNumber} group={g} />
+            <ReservaGroupRow
+              key={g.bookingNumber}
+              group={g}
+              isLocked={lockedBookings.has(g.bookingNumber)}
+              togglingLock={togglingLock === g.bookingNumber}
+              onToggleLock={handleToggleLock}
+            />
           ))}
         </div>
       )}
