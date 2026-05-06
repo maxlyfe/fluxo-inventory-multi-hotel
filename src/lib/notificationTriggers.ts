@@ -300,6 +300,44 @@ export const notifyTransferCompleted = async (eventData: NotificationEventData) 
   await triggerNotification('TRANSFER_COMPLETED', eventData, title, message);
 };
 
+// ── Governança & Manutenção ──
+
+export const notifyRoomReadyForGovernance = async (eventData: { hotel_id: string; room_name: string }) => {
+  const hotel = await resolveHotelName(eventData.hotel_id);
+  const title = `✨ UH Liberada — ${hotel}`;
+  const message = `A UH ${eventData.room_name} foi vistoriada pela manutenção e está pronta para limpeza.`;
+
+  await triggerNotification('room_ready_for_governance', {
+    ...eventData,
+    related_entity_table: 'hotel_room_workflow',
+    related_entity_type: 'governance',
+  }, title, message);
+};
+
+export const notifyRoomReadyForCheckin = async (eventData: { hotel_id: string; room_name: string }) => {
+  const hotel = await resolveHotelName(eventData.hotel_id);
+  const title = `✅ UH Disponível — ${hotel}`;
+  const message = `A UH ${eventData.room_name} está limpa e disponível para check-in.`;
+
+  await triggerNotification('room_ready_for_checkin', {
+    ...eventData,
+    related_entity_table: 'hotel_room_workflow',
+    related_entity_type: 'governance',
+  }, title, message);
+};
+
+export const notifyRoomContested = async (eventData: { hotel_id: string; room_name: string; reason?: string }) => {
+  const hotel = await resolveHotelName(eventData.hotel_id);
+  const title = `⚠️ UH Contestada — ${hotel}`;
+  const message = `A vistoria da UH ${eventData.room_name} foi rejeitada pela governança. ${eventData.reason ? `Motivo: ${eventData.reason}` : ''}`;
+
+  await triggerNotification('room_maint_contested', {
+    ...eventData,
+    related_entity_table: 'hotel_room_workflow',
+    related_entity_type: 'maintenance',
+  }, title, message);
+};
+
 // ── Contratos de experiência ──
 
 export const notifyContractEndingSoon = async (eventData: NotificationEventData) => {

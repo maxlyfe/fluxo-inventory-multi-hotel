@@ -192,6 +192,17 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'governanca',
+    label: 'Governança',
+    icon: Sparkles,
+    module: 'governance',
+    activePrefixes: ['/governance'],
+    items: [
+      { module: 'governance', label: "Rack Governança", href: '/governance/rack',       icon: BedDouble, iconName: 'BedDouble', color: '#14b8a6' },
+      { module: 'governance', label: "Gestão de UHs",   href: '/governance/rooms',      icon: LayoutGrid, iconName: 'LayoutGrid', color: '#8b5cf6' },
+    ],
+  },
+  {
     key: 'pdv', label: 'PDV', icon: ShoppingCart, module: 'pdv',
     activePrefixes: ['/pdv'],
     items: [

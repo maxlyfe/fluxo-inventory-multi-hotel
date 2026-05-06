@@ -9,7 +9,7 @@ import { useHotel } from '../context/HotelContext';
 import {
   Wrench, Plus, Filter, RefreshCw, Clock, CheckCircle,
   AlertTriangle, Zap, User, MapPin, ChevronRight, Search,
-  Settings, Package, Building2, X, Loader2,
+  Settings, Package, Building2, X, Loader2, BedDouble,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -285,6 +285,35 @@ export default function MaintenanceDashboard() {
             <span className="sm:hidden">Novo</span>
           </Link>
         </div>
+      </div>
+
+      {/* Ações Rápidas */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        <Link
+          to="/maintenance/rack"
+          className="flex items-center gap-4 p-6 bg-orange-600 hover:bg-orange-700 text-white rounded-3xl shadow-lg shadow-orange-200 dark:shadow-orange-900/20 transition-all group"
+        >
+          <div className="p-3 rounded-2xl bg-white/20 group-hover:scale-110 transition-transform">
+            <BedDouble className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider opacity-80">Vistoria Matinal</p>
+            <p className="text-lg font-black tracking-tight text-white">Rack de UHs</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/maintenance/ticket/new"
+          className="flex items-center gap-4 p-6 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 hover:border-orange-500 rounded-3xl shadow-sm transition-all group"
+        >
+          <div className="p-3 rounded-2xl bg-orange-50 dark:bg-orange-900/20 group-hover:scale-110 transition-transform text-orange-600 dark:text-orange-400">
+            <Plus className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Novo Chamado</p>
+            <p className="text-lg font-black tracking-tight text-gray-900 dark:text-white">Abrir Ticket</p>
+          </div>
+        </Link>
       </div>
 
       {/* Stats */}

@@ -32,6 +32,7 @@ export const MODULES: Module[] = [
   { key: 'maintenance',          label: 'Manutenções',          description: 'Tickets, equipamentos, QR codes',           group: 'Área Administrativa', icon: 'Wrench'        },
   { key: 'reservations',         label: 'Reservas',             description: 'Busca de reservas e disponibilidade',      group: 'Área Administrativa', icon: 'CalendarCheck' },
   { key: 'reception',            label: 'Recepção',             description: 'Rack de UHs, check-in/out, in-house',     group: 'Área Administrativa', icon: 'Hotel'         },
+  { key: 'governance',           label: 'Governança',           description: 'Vistoria, limpeza e liberação de UHs',      group: 'Área Administrativa', icon: 'Sparkles'      },
   { key: 'employee_portal',      label: 'Portal Colaborador',    description: 'Portal, escala pessoal, eventos, docs',   group: 'Área Administrativa', icon: 'Home'          },
   { key: 'recruitment',          label: 'Recrutamento',          description: 'Vagas, candidatos, pipeline de seleção',  group: 'Área Administrativa', icon: 'UserPlus'      },
   { key: 'cpf_registry',         label: 'Registro de CPF',       description: 'Consulta e gestão de CPFs bloqueados',    group: 'Área Administrativa', icon: 'Shield'        },

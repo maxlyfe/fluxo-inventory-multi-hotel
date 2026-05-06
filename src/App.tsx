@@ -15,7 +15,9 @@ import TransferHistory       from './pages/TransferHistory';
 import ShoppingList          from './pages/ShoppingList';
 import Login                 from './pages/Login';
 import UserManagement        from './pages/UserManagement';
-import Governance            from './pages/Governance';
+import GovernanceStock      from './pages/Governance'; // Antigo Governance
+import GovernanceRack       from './pages/governance/GovernanceRack';
+import RoomManagement       from './pages/governance/RoomManagement';
 import HotelSelection        from './pages/HotelSelection';
 import SectorStock           from './pages/SectorStock';
 import NewPurchase           from './pages/NewPurchase';
@@ -67,6 +69,7 @@ import MedicalExams            from './pages/dp/MedicalExams';
 
 // ── Pages — Manutenção ───────────────────────────────────────────────────────
 import MaintenanceDashboard      from './pages/MaintenanceDashboard';
+import MaintenanceRack           from './pages/maintenance/MaintenanceRack';
 import MaintenanceNewTicket      from './pages/MaintenanceNewTicket';
 import MaintenanceTicketDetail   from './pages/MaintenanceTicketDetail';
 import MaintenanceEquipment      from './pages/MaintenanceEquipment';
@@ -517,12 +520,24 @@ function App() {
                       </PrivateRoute>
                     } />
 
-                    {/* ── Governança / Stock de setor ───────────────────────── */}
-                    <Route path="/governance" element={
-                      <PrivateRoute module="stock">
-                        <Governance />
+                    {/* ── Governança ───────────────────────────────────────── */}
+                    <Route path="/governance/rack" element={
+                      <PrivateRoute module="governance">
+                        <GovernanceRack />
                       </PrivateRoute>
                     } />
+                    <Route path="/governance/rooms" element={
+                      <PrivateRoute module="governance">
+                        <RoomManagement />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/governance/stock" element={
+                      <PrivateRoute module="stock">
+                        <GovernanceStock />
+                      </PrivateRoute>
+                    } />
+                    {/* Legado ou atalho */}
+                    <Route path="/governance" element={<Navigate to="/governance/rack" replace />} />
 
                     <Route path="/sector-stock/:sectorId" element={
                       <PrivateRoute module="stock">
@@ -623,6 +638,12 @@ function App() {
                     <Route path="/maintenance" element={
                       <PrivateRoute module="maintenance">
                         <MaintenanceDashboard />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/maintenance/rack" element={
+                      <PrivateRoute module="maintenance">
+                        <MaintenanceRack />
                       </PrivateRoute>
                     } />
 
