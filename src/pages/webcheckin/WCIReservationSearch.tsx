@@ -1,6 +1,6 @@
 // src/pages/webcheckin/WCIReservationSearch.tsx
 // Busca de reserva por número, e-mail ou nome via API Erbon.
-// Para hotéis sem Erbon: formulário manual com nome + número de reserva opcional.
+// Para hotéis sem Erbon: formulário manual com número de reserva.
 // URL param :hotelId é agora o wci_code opaco (não o UUID real).
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -45,7 +45,6 @@ export default function WCIReservationSearch() {
   const [error, setError] = useState('');
   const [realHotelId, setRealHotelId] = useState<string | null>(null);
   const [hasErbon, setHasErbon] = useState(true);
-  const [guestName, setGuestName] = useState('');
   const [bookingNumber, setBookingNumber] = useState('');
 
   // Resolver wci_code → UUID real antes de permitir a busca
@@ -195,8 +194,6 @@ export default function WCIReservationSearch() {
             </form>
           )}
         </div>
-}
-        </div>
 
         <button
           onClick={() => navigate('/web-checkin/hotels')}
@@ -204,7 +201,7 @@ export default function WCIReservationSearch() {
           ← Voltar
         </button>
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{` @keyframes spin { to { transform: rotate(360deg); } } `}</style>
     </div>
   );
 }
