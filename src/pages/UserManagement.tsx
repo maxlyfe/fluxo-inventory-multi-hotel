@@ -68,6 +68,8 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','REQUEST_REJECTED',
   'REQUEST_SUBSTITUTED','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
   'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
+  // Rack de UHs — Governança
+  'room_needs_maintenance','room_dirty','room_clean','room_maint_ok',
 ];
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
@@ -118,6 +120,11 @@ const NOTIF_LABELS: Record<string, string> = {
   BUDGET_CANCELLED:         '🚫 Orçamento cancelado',
   EXP_CONTRACT_ENDING_SOON: '⏰ Contrato vence em 5 dias',
   EXP_CONTRACT_ENDS_TODAY:  '🔔 Contrato vence hoje',
+  // Rack de UHs
+  room_needs_maintenance:   '🔧 UH — Solicita vistoria de manutenção',
+  room_dirty:               '🛏️ UH — Ficou suja',
+  room_clean:               '✨ UH — Ficou limpa',
+  room_maint_ok:            '✔️ UH — Liberada pelo checklist de manutenção',
 };
 
 // ---------------------------------------------------------------------------
@@ -148,7 +155,11 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
     .filter(nt => ACTIVE_NOTIFICATION_TYPES.includes(nt.event_key))
     .map(nt => ({
       ...nt,
-      requires_hotel_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED','EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY'].includes(nt.event_key),
+      requires_hotel_filter: [
+        'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
+        'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
+        'room_needs_maintenance','room_dirty','room_clean','room_maint_ok',
+      ].includes(nt.event_key),
       requires_sector_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR'].includes(nt.event_key),
     }));
 }

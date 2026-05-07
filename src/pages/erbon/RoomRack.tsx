@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { erbonService, ErbonRoom, ErbonBooking, ErbonGuest } from '../../lib/erbonService';
 import { governanceService, RoomWorkflowStatus } from '../../lib/governanceService';
+import { notifyRoomDirty } from '../../lib/notificationTriggers';
 import { useErbonData } from '../../hooks/useErbonData';
 import { useHotel } from '../../context/HotelContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1329,7 +1330,7 @@ const RoomRack: React.FC = () => {
     setUpdatingRoom(room.idRoom);
     try {
       await erbonService.updateHousekeepingStatus(selectedHotel.id, room.idRoom, newStatus);
-      // Marcar DIRTY → reset de workflow para pending_maint
+      // Marcar DIRTY → reset de workflow para pending_maint + notificação
       if (newStatus === 'DIRTY') {
         await supabase.from('hotel_room_workflow').upsert({
           hotel_id: selectedHotel.id,
@@ -1341,6 +1342,7 @@ const RoomRack: React.FC = () => {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'hotel_id,room_id' });
         setWorkflows(prev => ({ ...prev, [String(room.idRoom)]: 'pending_maint' }));
+        notifyRoomDirty({ hotel_id: selectedHotel.id, room_name: room.roomName }).catch(() => {});
       }
       addNotification(`UH ${room.roomName} → ${newStatus === 'CLEAN' ? 'Limpo' : 'Sujo'}`, 'success');
       refetch();

@@ -3,7 +3,12 @@
 
 import { supabase } from './supabase';
 import { erbonService } from './erbonService';
-import * as triggers from './notificationTriggers';
+import {
+  notifyRoomNeedsMaintenance,
+  notifyRoomMaintOk,
+  notifyRoomClean,
+  notifyRoomContested,
+} from './notificationTriggers';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -248,12 +253,14 @@ export const governanceService = {
     // 5. Disparar Notificações
     try {
       const eventData = { hotel_id: params.hotelId, room_name: params.roomName };
-      if (params.toStatus === 'maint_ok') {
-        await triggers.notifyRoomReadyForGovernance(eventData);
+      if (params.toStatus === 'pending_maint') {
+        await notifyRoomNeedsMaintenance(eventData);
+      } else if (params.toStatus === 'maint_ok') {
+        await notifyRoomMaintOk(eventData);
       } else if (params.toStatus === 'clean') {
-        await triggers.notifyRoomReadyForCheckin(eventData);
+        await notifyRoomClean(eventData);
       } else if (params.toStatus === 'contested') {
-        await triggers.notifyRoomContested({ ...eventData, reason: params.notes });
+        await notifyRoomContested({ ...eventData, reason: params.notes });
       }
     } catch (err) {
       console.error('[Governance] Erro ao disparar notificações:', err);

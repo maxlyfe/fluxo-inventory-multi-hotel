@@ -302,40 +302,63 @@ export const notifyTransferCompleted = async (eventData: NotificationEventData) 
 
 // ── Governança & Manutenção ──
 
-export const notifyRoomReadyForGovernance = async (eventData: { hotel_id: string; room_name: string }) => {
+/** Dispara quando workflow → pending_maint (UH solicita vistoria de manutenção) */
+export const notifyRoomNeedsMaintenance = async (eventData: { hotel_id: string; room_name: string }) => {
   const hotel = await resolveHotelName(eventData.hotel_id);
-  const title = `✨ UH Liberada — ${hotel}`;
-  const message = `A UH ${eventData.room_name} foi vistoriada pela manutenção e está pronta para limpeza.`;
-
-  await triggerNotification('room_ready_for_governance', {
+  await triggerNotification('room_needs_maintenance', {
     ...eventData,
     related_entity_table: 'hotel_room_workflow',
     related_entity_type: 'governance',
-  }, title, message);
+  }, `🔧 Vistoria Solicitada — ${hotel}`, `UH ${eventData.room_name} precisa de vistoria antes da limpeza.`);
 };
 
-export const notifyRoomReadyForCheckin = async (eventData: { hotel_id: string; room_name: string }) => {
+/** Dispara quando Erbon marca UH como DIRTY (recepção / check-out) */
+export const notifyRoomDirty = async (eventData: { hotel_id: string; room_name: string }) => {
   const hotel = await resolveHotelName(eventData.hotel_id);
-  const title = `✅ UH Disponível — ${hotel}`;
-  const message = `A UH ${eventData.room_name} está limpa e disponível para check-in.`;
-
-  await triggerNotification('room_ready_for_checkin', {
+  await triggerNotification('room_dirty', {
     ...eventData,
     related_entity_table: 'hotel_room_workflow',
     related_entity_type: 'governance',
-  }, title, message);
+  }, `🛏️ UH Suja — ${hotel}`, `UH ${eventData.room_name} foi marcada como suja e aguarda checklist.`);
+};
+
+/** Dispara quando workflow → clean (UH limpa e disponível) */
+export const notifyRoomClean = async (eventData: { hotel_id: string; room_name: string }) => {
+  const hotel = await resolveHotelName(eventData.hotel_id);
+  await triggerNotification('room_clean', {
+    ...eventData,
+    related_entity_table: 'hotel_room_workflow',
+    related_entity_type: 'governance',
+  }, `✅ UH Limpa — ${hotel}`, `UH ${eventData.room_name} está limpa e disponível.`);
+};
+
+/** Dispara quando workflow → maint_ok (checklist de manutenção aprovado) */
+export const notifyRoomMaintOk = async (eventData: { hotel_id: string; room_name: string }) => {
+  const hotel = await resolveHotelName(eventData.hotel_id);
+  await triggerNotification('room_maint_ok', {
+    ...eventData,
+    related_entity_table: 'hotel_room_workflow',
+    related_entity_type: 'governance',
+  }, `✔️ Checklist Manutenção OK — ${hotel}`, `UH ${eventData.room_name} liberada pelo checklist — pronta para limpeza.`);
+};
+
+/** @deprecated use notifyRoomMaintOk — mantido para compatibilidade */
+export const notifyRoomReadyForGovernance = async (eventData: { hotel_id: string; room_name: string }) => {
+  await notifyRoomMaintOk(eventData);
+};
+
+/** @deprecated use notifyRoomClean — mantido para compatibilidade */
+export const notifyRoomReadyForCheckin = async (eventData: { hotel_id: string; room_name: string }) => {
+  await notifyRoomClean(eventData);
 };
 
 export const notifyRoomContested = async (eventData: { hotel_id: string; room_name: string; reason?: string }) => {
   const hotel = await resolveHotelName(eventData.hotel_id);
-  const title = `⚠️ UH Contestada — ${hotel}`;
-  const message = `A vistoria da UH ${eventData.room_name} foi rejeitada pela governança. ${eventData.reason ? `Motivo: ${eventData.reason}` : ''}`;
-
   await triggerNotification('room_maint_contested', {
     ...eventData,
     related_entity_table: 'hotel_room_workflow',
     related_entity_type: 'maintenance',
-  }, title, message);
+  }, `⚠️ UH Contestada — ${hotel}`, `Vistoria da UH ${eventData.room_name} rejeitada pela governança.${eventData.reason ? ` Motivo: ${eventData.reason}` : ''}`);
 };
 
 // ── Contratos de experiência ──
