@@ -128,5 +128,26 @@ export function useDashboardConfig() {
     }
   };
 
-  return { widgets, loading, addWidget, removeWidget, refresh: fetchConfig, isLocalMode };
+  const reorderWidgets = useCallback(async (newOrder: UserWidget[]) => {
+    // Atualiza posições: índice no array vira position_y
+    const reindexed = newOrder.map((w, i) => ({ ...w, position_y: i, position_x: 0 }));
+    setWidgets(reindexed);
+
+    if (isLocalMode) {
+      localStorage.setItem(`${STORAGE_KEY}_${user!.id}`, JSON.stringify(reindexed));
+      return;
+    }
+
+    // Persiste em paralelo
+    await Promise.all(
+      reindexed.map(w =>
+        supabase
+          .from('user_dashboard_widgets')
+          .update({ position_y: w.position_y, position_x: 0 })
+          .eq('id', w.id)
+      )
+    );
+  }, [isLocalMode, user]);
+
+  return { widgets, loading, addWidget, removeWidget, reorderWidgets, refresh: fetchConfig, isLocalMode };
 }

@@ -8,6 +8,23 @@ import {
 } from 'lucide-react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase } from '../lib/supabase';
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -18,11 +35,52 @@ import { NAV_GROUPS } from '../lib/navigationConfig';
 import WidgetContainer from '../components/widgets/WidgetContainer';
 import { sectorIcon } from '../utils/sectorIcon';
 
+// ── Sortable wrapper individual ──────────────────────────────────────────────
+interface SortableWidgetWrapperProps {
+  id: string;
+  spanClass: string;
+  isEditing: boolean;
+  isDragging: boolean;
+  label: string;
+  onRemove: () => void;
+  children: React.ReactNode;
+}
+
+function SortableWidgetWrapper({ id, spanClass, isEditing, isDragging, label, onRemove, children }: SortableWidgetWrapperProps) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id,
+    disabled: !isEditing,
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={spanClass}>
+      <WidgetContainer
+        label={label}
+        isEditing={isEditing}
+        isDragging={isDragging}
+        dragListeners={isEditing ? listeners : undefined}
+        dragAttributes={isEditing ? attributes : undefined}
+        onRemove={onRemove}
+      >
+        {children}
+      </WidgetContainer>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const Home = () => {
   const { user } = useAuth();
   const { can, isAdmin, isDev } = usePermissions();
   const { selectedHotel } = useHotel();
-  const { widgets, loading, addWidget, removeWidget } = useDashboardConfig();
+  const { widgets, loading, addWidget, removeWidget, reorderWidgets } = useDashboardConfig();
   const navigate = useNavigate();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -97,6 +155,23 @@ const Home = () => {
 
   const standardWidgets = AVAILABLE_WIDGETS.filter(w => w.type === 'standard' && (!w.module || can(w.module)));
 
+  // ── DnD Kit ──────────────────────────────────────────────────────────────
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
+  );
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = widgets.findIndex(w => w.id === active.id);
+    const newIndex = widgets.findIndex(w => w.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    reorderWidgets(arrayMove(widgets, oldIndex, newIndex));
+  };
+
   if (!selectedHotel || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
@@ -156,38 +231,46 @@ const Home = () => {
       </div>
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
-        <div className="grid grid-cols-12 gap-3 sm:gap-6">
-          {widgets.map((userWidget) => {
-            const definition = AVAILABLE_WIDGETS.find(w => w.id === userWidget.widget_id);
-            if (!definition) return null;
-            const WidgetComponent = definition.component;
-            // Helper para gerar classes literais (Tailwind safe)
-            const getGridSpan = (sizeW: number) => {
-              if (sizeW === 12) return 'col-span-12';
-              if (sizeW === 6)  return 'col-span-12 lg:col-span-6';
-              if (sizeW === 4)  return 'col-span-12 sm:col-span-6 lg:col-span-4';
-              return 'col-span-12 sm:col-span-6 lg:col-span-3';
-            };
-            const spanClass = getGridSpan(userWidget.size_w);
-
-            return (
-              <div key={userWidget.id} className={spanClass}>
-                <WidgetContainer label={definition.label} isEditing={isEditing} onRemove={() => removeWidget(userWidget.id)}>
-                  <Suspense fallback={<div className="h-40 rounded-3xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}>
-                    <WidgetComponent settings={userWidget.settings} />
-                  </Suspense>
-                </WidgetContainer>
-              </div>
-            );
-          })}
-          {widgets.length === 0 && !loading && (
-            <div className="col-span-12 py-20 flex flex-col items-center justify-center text-center">
-              <Sparkles className="w-12 h-12 text-slate-300 mb-4" />
-              <h2 className="text-xl font-bold text-slate-800 dark:text-white">Dashboard Vazio</h2>
-              <button onClick={() => { setIsEditing(true); setShowMarketplace(true); }} className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-xl font-bold">Começar Montagem</button>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={e => setActiveId(String(e.active.id))}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveId(null)}
+        >
+          <SortableContext items={widgets.map(w => w.id)} strategy={rectSortingStrategy}>
+            <div className="grid grid-cols-12 gap-3 sm:gap-6">
+              {widgets.map((userWidget) => {
+                const definition = AVAILABLE_WIDGETS.find(w => w.id === userWidget.widget_id);
+                if (!definition) return null;
+                const WidgetComponent = definition.component;
+                const spanClass = getGridSpan(userWidget.size_w);
+                return (
+                  <SortableWidgetWrapper
+                    key={userWidget.id}
+                    id={userWidget.id}
+                    spanClass={spanClass}
+                    isEditing={isEditing}
+                    isDragging={activeId === userWidget.id}
+                    label={definition.label}
+                    onRemove={() => removeWidget(userWidget.id)}
+                  >
+                    <Suspense fallback={<div className="h-40 rounded-3xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}>
+                      <WidgetComponent settings={userWidget.settings} />
+                    </Suspense>
+                  </SortableWidgetWrapper>
+                );
+              })}
+              {widgets.length === 0 && !loading && (
+                <div className="col-span-12 py-20 flex flex-col items-center justify-center text-center">
+                  <Sparkles className="w-12 h-12 text-slate-300 mb-4" />
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-white">Dashboard Vazio</h2>
+                  <button onClick={() => { setIsEditing(true); setShowMarketplace(true); }} className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-xl font-bold">Começar Montagem</button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </SortableContext>
+        </DndContext>
       </main>
 
       <Transition show={showMarketplace} as={Fragment}>
