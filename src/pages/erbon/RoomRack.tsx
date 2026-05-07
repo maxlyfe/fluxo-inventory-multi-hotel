@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   RefreshCw, Loader2, Wrench, UserCheck, BedDouble,
   User, Users, Calendar, Mail, Phone, CreditCard, LogIn, LogOut,
@@ -17,6 +17,15 @@ import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
 import Modal from '../../components/Modal';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+const STATUS_WF_META: Record<string, { label: string; color: string; bg: string }> = {
+  pending_maint: { label: 'Vistoria Mant.', color: 'text-slate-400', bg: 'bg-slate-500/10' },
+  maint_ok:      { label: 'Pronto Limpeza', color: 'text-blue-400',  bg: 'bg-blue-500/10'  },
+  cleaning:      { label: 'Em Limpeza',     color: 'text-amber-400', bg: 'bg-amber-500/10' },
+  clean:         { label: 'Limpo/Lib',      color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  contested:     { label: 'Contestado',      color: 'text-rose-400',  bg: 'bg-rose-500/10'  },
+};
+
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function fmtDate(d: string | null | undefined): string {
@@ -374,7 +383,7 @@ const ReservationModal: React.FC<{
     finally { setLoading(false); }
   }, [room, hotelId]);
 
-  React.useEffect(() => {
+  React.React.useEffect(() => {
     if (!isOpen) return;
     loadData();
   }, [isOpen, loadData]);
@@ -959,7 +968,7 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
   // Usa o bookingInternalID do booking (quando carregado) ou do próprio room como fallback
   const bookingInternalId = booking?.bookingInternalID ?? room.currentBookingID;
 
-  React.useEffect(() => {
+  React.React.React.useEffect(() => {
     if (!bookingInternalId) { setLoading(false); return; }
     (async () => {
       setLoading(true);
@@ -1117,7 +1126,7 @@ const RoomRack: React.FC = () => {
     } catch { /* ignore */ }
   }, [selectedHotel]);
 
-  useEffect(() => {
+  React.React.useEffect(() => {
     if (selectedHotel) fetchWorkflows();
   }, [selectedHotel, fetchWorkflows, rooms]);
 
