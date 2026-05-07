@@ -138,7 +138,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'reports',         label: 'Relatórios',    href: '/reports',                   icon: FileText,          iconName: 'FileText',          color: '#0ea5e9' },
       { module: 'hotel_documents', label: 'Documentos',    href: '/management/documents',      icon: Shield,            iconName: 'Shield',            color: '#6366f1' },
       { module: 'webcheckin_mgmt', label: 'Web Check-in',  href: '/management/webcheckin',     icon: MonitorSmartphone, iconName: 'MonitorSmartphone', color: '#0085ae' },
-      { module: 'weekly_control',   label: 'Controle Semanal', href: '/weekly-control',        icon: Calendar,          iconName: 'Calendar',          color: '#8b5cf6' },
+      { module: 'weekly_control',  label: 'Controle Semanal', href: '/weekly-control',         icon: Calendar,          iconName: 'Calendar',          color: '#8b5cf6' },
+      { module: 'governance',      label: 'Gestão de UHs',    href: '/governance/rooms',       icon: LayoutGrid,        iconName: 'LayoutGrid',        color: '#8b5cf6' },
     ],
   },
   {
@@ -198,8 +199,7 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'governance',
     activePrefixes: ['/governance'],
     items: [
-      { module: 'governance', label: "Rack Governança", href: '/governance/rack',       icon: BedDouble, iconName: 'BedDouble', color: '#14b8a6' },
-      { module: 'governance', label: "Gestão de UHs",   href: '/governance/rooms',      icon: LayoutGrid, iconName: 'LayoutGrid', color: '#8b5cf6' },
+      { module: 'governance', label: "Rack Governança", href: '/governance/rack', icon: BedDouble, iconName: 'BedDouble', color: '#14b8a6' },
     ],
   },
   {
