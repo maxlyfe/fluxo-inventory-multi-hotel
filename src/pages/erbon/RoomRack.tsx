@@ -960,7 +960,7 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
   // Usa o bookingInternalID do booking (quando carregado) ou do próprio room como fallback
   const bookingInternalId = booking?.bookingInternalID ?? room.currentBookingID;
 
-  React.React.React.useEffect(() => {
+  React.useEffect(() => {
     if (!bookingInternalId) { setLoading(false); return; }
     (async () => {
       setLoading(true);
@@ -1118,7 +1118,7 @@ const RoomRack: React.FC = () => {
     } catch { /* ignore */ }
   }, [selectedHotel]);
 
-  React.React.useEffect(() => {
+  React.useEffect(() => {
     if (selectedHotel) fetchWorkflows();
   }, [selectedHotel, fetchWorkflows, rooms]);
 
