@@ -152,6 +152,7 @@ const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, workflowStatus, on
   const isOccupied = room.currentlyOccupiedOrAvailable === 'Ocupado';
   const isClean = room.idHousekeepingStatus === 'CLEAN';
   const isMaint = room.inMaintenance;
+  const wf = workflowStatus ? (STATUS_WF_META[workflowStatus] ?? null) : null;
 
   // Pick door + colors
   let DoorIcon = DoorOpen;
