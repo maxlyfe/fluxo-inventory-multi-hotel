@@ -375,7 +375,7 @@ const ReservationModal: React.FC<{
     finally { setLoading(false); }
   }, [room, hotelId]);
 
-  React.React.useEffect(() => {
+  React.useEffect(() => {
     if (!isOpen) return;
     loadData();
   }, [isOpen, loadData]);
