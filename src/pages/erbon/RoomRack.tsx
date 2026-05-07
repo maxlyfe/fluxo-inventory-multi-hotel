@@ -5,6 +5,7 @@ import {
   Clock, DollarSign, FileText, X, MapPin,
   Globe, Utensils, Coffee, Moon, Star, Sparkles,
   Edit2, Trash2, UserPlus, Save,
+  CheckSquare, AlertTriangle, ChevronRight, ShieldAlert, RotateCcw,
 } from 'lucide-react';
 import { erbonService, ErbonRoom, ErbonBooking, ErbonGuest } from '../../lib/erbonService';
 import { governanceService, RoomWorkflowStatus } from '../../lib/governanceService';
@@ -23,7 +24,36 @@ const STATUS_WF_META: Record<string, { label: string; color: string; bg: string 
   maint_ok:      { label: 'Pronto Limpeza', color: 'text-blue-400',  bg: 'bg-blue-500/10'  },
   cleaning:      { label: 'Em Limpeza',     color: 'text-amber-400', bg: 'bg-amber-500/10' },
   clean:         { label: 'Limpo/Lib',      color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  contested:     { label: 'Contestado',      color: 'text-rose-400',  bg: 'bg-rose-500/10'  },
+  contested:     { label: 'Contestado',     color: 'text-rose-400',  bg: 'bg-rose-500/10'  },
+};
+
+// Transições permitidas por status atual
+// Regras:
+// - Gov pode pular manutenção e liberar diretamente (exceto se contested)
+// - contested → obrigatório voltar à manutenção
+// - DIRTY no Erbon → reset automático para pending_maint
+const WORKFLOW_TRANSITIONS: Record<RoomWorkflowStatus, Array<{
+  to: RoomWorkflowStatus; label: string; colorClass: string; needsNotes?: boolean;
+}>> = {
+  pending_maint: [
+    { to: 'maint_ok',  label: 'Manutenção OK',     colorClass: 'bg-blue-600 hover:bg-blue-500'    },
+    { to: 'cleaning',  label: 'Iniciar Limpeza',    colorClass: 'bg-amber-600 hover:bg-amber-500'  },
+    { to: 'clean',     label: 'Liberar Direto',     colorClass: 'bg-emerald-600 hover:bg-emerald-500' },
+  ],
+  maint_ok: [
+    { to: 'cleaning',  label: 'Iniciar Limpeza',    colorClass: 'bg-amber-600 hover:bg-amber-500'  },
+    { to: 'clean',     label: 'Liberar Direto',     colorClass: 'bg-emerald-600 hover:bg-emerald-500' },
+  ],
+  cleaning: [
+    { to: 'clean',     label: 'Concluir Limpeza',   colorClass: 'bg-emerald-600 hover:bg-emerald-500' },
+    { to: 'contested', label: 'Contestar UH',        colorClass: 'bg-rose-600 hover:bg-rose-500', needsNotes: true },
+  ],
+  clean: [
+    { to: 'pending_maint', label: 'Resetar Status', colorClass: 'bg-slate-600 hover:bg-slate-500' },
+  ],
+  contested: [
+    { to: 'pending_maint', label: 'Enviar à Manutenção', colorClass: 'bg-slate-600 hover:bg-slate-500' },
+  ],
 };
 
 
@@ -145,10 +175,11 @@ interface RoomCardProps {
   workflowStatus?: RoomWorkflowStatus;
   onSelect: () => void;
   onToggleStatus: (e: React.MouseEvent) => void;
+  onWorkflowChange: (e: React.MouseEvent) => void;
   isUpdating: boolean;
 }
 
-const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, workflowStatus, onSelect, onToggleStatus, isUpdating }) => {
+const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, workflowStatus, onSelect, onToggleStatus, onWorkflowChange, isUpdating }) => {
   const isOccupied = room.currentlyOccupiedOrAvailable === 'Ocupado';
   const isClean = room.idHousekeepingStatus === 'CLEAN';
   const isMaint = room.inMaintenance;
@@ -234,11 +265,25 @@ const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, workflowStatus, on
           )}
         </div>
 
-        {/* Workflow indicator bottom overlay */}
+        {/* Workflow indicator bottom overlay — clicável para trocar status */}
         {wf && workflowStatus !== 'clean' && (
-          <div className={`absolute bottom-0 left-0 right-0 py-0.5 text-[8px] font-black uppercase text-center backdrop-blur-md ${wf.bg} ${wf.color} border-t border-white/5`}>
+          <button
+            onClick={onWorkflowChange}
+            title="Alterar status de governança"
+            className={`absolute bottom-0 left-0 right-0 py-0.5 text-[8px] font-black uppercase text-center backdrop-blur-md ${wf.bg} ${wf.color} border-t border-white/5 hover:brightness-125 transition-all`}
+          >
             {wf.label}
-          </div>
+          </button>
+        )}
+        {/* Se clean: botão discreto de workflow no canto */}
+        {workflowStatus === 'clean' && (
+          <button
+            onClick={onWorkflowChange}
+            title="Status de governança"
+            className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center hover:bg-emerald-500/40 transition-all"
+          >
+            <CheckSquare className="w-2.5 h-2.5 text-emerald-400" />
+          </button>
         )}
 
         {/* Floor badge top-left */}
@@ -301,6 +346,133 @@ const RoomCard: React.FC<RoomCardProps> = React.memo(({ room, workflowStatus, on
     </div>
   );
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WORKFLOW MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface WorkflowModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  room: ErbonRoom;
+  currentStatus: RoomWorkflowStatus;
+  onConfirm: (toStatus: RoomWorkflowStatus, notes?: string) => Promise<void>;
+}
+
+const WorkflowModal: React.FC<WorkflowModalProps> = ({ isOpen, onClose, room, currentStatus, onConfirm }) => {
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [pendingTo, setPendingTo] = useState<RoomWorkflowStatus | null>(null);
+
+  const transitions = WORKFLOW_TRANSITIONS[currentStatus] || [];
+  const currentMeta = STATUS_WF_META[currentStatus];
+
+  const handleSelect = async (to: RoomWorkflowStatus, needsNotes?: boolean) => {
+    if (needsNotes) { setPendingTo(to); return; }
+    setSaving(true);
+    try { await onConfirm(to); onClose(); }
+    finally { setSaving(false); }
+  };
+
+  const handleConfirmNotes = async () => {
+    if (!pendingTo) return;
+    setSaving(true);
+    try { await onConfirm(pendingTo, notes); onClose(); }
+    finally { setSaving(false); setPendingTo(null); setNotes(''); }
+  };
+
+  // Reset ao fechar
+  const handleClose = () => { setPendingTo(null); setNotes(''); onClose(); };
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} title="" size="sm">
+      <div className="p-1">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center">
+            <ShieldAlert className="w-5 h-5 text-sky-400" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">UH {room.roomName}</p>
+            <p className="text-xs text-gray-400">{room.roomTypeDescription}</p>
+          </div>
+        </div>
+
+        {/* Status atual */}
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg mb-4 ${currentMeta?.bg || 'bg-gray-800'}`}>
+          <span className={`text-xs font-bold ${currentMeta?.color || 'text-gray-400'}`}>
+            Status atual: {currentMeta?.label || currentStatus}
+          </span>
+        </div>
+
+        {/* Aviso especial para contestado */}
+        {currentStatus === 'contested' && (
+          <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 mb-4">
+            <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-rose-300">
+              UH contestada. É obrigatório passar pela manutenção antes de liberar.
+            </p>
+          </div>
+        )}
+
+        {/* Confirmação de contestação (notas obrigatórias) */}
+        {pendingTo === 'contested' ? (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400">Descreva o motivo da contestação:</p>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Ex: Limpeza inadequada, objetos deixados pelo hóspede..."
+              rows={3}
+              autoFocus
+              className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 resize-none focus:outline-none focus:border-rose-500"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingTo(null)}
+                className="flex-1 py-2 text-sm rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={handleConfirmNotes}
+                disabled={!notes.trim() || saving}
+                className="flex-1 py-2 text-sm rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                Contestar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {transitions.map(t => (
+              <button
+                key={t.to}
+                onClick={() => handleSelect(t.to, t.needsNotes)}
+                disabled={saving}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold text-white transition-all ${t.colorClass} disabled:opacity-40`}
+              >
+                <span className="flex items-center gap-2">
+                  {t.to === 'pending_maint' && <RotateCcw className="w-4 h-4" />}
+                  {t.to === 'maint_ok'      && <Wrench className="w-4 h-4" />}
+                  {t.to === 'cleaning'      && <Sparkles className="w-4 h-4" />}
+                  {t.to === 'clean'         && <CheckSquare className="w-4 h-4" />}
+                  {t.to === 'contested'     && <AlertTriangle className="w-4 h-4" />}
+                  {t.label}
+                </span>
+                <ChevronRight className="w-4 h-4 opacity-60" />
+              </button>
+            ))}
+            {transitions.length === 0 && (
+              <p className="text-center text-xs text-gray-500 py-4">Nenhuma transição disponível.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STAT CARD
@@ -1095,11 +1267,13 @@ type ActiveFilter = 'all' | 'occupied' | 'free' | 'clean' | 'dirty' | 'maintenan
 
 const RoomRack: React.FC = () => {
   const { selectedHotel } = useHotel();
+  const { user } = useAuth();
   const { addNotification } = useNotification();
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
   const [updatingRoom, setUpdatingRoom] = useState<number | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<ErbonRoom | null>(null);
   const [workflows, setWorkflows] = useState<Record<string, RoomWorkflowStatus>>({});
+  const [workflowRoom, setWorkflowRoom] = useState<ErbonRoom | null>(null);
 
   const { data: rooms, loading, error, refetch, erbonConfigured } = useErbonData<ErbonRoom[]>(
     (hotelId) => erbonService.fetchHousekeeping(hotelId), [], { autoRefreshMs: 60_000 }
@@ -1123,6 +1297,31 @@ const RoomRack: React.FC = () => {
     if (selectedHotel) fetchWorkflows();
   }, [selectedHotel, fetchWorkflows, rooms]);
 
+  // Auto-reset: quando Erbon retorna UH como DIRTY e workflow não é pending_maint, resetar
+  React.useEffect(() => {
+    if (!rooms || !selectedHotel?.id || Object.keys(workflows).length === 0) return;
+    const toReset = rooms.filter(r =>
+      r.idHousekeepingStatus === 'DIRTY' &&
+      workflows[String(r.idRoom)] &&
+      workflows[String(r.idRoom)] !== 'pending_maint'
+    );
+    if (toReset.length === 0) return;
+    Promise.all(
+      toReset.map(r =>
+        supabase.from('hotel_room_workflow').upsert({
+          hotel_id: selectedHotel.id,
+          room_id: String(r.idRoom),
+          room_name: r.roomName,
+          status: 'pending_maint',
+          last_user_id: null,
+          last_user_name: 'Sistema (UH suja)',
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'hotel_id,room_id' })
+      )
+    ).then(() => fetchWorkflows());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rooms]);
+
   const handleToggleStatus = useCallback(async (room: ErbonRoom, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!selectedHotel?.id) return;
@@ -1130,11 +1329,42 @@ const RoomRack: React.FC = () => {
     setUpdatingRoom(room.idRoom);
     try {
       await erbonService.updateHousekeepingStatus(selectedHotel.id, room.idRoom, newStatus);
+      // Marcar DIRTY → reset de workflow para pending_maint
+      if (newStatus === 'DIRTY') {
+        await supabase.from('hotel_room_workflow').upsert({
+          hotel_id: selectedHotel.id,
+          room_id: String(room.idRoom),
+          room_name: room.roomName,
+          status: 'pending_maint',
+          last_user_id: user?.id || null,
+          last_user_name: user?.email || 'Recepção',
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'hotel_id,room_id' });
+        setWorkflows(prev => ({ ...prev, [String(room.idRoom)]: 'pending_maint' }));
+      }
       addNotification(`UH ${room.roomName} → ${newStatus === 'CLEAN' ? 'Limpo' : 'Sujo'}`, 'success');
       refetch();
     } catch (err: any) { addNotification(`Erro: ${err.message}`, 'error'); }
     finally { setUpdatingRoom(null); }
-  }, [selectedHotel?.id, addNotification, refetch]);
+  }, [selectedHotel?.id, user, addNotification, refetch]);
+
+  const handleWorkflowChange = useCallback(async (toStatus: RoomWorkflowStatus, notes?: string) => {
+    if (!workflowRoom || !selectedHotel?.id || !user) return;
+    await governanceService.updateRoomStatus({
+      hotelId: selectedHotel.id,
+      roomId: String(workflowRoom.idRoom),
+      roomName: workflowRoom.roomName,
+      toStatus,
+      userId: user.id,
+      userName: user.email || user.id,
+      notes,
+    });
+    setWorkflows(prev => ({ ...prev, [String(workflowRoom.idRoom)]: toStatus }));
+    addNotification(
+      `UH ${workflowRoom.roomName} → ${STATUS_WF_META[toStatus]?.label || toStatus}`,
+      toStatus === 'contested' ? 'error' : 'success'
+    );
+  }, [workflowRoom, selectedHotel?.id, user, addNotification]);
 
   const stats = useMemo(() => {
     if (!rooms) return { total: 0, clean: 0, dirty: 0, occupied: 0, free: 0, maintenance: 0, checkin: 0 };
@@ -1275,8 +1505,10 @@ const RoomRack: React.FC = () => {
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-10 gap-3">
                   {typeRooms.map(room => (
                     <RoomCard key={room.idRoom} room={room}
+                      workflowStatus={workflows[String(room.idRoom)]}
                       onSelect={() => setSelectedRoom(room)}
                       onToggleStatus={(e) => handleToggleStatus(room, e)}
+                      onWorkflowChange={(e) => { e.stopPropagation(); setWorkflowRoom(room); }}
                       isUpdating={updatingRoom === room.idRoom} />
                   ))}
                 </div>
@@ -1295,6 +1527,16 @@ const RoomRack: React.FC = () => {
 
       {selectedRoom && selectedHotel && (
         <ReservationModal isOpen={!!selectedRoom} onClose={() => setSelectedRoom(null)} room={selectedRoom} hotelId={selectedHotel.id} onRefresh={refetch} />
+      )}
+
+      {workflowRoom && (
+        <WorkflowModal
+          isOpen={!!workflowRoom}
+          onClose={() => setWorkflowRoom(null)}
+          room={workflowRoom}
+          currentStatus={workflows[String(workflowRoom.idRoom)] || 'pending_maint'}
+          onConfirm={handleWorkflowChange}
+        />
       )}
     </div>
   );
