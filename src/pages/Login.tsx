@@ -426,8 +426,8 @@ const Login: React.FC = () => {
                     </div>
                   </div>
                   <a 
-                    href="/downloads/fluxo.apk" 
-                    download="fluxo.apk"
+                    href="/downloads/LyFe Hoteles.apk" 
+                    download="LyFe Hoteles.apk"
                     className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-gray-900 text-xs font-black rounded-lg transition-all active:scale-95"
                   >
                     BAIXAR
