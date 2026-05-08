@@ -414,28 +414,52 @@ const Login: React.FC = () => {
 
             <div className="p-6 space-y-4">
               {/* Android Section */}
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 group hover:border-amber-500/30 transition-all text-left">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
-                      <Download className="w-5 h-5 text-amber-500" />
+              <div className="space-y-3">
+                <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-[0.2em] ml-1">Android (Instalação Direta)</p>
+                
+                {/* Sistema Principal */}
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 group hover:border-amber-500/30 transition-all text-left">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Smartphone className="w-5 h-5 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white leading-tight">LyFe Hoteles</p>
+                        <p className="text-[10px] text-white/40 uppercase tracking-widest mt-0.5">Sistema Completo</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-white leading-tight">Android (APK)</p>
-                      <p className="text-[10px] text-white/40 uppercase tracking-widest mt-0.5">Instalação Direta</p>
-                    </div>
+                    <a 
+                      href="/downloads/LyFe Hoteles.apk" 
+                      download="LyFe Hoteles.apk"
+                      className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-gray-900 text-xs font-black rounded-lg transition-all active:scale-95"
+                    >
+                      BAIXAR
+                    </a>
                   </div>
-                  <a 
-                    href="/downloads/LyFe Hoteles.apk" 
-                    download="LyFe Hoteles.apk"
-                    className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-gray-900 text-xs font-black rounded-lg transition-all active:scale-95"
-                  >
-                    BAIXAR
-                  </a>
                 </div>
-                <p className="text-[11px] text-white/30 leading-relaxed italic">
-                  * Após baixar, permita a instalação de "Fontes Desconhecidas" no seu aparelho.
-                </p>
+
+                {/* Web Check-in */}
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 group hover:border-emerald-500/30 transition-all text-left">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UserPlus className="w-5 h-5 text-emerald-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white leading-tight">LyFe Web Check-in</p>
+                        <p className="text-[10px] text-white/40 uppercase tracking-widest mt-0.5">Exclusivo Hóspedes</p>
+                      </div>
+                    </div>
+                    <a 
+                      href="/downloads/LyFe Web Check-in.apk" 
+                      download="LyFe Web Check-in.apk"
+                      className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-lg transition-all active:scale-95"
+                    >
+                      BAIXAR
+                    </a>
+                  </div>
+                </div>
               </div>
 
               {/* iOS Section */}
