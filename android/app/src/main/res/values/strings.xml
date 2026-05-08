@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fluxo</string>
+    <string name="title_activity_main">Fluxo</string>
+    <string name="package_name">com.lyfe.fluxo</string>
+    <string name="custom_url_scheme">com.lyfe.fluxo</string>
+</resources>

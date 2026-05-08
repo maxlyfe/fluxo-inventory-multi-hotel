@@ -559,12 +559,18 @@ const handler = schedule('50 2 * * *', async () => {
     return { statusCode: 500 };
   }
 
-  // Data de hoje em BRT (UTC-3)
+  // Janela de processamento: hoje + últimos 10 dias para recuperar histórico e garantir redundância
   const nowUTC  = new Date();
   const nowBRT  = new Date(nowUTC.getTime() - 3 * 60 * 60 * 1000);
-  const today   = nowBRT.toISOString().substring(0, 10);
-  const yesterday = new Date(nowBRT.getTime() - 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
-  console.log(`[FNRH] Processando check-ins de ${today} e check-outs de ${yesterday}–${today}`);
+  
+  const processingDates: string[] = [];
+  for (let i = 0; i <= 10; i++) {
+    const d = new Date(nowBRT.getTime() - i * 24 * 60 * 60 * 1000);
+    processingDates.push(d.toISOString().substring(0, 10));
+  }
+
+  const today = processingDates[0];
+  console.log(`[FNRH] Processando check-ins e check-outs de: ${processingDates.join(', ')}`);
 
   // Busca hotéis com FNRH ativo
   const { data: fnrhConfigs, error: cfgErr } = await db
@@ -599,40 +605,43 @@ const handler = schedule('50 2 * * *', async () => {
       erbon_username: string; erbon_password: string;
     };
 
-    // ── CHECK-INS do dia ──────────────────────────────────────────────────────
-    try {
-      const checkIns = await erbonSearchBookings(erbonCfg, {
-        checkin: today,
-        status: 'CHECK-IN',
-      });
-      console.log(`[FNRH] ${checkIns.length} check-ins hoje (${today})`);
-
-      for (const bk of checkIns) {
-        try {
-          await processCheckin(db, hotelId, fnrhCfg, bk, today);
-        } catch (e: any) {
-          console.error(`[FNRH] Erro processando check-in ${bk.bookingInternalID}:`, e.message);
+    // ── CHECK-INS ──────────────────────────────────────────────────────
+    for (const ciDate of processingDates) {
+      try {
+        const checkIns = await erbonSearchBookings(erbonCfg, {
+          checkin: ciDate,
+          status: 'CHECKIN',
+        });
+        if (checkIns.length > 0) {
+          console.log(`[FNRH] ${checkIns.length} check-ins em ${ciDate}`);
+          for (const bk of checkIns) {
+            try {
+              await processCheckin(db, hotelId, fnrhCfg, bk, ciDate);
+            } catch (e: any) {
+              console.error(`[FNRH] Erro processando check-in ${bk.bookingInternalID}:`, e.message);
+            }
+          }
         }
+      } catch (e: any) {
+        console.error(`[FNRH] Erro ao buscar check-ins de ${ciDate}:`, e.message);
       }
-    } catch (e: any) {
-      console.error(`[FNRH] Erro ao buscar check-ins:`, e.message);
     }
 
-    // ── CHECK-OUTS do dia e pendentes de ontem ────────────────────────────────
-    const checkoutDates = [today, yesterday];
-    for (const coDate of checkoutDates) {
+    // ── CHECK-OUTS ──────────────────────────────────────────────────
+    for (const coDate of processingDates) {
       try {
         const checkOuts = await erbonSearchBookings(erbonCfg, {
           checkout: coDate,
-          status: 'CHECK-OUT',
+          status: 'CHECKOUT',
         });
-        console.log(`[FNRH] ${checkOuts.length} check-outs de ${coDate}`);
-
-        for (const bk of checkOuts) {
-          try {
-            await processCheckout(db, hotelId, fnrhCfg, bk);
-          } catch (e: any) {
-            console.error(`[FNRH] Erro processando check-out ${bk.bookingInternalID}:`, e.message);
+        if (checkOuts.length > 0) {
+          console.log(`[FNRH] ${checkOuts.length} check-outs de ${coDate}`);
+          for (const bk of checkOuts) {
+            try {
+              await processCheckout(db, hotelId, fnrhCfg, bk);
+            } catch (e: any) {
+              console.error(`[FNRH] Erro processando check-out ${bk.bookingInternalID}:`, e.message);
+            }
           }
         }
       } catch (e: any) {
