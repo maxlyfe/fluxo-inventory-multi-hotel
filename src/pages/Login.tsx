@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   Lock, Mail, User, Eye, EyeOff, AlertCircle, Loader2,
-  Smartphone, Apple, Download, Info, ChevronRight, Chrome
+  Smartphone, Apple, Download, Info, ChevronRight, Chrome, UserPlus
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
