@@ -1080,12 +1080,12 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                     </React.Fragment>
                   ))}
 
-                  {/* ── Visitantes na imagem ── */}
+                  {/* ── De outra unidade na imagem ── */}
                   {transferredEmployees.length > 0 && (
                     <React.Fragment>
                       <tr style={{ background: '#6d28d9', color: 'white' }}>
                         <td style={{ padding: '5px 10px', fontWeight: 900, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'white' }}>
-                          Visitantes
+                          De outra unidade
                         </td>
                         {weekDays.map((day, i) => (
                           <td key={i} style={{
@@ -1226,7 +1226,7 @@ function TransferCellEditor({ entry, employee, hotels, onSave, onClose }: Transf
       {/* Info */}
       <div>
         <p className="text-[10px] font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wider mb-0.5">
-          Visitante{srcHotel ? ` · ${srcHotel.name}` : ''}
+          De outra unidade{srcHotel ? ` · ${srcHotel.name}` : ''}
         </p>
         <p className="text-sm font-semibold text-gray-900 dark:text-white">{employee.name}</p>
         <p className="text-xs text-gray-400">{employee.sector}</p>
@@ -1776,12 +1776,12 @@ export default function DPSchedule() {
                 </React.Fragment>
               ))}
 
-              {/* ── Visitantes: colaboradores transferidos de outros hotéis ── */}
+              {/* ── De outra unidade: colaboradores transferidos de outros hotéis ── */}
               {transferredEmployees.length > 0 && (
                 <React.Fragment>
                   <tr className="bg-violet-100 dark:bg-violet-900/30">
                     <td colSpan={9} className="px-4 py-2 text-xs font-black text-violet-700 dark:text-violet-300 uppercase tracking-widest sticky left-0 bg-violet-100 dark:bg-violet-900/30">
-                      Visitantes
+                      De outra unidade
                     </td>
                   </tr>
                   {transferredEmployees.map((emp, ei) => (
@@ -1810,7 +1810,7 @@ export default function DPSchedule() {
                         return (
                           <td key={di}
                             onClick={() => { if (!isLocked && txEntry) setTransferCellEditor({ entry: txEntry, employee: emp }); }}
-                            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : txEntry ? 'Definir horário do visitante' : undefined}
+                            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : txEntry ? 'Definir horário do colaborador visitante' : undefined}
                             className={`px-1 py-2 text-center transition-all
                               ${txEntry && !isLocked ? 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-violet-400' : ''}
                               ${isLocked ? 'cursor-not-allowed' : ''}
