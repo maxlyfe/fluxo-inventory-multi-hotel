@@ -845,6 +845,7 @@ interface ExportModalProps {
 
 function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrenceTypes, hotelName, weekLabel, transferredEmployees, transferEntries, onClose }: ExportModalProps) {
   const [selectedSectors, setSelectedSectors] = useState<string[]>(sectors);
+  const [showVisitors, setShowVisitors]       = useState(transferredEmployees.length > 0);
   const [generating, setGenerating]           = useState(false);
   const [copying, setCopying]                 = useState(false);
   const [copied, setCopied]                   = useState(false);
@@ -950,9 +951,9 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Setores</label>
               <div className="flex gap-2">
-                <button onClick={() => setSelectedSectors(sectors)}
+                <button onClick={() => { setSelectedSectors(sectors); setShowVisitors(transferredEmployees.length > 0); }}
                   className="text-xs text-blue-500 hover:underline">Todos</button>
-                <button onClick={() => setSelectedSectors([])}
+                <button onClick={() => { setSelectedSectors([]); setShowVisitors(false); }}
                   className="text-xs text-gray-400 hover:underline">Nenhum</button>
               </div>
             </div>
@@ -967,6 +968,16 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                   {s}
                 </button>
               ))}
+              {transferredEmployees.length > 0 && (
+                <button onClick={() => setShowVisitors(v => !v)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                    showVisitors
+                      ? 'bg-violet-500 border-violet-500 text-white'
+                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 hover:border-violet-300'
+                  }`}>
+                  De outra unidade
+                </button>
+              )}
             </div>
           </div>
 
@@ -1081,7 +1092,7 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                   ))}
 
                   {/* ── De outra unidade na imagem ── */}
-                  {transferredEmployees.length > 0 && (
+                  {showVisitors && transferredEmployees.length > 0 && (
                     <React.Fragment>
                       <tr style={{ background: '#6d28d9', color: 'white' }}>
                         <td style={{ padding: '5px 10px', fontWeight: 900, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'white' }}>
