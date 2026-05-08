@@ -977,10 +977,15 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                           {sector}
                         </td>
                         {weekDays.map((day, i) => (
-                          <td key={i} style={{ padding: '4px 4px', textAlign: 'center', fontWeight: 'bold', fontSize: 10,
-                            background: i === 0 || i === 7 ? '#4b5563' : '#374151', color: 'white' }}>
-                            <div>{DAY_LABELS[i]}</div>
-                            <div style={{ fontWeight: 'normal', opacity: 0.7, fontSize: 9 }}>{format(day, 'dd/MM')}</div>
+                          <td key={i} style={{
+                            padding: '4px 4px', textAlign: 'center', fontWeight: 'bold', fontSize: 10,
+                            verticalAlign: 'middle',
+                            background: i === 0 || i === 7 ? '#4b5563' : '#374151', color: 'white',
+                          }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                              <div>{DAY_LABELS[i]}</div>
+                              <div style={{ fontWeight: 'normal', opacity: 0.7, fontSize: 9 }}>{format(day, 'dd/MM')}</div>
+                            </div>
                           </td>
                         ))}
                       </tr>
@@ -999,6 +1004,11 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                               const ot = occurrenceTypes.find(o => o.id === entry.occurrence_type_id);
                               if (ot?.entry_type_key) t = ot.entry_type_key;
                             }
+
+                            // Meia dobra: nunca exibe horário na imagem (conformidade legal)
+                            const imageText = t === 'meia_dobra'
+                              ? { line1: text.line1, line2: undefined }
+                              : text;
 
                             // Cell background colors for image — cores vibrantes e distintas
                             const bgMap: Record<string, string> = {
@@ -1031,14 +1041,23 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
 
                             return (
                               <td key={di} style={{
-                                padding: '4px 2px', textAlign: 'center', fontSize: 10, fontWeight: 600,
+                                padding: '2px', textAlign: 'center', fontSize: 10, fontWeight: 600,
+                                verticalAlign: 'middle',
                                 background: bgMap[t] || (isSun ? '#f9fafb' : 'transparent'),
                                 color: textMap[t] || '#111827',
                                 borderRight: '1px solid #f3f4f6',
-                                lineHeight: 1.3,
                               }}>
-                                <div>{text.line1}</div>
-                                {text.line2 && <div style={{ fontSize: 8, opacity: 0.7 }}>{text.line2}</div>}
+                                {/* Flex container garante centralização vertical + horizontal */}
+                                <div style={{
+                                  display: 'flex', flexDirection: 'column',
+                                  alignItems: 'center', justifyContent: 'center',
+                                  minHeight: 34, gap: 1,
+                                }}>
+                                  <div style={{ lineHeight: 1.3 }}>{imageText.line1}</div>
+                                  {imageText.line2 && (
+                                    <div style={{ fontSize: 8, opacity: 0.75, lineHeight: 1.2 }}>{imageText.line2}</div>
+                                  )}
+                                </div>
                               </td>
                             );
                           })}

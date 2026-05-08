@@ -205,7 +205,8 @@ export default function MySchedule() {
                       <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${config?.classes || 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>
                         {entry.custom_label || displayLabel}
                       </span>
-                      {entry.entry_type === 'shift' && entry.shift_start && entry.shift_end && (
+                      {/* Horário visível apenas para turnos normais — meia_dobra nunca exibe (conformidade) */}
+                      {entry.entry_type === 'shift' && entry.entry_type !== 'meia_dobra' && entry.shift_start && entry.shift_end && (
                         <div className="flex items-center gap-1.5 mt-1.5 text-sm text-slate-600 dark:text-slate-300">
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
                           <span className="font-medium tabular-nums">
