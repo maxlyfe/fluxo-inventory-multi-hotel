@@ -838,10 +838,12 @@ interface ExportModalProps {
   occurrenceTypes: OccurrenceType[];
   hotelName: string;
   weekLabel: string;
+  transferredEmployees: Employee[];
+  transferEntries: ScheduleEntry[];
   onClose: () => void;
 }
 
-function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrenceTypes, hotelName, weekLabel, onClose }: ExportModalProps) {
+function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrenceTypes, hotelName, weekLabel, transferredEmployees, transferEntries, onClose }: ExportModalProps) {
   const [selectedSectors, setSelectedSectors] = useState<string[]>(sectors);
   const [generating, setGenerating]           = useState(false);
   const [copying, setCopying]                 = useState(false);
@@ -1077,6 +1079,65 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                       ))}
                     </React.Fragment>
                   ))}
+
+                  {/* ── Visitantes na imagem ── */}
+                  {transferredEmployees.length > 0 && (
+                    <React.Fragment>
+                      <tr style={{ background: '#6d28d9', color: 'white' }}>
+                        <td style={{ padding: '5px 10px', fontWeight: 900, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'white' }}>
+                          Visitantes
+                        </td>
+                        {weekDays.map((day, i) => (
+                          <td key={i} style={{
+                            padding: '4px 4px', textAlign: 'center', fontWeight: 'bold', fontSize: 10,
+                            verticalAlign: 'middle',
+                            background: i === 0 || i === 7 ? '#5b21b6' : '#6d28d9', color: 'white',
+                          }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                              <div>{DAY_LABELS[i]}</div>
+                              <div style={{ fontWeight: 'normal', opacity: 0.7, fontSize: 9 }}>{format(day, 'dd/MM')}</div>
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                      {transferredEmployees.map((emp, ei) => (
+                        <tr key={emp.id} style={{ background: ei % 2 === 0 ? '#faf5ff' : '#f3e8ff', borderBottom: '2px solid #ddd6fe' }}>
+                          <td style={{ padding: '5px 10px', fontWeight: 600, fontSize: 10, color: '#4c1d95', borderRight: '1px solid #e5e7eb' }}>
+                            {emp.name.split(' ').slice(0, 2).join(' ')}
+                            <div style={{ fontSize: 8, fontWeight: 'normal', color: '#7c3aed', opacity: 0.8 }}>↗ {emp.sector}</div>
+                          </td>
+                          {weekDays.map((day, di) => {
+                            const dayStr  = format(day, 'yyyy-MM-dd');
+                            const txEntry = transferEntries.find(e => e.employee_id === emp.id && e.day_date === dayStr);
+                            const hasTime = txEntry?.shift_start && txEntry?.shift_end;
+                            const isSun   = di === 0 || di === 7;
+                            return (
+                              <td key={di} style={{
+                                padding: '2px', textAlign: 'center', fontSize: 10, fontWeight: 600,
+                                verticalAlign: 'middle',
+                                background: txEntry ? '#c4b5fd' : (isSun ? '#f5f3ff' : 'transparent'),
+                                color: txEntry ? '#4c1d95' : '#d1d5db',
+                                borderRight: '1px solid #f3f4f6',
+                              }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 34, gap: 1 }}>
+                                  {txEntry ? (
+                                    <>
+                                      <div style={{ lineHeight: 1.3 }}>Visita</div>
+                                      {hasTime && (
+                                        <div style={{ fontSize: 8, opacity: 0.85, lineHeight: 1.2 }}>
+                                          {txEntry.shift_start!.slice(0, 5)} – {txEntry.shift_end!.slice(0, 5)}
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : '·'}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1505,6 +1566,7 @@ export default function DPSchedule() {
           sectors={activeSectors} employees={employees}
           weekDays={weekDays} entries={entries}
           hotels={hotels} occurrenceTypes={occurrenceTypes} hotelName={hotelName} weekLabel={weekLabel}
+          transferredEmployees={transferredEmployees} transferEntries={transferEntries}
           onClose={() => setShowExport(false)}
         />
       )}
