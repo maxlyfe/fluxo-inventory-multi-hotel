@@ -407,7 +407,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     onClose();
   };
 
-  const canSave = selection.kind !== 'occurrence' || !!selection.ot;
+  const canSave = (selection.kind !== 'occurrence' || !!selection.ot)
+    && (!needsHotelSelector || !!transferHotel);
 
   const maxH = window.innerHeight - 24;
   const style: React.CSSProperties = {
@@ -474,11 +475,22 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
         {/* ── Campo: hotel de transferência ── */}
         {needsHotelSelector && (
-          <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
-            className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
-            <option value="">Selecione a unidade...</option>
-            {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-          </select>
+          <div>
+            <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
+              className={`w-full px-3 py-1.5 text-xs border rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400 appearance-none ${
+                !transferHotel
+                  ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300'
+                  : 'border-gray-200 dark:border-gray-600'
+              }`}>
+              <option value="">⚠ Selecione a unidade destino...</option>
+              {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+            {!transferHotel && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 ml-1">
+                Obrigatório para registrar a transferência
+              </p>
+            )}
+          </div>
         )}
 
         {/* ── Seção expansível: Gerenciar tipos ── */}
@@ -1108,6 +1120,80 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
 }
 
 // ---------------------------------------------------------------------------
+// Transfer Cell Editor — Modal simplificado para Hotel Destino definir horário
+// ---------------------------------------------------------------------------
+interface TransferCellEditorProps {
+  entry: ScheduleEntry;
+  employee: Employee;
+  hotels: Hotel[];
+  onSave: (entryId: string, start: string, end: string) => Promise<void>;
+  onClose: () => void;
+}
+
+function TransferCellEditor({ entry, employee, hotels, onSave, onClose }: TransferCellEditorProps) {
+  const [start, setStart]   = useState(entry.shift_start?.slice(0, 5) || '');
+  const [end, setEnd]       = useState(entry.shift_end?.slice(0, 5) || '');
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Find source hotel name
+  const srcHotel = hotels.find(h => h.id !== entry.transfer_hotel_id);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const t = setTimeout(() => document.addEventListener('mousedown', h), 60);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', h); };
+  }, [onClose]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(entry.id!, start, end);
+    setSaving(false);
+    onClose();
+  };
+
+  const style: React.CSSProperties = {
+    position: 'fixed', top: '50%', left: '50%',
+    transform: 'translate(-50%, -50%)', zIndex: 200,
+  };
+
+  return (
+    <div ref={ref} style={style}
+      className="w-72 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+      {/* Info */}
+      <div>
+        <p className="text-[10px] font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wider mb-0.5">
+          Visitante{srcHotel ? ` · ${srcHotel.name}` : ''}
+        </p>
+        <p className="text-sm font-semibold text-gray-900 dark:text-white">{employee.name}</p>
+        <p className="text-xs text-gray-400">{employee.sector}</p>
+      </div>
+      {/* Time picker */}
+      <div className="flex gap-2 items-center">
+        <input type="time" value={start} onChange={e => setStart(e.target.value)}
+          className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400" />
+        <span className="text-xs text-gray-400">AS</span>
+        <input type="time" value={end} onChange={e => setEnd(e.target.value)}
+          className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400" />
+      </div>
+      {/* Buttons */}
+      <div className="flex gap-2">
+        <button onClick={onClose}
+          className="flex-1 py-1.5 text-xs font-semibold text-gray-400 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+          Cancelar
+        </button>
+        <button onClick={handleSave} disabled={saving}
+          className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-violet-500 hover:bg-violet-600 text-white rounded-xl disabled:opacity-60 transition-colors">
+          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Salvar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 export default function DPSchedule() {
@@ -1141,6 +1227,14 @@ export default function DPSchedule() {
   const [autoFillEmp, setAutoFillEmp] = useState<Employee | null>(null);
   const [showExport, setShowExport]   = useState(false);
   const [occurrenceTypes, setOccurrenceTypes] = useState<OccurrenceType[]>([]);
+
+  // Transferências recebidas: colaboradores de outros hotéis escalados aqui esta semana
+  const [transferredEmployees, setTransferredEmployees] = useState<Employee[]>([]);
+  const [transferEntries, setTransferEntries]           = useState<ScheduleEntry[]>([]);
+  const [transferCellEditor, setTransferCellEditor]     = useState<{
+    entry: ScheduleEntry;
+    employee: Employee;
+  } | null>(null);
 
   // 8 days: Sunday of week → Sunday of next week
   const weekDays = Array.from({ length: 8 }, (_, i) => addDays(weekStart, i));
@@ -1198,6 +1292,32 @@ export default function DPSchedule() {
           .from('schedule_entries').select('*').eq('schedule_id', sched.id);
         setEntries((entryData || []) as ScheduleEntry[]);
       }
+
+      // ── Colaboradores transferidos PARA este hotel esta semana ──────────
+      const weekStartStr2 = format(weekStart, 'yyyy-MM-dd');
+      const weekEndStr2   = format(addDays(weekStart, 7), 'yyyy-MM-dd');
+      console.log('[DPSchedule] transfer query →', { hotelId, weekStartStr2, weekEndStr2 });
+      const { data: txData, error: txError } = await supabase
+        .from('schedule_entries')
+        .select('*')
+        .eq('transfer_hotel_id', hotelId)
+        .gte('day_date', weekStartStr2)
+        .lte('day_date', weekEndStr2);
+
+      console.log('[DPSchedule] transfer result →', { count: txData?.length, txData, txError });
+
+      if (txData && txData.length > 0) {
+        const txEmpIds = [...new Set((txData as ScheduleEntry[]).map(e => e.employee_id))];
+        const { data: txEmps } = await supabase
+          .from('employees')
+          .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end')
+          .in('id', txEmpIds);
+        setTransferredEmployees((txEmps || []) as Employee[]);
+        setTransferEntries(txData as ScheduleEntry[]);
+      } else {
+        setTransferredEmployees([]);
+        setTransferEntries([]);
+      }
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar escala.');
     } finally {
@@ -1228,6 +1348,18 @@ export default function DPSchedule() {
         if (data) setEntries(prev => [...prev, data as ScheduleEntry]);
       }
     } catch (e) { console.error('Erro ao salvar célula:', e); }
+  };
+
+  const saveTransferEntry = async (entryId: string, start: string, end: string) => {
+    const { data } = await supabase
+      .from('schedule_entries')
+      .update({ shift_start: start || null, shift_end: end || null, updated_by: user?.id })
+      .eq('id', entryId)
+      .select()
+      .single();
+    if (data) {
+      setTransferEntries(prev => prev.map(e => e.id === entryId ? data as ScheduleEntry : e));
+    }
   };
 
   const fillWeek = async (toInsert: Partial<ScheduleEntry>[]) => {
@@ -1359,6 +1491,15 @@ export default function DPSchedule() {
           onFill={fillWeek} onClose={() => setAutoFillEmp(null)}
         />
       )}
+      {transferCellEditor && (
+        <TransferCellEditor
+          entry={transferCellEditor.entry}
+          employee={transferCellEditor.employee}
+          hotels={hotels}
+          onSave={saveTransferEntry}
+          onClose={() => setTransferCellEditor(null)}
+        />
+      )}
       {showExport && (
         <ExportModal
           sectors={activeSectors} employees={employees}
@@ -1459,15 +1600,15 @@ export default function DPSchedule() {
       )}
 
       {/* Hint */}
-      {hotelId && employees.length > 0 && (
+      {hotelId && (employees.length > 0 || transferredEmployees.length > 0) && (
         <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
           <Zap className="h-3.5 w-3.5 text-blue-400" />
           <span>Clique no <strong className="text-blue-500">nome</strong> para auto-preencher · Clique em qualquer <strong>célula</strong> para editar</span>
         </div>
       )}
 
-      {/* Schedule table */}
-      {hotelId && employees.length > 0 && (
+      {/* Schedule table — mostra se há próprios OU visitantes */}
+      {hotelId && (employees.length > 0 || transferredEmployees.length > 0) && (
         <div className="overflow-x-auto overflow-y-auto rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm" style={{ maxHeight: 'calc(100vh - 220px)' }}>
           <table className="w-full border-collapse text-xs" style={{ minWidth: 920 }}>
             <thead className="sticky top-0 z-20">
@@ -1572,13 +1713,76 @@ export default function DPSchedule() {
                   ))}
                 </React.Fragment>
               ))}
+
+              {/* ── Visitantes: colaboradores transferidos de outros hotéis ── */}
+              {transferredEmployees.length > 0 && (
+                <React.Fragment>
+                  <tr className="bg-violet-100 dark:bg-violet-900/30">
+                    <td colSpan={9} className="px-4 py-2 text-xs font-black text-violet-700 dark:text-violet-300 uppercase tracking-widest sticky left-0 bg-violet-100 dark:bg-violet-900/30">
+                      Visitantes
+                    </td>
+                  </tr>
+                  {transferredEmployees.map((emp, ei) => (
+                    <tr key={emp.id}
+                      className={`border-b border-violet-100 dark:border-violet-900/40 ${
+                        ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-violet-50/30 dark:bg-violet-900/10'
+                      }`}>
+                      {/* Nome */}
+                      <td className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-violet-100 dark:border-violet-900/40">
+                        <div className="flex items-center gap-1">
+                          <span className="font-semibold text-xs text-gray-800 dark:text-gray-100 whitespace-nowrap">
+                            {emp.name.split(' ')[0]}&nbsp;
+                            <span className="text-gray-400 font-normal">
+                              {emp.name.split(' ').slice(1, 2).join('')?.charAt(0) || ''}.
+                            </span>
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-violet-500 dark:text-violet-400">↗ {emp.sector}</span>
+                      </td>
+                      {/* Células */}
+                      {weekDays.map((day, di) => {
+                        const dayStr  = format(day, 'yyyy-MM-dd');
+                        const txEntry = transferEntries.find(e => e.employee_id === emp.id && e.day_date === dayStr);
+                        const isSun   = di === 0 || di === 7;
+                        const hasTime = txEntry?.shift_start && txEntry?.shift_end;
+                        return (
+                          <td key={di}
+                            onClick={() => { if (!isLocked && txEntry) setTransferCellEditor({ entry: txEntry, employee: emp }); }}
+                            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : txEntry ? 'Definir horário do visitante' : undefined}
+                            className={`px-1 py-2 text-center transition-all
+                              ${txEntry && !isLocked ? 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-violet-400' : ''}
+                              ${isLocked ? 'cursor-not-allowed' : ''}
+                              ${isSun ? 'bg-gray-50/60 dark:bg-gray-900/20' : ''}
+                              bg-violet-50/50 dark:bg-violet-900/10
+                            `}>
+                            {txEntry ? (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="text-[10px] font-bold text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-900/40 px-1.5 py-0.5 rounded-full leading-tight">
+                                  Visita
+                                </span>
+                                {hasTime && (
+                                  <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-tight">
+                                    {txEntry.shift_start!.slice(0, 5)} – {txEntry.shift_end!.slice(0, 5)}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-gray-200 dark:text-gray-700 text-[11px]">·</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </React.Fragment>
+              )}
             </tbody>
           </table>
         </div>
       )}
 
       {/* Legend */}
-      {hotelId && employees.length > 0 && (
+      {hotelId && (employees.length > 0 || transferredEmployees.length > 0) && (
         <div className="flex flex-wrap gap-2">
           {[...occurrenceTypes].sort((a, b) => a.sort_order - b.sort_order).map(ot => {
             const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
