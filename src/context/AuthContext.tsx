@@ -180,9 +180,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async () => {
     try {
+      // Detecta se está rodando dentro do Capacitor (App)
+      const isApp = window.hasOwnProperty('Capacitor');
+      const redirectTo = isApp 
+        ? 'com.lyfe.fluxo://login-callback' 
+        : `${window.location.origin}/`;
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${window.location.origin}/`, queryParams: { prompt: 'select_account' } },
+        options: { 
+          redirectTo, 
+          queryParams: { prompt: 'select_account' } 
+        },
       });
       if (error) return { success: false, message: error.message };
       return { success: true };
