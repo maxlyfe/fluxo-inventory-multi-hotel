@@ -748,9 +748,9 @@ const Inventory = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar px-1 snap-x snap-mandatory">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar px-1" style={{ touchAction: 'pan-x' }}>
           <button onClick={() => setShowStarredModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight snap-start">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0 text-[11px] sm:text-xs font-bold uppercase tracking-tight">
             <Star className="w-3 h-3 fill-current" /> Favoritos
             {starredProducts.length > 0 && (
               <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400 dark:bg-amber-600 text-white text-[9px] font-black">{starredProducts.length}</span>
