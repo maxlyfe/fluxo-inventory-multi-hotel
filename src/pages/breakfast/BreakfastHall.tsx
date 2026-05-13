@@ -382,69 +382,132 @@ interface GuestCardProps {
 
 const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, onUpdate }) => {
   const status = guest.record?.status || 'pending';
-  
+  const [showFullNames, setShowFullNames] = useState(false);
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const startPress = () => {
+    timerRef.current = setTimeout(() => {
+      setShowFullNames(true);
+      if (window.navigator.vibrate) window.navigator.vibrate(50);
+    }, 1000);
+  };
+
+  const endPress = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-2xl border transition-all shadow-sm ${
-      status === 'checked_in' ? 'border-emerald-200 dark:border-emerald-800/40 opacity-70' :
-      status === 'kit_requested' ? 'border-amber-200 dark:border-amber-800/40 opacity-70' :
-      'border-gray-100 dark:border-gray-700 hover:border-orange-200'
-    }`}>
-      <div className="p-4 flex items-center gap-4">
-        {/* Room Box */}
-        <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center flex-shrink-0 shadow-sm ${
-          status === 'checked_in' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' :
-          status === 'kit_requested' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
-          'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-        }`}>
-          <span className="text-[10px] uppercase font-black opacity-50 leading-none mb-1">UH</span>
-          <span className="text-lg font-black leading-none">{guest.roomDescription}</span>
-        </div>
+    <>
+      <div className={`bg-white dark:bg-gray-800 rounded-2xl border transition-all shadow-sm ${
+        status === 'checked_in' ? 'border-emerald-200 dark:border-emerald-800/40 opacity-70' :
+        status === 'kit_requested' ? 'border-amber-200 dark:border-amber-800/40 opacity-70' :
+        'border-gray-100 dark:border-gray-700 hover:border-orange-200'
+      }`}>
+        <div className="p-3 md:p-4 flex items-center gap-3 md:gap-4">
+          {/* Room Box */}
+          <div className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex flex-col items-center justify-center flex-shrink-0 shadow-sm ${
+            status === 'checked_in' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' :
+            status === 'kit_requested' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+            'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+          }`}>
+            <span className="text-[8px] md:text-[10px] uppercase font-black opacity-50 leading-none mb-0.5 md:mb-1">UH</span>
+            <span className="text-base md:text-lg font-black leading-none">{guest.roomDescription}</span>
+          </div>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-gray-800 dark:text-white truncate">{guest.guestName}</h3>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{guest.mealPlan}</p>
-          {guest.record?.consumed_at && (
-            <p className="text-[10px] font-bold text-emerald-600 mt-1 uppercase">Entrada às {format(parseISO(guest.record.consumed_at), 'HH:mm')}</p>
-          )}
-        </div>
+          {/* Info */}
+          <div 
+            className="flex-1 min-w-0 cursor-help"
+            onTouchStart={startPress}
+            onTouchEnd={endPress}
+            onMouseDown={startPress}
+            onMouseUp={endPress}
+            onMouseLeave={endPress}
+          >
+            <h3 className="font-bold text-gray-800 dark:text-white truncate text-sm md:text-base">{guest.guestName}</h3>
+            <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">{guest.mealPlan}</p>
+            {guest.record?.consumed_at && (
+              <p className="text-[9px] md:text-[10px] font-bold text-emerald-600 mt-0.5 md:mt-1 uppercase">Entrada às {format(parseISO(guest.record.consumed_at), 'HH:mm')}</p>
+            )}
+          </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          {status === 'pending' ? (
-            <>
+          {/* Actions */}
+          <div className="flex items-center gap-1.5 md:gap-2">
+            {status === 'pending' ? (
+              <>
+                <button
+                  onClick={() => onUpdate('kit_requested')}
+                  disabled={isUpdating}
+                  className="w-10 h-10 md:w-12 md:h-12 rounded-xl border border-amber-200 dark:border-amber-800/50 flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-amber-50"
+                  title="Solicitar Kit"
+                >
+                  {isUpdating ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <Package className="w-4 h-4 md:w-5 md:h-5" />}
+                </button>
+                <button
+                  onClick={() => onUpdate('checked_in')}
+                  disabled={isUpdating}
+                  className="px-4 md:px-6 h-10 md:h-12 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs md:text-sm transition-all flex items-center gap-1.5 md:gap-2"
+                >
+                  {isUpdating ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" /> : <LogIn className="w-3.5 h-3.5 md:w-4 md:h-4" />}
+                  <span className="hidden xs:inline">ENTRADA</span>
+                  <span className="xs:hidden">IN</span>
+                </button>
+              </>
+            ) : (
               <button
-                onClick={() => onUpdate('kit_requested')}
+                onClick={() => onUpdate('pending')}
                 disabled={isUpdating}
-                className="w-12 h-12 rounded-xl border border-amber-200 dark:border-amber-800/50 flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-amber-50"
+                className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-xl border font-bold text-[10px] md:text-xs ${
+                  status === 'checked_in' ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 text-emerald-700' :
+                  'bg-amber-50 dark:bg-amber-900/10 border-amber-200 text-amber-700'
+                }`}
               >
-                {isUpdating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Package className="w-5 h-5" />}
+                {isUpdating ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" /> : <UtensilsCrossed className="w-3.5 h-3.5 md:w-4 md:h-4 rotate-45" />}
+                <span className="hidden xs:inline">REVERTER</span>
+                <span className="xs:hidden">REV</span>
               </button>
-              <button
-                onClick={() => onUpdate('checked_in')}
-                disabled={isUpdating}
-                className="px-6 h-12 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black text-sm transition-all flex items-center gap-2"
-              >
-                {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-                ENTRADA
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => onUpdate('pending')}
-              disabled={isUpdating}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-xs ${
-                status === 'checked_in' ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 text-emerald-700' :
-                'bg-amber-50 dark:bg-amber-900/10 border-amber-200 text-amber-700'
-              }`}
-            >
-              {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <UtensilsCrossed className="w-4 h-4 rotate-45" />}
-              REVERTER
-            </button>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Full Name Modal (Overlay) */}
+      {showFullNames && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setShowFullNames(false)}
+        >
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-[2rem] shadow-2xl border border-white/20 text-center max-w-sm w-full transform animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6 text-orange-600 dark:text-orange-400">
+              <Users className="w-8 h-8" />
+            </div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Nome Completo</p>
+            <h2 className="text-2xl font-black text-gray-900 dark:text-white leading-tight mb-4">
+              {guest.guestName}
+            </h2>
+            <div className="flex items-center justify-center gap-4 py-3 border-y border-gray-100 dark:border-gray-700">
+              <div className="text-center">
+                <p className="text-[9px] font-bold text-gray-400 uppercase">UH</p>
+                <p className="font-black text-gray-800 dark:text-white">{guest.roomDescription}</p>
+              </div>
+              <div className="w-px h-8 bg-gray-100 dark:bg-gray-700" />
+              <div className="text-center">
+                <p className="text-[9px] font-bold text-gray-400 uppercase">Reserva</p>
+                <p className="font-black text-gray-800 dark:text-white">{guest.bookingNumber}</p>
+              </div>
+            </div>
+            <button 
+              className="mt-8 w-full py-4 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white rounded-xl font-bold"
+              onClick={() => setShowFullNames(false)}
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
