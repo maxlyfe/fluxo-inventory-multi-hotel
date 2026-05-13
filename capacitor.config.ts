@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.lyfe.fluxo',
-  appName: 'Fluxo',
+  appName: 'LyFe Hoteles',
   webDir: 'dist',
   server: {
     url: 'https://meridiana.netlify.app',

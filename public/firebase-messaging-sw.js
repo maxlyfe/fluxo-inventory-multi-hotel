@@ -27,7 +27,7 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[SW] Mensagem recebida em background:', payload);
 
-  const title = payload.notification?.title || payload.data?.title || 'Fluxo Inventory';
+  const title = payload.notification?.title || payload.data?.title || 'LyFe Hoteles';
   const body  = payload.notification?.body  || payload.data?.body  || 'Você tem uma nova notificação.';
   const icon  = payload.notification?.icon  || '/icon-192x192.png';
   const badge = '/icon-72x72.png';

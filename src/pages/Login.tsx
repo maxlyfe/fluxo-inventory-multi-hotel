@@ -408,7 +408,7 @@ const Login: React.FC = () => {
           <div className="w-full max-w-md bg-gray-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="px-6 py-8 text-center bg-gradient-to-br from-amber-500/10 to-blue-500/10 border-b border-white/5">
               <Smartphone className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-              <h2 className="text-xl font-black text-white uppercase tracking-tight">Aplicativo Fluxo</h2>
+              <h2 className="text-xl font-black text-white uppercase tracking-tight">LyFe Hoteles</h2>
               <p className="text-sm text-white/40 mt-1">Escolha sua plataforma para começar</p>
             </div>
 
