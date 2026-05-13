@@ -114,6 +114,11 @@ import BookingSearch     from './pages/erbon/BookingSearch';
 import RoomAvailability  from './pages/erbon/RoomAvailability';
 import Planning          from './pages/erbon/Planning';
 
+// ── Pages — Café da Manhã ──────────────────────────────────────────────────
+import BreakfastHall      from './pages/breakfast/BreakfastHall';
+import BreakfastKitchen   from './pages/breakfast/BreakfastKitchen';
+import BreakfastSettings  from './pages/breakfast/BreakfastSettings';
+
 // ── Components ────────────────────────────────────────────────────────────────
 import PrivateRoute from './components/PrivateRoute';
 import MainLayout   from './components/MainLayout';
@@ -614,6 +619,23 @@ function App() {
                     <Route path="/reception/fnrh-fichas" element={
                       <PrivateRoute module="reception">
                         <FNRHReception />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Café da Manhã ────────────────────────────────────── */}
+                    <Route path="/breakfast/hall" element={
+                      <PrivateRoute module="breakfast">
+                        <BreakfastHall />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/breakfast/kitchen" element={
+                      <PrivateRoute module="breakfast">
+                        <BreakfastKitchen />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/breakfast/settings" element={
+                      <PrivateRoute module="management">
+                        <BreakfastSettings />
                       </PrivateRoute>
                     } />
 

@@ -45,6 +45,7 @@ export const MODULES: Module[] = [
   { key: 'directors_dashboard',  label: 'Dashboard Diretoria',  description: 'KPIs consolidados e comparativo de hotéis', group: 'Área Administrativa', icon: 'BarChart3'     },
   { key: 'webcheckin_mgmt',      label: 'Gestão Web Check-in',  description: 'Monitoramento e config de web check-in',   group: 'Área Administrativa', icon: 'MonitorSmartphone' },
   { key: 'weekly_control',       label: 'Controle Semanal',     description: 'Lançamentos semanais de consumo e quebra', group: 'Área Administrativa', icon: 'Calendar'       },
+  { key: 'breakfast',            label: 'Café da Manhã',        description: 'Checklist salão e dashboard cozinha',      group: 'Área Administrativa', icon: 'Coffee'         },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },

@@ -17,7 +17,7 @@ import {
   Settings as SettingsIcon, Package, Shield, ShieldAlert,
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
-  MonitorSmartphone, Store, TrendingUp,
+  MonitorSmartphone, Store, TrendingUp, Coffee,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -190,6 +190,18 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'reception', label: 'In House',        href: '/reception/inhouse',      icon: Users,         iconName: 'Users',         color: '#3b82f6' },
       { module: 'reception', label: 'Fichas Web CI',   href: '/reception/wci-fichas',   icon: ClipboardList, iconName: 'ClipboardList', color: '#0085ae' },
       { module: 'reception', label: 'FNRH Gov',        href: '/reception/fnrh-fichas',  icon: Send,          iconName: 'Send',          color: '#10b981' },
+    ],
+  },
+  {
+    key: 'breakfast',
+    label: 'Café da Manhã',
+    icon: Coffee,
+    module: 'breakfast',
+    activePrefixes: ['/breakfast'],
+    items: [
+      { module: 'breakfast', label: 'Checklist Salão', href: '/breakfast/hall',    icon: ClipboardList, iconName: 'ClipboardList', color: '#f59e0b' },
+      { module: 'breakfast', label: 'Dashboard Cozinha', href: '/breakfast/kitchen', icon: LayoutGrid,    iconName: 'LayoutGrid',    color: '#0ea5e9' },
+      { module: 'management', label: 'Configurações',   href: '/breakfast/settings', icon: SettingsIcon,  iconName: 'Settings',      color: '#6366f1' },
     ],
   },
   {
