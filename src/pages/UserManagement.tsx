@@ -8,6 +8,8 @@ import {
   ShieldOff, ShieldCheck, UserX, Loader2, LogOut,
   Search, MoreVertical, Camera, Package, RotateCcw,
   BadgeCheck, BellOff, BellRing, ChevronDown,
+  Inbox, DollarSign, Ban, Wrench, Sparkles, Hotel,
+  Receipt, ArrowLeftRight, MapPin, Building2, Filter,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -96,21 +98,24 @@ function getRoleConfig(
   return { label: role, color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-700', dot: 'bg-gray-400' };
 }
 
-const NOTIF_LABELS: Record<string, string> = {
-  NEW_REQUEST:              'Nova requisição',
-  ITEM_DELIVERED_TO_SECTOR: 'Item entregue ao setor',
-  REQUEST_REJECTED:         'Requisição rejeitada',
-  REQUEST_SUBSTITUTED:      'Requisição substituída',
-  NEW_BUDGET:               'Novo orçamento',
-  BUDGET_APPROVED:          'Orçamento aprovado',
-  BUDGET_CANCELLED:         'Orçamento cancelado',
-  EXP_CONTRACT_ENDING_SOON: 'Contrato vence em 5 dias',
-  EXP_CONTRACT_ENDS_TODAY:  'Contrato vence hoje',
-  room_needs_maintenance:   'UH — Solicita vistoria de manutenção',
-  room_dirty:               'UH — Ficou suja',
-  room_clean:               'UH — Ficou limpa',
-  room_maint_ok:            'UH — Liberada pelo checklist de manutenção',
+interface NotifConfig { label: string; icon: React.ElementType; iconColor: string; iconBg: string; }
+const NOTIF_CONFIG: Record<string, NotifConfig> = {
+  NEW_REQUEST:              { label: 'Nova requisição',                   icon: Inbox,          iconColor: 'text-blue-600 dark:text-blue-400',    iconBg: 'bg-blue-100 dark:bg-blue-900/40' },
+  ITEM_DELIVERED_TO_SECTOR: { label: 'Item entregue ao setor',           icon: Package,        iconColor: 'text-green-600 dark:text-green-400',  iconBg: 'bg-green-100 dark:bg-green-900/40' },
+  REQUEST_REJECTED:         { label: 'Requisição rejeitada',             icon: XCircle,        iconColor: 'text-red-600 dark:text-red-400',      iconBg: 'bg-red-100 dark:bg-red-900/40' },
+  REQUEST_SUBSTITUTED:      { label: 'Requisição substituída',           icon: ArrowLeftRight, iconColor: 'text-orange-600 dark:text-orange-400',iconBg: 'bg-orange-100 dark:bg-orange-900/40' },
+  NEW_BUDGET:               { label: 'Novo orçamento',                   icon: Receipt,        iconColor: 'text-violet-600 dark:text-violet-400',iconBg: 'bg-violet-100 dark:bg-violet-900/40' },
+  BUDGET_APPROVED:          { label: 'Orçamento aprovado',               icon: CheckCircle,    iconColor: 'text-emerald-600 dark:text-emerald-400',iconBg: 'bg-emerald-100 dark:bg-emerald-900/40' },
+  BUDGET_CANCELLED:         { label: 'Orçamento cancelado',              icon: Ban,            iconColor: 'text-red-600 dark:text-red-400',      iconBg: 'bg-red-100 dark:bg-red-900/40' },
+  EXP_CONTRACT_ENDING_SOON: { label: 'Contrato vence em 5 dias',         icon: Clock,          iconColor: 'text-amber-600 dark:text-amber-400',  iconBg: 'bg-amber-100 dark:bg-amber-900/40' },
+  EXP_CONTRACT_ENDS_TODAY:  { label: 'Contrato vence hoje',              icon: AlertTriangle,  iconColor: 'text-red-600 dark:text-red-400',      iconBg: 'bg-red-100 dark:bg-red-900/40' },
+  room_needs_maintenance:   { label: 'UH — Solicita vistoria',           icon: Wrench,         iconColor: 'text-orange-600 dark:text-orange-400',iconBg: 'bg-orange-100 dark:bg-orange-900/40' },
+  room_dirty:               { label: 'UH — Ficou suja',                  icon: Hotel,          iconColor: 'text-amber-600 dark:text-amber-400',  iconBg: 'bg-amber-100 dark:bg-amber-900/40' },
+  room_clean:               { label: 'UH — Ficou limpa',                 icon: Sparkles,       iconColor: 'text-teal-600 dark:text-teal-400',    iconBg: 'bg-teal-100 dark:bg-teal-900/40' },
+  room_maint_ok:            { label: 'UH — Liberada pela manutenção',    icon: ShieldCheck,    iconColor: 'text-green-600 dark:text-green-400',  iconBg: 'bg-green-100 dark:bg-green-900/40' },
 };
+// Compat helper
+const notifLabel = (key: string) => NOTIF_CONFIG[key]?.label || key;
 
 // ---------------------------------------------------------------------------
 // Edge Function caller
@@ -512,6 +517,7 @@ const UserManagement = () => {
   const [selHotelFilter, setSelHotelFilter]   = useState<string | undefined>(undefined);
   const [allSectors, setAllSectors]           = useState(false);
   const [showInactive, setShowInactive]       = useState(false);
+  const [selectedRole, setSelectedRole]       = useState<string | null>(null); // null = todos
 
   // ---------------------------------------------------------------------------
   // Toast helpers
@@ -770,7 +776,24 @@ const UserManagement = () => {
   // ---------------------------------------------------------------------------
 
   const q = search.trim().toLowerCase();
-  const activeUsers   = users.filter(u => !isUserDisabled(u)).filter(u => !q || u.email.toLowerCase().includes(q) || (u.custom_role_name || u.role).toLowerCase().includes(q));
+
+  // Role filter chips — construídos dinamicamente a partir dos customRoles presentes nos usuários
+  const roleChips = React.useMemo(() => {
+    const map = new Map<string, { id: string; name: string; color: string; count: number }>();
+    users.filter(u => !isUserDisabled(u)).forEach(u => {
+      const key  = u.custom_role_id || u.role;
+      const name = u.custom_role_name || customRoles.find(r => r.id === u.custom_role_id)?.name || u.role;
+      const color = customRoles.find(r => r.id === u.custom_role_id)?.color || '#6b7280';
+      if (map.has(key)) { map.get(key)!.count++; }
+      else { map.set(key, { id: key, name, color, count: 1 }); }
+    });
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [users, customRoles]);
+
+  const activeUsers   = users
+    .filter(u => !isUserDisabled(u))
+    .filter(u => !selectedRole || (u.custom_role_id || u.role) === selectedRole)
+    .filter(u => !q || u.email.toLowerCase().includes(q) || (u.custom_role_name || u.role).toLowerCase().includes(q));
   const inactiveUsers = users.filter(u =>  isUserDisabled(u)).filter(u => !q || u.email.toLowerCase().includes(q));
   const totalActive   = users.filter(u => !isUserDisabled(u)).length;
   const totalInactive = users.filter(u =>  isUserDisabled(u)).length;
@@ -890,6 +913,50 @@ const UserManagement = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ── Role filter chips ──────────────────────────────────────────── */}
+      {!loading && roleChips.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar" style={{ touchAction: 'pan-x' }}>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 flex-shrink-0">
+            <Filter className="h-3 w-3" />
+          </div>
+          {/* Chip "Todos" */}
+          <button
+            onClick={() => setSelectedRole(null)}
+            className={`flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-bold flex-shrink-0 transition-all border ${
+              selectedRole === null
+                ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-transparent shadow-sm'
+                : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+            }`}
+          >
+            Todos
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
+              selectedRole === null ? 'bg-white/20 dark:bg-black/20' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+            }`}>{totalActive}</span>
+          </button>
+          {roleChips.map(chip => (
+            <button
+              key={chip.id}
+              onClick={() => setSelectedRole(prev => prev === chip.id ? null : chip.id)}
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-bold flex-shrink-0 transition-all border ${
+                selectedRole === chip.id
+                  ? 'border-transparent shadow-sm text-white'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+              }`}
+              style={selectedRole === chip.id ? { backgroundColor: chip.color, borderColor: chip.color } : {}}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: selectedRole === chip.id ? 'rgba(255,255,255,0.7)' : chip.color }}
+              />
+              {chip.name}
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
+                selectedRole === chip.id ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+              }`}>{chip.count}</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -1182,7 +1249,7 @@ const UserManagement = () => {
                       <FormField label="Tipo de notificação" required>
                         <select value={currentPref.notification_type_id || ''} onChange={handleNotifTypeChange} className={inputCls} required>
                           <option value="">Selecione...</option>
-                          {notifTypes.map(t => <option key={t.id} value={t.id}>{NOTIF_LABELS[t.event_key] || t.event_key}</option>)}
+                          {notifTypes.map(t => <option key={t.id} value={t.id}>{notifLabel(t.event_key)}</option>)}
                         </select>
                       </FormField>
 
@@ -1255,35 +1322,47 @@ const UserManagement = () => {
                       </div>
                     </div>
                   ) : userPrefs.length > 0 && (
-                    <div className="space-y-2">
-                      {userPrefs.map(pref => (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {userPrefs.map(pref => {
+                        const eventKey = pref.notification_types?.event_key || '';
+                        const cfg = NOTIF_CONFIG[eventKey];
+                        const IconComp = cfg?.icon || Bell;
+                        return (
                         <div key={pref.id}
-                          className={`flex items-start gap-3 p-4 rounded-2xl border transition-colors
+                          className={`relative flex flex-col gap-2.5 p-4 rounded-2xl border transition-colors
                             ${pref.is_active
-                              ? 'border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/10'
-                              : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'}`}>
-                          <div className={`mt-0.5 w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0
-                            ${pref.is_active ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-slate-100 dark:bg-slate-700'}`}>
-                            {pref.is_active
-                              ? <BellRing className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                              : <BellOff className="h-3.5 w-3.5 text-slate-400" />
-                            }
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 leading-tight">
-                              {NOTIF_LABELS[pref.notification_types?.event_key || ''] || pref.notification_types?.event_key || '—'}
-                            </p>
-                            {(pref.hotels || pref.sectors) && (
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-                                <ChevronRight className="h-3 w-3 flex-shrink-0" />
-                                {pref.hotels?.name}
-                                {pref.sectors ? ` · ${pref.sectors.name}` : pref.hotel_id && !pref.sector_id ? ' · Todos os setores' : ''}
+                              ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60'
+                              : 'border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 opacity-60'}`}>
+
+                          {/* Active indicator top-right */}
+                          <div className={`absolute top-3 right-3 w-2 h-2 rounded-full flex-shrink-0 ${pref.is_active ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+
+                          {/* Icon + label */}
+                          <div className="flex items-start gap-3 pr-4">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${cfg?.iconBg || 'bg-slate-100 dark:bg-slate-700'}`}>
+                              <IconComp className={`h-4.5 w-4.5 ${cfg?.iconColor || 'text-slate-500'}`} style={{ width: 18, height: 18 }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-snug">
+                                {notifLabel(eventKey) || '—'}
                               </p>
-                            )}
+                              {(pref.hotels || pref.sectors) && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-0.5">
+                                  <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
+                                  {pref.hotels?.name}
+                                  {pref.sectors ? ` · ${pref.sectors.name}` : pref.hotel_id && !pref.sector_id ? ' · Todos os setores' : ''}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 border-t border-slate-100 dark:border-slate-700 pt-2.5 -mb-1">
+                            <span className={`flex-1 text-[10px] font-semibold ${pref.is_active ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                              {pref.is_active ? 'Ativa' : 'Inativa'}
+                            </span>
                             <button onClick={() => handleEditPref(pref)} title="Editar"
-                              className="w-8 h-8 flex items-center justify-center rounded-xl text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
                               <Edit3 className="h-3.5 w-3.5" />
                             </button>
                             <button
@@ -1296,7 +1375,7 @@ const UserManagement = () => {
                                 });
                               }}
                               title="Remover"
-                              className="w-8 h-8 flex items-center justify-center rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
