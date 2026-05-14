@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Coffee, Users, Search, RefreshCw, Loader2, CheckCircle, 
   Package, Clock, AlertCircle, LogIn, UtensilsCrossed,
-  ChevronDown, ChevronUp, UserPlus, X, Plus
+  ChevronDown, ChevronUp, UserPlus, X, Plus, Sun, Moon, Utensils
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { erbonService, ErbonGuest } from '../../lib/erbonService';
@@ -17,14 +17,18 @@ interface BreakfastRecord {
   consumed_at: string | null;
   guest_name: string;
   room_number: string;
+  meal_type: 'breakfast' | 'map' | 'fap';
 }
+
+type MealType = 'breakfast' | 'map' | 'fap';
 
 const BreakfastHall: React.FC = () => {
   const { selectedHotel } = useHotel();
+  const [activeMeal, setActiveMeal] = useState<MealType>('breakfast');
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<number | string | null>(null);
   const [records, setRecords] = useState<Record<string, BreakfastRecord>>({});
-  const [config, setConfig] = useState<{ start_time: string, end_time: string } | null>(null);
+  const [config, setConfig] = useState<any>(null);
   const [showHistory, setShowHistory] = useState(false);
   
   // Day Use Modal State
@@ -33,11 +37,24 @@ const BreakfastHall: React.FC = () => {
   const [isSavingDayUse, setIsSavingDayUse] = useState(false);
 
   // 1. Fetch Guests from Erbon
-  const { data: guests, loading: loadingErbon, error: erbonError, refetch, erbonConfigured } = useErbonData<ErbonGuest[]>(
+  const { data: allGuests, loading: loadingErbon, error: erbonError, refetch, erbonConfigured } = useErbonData<ErbonGuest[]>(
     (hotelId) => erbonService.fetchBreakfastGuests(hotelId),
     [],
     { autoRefreshMs: 300_000 }
   );
+
+  // Filtrar hóspedes baseado no plano de refeição
+  const guests = useMemo(() => {
+    if (!allGuests) return [];
+    if (activeMeal === 'breakfast') return allGuests;
+    
+    return allGuests.filter(g => {
+      const plan = (g.mealPlan || '').toUpperCase();
+      if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP');
+      if (activeMeal === 'fap') return plan.includes('FAP');
+      return true;
+    });
+  }, [allGuests, activeMeal]);
 
   // 2. Fetch Records from Supabase for Today
   const loadRecords = useCallback(async () => {
@@ -49,7 +66,8 @@ const BreakfastHall: React.FC = () => {
         .from('breakfast_records')
         .select('*')
         .eq('hotel_id', selectedHotel.id)
-        .eq('date', today);
+        .eq('date', today)
+        .eq('meal_type', activeMeal);
 
       if (error) throw error;
       
@@ -61,7 +79,7 @@ const BreakfastHall: React.FC = () => {
     } catch (err) {
       console.error('[BreakfastHall] Error loading records:', err);
     }
-  }, [selectedHotel]);
+  }, [selectedHotel, activeMeal]);
 
   // 3. Fetch Config
   const loadConfig = useCallback(async () => {
@@ -69,7 +87,7 @@ const BreakfastHall: React.FC = () => {
     try {
       const { data } = await supabase
         .from('breakfast_configs')
-        .select('start_time, end_time')
+        .select('*')
         .eq('hotel_id', selectedHotel.id)
         .maybeSingle();
       if (data) setConfig(data);
@@ -96,7 +114,8 @@ const BreakfastHall: React.FC = () => {
           .update({ status: 'pending', consumed_at: null, updated_at: new Date().toISOString() })
           .eq('hotel_id', selectedHotel.id)
           .eq('date', today)
-          .eq('id_guest', guestId);
+          .eq('id_guest', guestId)
+          .eq('meal_type', activeMeal);
         
         if (error) throw error;
       } else {
@@ -107,12 +126,13 @@ const BreakfastHall: React.FC = () => {
             date: today,
             id_booking: guestData.idBooking || 0,
             id_guest: guestId,
-            guest_name: guestData.guestName,
+            guest_name: guestData.guestName || guestData.guestName,
             room_number: guestData.roomDescription || 'DAY USE',
             status: newStatus,
             consumed_at: consumedAt,
+            meal_type: activeMeal,
             updated_at: new Date().toISOString()
-          }, { onConflict: 'hotel_id,date,id_guest' });
+          }, { onConflict: 'hotel_id,date,id_guest,meal_type' });
 
         if (error) throw error;
       }
@@ -140,11 +160,12 @@ const BreakfastHall: React.FC = () => {
         .insert({
           hotel_id: selectedHotel.id,
           date: today,
-          id_booking: 0, // Number for integer column
-          id_guest: tempId, // String for text column
+          id_booking: 0,
+          id_guest: tempId,
           guest_name: dayUseName.trim(),
           room_number: 'DAY USE',
           status: 'pending',
+          meal_type: activeMeal,
           adults: 1,
           children: 0
         });
@@ -218,7 +239,21 @@ const BreakfastHall: React.FC = () => {
     return { total, ate, kits, pending: total - ate - kits };
   }, [guests, records]);
 
+  // Determinar horários exibidos
+  const displayTimeRange = useMemo(() => {
+    if (!config) return 'Horário não configurado';
+    if (activeMeal === 'breakfast') return `${config.start_time.substring(0, 5)} às ${config.end_time.substring(0, 5)}`;
+    if (activeMeal === 'map') return `${(config.lunch_start_time || '12:00').substring(0, 5)} às ${(config.lunch_end_time || '14:30').substring(0, 5)}`;
+    if (activeMeal === 'fap') return `${(config.dinner_start_time || '19:00').substring(0, 5)} às ${(config.dinner_end_time || '22:00').substring(0, 5)}`;
+    return '';
+  }, [config, activeMeal]);
+
   if (!erbonConfigured && !loadingErbon) return <ErbonNotConfigured hotelName={selectedHotel?.name} />;
+
+  const mealColor = activeMeal === 'breakfast' ? 'orange' : activeMeal === 'map' ? 'amber' : 'purple';
+  const mealIcon = activeMeal === 'breakfast' ? <Coffee className={`w-5 h-5 text-${mealColor}-600`} /> : 
+                   activeMeal === 'map' ? <Sun className={`w-5 h-5 text-${mealColor}-600`} /> : 
+                   <Moon className={`w-5 h-5 text-${mealColor}-600`} />;
 
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-5xl">
@@ -226,50 +261,57 @@ const BreakfastHall: React.FC = () => {
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-              <Coffee className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+            <div className={`w-10 h-10 rounded-xl bg-${mealColor}-100 dark:bg-${mealColor}-900/30 flex items-center justify-center`}>
+              {mealIcon}
             </div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Checklist Salão</h1>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Checklist {activeMeal === 'breakfast' ? 'Salão' : activeMeal === 'map' ? 'Almoço' : 'Jantar'}</h1>
           </div>
-          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 font-medium">
             <Clock className="w-4 h-4" />
-            {config ? `${config.start_time.substring(0, 5)} às ${config.end_time.substring(0, 5)}` : 'Horário não configurado'}
+            {displayTimeRange}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setIsDayUseModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-xl hover:bg-sky-700 transition font-bold text-sm shadow-lg shadow-sky-200 dark:shadow-none"
-          >
-            <UserPlus className="w-4 h-4" />
-            Registrar Visitante
-          </button>
-          <button 
-            onClick={() => { refetch(); loadRecords(); }}
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition font-medium text-sm shadow-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${(loadingErbon) ? 'animate-spin' : ''}`} />
-            Sincronizar
-          </button>
+        <div className="flex flex-col items-end gap-3">
+          <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+            <button onClick={() => setActiveMeal('breakfast')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeMeal === 'breakfast' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>CAFÉ</button>
+            <button onClick={() => setActiveMeal('map')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeMeal === 'map' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>ALMOÇO</button>
+            <button onClick={() => setActiveMeal('fap')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeMeal === 'fap' ? 'bg-purple-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>JANTAR</button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setIsDayUseModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-xl hover:bg-sky-700 transition font-bold text-sm shadow-lg shadow-sky-200 dark:shadow-none"
+            >
+              <UserPlus className="w-4 h-4" />
+              Registrar Visitante
+            </button>
+            <button 
+              onClick={() => { refetch(); loadRecords(); }}
+              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition font-medium text-sm shadow-sm"
+            >
+              <RefreshCw className={`w-4 h-4 ${(loadingErbon) ? 'animate-spin' : ''}`} />
+              Sincronizar
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm">
-          <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Total Hoje</p>
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm text-center">
+          <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Total {activeMeal === 'breakfast' ? 'Hóspedes' : 'MAP/FAP'}</p>
           <p className="text-2xl font-black text-gray-800 dark:text-white">{stats.total}</p>
         </div>
-        <div className="bg-emerald-50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/20 shadow-sm">
-          <p className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Já Entraram</p>
+        <div className="bg-emerald-50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/20 shadow-sm text-center">
+          <p className="text-[10px] uppercase font-bold text-emerald-500 mb-1">Entradas</p>
           <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400">{stats.ate}</p>
         </div>
-        <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/20 shadow-sm">
-          <p className="text-[10px] uppercase font-bold text-amber-500 mb-1">Kits</p>
+        <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/20 shadow-sm text-center">
+          <p className="text-[10px] uppercase font-bold text-amber-500 mb-1">Kits/Extras</p>
           <p className="text-2xl font-black text-amber-700 dark:text-amber-400">{stats.kits}</p>
         </div>
-        <div className="bg-sky-50 dark:bg-sky-900/10 p-4 rounded-2xl border border-sky-100 dark:border-sky-900/20 shadow-sm">
+        <div className="bg-sky-50 dark:bg-sky-900/10 p-4 rounded-2xl border border-sky-100 dark:border-sky-900/20 shadow-sm text-center">
           <p className="text-[10px] uppercase font-bold text-sky-500 mb-1">Pendentes</p>
           <p className="text-2xl font-black text-sky-700 dark:text-sky-400">{stats.pending}</p>
         </div>
@@ -289,12 +331,13 @@ const BreakfastHall: React.FC = () => {
 
       {/* Pending List */}
       <div className="space-y-3">
-        <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest px-1">Aguardando Café</h2>
+        <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest px-1">Aguardando</h2>
         {loadingErbon && pendingList.length === 0 ? (
           <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>
         ) : pendingList.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-8 text-center">
-            <p className="text-gray-500 dark:text-gray-400 font-medium">Ninguém pendente</p>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400">
+            <Utensils className="w-8 h-8 mx-auto mb-2 opacity-20" />
+            <p className="font-medium">Ninguém pendente</p>
           </div>
         ) : (
           pendingList.map(guest => (
@@ -302,6 +345,7 @@ const BreakfastHall: React.FC = () => {
               key={guest.idGuest} 
               guest={guest} 
               isUpdating={updatingId === guest.idGuest}
+              activeMeal={activeMeal}
               onUpdate={(status) => handleStatusChange(guest.idGuest, guest, status)}
             />
           ))
@@ -315,7 +359,7 @@ const BreakfastHall: React.FC = () => {
           className="flex items-center gap-2 text-sm font-black text-gray-400 uppercase tracking-widest px-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
         >
           {showHistory ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          Histórico de Hoje ({completedList.length})
+          Histórico ({completedList.length})
         </button>
         
         {showHistory && (
@@ -328,6 +372,7 @@ const BreakfastHall: React.FC = () => {
                   key={guest.idGuest} 
                   guest={guest} 
                   isUpdating={updatingId === guest.idGuest}
+                  activeMeal={activeMeal}
                   onUpdate={(status) => handleStatusChange(guest.idGuest, guest, status)}
                 />
               ))
@@ -356,7 +401,7 @@ const BreakfastHall: React.FC = () => {
                   placeholder="Digite o nome completo"
                   className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-gray-900 border-none outline-none focus:ring-2 focus:ring-sky-500 text-gray-800 dark:text-white font-medium"
                 />
-                <p className="mt-2 text-[10px] text-gray-400 font-medium">O visitante será adicionado à lista como "Pendente" para que a cozinha já saiba da demanda.</p>
+                <p className="mt-2 text-[10px] text-gray-400 font-medium">O visitante será adicionado à lista atual de <strong>{activeMeal === 'breakfast' ? 'Café' : activeMeal === 'map' ? 'Almoço' : 'Jantar'}</strong>.</p>
               </div>
               <button 
                 type="submit"
@@ -364,7 +409,7 @@ const BreakfastHall: React.FC = () => {
                 className="w-full py-5 bg-sky-600 hover:bg-sky-700 text-white rounded-[2rem] font-black text-lg transition-all shadow-xl shadow-sky-200 dark:shadow-none flex items-center justify-center gap-3 disabled:opacity-50"
               >
                 {isSavingDayUse ? <Loader2 className="w-6 h-6 animate-spin" /> : <Plus className="w-6 h-6" />}
-                RESERVAR CAFÉ
+                RESERVAR ENTRADA
               </button>
             </form>
           </div>
@@ -377,10 +422,11 @@ const BreakfastHall: React.FC = () => {
 interface GuestCardProps {
   guest: any;
   isUpdating: boolean;
+  activeMeal: MealType;
   onUpdate: (status: 'pending' | 'checked_in' | 'kit_requested') => void;
 }
 
-const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, onUpdate }) => {
+const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, activeMeal, onUpdate }) => {
   const status = guest.record?.status || 'pending';
   const [showFullNames, setShowFullNames] = useState(false);
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -399,12 +445,14 @@ const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, onUpdate }) =>
     }
   };
 
+  const buttonColor = activeMeal === 'breakfast' ? 'orange' : activeMeal === 'map' ? 'amber' : 'purple';
+
   return (
     <>
       <div className={`bg-white dark:bg-gray-800 rounded-2xl border transition-all shadow-sm ${
         status === 'checked_in' ? 'border-emerald-200 dark:border-emerald-800/40 opacity-70' :
         status === 'kit_requested' ? 'border-amber-200 dark:border-amber-800/40 opacity-70' :
-        'border-gray-100 dark:border-gray-700 hover:border-orange-200'
+        'border-gray-100 dark:border-gray-700 hover:border-sky-200'
       }`}>
         <div className="p-3 md:p-4 flex items-center gap-3 md:gap-4">
           {/* Room Box */}
@@ -441,14 +489,14 @@ const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, onUpdate }) =>
                   onClick={() => onUpdate('kit_requested')}
                   disabled={isUpdating}
                   className="w-10 h-10 md:w-12 md:h-12 rounded-xl border border-amber-200 dark:border-amber-800/50 flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-amber-50"
-                  title="Solicitar Kit"
+                  title="Solicitar Kit / Extra"
                 >
                   {isUpdating ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <Package className="w-4 h-4 md:w-5 md:h-5" />}
                 </button>
                 <button
                   onClick={() => onUpdate('checked_in')}
                   disabled={isUpdating}
-                  className="px-4 md:px-6 h-10 md:h-12 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black text-xs md:text-sm transition-all flex items-center gap-1.5 md:gap-2"
+                  className={`px-4 md:px-6 h-10 md:h-12 rounded-xl bg-${buttonColor}-600 hover:bg-${buttonColor}-700 text-white font-black text-xs md:text-sm transition-all flex items-center gap-1.5 md:gap-2 shadow-lg shadow-${buttonColor}-200 dark:shadow-none`}
                 >
                   {isUpdating ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin" /> : <LogIn className="w-3.5 h-3.5 md:w-4 md:h-4" />}
                   <span className="hidden xs:inline">ENTRADA</span>
@@ -480,7 +528,7 @@ const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, onUpdate }) =>
           onClick={() => setShowFullNames(false)}
         >
           <div className="bg-white dark:bg-gray-800 p-8 rounded-[2rem] shadow-2xl border border-white/20 text-center max-w-sm w-full transform animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6 text-orange-600 dark:text-orange-400">
+            <div className={`w-16 h-16 bg-${buttonColor}-100 dark:bg-${buttonColor}-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6 text-${buttonColor}-600 dark:text-${buttonColor}-400`}>
               <Users className="w-8 h-8" />
             </div>
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Nome Completo</p>
