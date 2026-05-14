@@ -1380,7 +1380,8 @@ const UserManagement = () => {
                             </button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </>
