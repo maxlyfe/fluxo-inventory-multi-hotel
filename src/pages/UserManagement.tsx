@@ -130,7 +130,12 @@ async function callAdminAction(
   const { data, error } = await supabase.functions.invoke('admin-user-actions', {
     body: payload,
   });
-  if (error) throw new Error(error.message || 'Erro na Edge Function.');
+  if (error) {
+    // error.context contains the parsed response body from the Edge Function
+    const ctx = (error as any).context;
+    const msg = ctx?.error ?? ctx?.message ?? error.message ?? 'Erro na Edge Function.';
+    throw new Error(msg);
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }
