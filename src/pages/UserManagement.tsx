@@ -1,11 +1,13 @@
 // src/pages/UserManagement.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   Users, Key, AlertTriangle, UserCog, Bell, PlusCircle,
   Trash2, Edit3, XCircle, CheckCircle, Clock,
   ChevronRight, RefreshCw, UserPlus, Eye, EyeOff, X,
   ShieldOff, ShieldCheck, UserX, Loader2, LogOut,
+  Search, MoreVertical, Camera, Package, RotateCcw,
+  BadgeCheck, BellOff, BellRing, ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -20,7 +22,7 @@ interface User {
   email:             string;
   role:              string;
   custom_role_id:    string | null;
-  custom_role_name:  string | null;  // nome vindo direto do JOIN com custom_roles
+  custom_role_name:  string | null;
   last_sign_in_at:   string;
   raw_user_meta_data?: { role?: string };
   banned_until?:     string | null;
@@ -68,7 +70,6 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','REQUEST_REJECTED',
   'REQUEST_SUBSTITUTED','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
   'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
-  // Rack de UHs — Governança
   'room_needs_maintenance','room_dirty','room_clean','room_maint_ok',
 ];
 
@@ -79,56 +80,40 @@ const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; do
   'sup-governanca': { label: 'Sup. Governança',   color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-100 dark:bg-amber-900/40', dot: 'bg-amber-500'  },
 };
 
-/**
- * Retorna a config de exibição de um role.
- * Prioridade: ROLE_CONFIG estático → custom role do banco → fallback cinza.
- */
 function getRoleConfig(
   role: string,
   customRoles?: CustomRole[],
   customRoleId?: string | null,
   customRoleName?: string | null,
 ) {
-  // Se há um custom role vinculado, usa ele com prioridade máxima
   if (customRoleId) {
-    // Tenta pegar a cor da lista (mais atualizada)
     const cr = customRoles?.find(r => r.id === customRoleId);
     const name  = customRoleName || cr?.name || role;
     const color = cr?.color || '#6b7280';
-    return {
-      label: name,
-      color: 'text-gray-700 dark:text-gray-200',
-      bg:    'bg-gray-100 dark:bg-gray-700',
-      dot:   color,
-    };
+    return { label: name, color: 'text-gray-700 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-700', dot: color };
   }
-
-  // Role de sistema legado (admin, management, inventory...)
   if (ROLE_CONFIG[role]) return ROLE_CONFIG[role];
-
-  // Fallback
   return { label: role, color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-700', dot: 'bg-gray-400' };
 }
 
 const NOTIF_LABELS: Record<string, string> = {
-  NEW_REQUEST:              '📥 Nova requisição',
-  ITEM_DELIVERED_TO_SECTOR: '📦 Item entregue ao setor',
-  REQUEST_REJECTED:         '❌ Requisição rejeitada',
-  REQUEST_SUBSTITUTED:      '🔄 Requisição substituída',
-  NEW_BUDGET:               '💰 Novo orçamento',
-  BUDGET_APPROVED:          '✅ Orçamento aprovado',
-  BUDGET_CANCELLED:         '🚫 Orçamento cancelado',
-  EXP_CONTRACT_ENDING_SOON: '⏰ Contrato vence em 5 dias',
-  EXP_CONTRACT_ENDS_TODAY:  '🔔 Contrato vence hoje',
-  // Rack de UHs
-  room_needs_maintenance:   '🔧 UH — Solicita vistoria de manutenção',
-  room_dirty:               '🛏️ UH — Ficou suja',
-  room_clean:               '✨ UH — Ficou limpa',
-  room_maint_ok:            '✔️ UH — Liberada pelo checklist de manutenção',
+  NEW_REQUEST:              'Nova requisição',
+  ITEM_DELIVERED_TO_SECTOR: 'Item entregue ao setor',
+  REQUEST_REJECTED:         'Requisição rejeitada',
+  REQUEST_SUBSTITUTED:      'Requisição substituída',
+  NEW_BUDGET:               'Novo orçamento',
+  BUDGET_APPROVED:          'Orçamento aprovado',
+  BUDGET_CANCELLED:         'Orçamento cancelado',
+  EXP_CONTRACT_ENDING_SOON: 'Contrato vence em 5 dias',
+  EXP_CONTRACT_ENDS_TODAY:  'Contrato vence hoje',
+  room_needs_maintenance:   'UH — Solicita vistoria de manutenção',
+  room_dirty:               'UH — Ficou suja',
+  room_clean:               'UH — Ficou limpa',
+  room_maint_ok:            'UH — Liberada pelo checklist de manutenção',
 };
 
 // ---------------------------------------------------------------------------
-// Edge Function caller — todas as ações admin passam por aqui
+// Edge Function caller
 // ---------------------------------------------------------------------------
 
 async function callAdminAction(
@@ -145,7 +130,7 @@ async function callAdminAction(
 }
 
 // ---------------------------------------------------------------------------
-// Service functions (read-only — anon key é suficiente)
+// Service functions
 // ---------------------------------------------------------------------------
 
 async function getNotificationTypes(): Promise<NotificationType[]> {
@@ -227,20 +212,25 @@ function formatLastLogin(ts: string) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
 }
 
+function getInitials(email: string) {
+  return email[0]?.toUpperCase() || '?';
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
 function RoleBadge({ role, customRoles, customRoleId, customRoleName }: {
-  role: string;
-  customRoles?: CustomRole[];
-  customRoleId?: string | null;
-  customRoleName?: string | null;
+  role: string; customRoles?: CustomRole[]; customRoleId?: string | null; customRoleName?: string | null;
 }) {
   const c = getRoleConfig(role, customRoles, customRoleId, customRoleName);
+  const isDotColor = c.dot.startsWith('#') || c.dot.startsWith('rgb');
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${c.color} ${c.bg}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {isDotColor
+        ? <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.dot }} />
+        : <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot}`} />
+      }
       {c.label}
     </span>
   );
@@ -248,76 +238,222 @@ function RoleBadge({ role, customRoles, customRoleId, customRoleName }: {
 
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
   return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none max-w-sm w-full px-4 sm:px-0">
       {toasts.map(t => (
-        <div key={t.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border pointer-events-auto
+        <div key={t.id}
+          className={`flex items-start gap-3 px-4 py-3 rounded-2xl shadow-2xl border pointer-events-auto animate-in slide-in-from-right-4 duration-200
           ${t.type === 'success'
-            ? 'bg-green-50 dark:bg-green-900/80 border-green-200 dark:border-green-700 text-green-800 dark:text-green-200'
-            : 'bg-red-50 dark:bg-red-900/80 border-red-200 dark:border-red-700 text-red-800 dark:text-red-200'}`}>
-          {t.type === 'success' ? <CheckCircle className="h-4 w-4 flex-shrink-0" /> : <AlertTriangle className="h-4 w-4 flex-shrink-0" />}
-          <span className="text-sm font-medium">{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} className="ml-1 opacity-60 hover:opacity-100 transition-opacity"><X className="h-3.5 w-3.5" /></button>
+            ? 'bg-white dark:bg-slate-800 border-green-200 dark:border-green-800 text-slate-800 dark:text-slate-100'
+            : 'bg-white dark:bg-slate-800 border-red-200 dark:border-red-800 text-slate-800 dark:text-slate-100'}`}>
+          <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${t.type === 'success' ? 'bg-green-100 dark:bg-green-900/50' : 'bg-red-100 dark:bg-red-900/50'}`}>
+            {t.type === 'success'
+              ? <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
+              : <AlertTriangle className="h-3 w-3 text-red-500 dark:text-red-400" />
+            }
+          </div>
+          <span className="text-sm font-medium flex-1 leading-relaxed">{t.message}</span>
+          <button onClick={() => onDismiss(t.id)} className="mt-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors flex-shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       ))}
     </div>
   );
 }
 
-function ActionButton({ title, icon, color, onClick, disabled }: {
-  title: string; icon: React.ReactNode; color: string; onClick: () => void; disabled?: boolean;
-}) {
-  return (
-    <button onClick={onClick} title={title} disabled={disabled}
-      className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all ${color} disabled:opacity-30 disabled:cursor-not-allowed`}>
-      {icon}
-    </button>
-  );
+// Confirmation dialog — replaces window.confirm()
+interface ConfirmDialogProps {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  confirmColor?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
 }
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function ConfirmDialog({ title, message, confirmLabel, confirmColor = 'bg-red-600 hover:bg-red-700', onConfirm, onCancel }: ConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white dark:bg-gray-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all">
-            <X className="h-4 w-4" />
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200 dark:border-slate-700
+        animate-in zoom-in-95 duration-150">
+        <div className="flex items-start gap-4 mb-5">
+          <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white">{title}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{message}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors">
+            Cancelar
+          </button>
+          <button onClick={onConfirm}
+            className={`flex-1 py-2.5 text-sm font-semibold text-white rounded-xl transition-colors ${confirmColor}`}>
+            {confirmLabel}
           </button>
         </div>
-        <div className="p-5">{children}</div>
       </div>
     </div>
   );
 }
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+// Generic modal — sheet on mobile, centered on desktop
+function Modal({ title, subtitle, onClose, children, maxWidth = 'max-w-md' }: {
+  title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; maxWidth?: string;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className={`bg-white dark:bg-slate-900 w-full ${maxWidth} rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700
+        animate-in slide-in-from-bottom sm:zoom-in-95 duration-200`}>
+        {/* Drag handle on mobile */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden">
+          <div className="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full" />
+        </div>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">{title}</h3>
+            {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+          </div>
+          <button onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[75dvh] sm:max-h-none">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function FormField({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{label}</label>
+      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
       {children}
     </div>
   );
 }
 
-const inputCls = 'w-full px-3.5 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all';
+const inputCls = 'w-full px-3.5 py-3 text-sm border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 min-h-[44px]';
 
 function ModalActions({ onCancel, submitLabel, submitColor = 'bg-blue-600 hover:bg-blue-700', submitting }: {
   onCancel: () => void; submitLabel: string; submitColor?: string; submitting?: boolean;
 }) {
   return (
-    <div className="flex justify-end gap-2 pt-2">
+    <div className="flex gap-2 pt-2">
       <button type="button" onClick={onCancel}
-        className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors">
+        className="flex-1 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors min-h-[44px]">
         Cancelar
       </button>
       <button type="submit" disabled={submitting}
-        className={`flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-xl transition-colors disabled:opacity-60 ${submitColor}`}>
+        className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-white rounded-xl transition-colors disabled:opacity-60 min-h-[44px] ${submitColor}`}>
         {submitting
-          ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          : <CheckCircle className="h-3.5 w-3.5" />
+          ? <><Loader2 className="h-4 w-4 animate-spin" />Salvando...</>
+          : <><CheckCircle className="h-4 w-4" />{submitLabel}</>
         }
-        {submitLabel}
       </button>
+    </div>
+  );
+}
+
+// User avatar
+function UserAvatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }) {
+  const disabled = isUserDisabled(user);
+  const sz = size === 'sm' ? 'w-8 h-8 text-xs' : size === 'lg' ? 'w-12 h-12 text-base' : 'w-10 h-10 text-sm';
+  return (
+    <div className={`${sz} rounded-2xl flex items-center justify-center font-bold flex-shrink-0 overflow-hidden shadow-sm
+      ${disabled ? 'bg-slate-300 dark:bg-slate-600' : 'bg-gradient-to-br from-blue-400 to-indigo-600'} text-white`}>
+      {user.photo_url
+        ? <img src={user.photo_url} alt="" className="w-full h-full object-cover" />
+        : getInitials(user.email)
+      }
+    </div>
+  );
+}
+
+// Stat chip for the header
+function StatChip({ value, label, color }: { value: number; label: string; color: string }) {
+  return (
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${color}`}>
+      <span className="text-lg font-black leading-none">{value}</span>
+      <span className="text-xs font-medium opacity-80 leading-tight">{label}</span>
+    </div>
+  );
+}
+
+// Context menu for user actions on mobile
+function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canManagePhotos, onChangePassword, onChangeRole, onNotifications, onToggleBan, onForceLogout, onRemovePhoto }: {
+  user: User; isMe: boolean; disabled: boolean; isBanning: boolean; forcingLogout: boolean;
+  canManagePhotos: boolean;
+  onChangePassword: () => void; onChangeRole: () => void; onNotifications: () => void;
+  onToggleBan: () => void; onForceLogout: () => void; onRemovePhoto: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const t = setTimeout(() => document.addEventListener('mousedown', handler), 60);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', handler); };
+  }, [open]);
+
+  const item = (label: string, icon: React.ReactNode, onClick: () => void, cls = 'text-slate-700 dark:text-slate-200', isDisabled = false) => (
+    <button
+      onClick={() => { setOpen(false); onClick(); }}
+      disabled={isDisabled}
+      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors rounded-xl disabled:opacity-40 disabled:cursor-not-allowed ${cls}`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+        aria-label="Ações do usuário"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 py-1.5 overflow-hidden">
+          {item('Alterar senha', <Key className="h-4 w-4 text-indigo-500" />, onChangePassword, undefined, disabled)}
+          {item('Alterar função', <UserCog className="h-4 w-4 text-amber-500" />, onChangeRole, undefined, disabled || isMe)}
+          {item('Notificações', <Bell className="h-4 w-4 text-blue-500" />, onNotifications)}
+          {user.photo_url && canManagePhotos && (
+            item('Remover foto', <Camera className="h-4 w-4 text-slate-400" />, onRemovePhoto)
+          )}
+          <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700 mx-3" />
+          {!isMe && (
+            item(
+              disabled ? 'Habilitar acesso' : 'Desabilitar acesso',
+              isBanning
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : disabled ? <ShieldCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />,
+              onToggleBan,
+              disabled ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400',
+              isBanning
+            )
+          )}
+          {!isMe && !disabled && (
+            item(
+              'Forçar logout',
+              forcingLogout ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />,
+              onForceLogout,
+              'text-orange-500 dark:text-orange-400',
+              forcingLogout
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -334,6 +470,12 @@ const UserManagement = () => {
   const [users, setUsers]     = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts]   = useState<Toast[]>([]);
+  const [search, setSearch]   = useState('');
+
+  // Confirm dialog
+  const [confirm, setConfirm] = useState<{
+    title: string; message: string; label: string; color?: string; onConfirm: () => void;
+  } | null>(null);
 
   // Create user
   const [showCreate, setShowCreate]   = useState(false);
@@ -352,10 +494,7 @@ const UserManagement = () => {
   const [changeRole, setChangeRole]         = useState({ userId: '', email: '', currentRole: '', newRole: '' });
   const [changingRole, setChangingRole]     = useState(false);
 
-  // Custom roles do banco
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
-
-  // Toggle ban
   const [togglingBan,   setTogglingBan]   = useState<string | null>(null);
   const [forcingLogout, setForcingLogout] = useState<string | null>(null);
 
@@ -372,7 +511,7 @@ const UserManagement = () => {
   const [showPrefForm, setShowPrefForm]       = useState(false);
   const [selHotelFilter, setSelHotelFilter]   = useState<string | undefined>(undefined);
   const [allSectors, setAllSectors]           = useState(false);
-  const [showInactive, setShowInactive]       = useState(false); // lista de inativos colapsada por defeito
+  const [showInactive, setShowInactive]       = useState(false);
 
   // ---------------------------------------------------------------------------
   // Toast helpers
@@ -383,6 +522,10 @@ const UserManagement = () => {
     setToasts(prev => [...prev, { id, type, message }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4500);
   }, []);
+
+  const askConfirm = (title: string, message: string, label: string, onConfirm: () => void, color?: string) => {
+    setConfirm({ title, message, label, color, onConfirm });
+  };
 
   // ---------------------------------------------------------------------------
   // Init
@@ -398,25 +541,18 @@ const UserManagement = () => {
   }, [adminUser]);
 
   // ---------------------------------------------------------------------------
-  // Fetch custom roles
+  // Fetch data
   // ---------------------------------------------------------------------------
 
   const fetchCustomRoles = async () => {
     try {
-      const { data, error } = await supabase
-        .from('custom_roles')
-        .select('id, name, color, is_system')
-        .order('name');
+      const { data, error } = await supabase.from('custom_roles').select('id, name, color, is_system').order('name');
       if (error) throw error;
       setCustomRoles(data || []);
     } catch (err: any) {
       showToast('error', 'Erro ao carregar funções: ' + err.message);
     }
   };
-
-  // ---------------------------------------------------------------------------
-  // Fetch users
-  // ---------------------------------------------------------------------------
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -442,25 +578,20 @@ const UserManagement = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Create user — via Edge Function
+  // Create user
   // ---------------------------------------------------------------------------
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUser.password || newUser.password.length < 6) { showToast('error', 'Senha deve ter pelo menos 6 caracteres.'); return; }
     if (!session) { showToast('error', 'Sessão expirada. Faça login novamente.'); return; }
-
     setCreating(true);
     try {
       const selectedRole = customRoles.find(r => r.id === newUser.role);
       const systemRole   = selectedRole?.is_system ? 'admin' : 'guest';
-
       await callAdminAction(session, {
-        action:         'create_user',
-        email:          newUser.email,
-        password:       newUser.password,
-        role:           systemRole,
-        custom_role_id: selectedRole?.id ?? null,
+        action: 'create_user', email: newUser.email, password: newUser.password,
+        role: systemRole, custom_role_id: selectedRole?.id ?? null,
       });
       setNewUser({ email: '', password: '', role: 'inventory' });
       setShowCreate(false);
@@ -474,14 +605,13 @@ const UserManagement = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Change password — via Edge Function
+  // Change password
   // ---------------------------------------------------------------------------
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (changePwd.newPassword !== changePwd.confirmPassword) { showToast('error', 'As senhas não coincidem.'); return; }
     if (!session) { showToast('error', 'Sessão expirada.'); return; }
-
     setChangingPwd(true);
     try {
       await callAdminAction(session, { action: 'change_password', target_user_id: changePwd.userId, new_password: changePwd.newPassword });
@@ -496,44 +626,26 @@ const UserManagement = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Change role — via Edge Function
+  // Change role
   // ---------------------------------------------------------------------------
 
   const handleRoleChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session) { showToast('error', 'Sessão expirada.'); return; }
-
     setChangingRole(true);
     try {
-      // Todos os roles vêm do custom_roles
       const selectedRole = customRoles.find(r => r.id === changeRole.newRole);
       if (!selectedRole) throw new Error('Perfil não encontrado.');
-
-      // is_system = true (ex: Admin) → também seta role='admin' para RLS funcionar
       const systemRole = selectedRole.is_system ? 'admin' : 'guest';
-
-      await supabase.from('profiles').update({
-        custom_role_id: selectedRole.id,
-        role: systemRole,
-      }).eq('id', changeRole.userId);
-
-      // Sincroniza metadata do auth.users e custom_role_id via Edge Function
-      await callAdminAction(session, {
-        action:         'change_role',
-        target_user_id: changeRole.userId,
-        new_role:       systemRole,
-        custom_role_id: selectedRole.id,
-      });
-
+      await supabase.from('profiles').update({ custom_role_id: selectedRole.id, role: systemRole }).eq('id', changeRole.userId);
+      await callAdminAction(session, { action: 'change_role', target_user_id: changeRole.userId, new_role: systemRole, custom_role_id: selectedRole.id });
       await fetchUsers();
       setShowChangeRole(false);
-
-      // Se o admin mudou o próprio perfil, recarregar permissões imediatamente
       if (changeRole.userId === adminUser?.id) {
         await refreshProfile();
-        showToast('success', `Seu perfil foi atualizado para ${selectedRole.name}. Permissões actualizadas.`);
+        showToast('success', `Seu perfil foi atualizado para ${selectedRole.name}.`);
       } else {
-        showToast('success', `Perfil de ${changeRole.email} atualizado para ${selectedRole.name}. O utilizador precisará fazer re-login para ver as novas permissões.`);
+        showToast('success', `Função de ${changeRole.email} atualizada para ${selectedRole.name}.`);
       }
     } catch (err: any) {
       showToast('error', err.message);
@@ -543,20 +655,17 @@ const UserManagement = () => {
   };
 
   // ---------------------------------------------------------------------------
-  // Toggle ban — via Edge Function
+  // Toggle ban
   // ---------------------------------------------------------------------------
 
   const handleToggleBan = async (user: User) => {
     const disabled = isUserDisabled(user);
-    const action   = disabled ? 'habilitar' : 'desabilitar';
-    if (!window.confirm(`Tem certeza que deseja ${action} o acesso de ${user.email}?`)) return;
     if (!session) { showToast('error', 'Sessão expirada.'); return; }
-
     setTogglingBan(user.id);
     try {
       await callAdminAction(session, { action: 'toggle_ban', target_user_id: user.id, disable: !disabled });
       await fetchUsers();
-      showToast('success', disabled ? `${user.email} foi habilitado.` : `${user.email} foi desabilitado e suas sessões foram encerradas.`);
+      showToast('success', disabled ? `${user.email} foi habilitado.` : `${user.email} foi desabilitado.`);
     } catch (err: any) {
       showToast('error', err.message);
     } finally {
@@ -565,12 +674,8 @@ const UserManagement = () => {
   };
 
   const handleRemovePhoto = async (user: User) => {
-    if (!window.confirm(`Remover foto de perfil de ${user.email}?`)) return;
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ photo_url: null })
-        .eq('id', user.id);
+      const { error } = await supabase.from('profiles').update({ photo_url: null }).eq('id', user.id);
       if (error) throw error;
       showToast('success', 'Foto removida com sucesso.');
       fetchUsers();
@@ -586,18 +691,10 @@ const UserManagement = () => {
   // ---------------------------------------------------------------------------
 
   const openNotifModal = async (user: User) => {
-    setSelUserNotif(user);
-    setShowNotif(true);
-    setLoadingPrefs(true);
-    setShowPrefForm(false);
-    setCurrentPref({});
-    try {
-      setUserPrefs(await getUserNotifPrefs(user.id));
-    } catch (err: any) {
-      showToast('error', 'Erro ao carregar preferências: ' + err.message);
-    } finally {
-      setLoadingPrefs(false);
-    }
+    setSelUserNotif(user); setShowNotif(true); setLoadingPrefs(true); setShowPrefForm(false); setCurrentPref({});
+    try { setUserPrefs(await getUserNotifPrefs(user.id)); }
+    catch (err: any) { showToast('error', 'Erro ao carregar preferências: ' + err.message); }
+    finally { setLoadingPrefs(false); }
   };
 
   const handleSavePref = async (e: React.FormEvent) => {
@@ -606,12 +703,10 @@ const UserManagement = () => {
     setLoadingPrefs(true);
     try {
       const payload: any = {
-        user_id: selUserNotif.id,
-        notification_type_id: currentPref.notification_type_id,
+        user_id: selUserNotif.id, notification_type_id: currentPref.notification_type_id,
         hotel_id: currentPref.hotel_id || null,
         sector_id: allSectors ? null : currentPref.sector_id || null,
-        is_active: currentPref.is_active ?? true,
-        created_by: adminUser?.id || null,
+        is_active: currentPref.is_active ?? true, created_by: adminUser?.id || null,
       };
       if (isEditingPref && currentPref.id) await updatePref(currentPref.id, payload);
       else await addPref(payload);
@@ -633,7 +728,7 @@ const UserManagement = () => {
   };
 
   const handleDeletePref = async (prefId: string) => {
-    if (!selUserNotif || !window.confirm('Remover esta preferência?')) return;
+    if (!selUserNotif) return;
     setLoadingPrefs(true);
     try {
       await deletePref(prefId);
@@ -671,38 +766,76 @@ const UserManagement = () => {
   const selNotifType = notifTypes.find(nt => nt.id === currentPref.notification_type_id);
 
   // ---------------------------------------------------------------------------
+  // Filtered users
+  // ---------------------------------------------------------------------------
+
+  const q = search.trim().toLowerCase();
+  const activeUsers   = users.filter(u => !isUserDisabled(u)).filter(u => !q || u.email.toLowerCase().includes(q) || (u.custom_role_name || u.role).toLowerCase().includes(q));
+  const inactiveUsers = users.filter(u =>  isUserDisabled(u)).filter(u => !q || u.email.toLowerCase().includes(q));
+  const totalActive   = users.filter(u => !isUserDisabled(u)).length;
+  const totalInactive = users.filter(u =>  isUserDisabled(u)).length;
+
+  // ---------------------------------------------------------------------------
+  // Skeleton loader
+  // ---------------------------------------------------------------------------
+  const SkeletonRow = () => (
+    <div className="flex items-center gap-4 px-5 py-4 border-b border-slate-100 dark:border-slate-700/50">
+      <div className="w-10 h-10 rounded-2xl bg-slate-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+      <div className="flex-1 space-y-2">
+        <div className="h-3.5 w-48 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse" />
+        <div className="h-3 w-24 bg-slate-100 dark:bg-slate-700/60 rounded-full animate-pulse" />
+      </div>
+      <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+    </div>
+  );
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="max-w-4xl mx-auto px-3 sm:px-6 py-6 sm:py-8 space-y-5">
       <ToastContainer toasts={toasts} onDismiss={id => setToasts(prev => prev.filter(t => t.id !== id))} />
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-8">
+      {/* Confirm dialog */}
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.label}
+          confirmColor={confirm.color}
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200 dark:shadow-blue-900/40">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-200 dark:shadow-blue-900/40 flex-shrink-0">
               <Users className="h-5 w-5 text-white" />
             </div>
-            Usuários
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 ml-[52px]">
-            {users.length} {users.length === 1 ? 'usuário cadastrado' : 'usuários cadastrados'}
-            {users.filter(u => isUserDisabled(u)).length > 0 && (
-              <span className="ml-2 text-red-500 dark:text-red-400 font-medium">
-                · {users.filter(u => isUserDisabled(u)).length} desabilitado{users.filter(u => isUserDisabled(u)).length > 1 ? 's' : ''}
-              </span>
-            )}
-          </p>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Usuários</h1>
+          </div>
+          {!loading && (
+            <div className="flex items-center gap-2 ml-[52px] flex-wrap">
+              <StatChip value={totalActive} label="ativos" color="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" />
+              {totalInactive > 0 && (
+                <StatChip value={totalInactive} label="desabilitados" color="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400" />
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={fetchUsers} className="p-2 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-blue-600 hover:border-blue-300 dark:hover:border-blue-600 transition-all" title="Atualizar">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={fetchUsers}
+            className="w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-blue-600 hover:border-blue-300 dark:hover:border-blue-600 transition-all"
+            title="Atualizar">
             <RefreshCw className="h-4 w-4" />
           </button>
           <button
             onClick={() => { setShowCreate(v => !v); setNewUser({ email: '', password: '', role: 'inventory' }); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors shadow-sm">
+            className="flex items-center gap-2 h-10 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-semibold rounded-xl transition-all shadow-sm shadow-blue-200 dark:shadow-blue-900/40">
             <UserPlus className="h-4 w-4" />
             <span className="hidden sm:inline">Novo usuário</span>
             <span className="sm:hidden">Novo</span>
@@ -710,206 +843,227 @@ const UserManagement = () => {
         </div>
       </div>
 
-      {/* ── Create user form ── */}
+      {/* ── Create user panel ──────────────────────────────────────────── */}
       {showCreate && (
-        <div className="mb-6 bg-white dark:bg-gray-800 rounded-2xl border border-blue-100 dark:border-blue-900/50 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700/60 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-blue-600" />Criar novo usuário
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-blue-200 dark:border-blue-800/60 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-blue-50/50 dark:bg-blue-900/10">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              Criar novo usuário
             </h2>
-            <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"><X className="h-4 w-4" /></button>
+            <button onClick={() => setShowCreate(false)} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <form onSubmit={handleCreateUser} className="p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-              <FormField label="E-mail">
+          <form onSubmit={handleCreateUser} className="p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+              <FormField label="E-mail" required>
                 <input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })}
-                  placeholder="email@empresa.com" className={inputCls} required />
+                  placeholder="email@empresa.com" className={inputCls} required autoComplete="email" />
               </FormField>
-              <FormField label="Senha">
+              <FormField label="Senha" required>
                 <div className="relative">
-                  <input type={showPwd ? 'text' : 'password'} value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+                  <input type={showPwd ? 'text' : 'password'} value={newUser.password}
+                    onChange={e => setNewUser({ ...newUser, password: e.target.value })}
                     placeholder="Mínimo 6 caracteres" className={inputCls} required minLength={6} />
-                  <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                  <button type="button" onClick={() => setShowPwd(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1">
                     {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </FormField>
-              <FormField label="Função">
+              <FormField label="Função" required>
                 <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className={inputCls}>
                   <option value="">Selecionar perfil...</option>
-                  {customRoles.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
+                  {customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </FormField>
             </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors">Cancelar</button>
-              <button type="submit" disabled={creating} className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl transition-colors">
-                {creating ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Criando...</> : <><CheckCircle className="h-3.5 w-3.5" />Criar usuário</>}
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setShowCreate(false)}
+                className="h-11 px-5 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors">
+                Cancelar
+              </button>
+              <button type="submit" disabled={creating}
+                className="h-11 flex items-center gap-2 px-6 text-sm font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl transition-colors">
+                {creating ? <><Loader2 className="h-4 w-4 animate-spin" />Criando...</> : <><CheckCircle className="h-4 w-4" />Criar usuário</>}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* ── Users list ── */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+      {/* ── Search bar ─────────────────────────────────────────────────── */}
+      <div className="relative">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+        <input
+          type="search"
+          placeholder="Buscar por e-mail ou função..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full pl-10 pr-4 py-3 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* ── Users list ─────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <div className="w-8 h-8 border-2 border-blue-200 dark:border-blue-900 border-t-blue-600 rounded-full animate-spin" />
-            <p className="text-sm text-gray-500 dark:text-gray-400">Carregando usuários...</p>
-          </div>
+          <>
+            <SkeletonRow /><SkeletonRow /><SkeletonRow /><SkeletonRow />
+          </>
         ) : users.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400"><Users className="h-10 w-10 opacity-40" /><p className="text-sm">Nenhum usuário encontrado.</p></div>
+          <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+            <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+              <Users className="h-8 w-8 opacity-40" />
+            </div>
+            <p className="text-sm font-medium">Nenhum usuário encontrado.</p>
+          </div>
         ) : (
           <>
-            {/* ── Ativos ── */}
-            <div className="divide-y divide-gray-100 dark:divide-gray-700/60">
-              {users.filter(u => !isUserDisabled(u)).map(user => {
-              const disabled = isUserDisabled(user);
-              const isMe = user.id === adminUser?.id;
-              const isBanning = togglingBan === user.id;
-              return (
-                <div key={user.id} className={`flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-4 transition-colors group ${disabled ? 'bg-red-50/30 dark:bg-red-900/5' : 'hover:bg-gray-50/70 dark:hover:bg-gray-700/30'}`}>
-                  {/* Avatar */}
-                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 shadow-sm overflow-hidden ${disabled ? 'bg-gray-400 dark:bg-gray-600' : 'bg-gradient-to-br from-blue-400 to-indigo-600'}`}>
-                    {user.photo_url ? (
-                      <img src={user.photo_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      user.email[0].toUpperCase()
-                    )}
-                  </div>
+            {/* Ativos */}
+            {activeUsers.length === 0 && q ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-400">
+                <Search className="h-7 w-7 opacity-30" />
+                <p className="text-sm">Nenhum resultado para "{search}"</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {activeUsers.map(user => {
+                  const disabled = isUserDisabled(user);
+                  const isMe = user.id === adminUser?.id;
+                  const isBanning = togglingBan === user.id;
+                  const isForcing = forcingLogout === user.id;
+                  return (
+                    <div key={user.id}
+                      className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 hover:bg-slate-50/80 dark:hover:bg-slate-700/20 transition-colors group">
+                      {/* Avatar */}
+                      <UserAvatar user={user} />
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className={`text-sm font-medium truncate ${disabled ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-gray-100'}`}>
-                        {user.email}
-                      </p>
-                      {disabled && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400">
-                          <ShieldOff className="h-3 w-3" />Desabilitado
-                        </span>
-                      )}
-                      {isMe && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
-                          Você
-                        </span>
-                      )}
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[200px] sm:max-w-none">
+                            {user.email}
+                          </p>
+                          {isMe && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
+                              <BadgeCheck className="h-2.5 w-2.5" />Você
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <RoleBadge role={user.role} customRoles={customRoles} customRoleId={user.custom_role_id} customRoleName={user.custom_role_name} />
+                          <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />{formatLastLogin(user.last_sign_in_at)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions menu */}
+                      <UserActionsMenu
+                        user={user} isMe={isMe} disabled={disabled}
+                        isBanning={isBanning} forcingLogout={isForcing}
+                        canManagePhotos={canManagePhotos}
+                        onChangePassword={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }}
+                        onChangeRole={() => {
+                          const currentVal = user.custom_role_id || user.role;
+                          setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: currentVal });
+                          setShowChangeRole(true);
+                        }}
+                        onNotifications={() => openNotifModal(user)}
+                        onToggleBan={() => askConfirm(
+                          disabled ? 'Habilitar acesso' : 'Desabilitar acesso',
+                          disabled
+                            ? `Deseja reativar o acesso de ${user.email}?`
+                            : `Deseja desabilitar o acesso de ${user.email}? Suas sessões serão encerradas.`,
+                          disabled ? 'Habilitar' : 'Desabilitar',
+                          () => handleToggleBan(user),
+                          disabled ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                        )}
+                        onForceLogout={() => askConfirm(
+                          'Forçar logout',
+                          `Desconectar ${user.email} de todos os dispositivos imediatamente?`,
+                          'Desconectar',
+                          async () => {
+                            setForcingLogout(user.id);
+                            try {
+                              const result = await forceSignOut(user.id);
+                              if (result.success) showToast('success', `${user.email} foi desconectado.`);
+                              else showToast('error', result.message || 'Erro ao forçar logout.');
+                            } finally { setForcingLogout(null); }
+                          }
+                        )}
+                        onRemovePhoto={() => askConfirm(
+                          'Remover foto',
+                          `Remover a foto de perfil de ${user.email}?`,
+                          'Remover',
+                          () => handleRemovePhoto(user)
+                        )}
+                      />
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <RoleBadge role={user.role} customRoles={customRoles} customRoleId={user.custom_role_id} customRoleName={user.custom_role_name} />
-                      <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                        <Clock className="h-3 w-3" />{formatLastLogin(user.last_sign_in_at)}
-                      </span>
-                    </div>
-                  </div>
+                  );
+                })}
+              </div>
+            )}
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                    {user.photo_url && canManagePhotos && (
-                      <ActionButton title="Remover foto" icon={<Camera className="h-4 w-4 text-red-500" />} color="hover:bg-red-50 dark:hover:bg-red-900/20"
-                        onClick={() => handleRemovePhoto(user)} />
-                    )}
-                    <ActionButton title="Alterar senha" icon={<Key className="h-4 w-4" />} color="text-indigo-600 dark:text-indigo-400"
-                      disabled={disabled} onClick={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }} />
-                    <ActionButton title="Alterar função" icon={<UserCog className="h-4 w-4" />} color="text-amber-600 dark:text-amber-400"
-                      disabled={disabled || isMe} onClick={() => {
-                        const currentVal = user.custom_role_id
-                          ? user.custom_role_id
-                          : user.role;
-                        setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: currentVal });
-                        setShowChangeRole(true);
-                      }} />
-                    <ActionButton title="Notificações" icon={<Bell className="h-4 w-4" />} color="text-blue-600 dark:text-blue-400"
-                      onClick={() => openNotifModal(user)} />
-                    <ActionButton
-                      title={disabled ? 'Habilitar acesso' : 'Desabilitar acesso'}
-                      icon={isBanning
-                        ? <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                        : disabled ? <ShieldCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />
-                      }
-                      color={disabled ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}
-                      disabled={isMe || isBanning}
-                      onClick={() => handleToggleBan(user)}
-                    />
-                    <ActionButton
-                      title="Forçar logout de todos os dispositivos"
-                      icon={forcingLogout === user.id
-                        ? <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                        : <LogOut className="h-4 w-4" />
-                      }
-                      color="text-orange-500 dark:text-orange-400"
-                      disabled={isMe || forcingLogout === user.id || disabled}
-                      onClick={async () => {
-                        if (!window.confirm(`Desconectar ${user.email} de todos os dispositivos?`)) return;
-                        setForcingLogout(user.id);
-                        try {
-                          const result = await forceSignOut(user.id);
-                          if (result.success) showToast('success', `${user.email} foi desconectado.`);
-                          else showToast('error', result.message || 'Erro ao forçar logout.');
-                        } finally {
-                          setForcingLogout(null);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-              })}
-            </div>
-
-            {/* ── Inativos (colapsável) ── */}
-            {users.filter(u => isUserDisabled(u)).length > 0 && (
-              <div className="border-t-2 border-dashed border-gray-200 dark:border-gray-700 mt-1">
+            {/* Inativos (colapsável) */}
+            {inactiveUsers.length > 0 && (
+              <div className="border-t-2 border-dashed border-slate-200 dark:border-slate-700">
                 <button
                   onClick={() => setShowInactive(v => !v)}
-                  className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors select-none"
+                  className="w-full flex items-center justify-between px-5 py-3.5 text-xs font-bold text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors select-none"
                 >
                   <span className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-                    Inativos — {users.filter(u => isUserDisabled(u)).length} utilizador{users.filter(u => isUserDisabled(u)).length !== 1 ? 'es' : ''}
+                    Desabilitados — {inactiveUsers.length} {inactiveUsers.length !== 1 ? 'usuários' : 'usuário'}
                   </span>
-                  <span className="text-xs tracking-wide">{showInactive ? '▲ Ocultar' : '▼ Mostrar'}</span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showInactive ? 'rotate-180' : ''}`} />
                 </button>
+
                 {showInactive && (
-                  <div className="divide-y divide-gray-100 dark:divide-gray-700/60 bg-gray-50/30 dark:bg-gray-900/20">
-                    {users.filter(u => isUserDisabled(u)).map(user => {
-                      const disabled = isUserDisabled(user);
-                      const isMe = user.id === adminUser?.id;
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/50 bg-red-50/20 dark:bg-red-900/5">
+                    {inactiveUsers.map(user => {
                       const isBanning = togglingBan === user.id;
                       return (
-                        <div key={user.id} className="px-4 py-4 opacity-60 hover:opacity-80 transition-opacity">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                              <UserX className="h-4 w-4 text-red-500" />
+                        <div key={user.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4">
+                          <div className="w-10 h-10 rounded-2xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                            <UserX className="h-5 w-5 text-red-500 dark:text-red-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate">{user.email}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                              <span className="text-xs text-red-500 dark:text-red-400 font-medium">Desabilitado</span>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate">{user.email}</p>
-                              <p className="text-xs text-red-400 font-medium">Desabilitado</p>
-                            </div>
-                            <button
-                              disabled={isBanning}
-                              onClick={async () => {
+                          </div>
+                          <button
+                            disabled={isBanning}
+                            onClick={() => askConfirm(
+                              'Reativar usuário',
+                              `Deseja reativar o acesso de ${user.email}?`,
+                              'Reativar',
+                              async () => {
                                 if (!session) return;
                                 setTogglingBan(user.id);
                                 try {
                                   await callAdminAction(session, { action: 'toggle_ban', target_user_id: user.id, disable: false });
                                   await fetchUsers();
                                   showToast('success', `${user.email} reativado.`);
-                                } catch (e: any) {
-                                  showToast('error', e.message);
-                                } finally {
-                                  setTogglingBan(null);
-                                }
-                              }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
-                            >
-                              {isBanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                              Reativar
-                            </button>
-                          </div>
+                                } catch (e: any) { showToast('error', e.message); }
+                                finally { setTogglingBan(null); }
+                              },
+                              'bg-green-600 hover:bg-green-700'
+                            )}
+                            className="flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50 flex-shrink-0"
+                          >
+                            {isBanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                            Reativar
+                          </button>
                         </div>
                       );
                     })}
@@ -923,25 +1077,29 @@ const UserManagement = () => {
 
       {/* ══ Modal — Alterar Senha ══ */}
       {showChangePwd && (
-        <Modal title="Alterar Senha" onClose={() => setShowChangePwd(false)}>
+        <Modal title="Alterar Senha" subtitle="A senha será atualizada imediatamente" onClose={() => setShowChangePwd(false)}>
           <form onSubmit={handlePasswordChange} className="space-y-4">
-            <FormField label="Nova Senha">
+            <FormField label="Nova Senha" required>
               <div className="relative">
                 <input type={showNewPwd ? 'text' : 'password'} value={changePwd.newPassword}
                   onChange={e => setChangePwd({ ...changePwd, newPassword: e.target.value })}
-                  className={inputCls} required minLength={6} placeholder="Mínimo 6 caracteres" />
-                <button type="button" onClick={() => setShowNewPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                  className={inputCls} required minLength={6} placeholder="Mínimo 6 caracteres" autoComplete="new-password" />
+                <button type="button" onClick={() => setShowNewPwd(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1">
                   {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </FormField>
-            <FormField label="Confirmar Senha">
+            <FormField label="Confirmar Senha" required>
               <input type="password" value={changePwd.confirmPassword}
                 onChange={e => setChangePwd({ ...changePwd, confirmPassword: e.target.value })}
-                className={inputCls} required placeholder="Repita a senha" />
+                className={inputCls} required placeholder="Repita a senha" autoComplete="new-password" />
             </FormField>
             {changePwd.newPassword && changePwd.confirmPassword && changePwd.newPassword !== changePwd.confirmPassword && (
-              <p className="text-xs text-red-500 flex items-center gap-1"><XCircle className="h-3.5 w-3.5" />As senhas não coincidem.</p>
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800/50">
+                <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                <p className="text-xs text-red-600 dark:text-red-400 font-medium">As senhas não coincidem.</p>
+              </div>
             )}
             <ModalActions onCancel={() => setShowChangePwd(false)} submitLabel="Salvar senha" submitting={changingPwd} />
           </form>
@@ -950,64 +1108,78 @@ const UserManagement = () => {
 
       {/* ══ Modal — Alterar Função ══ */}
       {showChangeRole && (
-        <Modal title="Alterar Função" onClose={() => setShowChangeRole(false)}>
+        <Modal title="Alterar Função" subtitle={`Usuário: ${changeRole.email}`} onClose={() => setShowChangeRole(false)}>
           <form onSubmit={handleRoleChange} className="space-y-4">
-            <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+            <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                 {changeRole.email[0]?.toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{changeRole.email}</p>
-                <div className="mt-0.5"><RoleBadge role={changeRole.currentRole} customRoles={customRoles} /></div>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{changeRole.email}</p>
+                <div className="mt-1">
+                  <RoleBadge role={changeRole.currentRole} customRoles={customRoles} />
+                </div>
               </div>
             </div>
-            <FormField label="Nova Função">
-              <select value={changeRole.newRole} onChange={e => setChangeRole({ ...changeRole, newRole: e.target.value })} className={inputCls}>
+            <FormField label="Nova Função" required>
+              <select value={changeRole.newRole} onChange={e => setChangeRole({ ...changeRole, newRole: e.target.value })} className={inputCls} required>
                 <option value="">Selecionar perfil...</option>
-                {customRoles.map(r => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
+                {customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </FormField>
-            <ModalActions onCancel={() => setShowChangeRole(false)} submitLabel="Salvar função" submitting={changingRole} />
+            <ModalActions onCancel={() => setShowChangeRole(false)} submitLabel="Salvar função" submitting={changingRole} submitColor="bg-amber-500 hover:bg-amber-600" />
           </form>
         </Modal>
       )}
 
       {/* ══ Modal — Preferências de Notificação ══ */}
       {showNotif && selUserNotif && (
-        <div className="fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white dark:bg-gray-900 w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl flex flex-col max-h-[92dvh] sm:max-h-[88vh] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+
+            {/* Drag handle on mobile */}
+            <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
+              <div className="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full" />
+            </div>
+
             {/* Header */}
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                {selUserNotif.email[0].toUpperCase()}
-              </div>
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+              <UserAvatar user={selUserNotif} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{selUserNotif.email}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Preferências de notificação · <span className="font-medium text-blue-600 dark:text-blue-400">{userPrefs.length} configurada{userPrefs.length !== 1 ? 's' : ''}</span>
-                </p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{selUserNotif.email}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Notificações</span>
+                  {userPrefs.length > 0 && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
+                      {userPrefs.length} ativa{userPrefs.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
               </div>
-              <button onClick={() => setShowNotif(false)} className="w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all">
+              <button onClick={() => setShowNotif(false)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
               {loadingPrefs ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
-                  <div className="w-7 h-7 border-2 border-blue-200 dark:border-blue-900 border-t-blue-600 rounded-full animate-spin" />
-                  <p className="text-sm text-gray-400">Carregando...</p>
+                  <Loader2 className="h-7 w-7 text-blue-500 animate-spin" />
+                  <p className="text-sm text-slate-400">Carregando preferências...</p>
                 </div>
               ) : (
                 <>
+                  {/* Add / Edit form */}
                   {showPrefForm ? (
-                    <form onSubmit={handleSavePref} className="bg-gray-50 dark:bg-gray-800/60 rounded-2xl p-4 space-y-3 border border-gray-100 dark:border-gray-700/60">
-                      <h4 className="text-sm font-semibold text-gray-800 dark:text-white">{isEditingPref ? 'Editar preferência' : 'Nova preferência'}</h4>
+                    <form onSubmit={handleSavePref}
+                      className="bg-blue-50/60 dark:bg-slate-800/80 rounded-2xl p-4 space-y-3.5 border border-blue-100 dark:border-slate-700">
+                      <p className="text-sm font-bold text-slate-800 dark:text-white">
+                        {isEditingPref ? 'Editar preferência' : 'Nova preferência'}
+                      </p>
 
-                      <FormField label="Tipo de notificação">
+                      <FormField label="Tipo de notificação" required>
                         <select value={currentPref.notification_type_id || ''} onChange={handleNotifTypeChange} className={inputCls} required>
                           <option value="">Selecione...</option>
                           {notifTypes.map(t => <option key={t.id} value={t.id}>{NOTIF_LABELS[t.event_key] || t.event_key}</option>)}
@@ -1015,7 +1187,7 @@ const UserManagement = () => {
                       </FormField>
 
                       {selNotifType?.requires_hotel_filter && (
-                        <FormField label="Hotel">
+                        <FormField label="Hotel" required>
                           <select value={currentPref.hotel_id || ''} onChange={handleHotelChange} className={inputCls} required>
                             <option value="">Selecione um hotel...</option>
                             {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
@@ -1024,64 +1196,109 @@ const UserManagement = () => {
                       )}
 
                       {selNotifType?.requires_sector_filter && currentPref.hotel_id && (
-                        <FormField label="Setor">
+                        <FormField label="Setor" required>
                           <select value={allSectors ? 'all_sectors' : (currentPref.sector_id || '')} onChange={handleSectorChange} className={inputCls} required>
                             <option value="">Selecione um setor...</option>
-                            <option value="all_sectors">📋 Todos os setores</option>
+                            <option value="all_sectors">Todos os setores</option>
                             {sectors.filter(s => !selHotelFilter || s.hotel_id === selHotelFilter).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                           </select>
                         </FormField>
                       )}
 
-                      <label className="flex items-center gap-3 cursor-pointer select-none">
-                        <div onClick={() => setCurrentPref(p => ({ ...p, is_active: !(p.is_active ?? true) }))}
-                          className={`relative w-9 h-5 rounded-full transition-colors ${(currentPref.is_active ?? true) ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}>
-                          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${(currentPref.is_active ?? true) ? 'left-4' : 'left-0.5'}`} />
-                        </div>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">Ativa</span>
+                      {/* Toggle ativo */}
+                      <label className="flex items-center gap-3 cursor-pointer select-none p-1">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={currentPref.is_active ?? true}
+                          onClick={() => setCurrentPref(p => ({ ...p, is_active: !(p.is_active ?? true) }))}
+                          className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                            ${(currentPref.is_active ?? true) ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                        >
+                          <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all
+                            ${(currentPref.is_active ?? true) ? 'left-5' : 'left-1'}`} />
+                        </button>
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          {(currentPref.is_active ?? true) ? 'Ativa' : 'Inativa'}
+                        </span>
                       </label>
 
-                      <div className="flex justify-end gap-2 pt-1">
+                      <div className="flex gap-2">
                         <button type="button" onClick={() => { setShowPrefForm(false); setCurrentPref({}); setIsEditingPref(false); setAllSectors(false); }}
-                          className="px-3.5 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors">Cancelar</button>
+                          className="flex-1 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 rounded-xl border border-slate-200 dark:border-slate-600 transition-colors">
+                          Cancelar
+                        </button>
                         <button type="submit" disabled={loadingPrefs}
-                          className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors disabled:opacity-60">
-                          {loadingPrefs ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors disabled:opacity-60">
+                          {loadingPrefs ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                           {isEditingPref ? 'Atualizar' : 'Adicionar'}
                         </button>
                       </div>
                     </form>
                   ) : (
                     <button onClick={() => { setCurrentPref({}); setIsEditingPref(false); setShowPrefForm(true); setAllSectors(false); }}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 border border-dashed border-blue-300 dark:border-blue-700/60 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
-                      <PlusCircle className="h-4 w-4" />Adicionar preferência
+                      className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold text-blue-600 dark:text-blue-400 border-2 border-dashed border-blue-200 dark:border-blue-800/60 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors min-h-[44px]">
+                      <PlusCircle className="h-4 w-4" />
+                      Adicionar preferência
                     </button>
                   )}
 
+                  {/* Preferences list */}
                   {userPrefs.length === 0 && !showPrefForm ? (
-                    <div className="flex flex-col items-center justify-center py-8 gap-2 text-gray-400">
-                      <Bell className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">Nenhuma preferência configurada.</p>
+                    <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
+                      <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                        <BellOff className="h-7 w-7 opacity-40" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium">Nenhuma preferência</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Adicione para receber notificações configuradas.</p>
+                      </div>
                     </div>
-                  ) : (
+                  ) : userPrefs.length > 0 && (
                     <div className="space-y-2">
                       {userPrefs.map(pref => (
-                        <div key={pref.id} className={`flex items-center gap-3 p-3.5 rounded-xl border transition-colors ${pref.is_active ? 'border-green-200 dark:border-green-800/50 bg-green-50/50 dark:bg-green-900/10' : 'border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30'}`}>
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${pref.is_active ? 'bg-green-500' : 'bg-gray-400'}`} />
+                        <div key={pref.id}
+                          className={`flex items-start gap-3 p-4 rounded-2xl border transition-colors
+                            ${pref.is_active
+                              ? 'border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/10'
+                              : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'}`}>
+                          <div className={`mt-0.5 w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0
+                            ${pref.is_active ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-slate-100 dark:bg-slate-700'}`}>
+                            {pref.is_active
+                              ? <BellRing className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                              : <BellOff className="h-3.5 w-3.5 text-slate-400" />
+                            }
+                          </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 leading-tight">
                               {NOTIF_LABELS[pref.notification_types?.event_key || ''] || pref.notification_types?.event_key || '—'}
                             </p>
                             {(pref.hotels || pref.sectors) && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1">
-                                <ChevronRight className="h-2.5 w-2.5" />
-                                {pref.hotels?.name}{pref.sectors ? ` · ${pref.sectors.name}` : pref.hotel_id && !pref.sector_id ? ' · Todos os setores' : ''}
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+                                <ChevronRight className="h-3 w-3 flex-shrink-0" />
+                                {pref.hotels?.name}
+                                {pref.sectors ? ` · ${pref.sectors.name}` : pref.hotel_id && !pref.sector_id ? ' · Todos os setores' : ''}
                               </p>
                             )}
                           </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <ActionButton title="Editar" icon={<Edit3 className="h-3.5 w-3.5" />} color="text-blue-600 dark:text-blue-400" onClick={() => handleEditPref(pref)} />
-                            <ActionButton title="Remover" icon={<Trash2 className="h-3.5 w-3.5" />} color="text-red-500 dark:text-red-400" onClick={() => handleDeletePref(pref.id)} />
+                          <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                            <button onClick={() => handleEditPref(pref)} title="Editar"
+                              className="w-8 h-8 flex items-center justify-center rounded-xl text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setConfirm({
+                                  title: 'Remover preferência',
+                                  message: 'Deseja remover esta configuração de notificação?',
+                                  label: 'Remover',
+                                  onConfirm: () => handleDeletePref(pref.id),
+                                });
+                              }}
+                              title="Remover"
+                              className="w-8 h-8 flex items-center justify-center rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </div>
                       ))}
