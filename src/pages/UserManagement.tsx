@@ -122,12 +122,13 @@ const notifLabel = (key: string) => NOTIF_CONFIG[key]?.label || key;
 // ---------------------------------------------------------------------------
 
 async function callAdminAction(
-  session: any,
   payload: Record<string, unknown>
 ): Promise<{ success: boolean; message?: string; error?: string; [key: string]: any }> {
+  // Let the Supabase client handle auth automatically — it always uses the
+  // most current access_token (including after silent token refreshes),
+  // avoiding 401s caused by a stale token in React state.
   const { data, error } = await supabase.functions.invoke('admin-user-actions', {
     body: payload,
-    headers: { Authorization: `Bearer ${session.access_token}` },
   });
   if (error) throw new Error(error.message || 'Erro na Edge Function.');
   if (data?.error) throw new Error(data.error);
@@ -595,7 +596,7 @@ const UserManagement = () => {
     try {
       const selectedRole = customRoles.find(r => r.id === newUser.role);
       const systemRole   = selectedRole?.is_system ? 'admin' : 'guest';
-      await callAdminAction(session, {
+      await callAdminAction({
         action: 'create_user', email: newUser.email, password: newUser.password,
         role: systemRole, custom_role_id: selectedRole?.id ?? null,
       });
@@ -620,7 +621,7 @@ const UserManagement = () => {
     if (!session) { showToast('error', 'Sessão expirada.'); return; }
     setChangingPwd(true);
     try {
-      await callAdminAction(session, { action: 'change_password', target_user_id: changePwd.userId, new_password: changePwd.newPassword });
+      await callAdminAction({ action: 'change_password', target_user_id: changePwd.userId, new_password: changePwd.newPassword });
       setShowChangePwd(false);
       setChangePwd({ userId: '', newPassword: '', confirmPassword: '' });
       showToast('success', 'Senha alterada com sucesso!');
@@ -644,7 +645,7 @@ const UserManagement = () => {
       if (!selectedRole) throw new Error('Perfil não encontrado.');
       const systemRole = selectedRole.is_system ? 'admin' : 'guest';
       await supabase.from('profiles').update({ custom_role_id: selectedRole.id, role: systemRole }).eq('id', changeRole.userId);
-      await callAdminAction(session, { action: 'change_role', target_user_id: changeRole.userId, new_role: systemRole, custom_role_id: selectedRole.id });
+      await callAdminAction({ action: 'change_role', target_user_id: changeRole.userId, new_role: systemRole, custom_role_id: selectedRole.id });
       await fetchUsers();
       setShowChangeRole(false);
       if (changeRole.userId === adminUser?.id) {
@@ -669,7 +670,7 @@ const UserManagement = () => {
     if (!session) { showToast('error', 'Sessão expirada.'); return; }
     setTogglingBan(user.id);
     try {
-      await callAdminAction(session, { action: 'toggle_ban', target_user_id: user.id, disable: !disabled });
+      await callAdminAction({ action: 'toggle_ban', target_user_id: user.id, disable: !disabled });
       await fetchUsers();
       showToast('success', disabled ? `${user.email} foi habilitado.` : `${user.email} foi desabilitado.`);
     } catch (err: any) {
@@ -1118,7 +1119,7 @@ const UserManagement = () => {
                                 if (!session) return;
                                 setTogglingBan(user.id);
                                 try {
-                                  await callAdminAction(session, { action: 'toggle_ban', target_user_id: user.id, disable: false });
+                                  await callAdminAction({ action: 'toggle_ban', target_user_id: user.id, disable: false });
                                   await fetchUsers();
                                   showToast('success', `${user.email} reativado.`);
                                 } catch (e: any) { showToast('error', e.message); }
