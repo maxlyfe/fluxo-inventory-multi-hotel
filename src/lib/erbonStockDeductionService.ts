@@ -99,14 +99,16 @@ export async function processErbonSalesDeductions(
           hotel_id: hotelId, erbon_service_id: agg.service_id, erbon_department: agg.department,
           transaction_date: agg.date, quantity: agg.qty, sector_id: sectorId,
           product_id: mapping.product_id, deduction_type: 'direct', processed_by: processedBy,
+          item_type: 'dish' // Default para produtos diretos
         });
         result.processed++;
       } else if (mapping.dish_id) {
-        await deductDecomposedDish(hotelId, mapping.dish_id, agg.qty, agg.date, processedBy, result, productNames, sectorNames);
+        const itemType = await deductDecomposedDish(hotelId, mapping.dish_id, agg.qty, agg.date, processedBy, result, productNames, sectorNames);
         await supabase.from('erbon_sales_processed').insert({
           hotel_id: hotelId, erbon_service_id: agg.service_id, erbon_department: agg.department,
           transaction_date: agg.date, quantity: agg.qty, sector_id: null,
           dish_id: mapping.dish_id, deduction_type: 'decomposed', processed_by: processedBy,
+          item_type: itemType || 'dish'
         });
         result.processed++;
       } else {
@@ -121,13 +123,17 @@ export async function processErbonSalesDeductions(
 }
 
 async function deductDirectProduct(hotelId: string, sectorId: string, productId: string, quantity: number, date: string, processedBy: string) {
-  const { data: stockRow } = await supabase
-    .from('sector_stock').select('id, quantity')
-    .eq('hotel_id', hotelId).eq('sector_id', sectorId).eq('product_id', productId).single();
+  // ATÔMICO: Usando RPC conforme GEMINI.md
+  const { error: rpcError } = await supabase.rpc('decrement_sector_stock', {
+    p_hotel_id: hotelId,
+    p_sector_id: sectorId,
+    p_product_id: productId,
+    p_quantity: quantity
+  });
 
-  if (stockRow) {
-    const newQty = Math.max(0, (stockRow.quantity || 0) - quantity);
-    await supabase.from('sector_stock').update({ quantity: newQty }).eq('id', stockRow.id);
+  if (rpcError) {
+    // Se falhar (ex: produto não existe no estoque do setor), ainda registramos o movimento mas ignoramos o erro atômico para não travar o loop
+    console.warn(`Erro ao descontar estoque atômico: ${rpcError.message}`);
   }
 
   await supabase.from('sector_stock_movements').insert({
@@ -140,10 +146,10 @@ async function deductDirectProduct(hotelId: string, sectorId: string, productId:
 async function deductDecomposedDish(
   hotelId: string, dishId: string, dishQuantity: number, date: string, processedBy: string,
   result: DeductionResult, productNames: Map<string, string>, sectorNames: Map<string, string>
-) {
-  const { data: dish } = await supabase.from('dishes').select('id, name, production_sector_id').eq('id', dishId).single();
-  if (!dish) throw new Error(`Prato ${dishId} não encontrado`);
-  if (!dish.production_sector_id) throw new Error(`Prato "${dish.name}" sem setor de produção definido`);
+): Promise<string> {
+  const { data: dish } = await supabase.from('dishes').select('id, name, type, production_sector_id').eq('id', dishId).single();
+  if (!dish) throw new Error(`Item ${dishId} não encontrado`);
+  if (!dish.production_sector_id) throw new Error(`${dish.type === 'dish' ? 'Prato' : 'Bebida'} "${dish.name}" sem setor de produção definido`);
 
   const sectorId = dish.production_sector_id;
   const { data: dishIngredients } = await supabase
@@ -185,4 +191,6 @@ async function deductDecomposedDish(
       quantity: qty, type: 'decomposed',
     });
   }
+
+  return dish.type || 'dish';
 }

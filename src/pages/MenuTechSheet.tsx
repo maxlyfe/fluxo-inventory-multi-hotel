@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink, UtensilsCrossed, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink, UtensilsCrossed, Loader2, Beer } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Ingredient, UnitType, Side, SideIngredient, Dish, DishIngredient, DishSide } from '../types/menu';
 import type { Product } from '../types/product';
 
@@ -41,12 +42,13 @@ async function calculateDishCost(dishId: string): Promise<number> {
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
-type TabKey = 'ingredients' | 'sides' | 'dishes';
+type TabKey = 'ingredients' | 'sides' | 'dishes' | 'drinks';
 
-const TABS: { key: TabKey; label: string; color: string; activeColor: string }[] = [
-  { key: 'ingredients', label: 'Ingredientes',     color: 'text-emerald-600 dark:text-emerald-400', activeColor: 'bg-emerald-600' },
-  { key: 'sides',       label: 'Acompanhamentos',  color: 'text-blue-600 dark:text-blue-400',       activeColor: 'bg-blue-600' },
-  { key: 'dishes',      label: 'Pratos',           color: 'text-orange-600 dark:text-orange-400',   activeColor: 'bg-orange-600' },
+const TABS: { key: TabKey; label: string; color: string; activeColor: string; icon: any }[] = [
+  { key: 'ingredients', label: 'Ingredientes',     color: 'text-emerald-600 dark:text-emerald-400', activeColor: 'bg-emerald-600', icon: UtensilsCrossed },
+  { key: 'sides',       label: 'Acompanhamentos',  color: 'text-blue-600 dark:text-blue-400',       activeColor: 'bg-blue-600',    icon: UtensilsCrossed },
+  { key: 'dishes',      label: 'Pratos',           color: 'text-orange-600 dark:text-orange-400',   activeColor: 'bg-orange-600',   icon: UtensilsCrossed },
+  { key: 'drinks',      label: 'Bebidas/Drinks',   color: 'text-purple-600 dark:text-purple-400',   activeColor: 'bg-purple-600',   icon: Beer },
 ];
 
 // ─── Shared input style ───────────────────────────────────────────────────────
@@ -93,12 +95,13 @@ export default function MenuTechSheet() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
+            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all flex items-center gap-2 ${
               activeTab === tab.key
                 ? `${tab.activeColor} text-white shadow-sm scale-105`
                 : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
             }`}
           >
+            <tab.icon size={16} />
             {tab.label}
           </button>
         ))}
@@ -107,7 +110,8 @@ export default function MenuTechSheet() {
       {/* Tab Content */}
       {activeTab === 'ingredients' && <IngredientsTab hotelId={hotelId} />}
       {activeTab === 'sides' && <SidesTab hotelId={hotelId} />}
-      {activeTab === 'dishes' && <DishesTab hotelId={hotelId} />}
+      {activeTab === 'dishes' && <DishesTab hotelId={hotelId} type="dish" />}
+      {activeTab === 'drinks' && <DishesTab hotelId={hotelId} type="drink" />}
     </div>
   );
 }
@@ -127,7 +131,6 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [linkingIngredientId, setLinkingIngredientId] = useState<string | null>(null);
-  const [productSearch, setProductSearch] = useState('');
 
   const loadIngredients = useCallback(async () => {
     const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
@@ -135,7 +138,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
   }, [hotelId]);
 
   const loadProducts = useCallback(async () => {
-    const { data } = await supabase.from('products').select('id, name, average_price').eq('hotel_id', hotelId).eq('is_active', true).order('name');
+    const { data } = await supabase.from('products').select('id, name, average_price, category').eq('hotel_id', hotelId).eq('is_active', true).order('name');
     setProducts(data || []);
   }, [hotelId]);
 
@@ -157,12 +160,14 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     }
     resetForm();
     loadIngredients();
+    addNotification('Ingrediente salvo com sucesso!', 'success');
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Tem certeza que deseja excluir este ingrediente?')) return;
     await supabase.from('ingredients').delete().eq('id', id);
     loadIngredients();
+    addNotification('Ingrediente excluído', 'info');
   }
 
   function handleEdit(ing: Ingredient) {
@@ -171,14 +176,17 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     setShowForm(true);
   }
 
-  async function handleLinkProduct(ingredientId: string, product: Product) {
+  async function handleLinkProduct(ingredientId: string, productId: string) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+
     await supabase.from('ingredients').update({
       product_id: product.id,
       price_per_unit: product.average_price || 0
     }).eq('id', ingredientId);
+    
     setShowProductSearch(false);
     setLinkingIngredientId(null);
-    setProductSearch('');
     loadIngredients();
     addNotification('Ingrediente vinculado ao produto!', 'success');
   }
@@ -195,9 +203,10 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     setEditingId(null);
   }
 
-  const filteredProducts = productSearch.trim()
-    ? products.filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-    : products;
+  const productOptions = products.map(p => ({
+    value: p.id,
+    label: `${p.name} (${p.category || 'Sem cat.'}) - R$ ${Number(p.average_price || 0).toFixed(4)}`
+  }));
 
   return (
     <div className="space-y-4">
@@ -282,7 +291,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Nome</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Unidade</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Preço/Unidade</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Vínculo</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Vínculo Produto</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
@@ -306,16 +315,16 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
                       <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-xs font-mono">{ing.unit}</span>
                     </td>
                     <td className="px-4 py-3 text-sm font-mono text-slate-700 dark:text-slate-300">
-                      R$ {Number(ing.price_per_unit).toFixed(8)}
+                      R$ {Number(ing.price_per_unit).toFixed(6)}
                       {(ing as any).product_id && (
                         <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">auto</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm relative">
+                    <td className="px-4 py-3 text-sm">
                       {(ing as any).product_id ? (
                         <div className="flex items-center gap-1">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
-                            <Link2 size={11} />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 max-w-[150px] truncate">
+                            <Link2 size={11} className="flex-shrink-0" />
                             {products.find((p) => p.id === (ing as any).product_id)?.name || 'Produto'}
                           </span>
                           <button
@@ -327,54 +336,26 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
                           </button>
                         </div>
                       ) : (
-                        <div className="relative">
-                          <button
-                            onClick={() => {
-                              if (linkingIngredientId === ing.id) {
-                                setShowProductSearch(false);
-                                setLinkingIngredientId(null);
-                                setProductSearch('');
-                              } else {
-                                setLinkingIngredientId(ing.id);
-                                setShowProductSearch(true);
-                                setProductSearch('');
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                          >
-                            <Link2 size={11} /> Vincular
-                          </button>
-                          {showProductSearch && linkingIngredientId === ing.id && (
-                            <div className="absolute z-20 top-full left-0 mt-1 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
-                              <div className="p-2 border-b border-slate-100 dark:border-slate-700">
-                                <input
-                                  type="text"
-                                  placeholder="Buscar produto..."
-                                  value={productSearch}
-                                  onChange={(e) => setProductSearch(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                  autoFocus
-                                />
-                              </div>
-                              <div className="max-h-40 overflow-y-auto">
-                                {filteredProducts.length === 0 ? (
-                                  <p className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 text-center">Nenhum produto encontrado</p>
-                                ) : (
-                                  filteredProducts.map((p) => (
-                                    <button
-                                      key={p.id}
-                                      onClick={() => handleLinkProduct(ing.id, p)}
-                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 flex justify-between items-center transition-colors"
-                                    >
-                                      <span>{p.name}</span>
-                                      {p.average_price != null && (
-                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">R$ {Number(p.average_price).toFixed(4)}</span>
-                                      )}
-                                    </button>
-                                  ))
-                                )}
-                              </div>
+                        <div className="w-48">
+                          {linkingIngredientId === ing.id ? (
+                            <div className="flex items-center gap-1">
+                              <SearchableSelect
+                                options={productOptions}
+                                placeholder="Buscar produto..."
+                                onSelect={(val) => handleLinkProduct(ing.id, val)}
+                                className="scale-90 origin-left"
+                              />
+                              <button onClick={() => setLinkingIngredientId(null)} className="p-1 text-slate-400 hover:text-slate-600">
+                                <X size={14} />
+                              </button>
                             </div>
+                          ) : (
+                            <button
+                              onClick={() => setLinkingIngredientId(ing.id)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                            >
+                              <Link2 size={11} /> Vincular Produto
+                            </button>
                           )}
                         </div>
                       )}
@@ -399,11 +380,6 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
             </tbody>
           </table>
         </div>
-        {filtered.length > 0 && (
-          <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-700/50 text-xs text-slate-400 dark:text-slate-500">
-            {filtered.length} ingrediente{filtered.length !== 1 ? 's' : ''}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -414,6 +390,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SidesTab({ hotelId }: { hotelId: string }) {
+  const { addNotification } = useNotification();
   const [sides, setSides] = useState<Side[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -461,6 +438,7 @@ function SidesTab({ hotelId }: { hotelId: string }) {
     }
     resetForm();
     loadSides();
+    addNotification('Acompanhamento salvo com sucesso!', 'success');
   }
 
   async function handleEdit(side: Side) {
@@ -478,6 +456,7 @@ function SidesTab({ hotelId }: { hotelId: string }) {
     await supabase.from('sides').delete().eq('id', id);
     if (expandedId === id) setExpandedId(null);
     loadSides();
+    addNotification('Acompanhamento excluído', 'info');
   }
 
   function resetForm() {
@@ -485,6 +464,11 @@ function SidesTab({ hotelId }: { hotelId: string }) {
     setShowForm(false);
     setEditingId(null);
   }
+
+  const ingredientOptions = ingredients.map(i => ({
+    value: i.id,
+    label: `${i.name} (${i.unit})`
+  }));
 
   return (
     <div className="space-y-4">
@@ -533,30 +517,35 @@ function SidesTab({ hotelId }: { hotelId: string }) {
                 + Adicionar Ingrediente
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {formData.ingredients.map((ing, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <select
-                    value={ing.ingredient_id}
-                    onChange={(e) => { const n = [...formData.ingredients]; n[idx].ingredient_id = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className={`flex-1 ${selectCls}`}
-                    required
-                  >
-                    <option value="">Selecione...</option>
-                    {ingredients.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                  </select>
-                  <input
-                    type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
-                    onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className="w-24 sm:w-28 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                    className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                <div key={idx} className="flex flex-col sm:flex-row gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <div className="flex-1">
+                    <SearchableSelect
+                      options={ingredientOptions}
+                      placeholder="Selecionar ingrediente..."
+                      onSelect={(val) => { const n = [...formData.ingredients]; n[idx].ingredient_id = val; setFormData({ ...formData, ingredients: n }); }}
+                    />
+                    {ing.ingredient_id && (
+                      <p className="mt-1 text-[10px] text-slate-500 font-medium">
+                        Selecionado: {ingredients.find(i => i.id === ing.ingredient_id)?.name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
+                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
+                      className="w-full sm:w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
+                      className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -575,9 +564,9 @@ function SidesTab({ hotelId }: { hotelId: string }) {
       )}
 
       {/* Cards */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredSides.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
+          <div className="col-span-full bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {search ? 'Nenhum acompanhamento encontrado' : 'Nenhum acompanhamento cadastrado'}
             </p>
@@ -616,36 +605,30 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
   const totalCost = items.reduce((t, si) => t + (si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0), 0);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
       <div
         className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
         onClick={onToggle}
       >
-        <div className="flex items-center gap-3">
-          {isExpanded
-            ? <ChevronUp size={17} className="text-slate-400 flex-shrink-0" />
-            : <ChevronDown size={17} className="text-slate-400 flex-shrink-0" />
-          }
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-white">{side.name}</h3>
-            {isExpanded && !loading && items.length > 0 && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
-                Total: R$ {totalCost.toFixed(2)}
-              </p>
-            )}
-          </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-white truncate">{side.name}</h3>
+          {!isExpanded && (
+            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase mt-0.5">
+              Custo Estimado: R$ {totalCost.toFixed(2)}
+            </p>
+          )}
         </div>
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
           <button onClick={onEdit} className="p-1.5 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
-            <Edit2 size={15} />
+            <Edit2 size={14} />
           </button>
           <button onClick={onDelete} className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-            <Trash2 size={15} />
+            <Trash2 size={14} />
           </button>
         </div>
       </div>
       {isExpanded && (
-        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/60">
+        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/60 flex-1">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-4">
               <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
@@ -654,31 +637,20 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
           ) : items.length === 0 ? (
             <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-3">Nenhum ingrediente adicionado</p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-100 dark:bg-slate-700/60">
-                  <tr className="text-left">
-                    <th className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Ingrediente</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Quantidade</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Preço Unit.</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Subtotal</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                  {items.map((si) => (
-                    <tr key={si.id} className="bg-white dark:bg-slate-800">
-                      <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{si.ingredient?.name}</td>
-                      <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{si.quantity} {si.ingredient?.unit}</td>
-                      <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 font-mono text-xs">R$ {Number(si.ingredient?.price_per_unit ?? 0).toFixed(6)}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-300">R$ {((si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0)).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                  <tr className="bg-slate-50 dark:bg-slate-700/30">
-                    <td colSpan={3} className="px-3 py-2 text-right text-xs font-bold text-slate-600 dark:text-slate-300">Total:</td>
-                    <td className="px-3 py-2 text-right font-bold text-emerald-600 dark:text-emerald-400">R$ {totalCost.toFixed(2)}</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              {items.map((si) => (
+                <div key={si.id} className="flex justify-between items-center text-xs">
+                  <span className="text-slate-600 dark:text-slate-300 truncate mr-2">{si.ingredient?.name}</span>
+                  <div className="text-right flex-shrink-0">
+                    <span className="text-slate-400">{si.quantity}{si.ingredient?.unit}</span>
+                    <span className="ml-2 font-mono text-slate-900 dark:text-white font-semibold">R$ {((si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0)).toFixed(2)}</span>
+                  </div>
+                </div>
+              ))}
+              <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between font-bold">
+                <span className="text-slate-500">Total:</span>
+                <span className="text-emerald-600 dark:text-emerald-400">R$ {totalCost.toFixed(2)}</span>
+              </div>
             </div>
           )}
         </div>
@@ -688,32 +660,39 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DISHES TAB
+// DISHES/DRINKS TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface DishWithCost extends Dish { cost: number; }
 
-function DishesTab({ hotelId }: { hotelId: string }) {
+function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' }) {
+  const { addNotification } = useNotification();
   const [dishes, setDishes] = useState<DishWithCost[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [sides, setSides] = useState<Side[]>([]);
+  const [sectors, setSectors] = useState<{ id: string; name: string }[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState<{
     name: string;
+    production_sector_id: string;
     ingredients: { ingredient_id: string; quantity: string }[];
     sides: { side_id: string; quantity: string }[];
-  }>({ name: '', ingredients: [], sides: [] });
+  }>({ name: '', production_sector_id: '', ingredients: [], sides: [] });
 
   const loadDishes = useCallback(async () => {
-    const { data } = await supabase.from('dishes').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
+    const { data } = await supabase.from('dishes')
+      .select('*')
+      .eq('type', type)
+      .or(`hotel_id.eq.${hotelId},hotel_id.is.null`)
+      .order('name');
     const withCost = await Promise.all(
       (data || []).map(async (d) => ({ ...d, cost: await calculateDishCost(d.id) }))
     );
     setDishes(withCost);
-  }, [hotelId]);
+  }, [hotelId, type]);
 
   const loadIngredients = useCallback(async () => {
     const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
@@ -725,7 +704,12 @@ function DishesTab({ hotelId }: { hotelId: string }) {
     setSides(data || []);
   }, [hotelId]);
 
-  useEffect(() => { loadDishes(); loadIngredients(); loadSides(); }, [loadDishes, loadIngredients, loadSides]);
+  const loadSectors = useCallback(async () => {
+    const { data } = await supabase.from('sectors').select('id, name').eq('hotel_id', hotelId).eq('is_active', true).order('name');
+    setSectors(data || []);
+  }, [hotelId]);
+
+  useEffect(() => { loadDishes(); loadIngredients(); loadSides(); loadSectors(); }, [loadDishes, loadIngredients, loadSides, loadSectors]);
 
   const filteredDishes = search.trim()
     ? dishes.filter((d) => d.name.toLowerCase().includes(search.toLowerCase()))
@@ -733,18 +717,27 @@ function DishesTab({ hotelId }: { hotelId: string }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const dishData = {
+      name: formData.name,
+      production_sector_id: formData.production_sector_id || null,
+      type: type,
+      hotel_id: hotelId
+    };
+
     if (editingId) {
-      await supabase.from('dishes').update({ name: formData.name }).eq('id', editingId);
+      await supabase.from('dishes').update(dishData).eq('id', editingId);
       await supabase.from('dish_ingredients').delete().eq('dish_id', editingId);
       await supabase.from('dish_sides').delete().eq('dish_id', editingId);
+      
       const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
         .map((i) => ({ dish_id: editingId, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
       const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
         .map((s) => ({ dish_id: editingId, side_id: s.side_id, quantity: parseInt(s.quantity) }));
+      
       if (ingItems.length > 0) await supabase.from('dish_ingredients').insert(ingItems);
       if (sideItems.length > 0) await supabase.from('dish_sides').insert(sideItems);
     } else {
-      const { data } = await supabase.from('dishes').insert([{ name: formData.name, hotel_id: hotelId }]).select().single();
+      const { data } = await supabase.from('dishes').insert([dishData]).select().single();
       if (data) {
         const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
           .map((i) => ({ dish_id: data.id, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
@@ -756,6 +749,7 @@ function DishesTab({ hotelId }: { hotelId: string }) {
     }
     resetForm();
     loadDishes();
+    addNotification(`${type === 'dish' ? 'Prato' : 'Bebida'} salvo com sucesso!`, 'success');
   }
 
   async function handleEdit(dish: Dish) {
@@ -766,6 +760,7 @@ function DishesTab({ hotelId }: { hotelId: string }) {
     setEditingId(dish.id);
     setFormData({
       name: dish.name,
+      production_sector_id: dish.production_sector_id || '',
       ingredients: (ingRes.data || []).map((di: any) => ({ ingredient_id: di.ingredient_id, quantity: di.quantity.toString() })),
       sides: (sidesRes.data || []).map((ds: any) => ({ side_id: ds.side_id, quantity: ds.quantity.toString() })),
     });
@@ -773,46 +768,33 @@ function DishesTab({ hotelId }: { hotelId: string }) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Tem certeza que deseja excluir este prato?')) return;
+    if (!confirm(`Tem certeza que deseja excluir este ${type === 'dish' ? 'prato' : 'bebida'}?`)) return;
     await supabase.from('dishes').delete().eq('id', id);
     if (expandedId === id) setExpandedId(null);
     loadDishes();
+    addNotification(`${type === 'dish' ? 'Prato' : 'Bebida'} excluído`, 'info');
   }
 
   function resetForm() {
-    setFormData({ name: '', ingredients: [], sides: [] });
+    setFormData({ name: '', production_sector_id: '', ingredients: [], sides: [] });
     setShowForm(false);
     setEditingId(null);
   }
 
-  async function handlePrint() {
-    let html = `<h1>Relatório de Fichas Técnicas</h1><p>Data: ${new Date().toLocaleDateString('pt-BR')}</p><hr/>`;
-    for (const dish of dishes) {
-      const [ingRes, sidesRes] = await Promise.all([
-        supabase.from('dish_ingredients').select('*, ingredient:ingredients(*)').eq('dish_id', dish.id),
-        supabase.from('dish_sides').select('*, side:sides(*)').eq('dish_id', dish.id),
-      ]);
-      let cost = 0;
-      html += `<h2>${dish.name}</h2><table><thead><tr><th>Item</th><th>Quantidade</th><th>Valor (R$)</th></tr></thead><tbody>`;
-      for (const di of (ingRes.data || [])) {
-        const sub = (di.quantity ?? 0) * (di.ingredient?.price_per_unit ?? 0);
-        cost += sub;
-        html += `<tr><td>${di.ingredient?.name}</td><td>${di.quantity} ${di.ingredient?.unit}</td><td>R$ ${sub.toFixed(6)}</td></tr>`;
-      }
-      for (const ds of (sidesRes.data || [])) {
-        const sc = await calculateSideCost(ds.side_id);
-        const sub = sc * (ds.quantity ?? 0);
-        cost += sub;
-        html += `<tr><td>Acompanhamento: ${ds.side?.name}</td><td>${ds.quantity}x</td><td>R$ ${sub.toFixed(6)}</td></tr>`;
-      }
-      html += `<tr><td colspan="2" style="text-align:right;font-weight:bold">Total:</td><td style="font-weight:bold">R$ ${cost.toFixed(2)}</td></tr></tbody></table><hr/>`;
-    }
-    const w = window.open('', '_blank');
-    if (w) {
-      w.document.write(`<html><head><title>Relatório de Custos</title><style>body{font-family:sans-serif;margin:20px}table{width:100%;border-collapse:collapse;margin-bottom:1em}th,td{border:1px solid #000;padding:8px;text-align:left}th{background:#f2f2f2}h2{margin-top:30px}</style></head><body>${html}<script>window.onload=function(){window.print();window.close()}</script></body></html>`);
-      w.document.close();
-    }
-  }
+  const ingredientOptions = ingredients.map(i => ({
+    value: i.id,
+    label: `${i.name} (${i.unit})`
+  }));
+
+  const sideOptions = sides.map(s => ({
+    value: s.id,
+    label: s.name
+  }));
+
+  const tabColor = type === 'dish' ? 'orange' : 'purple';
+  const tabColorHex = type === 'dish' ? 'text-orange-600' : 'text-purple-600';
+  const tabBgHex = type === 'dish' ? 'bg-orange-600' : 'bg-purple-600';
+  const tabBorderHex = type === 'dish' ? 'focus:ring-orange-500/40 focus:border-orange-500' : 'focus:ring-purple-500/40 focus:border-purple-500';
 
   return (
     <div className="space-y-4">
@@ -821,119 +803,131 @@ function DishesTab({ hotelId }: { hotelId: string }) {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
-            type="text" placeholder="Buscar prato..."
+            type="text" placeholder={`Buscar ${type === 'dish' ? 'prato' : 'bebida'}...`}
             value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500 transition-colors"
+            className={`w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 ${tabBorderHex} transition-colors`}
           />
         </div>
         <div className="flex gap-2">
           <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold"
-          >
-            <Printer size={16} /> Imprimir
-          </button>
-          <button
             onClick={() => { showForm ? resetForm() : setShowForm(true); }}
-            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
+            className={`flex items-center gap-2 ${tabBgHex} hover:opacity-90 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm`}
           >
             {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? 'Cancelar' : 'Novo Prato'}
+            {showForm ? 'Cancelar' : `Nova ${type === 'dish' ? 'Ficha' : 'Bebida'}`}
           </button>
         </div>
       </div>
 
       {/* Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
-            {editingId ? 'Editar Prato' : 'Novo Prato'}
+            {editingId ? `Editar ${type === 'dish' ? 'Prato' : 'Bebida'}` : `Nova Ficha Técnica (${type === 'dish' ? 'Prato' : 'Bebida'})`}
           </h3>
-          <div>
-            <label className={labelCls}>Nome do Prato</label>
-            <input
-              type="text" required value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className={inputCls}
-              placeholder="Ex: Salada Caesar de Frango"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Nome</label>
+              <input
+                type="text" required value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className={inputCls}
+                placeholder={type === 'dish' ? 'Ex: Picanha na Chapa' : 'Ex: Gin Tônica Morango'}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Setor de Produção (para baixa de estoque)</label>
+              <select
+                required
+                value={formData.production_sector_id}
+                onChange={(e) => setFormData({ ...formData, production_sector_id: e.target.value })}
+                className={selectCls}
+              >
+                <option value="">Selecione um setor...</option>
+                {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* Ingredients */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
               <label className={labelCls}>Ingredientes Diretos</label>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '' }] })}
-                className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-300"
+                className={`text-xs font-semibold ${tabColorHex} hover:underline`}
               >
                 + Adicionar Ingrediente
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {formData.ingredients.map((ing, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <select
-                    value={ing.ingredient_id}
-                    onChange={(e) => { const n = [...formData.ingredients]; n[idx].ingredient_id = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className={`flex-1 ${selectCls}`}
-                  >
-                    <option value="">Selecione...</option>
-                    {ingredients.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                  </select>
-                  <input
-                    type="number" step="0.001" value={ing.quantity} placeholder="Qtd"
-                    onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                    className="w-24 sm:w-28 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                    className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <div className="flex-1">
+                    <SearchableSelect
+                      options={ingredientOptions}
+                      placeholder="Buscar ingrediente..."
+                      onSelect={(val) => { const n = [...formData.ingredients]; n[idx].ingredient_id = val; setFormData({ ...formData, ingredients: n }); }}
+                    />
+                    {ing.ingredient_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{ingredients.find(i => i.id === ing.ingredient_id)?.name}</p>}
+                  </div>
+                  <div className="flex gap-1 items-start">
+                    <input
+                      type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
+                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
+                      className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
+                      className="p-2 text-red-400 hover:text-red-600"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Sides */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className={labelCls}>Acompanhamentos</label>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <label className={labelCls}>Acompanhamentos / Sub-Fichas</label>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, sides: [...formData.sides, { side_id: '', quantity: '1' }] })}
-                className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-300"
+                className={`text-xs font-semibold ${tabColorHex} hover:underline`}
               >
                 + Adicionar Acompanhamento
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {formData.sides.map((side, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <select
-                    value={side.side_id}
-                    onChange={(e) => { const n = [...formData.sides]; n[idx].side_id = e.target.value; setFormData({ ...formData, sides: n }); }}
-                    className={`flex-1 ${selectCls}`}
-                  >
-                    <option value="">Selecione...</option>
-                    {sides.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  <input
-                    type="number" step="1" value={side.quantity} placeholder="Qtd"
-                    onChange={(e) => { const n = [...formData.sides]; n[idx].quantity = e.target.value; setFormData({ ...formData, sides: n }); }}
-                    className="w-20 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
-                    className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <div className="flex-1">
+                    <SearchableSelect
+                      options={sideOptions}
+                      placeholder="Selecionar..."
+                      onSelect={(val) => { const n = [...formData.sides]; n[idx].side_id = val; setFormData({ ...formData, sides: n }); }}
+                    />
+                    {side.side_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{sides.find(s => s.id === side.side_id)?.name}</p>}
+                  </div>
+                  <div className="flex gap-1 items-start">
+                    <input
+                      type="number" step="1" value={side.quantity} placeholder="Qtd" required
+                      onChange={(e) => { const n = [...formData.sides]; n[idx].quantity = e.target.value; setFormData({ ...formData, sides: n }); }}
+                      className="w-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
+                      className="p-2 text-red-400 hover:text-red-600"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -941,19 +935,19 @@ function DishesTab({ hotelId }: { hotelId: string }) {
 
           <button
             type="submit"
-            className="w-full flex justify-center items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+            className={`w-full flex justify-center items-center gap-2 ${tabBgHex} hover:opacity-90 text-white px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md`}
           >
-            {editingId ? <><Check size={16} /> Salvar Alterações</> : <><Plus size={16} /> Criar Prato</>}
+            {editingId ? <><Check size={18} /> Salvar Alterações</> : <><Plus size={18} /> Criar Item</>}
           </button>
         </form>
       )}
 
       {/* Cards */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredDishes.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
+          <div className="col-span-full bg-white dark:bg-slate-800 p-10 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {search ? 'Nenhum prato encontrado' : 'Nenhum prato cadastrado'}
+              {search ? 'Nenhum item encontrado' : 'Nenhum item cadastrado nesta categoria'}
             </p>
           </div>
         ) : (
@@ -1004,107 +998,69 @@ function DishCard({ dish, isExpanded, onToggle, onEdit, onDelete }: {
   const totalCost = ingCost + sCost;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-full group hover:border-slate-300 dark:hover:border-slate-500 transition-all">
       <div
-        className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+        className="p-4 flex flex-col cursor-pointer"
         onClick={onToggle}
       >
-        <div className="flex items-center gap-3">
-          {isExpanded
-            ? <ChevronUp size={17} className="text-slate-400 flex-shrink-0" />
-            : <ChevronDown size={17} className="text-slate-400 flex-shrink-0" />
-          }
-          <div>
-            <span className="text-sm font-semibold text-slate-800 dark:text-white">{dish.name}</span>
-            <span className="ml-2.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
-              R$ {dish.cost.toFixed(2)}
-            </span>
+        <div className="flex justify-between items-start mb-2">
+          <h3 className="text-sm font-bold text-slate-800 dark:text-white line-clamp-2 leading-tight">{dish.name}</h3>
+          <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+            <button onClick={onEdit} className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+              <Edit2 size={14} />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+              <Trash2 size={14} />
+            </button>
           </div>
         </div>
-        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <button onClick={onEdit} className="p-1.5 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
-            <Edit2 size={15} />
-          </button>
-          <button onClick={onDelete} className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-            <Trash2 size={15} />
-          </button>
+        
+        <div className="flex items-center justify-between mt-auto">
+          <span className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            {dish.type === 'dish' ? <UtensilsCrossed size={10} /> : <Beer size={10} />}
+            {dish.type === 'dish' ? 'Prato' : 'Bebida'}
+          </span>
+          <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+            R$ {dish.cost.toFixed(2)}
+          </span>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/60 space-y-4">
+        <div className="border-t border-slate-100 dark:border-slate-700 p-4 bg-slate-50/50 dark:bg-slate-900/40 space-y-4 flex-1">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-4">
               <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-              <p className="text-xs text-slate-500">Carregando...</p>
             </div>
           ) : (
             <>
               {details?.ingredients && details.ingredients.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Ingredientes Diretos</h4>
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-100 dark:bg-slate-700/60">
-                        <tr className="text-left">
-                          <th className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Ingrediente</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Quantidade</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Preço Unit.</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Subtotal</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                        {details.ingredients.map((di) => (
-                          <tr key={di.id} className="bg-white dark:bg-slate-800">
-                            <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{di.ingredient?.name}</td>
-                            <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{di.quantity} {di.ingredient?.unit}</td>
-                            <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 font-mono text-xs">R$ {Number(di.ingredient?.price_per_unit ?? 0).toFixed(6)}</td>
-                            <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-300">R$ {((di.quantity ?? 0) * (di.ingredient?.price_per_unit ?? 0)).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Ingredientes</h4>
+                  <div className="space-y-1.5">
+                    {details.ingredients.map((di) => (
+                      <div key={di.id} className="flex justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 truncate mr-2">{di.ingredient?.name}</span>
+                        <span className="text-slate-400 font-medium flex-shrink-0">{di.quantity}{di.ingredient?.unit}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
               {details?.sides && details.sides.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Acompanhamentos</h4>
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-100 dark:bg-slate-700/60">
-                        <tr className="text-left">
-                          <th className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Acompanhamento</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Porções</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Preço/Porção</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Subtotal</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                        {details.sides.map((ds) => {
-                          const sc = sideCosts.get(ds.side_id) || 0;
-                          return (
-                            <tr key={ds.id} className="bg-white dark:bg-slate-800">
-                              <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{ds.side?.name}</td>
-                              <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{ds.quantity}x</td>
-                              <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400">R$ {sc.toFixed(2)}</td>
-                              <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-300">R$ {(sc * (ds.quantity ?? 0)).toFixed(2)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Acompanhamentos</h4>
+                  <div className="space-y-1.5">
+                    {details.sides.map((ds) => (
+                      <div key={ds.id} className="flex justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-300 truncate mr-2">{ds.side?.name}</span>
+                        <span className="text-slate-400 font-medium flex-shrink-0">{ds.quantity}x</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-
-              <div className="pt-3 border-t-2 border-slate-200 dark:border-slate-600">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Custo Total:</span>
-                  <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">R$ {totalCost.toFixed(2)}</span>
-                </div>
-              </div>
             </>
           )}
         </div>

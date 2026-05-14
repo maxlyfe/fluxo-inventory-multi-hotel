@@ -207,6 +207,39 @@ export const calculateWeeklyPurchases = async (
 };
 
 /**
+ * Calcula vendas da semana (via Erbon PDV)
+ */
+export const calculateWeeklySales = async (
+  hotelId: string,
+  productId: string,
+  weekStartDate: Date
+) => {
+  try {
+    const weekEndDate = endOfWeek(weekStartDate, { locale: ptBR, weekStartsOn: 1 });
+    const startDateStr = format(weekStartDate, 'yyyy-MM-dd');
+    const endDateStr = format(weekEndDate, 'yyyy-MM-dd');
+
+    // Busca movimentos de saída com label "Venda PDV"
+    const { data: movements, error } = await supabase
+      .from('sector_stock_movements')
+      .select('quantity')
+      .eq('hotel_id', hotelId)
+      .eq('product_id', productId)
+      .eq('destination_label', 'Venda PDV')
+      .gte('created_at', startDateStr)
+      .lte('created_at', endDateStr + 'T23:59:59.999Z');
+
+    if (error) throw error;
+
+    return movements?.reduce((sum, mov) => sum + (mov.quantity || 0), 0) || 0;
+
+  } catch (err) {
+    console.error('Erro ao calcular vendas semanais:', err);
+    return 0;
+  }
+};
+
+/**
  * Calcula movimentos por setor da semana - VERSÃO CORRIGIDA COM LOTES
  */
 export const calculateWeeklySectorMovements = async (
@@ -362,9 +395,10 @@ export const createOrUpdateReportItems = async (
       const batchItems = await Promise.all(
         batch.map(async (product) => {
           try {
-            const [initialStock, purchases, sectorMovements, hotelTransfers] = await Promise.all([
+            const [initialStock, purchases, sales, sectorMovements, hotelTransfers] = await Promise.all([
               calculateInitialStock(hotelId, product.id, weekStartDate),
               calculateWeeklyPurchases(hotelId, product.id, weekStartDate),
+              calculateWeeklySales(hotelId, product.id, weekStartDate),
               calculateWeeklySectorMovements(hotelId, product.id, weekStartDate),
               calculateWeeklyHotelTransfers(hotelId, product.id, weekStartDate)
             ]);
@@ -374,7 +408,7 @@ export const createOrUpdateReportItems = async (
               product_id: product.id,
               initial_stock: initialStock,
               purchases_in_week: purchases,
-              sales_in_week: 0, // Será preenchido manualmente
+              sales_in_week: sales,
               losses_in_week: 0, // Será preenchido manualmente
               final_stock: product.quantity || 0
             };

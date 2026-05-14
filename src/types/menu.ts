@@ -29,6 +29,7 @@ export interface SideIngredient {
 export interface Dish {
   id: string;
   name: string;
+  type: 'dish' | 'drink';
   created_at: string;
   hotel_id?: string | null;
   production_sector_id?: string | null;
