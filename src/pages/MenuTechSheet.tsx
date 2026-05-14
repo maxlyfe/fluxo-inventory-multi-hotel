@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink, UtensilsCrossed, Loader2, Beer } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Search, ChevronDown, ChevronUp, Printer, Link2, Unlink, UtensilsCrossed, Loader2, Beer, Package } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
