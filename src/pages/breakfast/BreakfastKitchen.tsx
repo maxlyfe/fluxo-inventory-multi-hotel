@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   UtensilsCrossed, Users, Loader2, Package, CheckCircle,
-  ChefHat, Timer, Clock,
+  ChefHat, Timer, Clock, Settings, ArrowLeft, Sun, Moon, Utensils
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { erbonService, ErbonGuest } from '../../lib/erbonService';
 import { useErbonData } from '../../hooks/useErbonData';
 import { supabase } from '../../lib/supabase';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
-import { format, parseISO, differenceInSeconds } from 'date-fns';
+import { format, parseISO, differenceInSeconds, addMinutes, isAfter, isBefore } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface BreakfastRecord {
@@ -16,7 +16,20 @@ interface BreakfastRecord {
   status: 'pending' | 'checked_in' | 'kit_requested';
   consumed_at: string | null;
   date: string;
+  meal_type: 'breakfast' | 'map' | 'fap';
 }
+
+interface FullConfig {
+  start_time: string;
+  end_time: string;
+  lunch_start_time: string;
+  lunch_end_time: string;
+  dinner_start_time: string;
+  dinner_end_time: string;
+  clock_transition_minutes: number;
+}
+
+type MealType = 'breakfast' | 'map' | 'fap';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -33,18 +46,34 @@ const formatSeconds = (s: number) => {
 const BreakfastKitchen: React.FC = () => {
   const { selectedHotel } = useHotel();
   const [records, setRecords] = useState<Record<string, BreakfastRecord>>({});
-  const [config, setConfig] = useState<{ start_time: string; end_time: string } | null>(null);
+  const [config, setConfig] = useState<FullConfig | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [activeMeal, setActiveMeal] = useState<MealType>('breakfast');
+  const [showClockOnly, setShowClockClockOnly] = useState(false);
 
   // ── data: guests from Erbon ──────────────────────────────────────────────
-  const { data: guests, loading: loadingErbon } = useErbonData<ErbonGuest[]>(
+  const { data: allGuests, loading: loadingErbon } = useErbonData<ErbonGuest[]>(
     (hotelId) => erbonService.fetchBreakfastGuests(hotelId),
     [],
     { autoRefreshMs: 600_000 },
   );
 
-  // ── data: breakfast records ──────────────────────────────────────────────
+  // Filtrar hóspedes baseado no plano de refeição
+  const filteredGuests = useMemo(() => {
+    if (!allGuests) return [];
+    if (activeMeal === 'breakfast') return allGuests;
+    
+    // MAP (Meia Pensão) e FAP (Pensão Completa)
+    // Na Erbon geralmente vem no campo mealPlan
+    return allGuests.filter(g => {
+      const plan = (g.mealPlan || '').toUpperCase();
+      if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP');
+      if (activeMeal === 'fap') return plan.includes('FAP');
+      return true;
+    });
+  }, [allGuests, activeMeal]);
+
+  // ── data: records ──────────────────────────────────────────────
   const loadInitialRecords = useCallback(async () => {
     if (!selectedHotel) return;
     const today = new Date().toISOString().split('T')[0];
@@ -53,7 +82,8 @@ const BreakfastKitchen: React.FC = () => {
         .from('breakfast_records')
         .select('*')
         .eq('hotel_id', selectedHotel.id)
-        .eq('date', today);
+        .eq('date', today)
+        .eq('meal_type', activeMeal);
       if (error) throw error;
       const map: Record<string, BreakfastRecord> = {};
       data?.forEach((r) => { map[String(r.id_guest)] = r; });
@@ -61,7 +91,7 @@ const BreakfastKitchen: React.FC = () => {
     } catch (err) {
       console.error('[BreakfastKitchen] Error loading records:', err);
     }
-  }, [selectedHotel]);
+  }, [selectedHotel, activeMeal]);
 
   // ── data: config ─────────────────────────────────────────────────────────
   const loadConfig = useCallback(async () => {
@@ -69,11 +99,11 @@ const BreakfastKitchen: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('breakfast_configs')
-        .select('start_time, end_time')
+        .select('*')
         .eq('hotel_id', selectedHotel.id)
         .maybeSingle();
       if (error) throw error;
-      if (data) setConfig(data);
+      if (data) setConfig(data as FullConfig);
     } catch (err) {
       console.error('[BreakfastKitchen] Error loading config:', err);
     }
@@ -86,6 +116,36 @@ const BreakfastKitchen: React.FC = () => {
     return () => clearInterval(timer);
   }, [loadInitialRecords, loadConfig]);
 
+  // ── logic: auto-clock and auto-meal detection ───────────────────────────
+  useEffect(() => {
+    if (!config) return;
+    const todayStr = format(currentTime, 'yyyy-MM-dd');
+    const transitionMs = (config.clock_transition_minutes || 30) * 60 * 1000;
+
+    const meals = [
+      { type: 'breakfast', end: `${todayStr}T${config.end_time}` },
+      { type: 'map', end: `${todayStr}T${config.lunch_end_time}` }, // Usando lunch como MAP por padrão
+      { type: 'fap', end: `${todayStr}T${config.dinner_end_time}` }
+    ];
+
+    // Verifica se deve mostrar o relógio
+    let shouldShowClock = true;
+    for (const m of meals) {
+      const endTime = parseISO(m.end);
+      const transitionTime = new Date(endTime.getTime() + transitionMs);
+      
+      // Se estamos entre o início (não definido aqui mas assumido) e o fim + transição
+      // Para simplificar: se o café acabou há menos de X minutos, mostra dashboard.
+      // Se estamos em horário comercial de refeição, mostra dashboard.
+      if (isBefore(currentTime, transitionTime) && isAfter(currentTime, addMinutes(endTime, -240))) {
+        shouldShowClock = false;
+        break;
+      }
+    }
+    
+    setShowClockClockOnly(shouldShowClock);
+  }, [config, currentTime]);
+
   // ── realtime ─────────────────────────────────────────────────────────────
   const handleRealtimeUpdate = useCallback((payload: any) => {
     const today = new Date().toISOString().split('T')[0];
@@ -93,18 +153,16 @@ const BreakfastKitchen: React.FC = () => {
       const oldId = (payload.old as any)?.id_guest;
       if (oldId) {
         setRecords((prev) => { const m = { ...prev }; delete m[oldId]; return m; });
-        setRefreshTrigger((v) => v + 1);
       }
       return;
     }
-    if (payload.new && payload.new.date === today) {
+    if (payload.new && payload.new.date === today && payload.new.meal_type === activeMeal) {
       setRecords((prev) => {
         if (prev[payload.new.id_guest]?.status === payload.new.status) return prev;
         return { ...prev, [payload.new.id_guest]: payload.new as BreakfastRecord };
       });
-      setRefreshTrigger((v) => v + 1);
     }
-  }, []);
+  }, [activeMeal]);
 
   useRealtimeSubscription<any>(
     'breakfast_records',
@@ -119,7 +177,7 @@ const BreakfastKitchen: React.FC = () => {
 
   // ── stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const totalErbon = guests?.length || 0;
+    const totalErbon = filteredGuests?.length || 0;
     const dayUseCount = Object.values(records).filter((r) => String(r.id_guest).startsWith('DU-')).length;
     const total = totalErbon + dayUseCount;
     const recordList = Object.values(records);
@@ -128,21 +186,54 @@ const BreakfastKitchen: React.FC = () => {
     const pending = Math.max(0, total - ate - kits);
     const progress = total > 0 ? Math.round(((ate + kits) / total) * 100) : 0;
     return { total, ate, kits, pending, progress };
-  }, [guests, records, refreshTrigger]);
+  }, [filteredGuests, records]);
 
   // ── timer info ────────────────────────────────────────────────────────────
   const timerInfo = useMemo(() => {
     if (!config) return null;
     const todayStr = format(currentTime, 'yyyy-MM-dd');
-    const start = parseISO(`${todayStr}T${config.start_time}`);
-    const end = parseISO(`${todayStr}T${config.end_time}`);
+    
+    let startTimeStr = config.start_time;
+    let endTimeStr = config.end_time;
+    
+    if (activeMeal === 'map') { startTimeStr = config.lunch_start_time; endTimeStr = config.lunch_end_time; }
+    if (activeMeal === 'fap') { startTimeStr = config.dinner_start_time; endTimeStr = config.dinner_end_time; }
+
+    const start = parseISO(`${todayStr}T${startTimeStr}`);
+    const end = parseISO(`${todayStr}T${endTimeStr}`);
+    
     if (currentTime < start) {
       return { label: 'INÍCIO EM', colorClass: 'text-amber-400', seconds: differenceInSeconds(start, currentTime) };
     } else if (currentTime < end) {
       return { label: 'ENCERRA EM', colorClass: 'text-emerald-400', seconds: differenceInSeconds(end, currentTime) };
     }
     return { label: 'ENCERRADO', colorClass: 'text-rose-400', seconds: 0 };
-  }, [config, currentTime]);
+  }, [config, currentTime, activeMeal]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CLOCK ONLY VIEW
+  // ─────────────────────────────────────────────────────────────────────────
+  if (showClockOnly) {
+    return (
+      <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-white p-10">
+        <div className="text-[25vw] font-black font-mono leading-none tracking-tighter">
+          {format(currentTime, 'HH:mm')}
+        </div>
+        <div className="text-[5vw] font-bold text-gray-500 uppercase tracking-[1em] -mt-4">
+          {format(currentTime, 'ss')}
+        </div>
+        <div className="text-[3vw] font-semibold text-sky-500 mt-10 uppercase tracking-widest">
+          {format(currentTime, "eeee, d 'de' MMMM", { locale: ptBR })}
+        </div>
+        <button 
+          onClick={() => setShowClockClockOnly(false)}
+          className="absolute bottom-10 right-10 p-4 bg-gray-900 rounded-full opacity-20 hover:opacity-100 transition-opacity"
+        >
+          <ArrowLeft className="w-8 h-8" />
+        </button>
+      </div>
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER — locked to viewport, TV-optimised
@@ -159,18 +250,29 @@ const BreakfastKitchen: React.FC = () => {
         {/* Left: logo + title */}
         <div className="flex items-center" style={{ gap: '1.5vw' }}>
           <div
-            className="rounded-2xl bg-sky-600 flex items-center justify-center shrink-0"
+            className={`rounded-2xl flex items-center justify-center shrink-0 ${
+              activeMeal === 'breakfast' ? 'bg-sky-600' : activeMeal === 'map' ? 'bg-orange-600' : 'bg-purple-600'
+            }`}
             style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)' }}
           >
-            <ChefHat style={{ width: 'clamp(28px,3vw,48px)', height: 'clamp(28px,3vw,48px)' }} className="text-white" />
+            {activeMeal === 'breakfast' ? <ChefHat style={{ width: 'clamp(28px,3vw,48px)' }} /> : 
+             activeMeal === 'map' ? <Sun style={{ width: 'clamp(28px,3vw,48px)' }} /> : 
+             <Moon style={{ width: 'clamp(28px,3vw,48px)' }} />}
           </div>
           <div>
-            <h1
-              className="font-black uppercase tracking-tight text-white leading-none"
-              style={{ fontSize: 'clamp(1.25rem,2.5vw,3rem)' }}
-            >
-              COZINHA — CAFÉ DA MANHÃ
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1
+                className="font-black uppercase tracking-tight text-white leading-none"
+                style={{ fontSize: 'clamp(1.25rem,2.5vw,3rem)' }}
+              >
+                COZINHA — {activeMeal === 'breakfast' ? 'CAFÉ DA MANHÃ' : activeMeal === 'map' ? 'ALMOÇO (MAP/FAP)' : 'JANTAR (FAP)'}
+              </h1>
+              <div className="flex gap-1">
+                <button onClick={() => setActiveMeal('breakfast')} className={`px-3 py-1 rounded-lg text-xs font-bold ${activeMeal === 'breakfast' ? 'bg-sky-500 text-white' : 'bg-gray-800 text-gray-500'}`}>CAFÉ</button>
+                <button onClick={() => setActiveMeal('map')} className={`px-3 py-1 rounded-lg text-xs font-bold ${activeMeal === 'map' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-500'}`}>ALMOÇO</button>
+                <button onClick={() => setActiveMeal('fap')} className={`px-3 py-1 rounded-lg text-xs font-bold ${activeMeal === 'fap' ? 'bg-purple-500 text-white' : 'bg-gray-800 text-gray-500'}`}>JANTAR</button>
+              </div>
+            </div>
             <p
               className="font-semibold text-gray-400 mt-1"
               style={{ fontSize: 'clamp(0.75rem,1.2vw,1.25rem)' }}
@@ -232,7 +334,9 @@ const BreakfastKitchen: React.FC = () => {
       {/* ── PROGRESS BAR ── */}
       <div className="shrink-0 w-full bg-gray-800 rounded-full overflow-hidden" style={{ height: '0.6vh', minHeight: 4 }}>
         <div
-          className="h-full bg-sky-500 rounded-full transition-all duration-1000"
+          className={`h-full rounded-full transition-all duration-1000 ${
+            activeMeal === 'breakfast' ? 'bg-sky-500' : activeMeal === 'map' ? 'bg-orange-500' : 'bg-purple-500'
+          }`}
           style={{ width: `${stats.progress}%` }}
         />
       </div>
@@ -283,7 +387,7 @@ const BreakfastKitchen: React.FC = () => {
             className="font-black text-gray-500 uppercase tracking-widest text-center"
             style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
           >
-            Já Tomaram Café
+            {activeMeal === 'breakfast' ? 'Já Tomaram Café' : 'Já Almoçaram/Jantaram'}
           </p>
           <p
             className="font-black text-emerald-400 tabular-nums leading-none"
@@ -300,12 +404,16 @@ const BreakfastKitchen: React.FC = () => {
         </div>
 
         {/* Pendentes — destaque */}
-        <div className="bg-sky-600 border border-sky-500 rounded-3xl flex flex-col items-center justify-center shadow-2xl shadow-sky-500/20">
+        <div className={`border rounded-3xl flex flex-col items-center justify-center shadow-2xl ${
+          activeMeal === 'breakfast' ? 'bg-sky-600 border-sky-500 shadow-sky-500/20' : 
+          activeMeal === 'map' ? 'bg-orange-600 border-orange-500 shadow-orange-500/20' : 
+          'bg-purple-600 border-purple-500 shadow-purple-500/20'
+        }`}>
           <div
             className="rounded-2xl bg-white/10 flex items-center justify-center"
             style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)', marginBottom: '2vh' }}
           >
-            <UtensilsCrossed
+            <Utensils
               className="text-white"
               style={{ width: 'clamp(26px,3vw,44px)', height: 'clamp(26px,3vw,44px)' }}
             />
@@ -314,7 +422,7 @@ const BreakfastKitchen: React.FC = () => {
             className="font-black text-white/70 uppercase tracking-widest text-center"
             style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
           >
-            Pendentes de Café
+            Pendentes
           </p>
           <p
             className="font-black text-white tabular-nums leading-none"
@@ -324,7 +432,7 @@ const BreakfastKitchen: React.FC = () => {
           </p>
         </div>
 
-        {/* Kits */}
+        {/* Kits / Extras */}
         <div className="bg-gray-900 border border-gray-800 rounded-3xl flex flex-col items-center justify-center">
           <div
             className="rounded-2xl bg-amber-900/40 flex items-center justify-center"
@@ -339,7 +447,7 @@ const BreakfastKitchen: React.FC = () => {
             className="font-black text-gray-500 uppercase tracking-widest text-center"
             style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
           >
-            Kits Entregues
+            Kits/Solicitações
           </p>
           <p
             className="font-black text-amber-400 tabular-nums leading-none"

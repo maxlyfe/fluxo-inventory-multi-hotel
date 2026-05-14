@@ -8,6 +8,11 @@ interface BreakfastConfig {
   hotel_id: string;
   start_time: string;
   end_time: string;
+  lunch_start_time: string;
+  lunch_end_time: string;
+  dinner_start_time: string;
+  dinner_end_time: string;
+  clock_transition_minutes: number;
 }
 
 const BreakfastSettings: React.FC = () => {
@@ -39,13 +44,23 @@ const BreakfastSettings: React.FC = () => {
         setConfig({
           ...data,
           start_time: data.start_time.substring(0, 5),
-          end_time: data.end_time.substring(0, 5)
+          end_time: data.end_time.substring(0, 5),
+          lunch_start_time: (data.lunch_start_time || '12:00').substring(0, 5),
+          lunch_end_time: (data.lunch_end_time || '14:30').substring(0, 5),
+          dinner_start_time: (data.dinner_start_time || '19:00').substring(0, 5),
+          dinner_end_time: (data.dinner_end_time || '22:00').substring(0, 5),
+          clock_transition_minutes: data.clock_transition_minutes ?? 30
         });
       } else {
         setConfig({
           hotel_id: selectedHotel!.id,
           start_time: '07:00',
-          end_time: '10:00'
+          end_time: '10:00',
+          lunch_start_time: '12:00',
+          lunch_end_time: '14:30',
+          dinner_start_time: '19:00',
+          dinner_end_time: '22:00',
+          clock_transition_minutes: 30
         });
       }
     } catch (err: any) {
@@ -66,9 +81,8 @@ const BreakfastSettings: React.FC = () => {
       const { error } = await supabase
         .from('breakfast_configs')
         .upsert({
+          ...config,
           hotel_id: selectedHotel.id,
-          start_time: config?.start_time,
-          end_time: config?.end_time,
           updated_at: new Date().toISOString()
         }, { onConflict: 'hotel_id' });
 
@@ -96,42 +110,106 @@ const BreakfastSettings: React.FC = () => {
           <Coffee className="w-6 h-6 text-sky-600 dark:text-sky-400" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Configurações do Café da Manhã</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Defina os horários de funcionamento para o {selectedHotel?.name}</p>
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Configurações Alimentares</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Defina os horários e regras para o {selectedHotel?.name}</p>
         </div>
       </div>
 
-      <form onSubmit={handleSave} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 md:p-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-sky-500" /> Horário de Início
-            </label>
-            <input
-              type="time"
-              required
-              value={config?.start_time || '07:00'}
-              onChange={e => setConfig(prev => prev ? { ...prev, start_time: e.target.value } : null)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all outline-none font-medium"
-            />
+      <form onSubmit={handleSave} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 md:p-8 space-y-8">
+        {/* Breakfast Section */}
+        <div>
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Coffee className="w-4 h-4" /> Café da Manhã
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Horário de Início</label>
+              <input
+                type="time" required value={config?.start_time || '07:00'}
+                onChange={e => setConfig(prev => prev ? { ...prev, start_time: e.target.value } : null)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Horário de Término</label>
+              <input
+                type="time" required value={config?.end_time || '10:00'}
+                onChange={e => setConfig(prev => prev ? { ...prev, end_time: e.target.value } : null)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              />
+            </div>
           </div>
+        </div>
 
+        {/* MAP/Lunch Section */}
+        <div className="pt-6 border-t border-gray-100 dark:border-gray-700">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            🍴 Almoço (MAP/FAP)
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Horário de Início</label>
+              <input
+                type="time" required value={config?.lunch_start_time || '12:00'}
+                onChange={e => setConfig(prev => prev ? { ...prev, lunch_start_time: e.target.value } : null)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Horário de Término</label>
+              <input
+                type="time" required value={config?.lunch_end_time || '14:30'}
+                onChange={e => setConfig(prev => prev ? { ...prev, lunch_end_time: e.target.value } : null)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Dinner Section */}
+        <div className="pt-6 border-t border-gray-100 dark:border-gray-700">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            🌙 Jantar (MAP/FAP)
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Horário de Início</label>
+              <input
+                type="time" required value={config?.dinner_start_time || '19:00'}
+                onChange={e => setConfig(prev => prev ? { ...prev, dinner_start_time: e.target.value } : null)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Horário de Término</label>
+              <input
+                type="time" required value={config?.dinner_end_time || '22:00'}
+                onChange={e => setConfig(prev => prev ? { ...prev, dinner_end_time: e.target.value } : null)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Display/Automation Section */}
+        <div className="pt-6 border-t border-gray-100 dark:border-gray-700">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            📺 Automação de Tela
+          </h3>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-sky-500" /> Horário de Término
-            </label>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Minutos após o término para exibir Relógio</label>
             <input
-              type="time"
-              required
-              value={config?.end_time || '10:00'}
-              onChange={e => setConfig(prev => prev ? { ...prev, end_time: e.target.value } : null)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all outline-none font-medium"
+              type="number" required value={config?.clock_transition_minutes || 30}
+              onChange={e => setConfig(prev => prev ? { ...prev, clock_transition_minutes: parseInt(e.target.value) } : null)}
+              className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 transition-all outline-none"
+              min="0" max="1440"
             />
+            <p className="mt-2 text-xs text-gray-400">Após este tempo do fim de qualquer refeição, o dashboard da cozinha mudará automaticamente para o relógio.</p>
           </div>
         </div>
 
         {message && (
-          <div className={`mb-6 p-4 rounded-xl flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50'}`}>
+          <div className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50'}`}>
             {message.type === 'success' ? <CheckCircle2 className="w-5 h-5 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 flex-shrink-0" />}
             <span className="text-sm font-medium">{message.text}</span>
           </div>
@@ -140,10 +218,10 @@ const BreakfastSettings: React.FC = () => {
         <button
           type="submit"
           disabled={saving}
-          className="w-full flex items-center justify-center gap-2 py-3.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all shadow-lg shadow-sky-200 dark:shadow-none"
+          className="w-full flex items-center justify-center gap-2 py-4 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl font-bold transition-all shadow-lg"
         >
           {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-          Salvar Configurações
+          Salvar Todas as Configurações
         </button>
       </form>
       
