@@ -143,6 +143,19 @@ async function deductDirectProduct(hotelId: string, sectorId: string, productId:
   });
 }
 
+const UNIT_CONVERSIONS: Record<string, number> = {
+  'kg_g': 0.001,
+  'g_kg': 1000,
+  'l_ml': 0.001,
+  'ml_l': 1000,
+  'g_g': 1, 'kg_kg': 1, 'ml_ml': 1, 'l_l': 1, 'und_und': 1, 'cx_cx': 1, 'pct_pct': 1
+};
+
+function getUnitFactor(from: string, to: string): number {
+  if (!from || !to || from === to) return 1;
+  return UNIT_CONVERSIONS[`${to}_${from}`] || 1;
+}
+
 async function deductDecomposedDish(
   hotelId: string, dishId: string, dishQuantity: number, date: string, processedBy: string,
   result: DeductionResult, productNames: Map<string, string>, sectorNames: Map<string, string>
@@ -153,7 +166,7 @@ async function deductDecomposedDish(
 
   const sectorId = dish.production_sector_id;
   const { data: dishIngredients } = await supabase
-    .from('dish_ingredients').select('quantity, ingredient:ingredients(id, name, product_id)').eq('dish_id', dishId);
+    .from('dish_ingredients').select('quantity, unit, ingredient:ingredients(id, name, unit, product_id)').eq('dish_id', dishId);
   const { data: dishSides } = await supabase
     .from('dish_sides').select('quantity, side_id').eq('dish_id', dishId);
 
@@ -162,17 +175,27 @@ async function deductDecomposedDish(
   for (const di of (dishIngredients || [])) {
     const ing = di.ingredient as any;
     if (ing?.product_id) {
-      ingredientDeductions.push({ product_id: ing.product_id, name: ing.name, quantity: (di.quantity || 0) * dishQuantity });
+      const factor = getUnitFactor(di.unit || ing.unit, ing.unit);
+      ingredientDeductions.push({ 
+        product_id: ing.product_id, 
+        name: ing.name, 
+        quantity: (di.quantity || 0) * factor * dishQuantity 
+      });
     }
   }
 
   for (const ds of (dishSides || [])) {
     const { data: sideIngredients } = await supabase
-      .from('side_ingredients').select('quantity, ingredient:ingredients(id, name, product_id)').eq('side_id', ds.side_id);
+      .from('side_ingredients').select('quantity, unit, ingredient:ingredients(id, name, unit, product_id)').eq('side_id', ds.side_id);
     for (const si of (sideIngredients || [])) {
       const ing = si.ingredient as any;
       if (ing?.product_id) {
-        ingredientDeductions.push({ product_id: ing.product_id, name: ing.name, quantity: (si.quantity || 0) * (ds.quantity || 1) * dishQuantity });
+        const factor = getUnitFactor(si.unit || ing.unit, ing.unit);
+        ingredientDeductions.push({ 
+          product_id: ing.product_id, 
+          name: ing.name, 
+          quantity: (si.quantity || 0) * factor * (ds.quantity || 1) * dishQuantity 
+        });
       }
     }
   }

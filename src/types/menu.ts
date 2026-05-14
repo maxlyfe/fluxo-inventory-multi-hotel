@@ -1,4 +1,4 @@
-export type UnitType = 'g' | 'ml' | 'und';
+export type UnitType = 'g' | 'ml' | 'und' | 'kg' | 'l' | 'cx' | 'pct';
 
 export interface Ingredient {
   id: string;
@@ -23,6 +23,7 @@ export interface SideIngredient {
   side_id: string;
   ingredient_id: string;
   quantity: number;
+  unit: UnitType;
   ingredient?: Ingredient;
 }
 
@@ -40,6 +41,7 @@ export interface DishIngredient {
   dish_id: string;
   ingredient_id: string;
   quantity: number;
+  unit: UnitType;
   ingredient?: Ingredient;
 }
 

@@ -7,28 +7,46 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Ingredient, UnitType, Side, SideIngredient, Dish, DishIngredient, DishSide } from '../types/menu';
 import type { Product } from '../types/product';
 
-// ─── Cost calculation helpers ─────────────────────────────────────────────────
+// ─── Unit Conversion helpers ──────────────────────────────────────────────────
+
+const UNIT_CONVERSIONS: Record<string, number> = {
+  'kg_g': 0.001,
+  'g_kg': 1000,
+  'l_ml': 0.001,
+  'ml_l': 1000,
+  // Same units
+  'g_g': 1, 'kg_kg': 1, 'ml_ml': 1, 'l_l': 1, 'und_und': 1, 'cx_cx': 1, 'pct_pct': 1
+};
+
+function getUnitFactor(from: string, to: string): number {
+  if (from === to) return 1;
+  return UNIT_CONVERSIONS[`${to}_${from}`] || 1; 
+  // Se eu uso 'g' (from) e o preço está em 'kg' (to), o fator é 0.001.
+  // Ex: 100g * 0.001 = 0.1kg.
+}
 
 async function calculateSideCost(sideId: string): Promise<number> {
   const { data } = await supabase
     .from('side_ingredients')
-    .select('quantity, ingredient:ingredients(price_per_unit)')
+    .select('quantity, unit, ingredient:ingredients(unit, price_per_unit)')
     .eq('side_id', sideId);
   if (!data) return 0;
   return data.reduce((total: number, si: any) => {
-    return total + (si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0);
+    const factor = getUnitFactor(si.unit || si.ingredient?.unit, si.ingredient?.unit);
+    return total + (si.quantity ?? 0) * factor * (si.ingredient?.price_per_unit ?? 0);
   }, 0);
 }
 
 async function calculateDishCost(dishId: string): Promise<number> {
   const [ingredientsRes, sidesRes] = await Promise.all([
-    supabase.from('dish_ingredients').select('quantity, ingredient:ingredients(price_per_unit)').eq('dish_id', dishId),
+    supabase.from('dish_ingredients').select('quantity, unit, ingredient:ingredients(unit, price_per_unit)').eq('dish_id', dishId),
     supabase.from('dish_sides').select('quantity, side_id').eq('dish_id', dishId),
   ]);
   let totalCost = 0;
   if (ingredientsRes.data) {
     totalCost += ingredientsRes.data.reduce((t: number, di: any) => {
-      return t + (di.quantity ?? 0) * (di.ingredient?.price_per_unit ?? 0);
+      const factor = getUnitFactor(di.unit || di.ingredient?.unit, di.ingredient?.unit);
+      return t + (di.quantity ?? 0) * factor * (di.ingredient?.price_per_unit ?? 0);
     }, 0);
   }
   if (sidesRes.data) {
@@ -131,6 +149,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [linkingIngredientId, setLinkingIngredientId] = useState<string | null>(null);
+  const [showInventorySearch, setShowInventorySearch] = useState(false);
 
   const loadIngredients = useCallback(async () => {
     const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
@@ -138,7 +157,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
   }, [hotelId]);
 
   const loadProducts = useCallback(async () => {
-    const { data } = await supabase.from('products').select('id, name, average_price, category').eq('hotel_id', hotelId).eq('is_active', true).order('name');
+    const { data } = await supabase.from('products').select('id, name, average_price, category, unit_measure').eq('hotel_id', hotelId).eq('is_active', true).order('name');
     setProducts(data || []);
   }, [hotelId]);
 
@@ -182,13 +201,48 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
 
     await supabase.from('ingredients').update({
       product_id: product.id,
-      price_per_unit: product.average_price || 0
+      price_per_unit: product.average_price || 0,
+      unit: (product.unit_measure as UnitType) || 'und'
     }).eq('id', ingredientId);
     
     setShowProductSearch(false);
     setLinkingIngredientId(null);
     loadIngredients();
     addNotification('Ingrediente vinculado ao produto!', 'success');
+  }
+
+  async function handleImportFromInventory(productId: string) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+
+    const { data: existing } = await supabase
+      .from('ingredients')
+      .select('id')
+      .eq('product_id', product.id)
+      .eq('hotel_id', hotelId)
+      .maybeSingle();
+
+    if (existing) {
+      addNotification('Este produto já existe nos ingredientes!', 'info');
+      setShowInventorySearch(false);
+      return;
+    }
+
+    const { error } = await supabase.from('ingredients').insert([{
+      name: product.name,
+      unit: (product.unit_measure as UnitType) || 'und',
+      price_per_unit: product.average_price || 0,
+      product_id: product.id,
+      hotel_id: hotelId
+    }]);
+
+    if (error) {
+      addNotification('Erro ao importar produto', 'error');
+    } else {
+      addNotification('Produto importado com sucesso!', 'success');
+      loadIngredients();
+    }
+    setShowInventorySearch(false);
   }
 
   async function handleUnlinkProduct(ingredientId: string) {
@@ -222,13 +276,38 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
             className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-colors"
           />
         </div>
-        <button
-          onClick={() => { showForm ? resetForm() : setShowForm(true); }}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
-        >
-          {showForm ? <X size={16} /> : <Plus size={16} />}
-          {showForm ? 'Cancelar' : 'Novo Ingrediente'}
-        </button>
+        <div className="flex gap-2">
+          <div className="relative">
+            {showInventorySearch ? (
+              <div className="absolute right-0 top-0 z-50 w-64 flex items-center gap-1">
+                <SearchableSelect
+                  options={productOptions}
+                  placeholder="Puxar produto..."
+                  onSelect={(val) => handleImportFromInventory(val)}
+                  className="shadow-xl"
+                />
+                <button onClick={() => setShowInventorySearch(false)} className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <X size={16} className="text-slate-400" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowInventorySearch(true)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
+              >
+                <Package size={16} />
+                Puxar do Inventário
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => { showForm ? resetForm() : setShowForm(true); }}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
+          >
+            {showForm ? <X size={16} /> : <Plus size={16} />}
+            {showForm ? 'Cancelar' : 'Novo Ingrediente'}
+          </button>
+        </div>
       </div>
 
       {/* Form */}
@@ -254,9 +333,13 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value as UnitType })}
                 className={selectCls}
               >
-                <option value="g">Gramas (g)</option>
-                <option value="ml">Mililitros (ml)</option>
                 <option value="und">Unidade (und)</option>
+                <option value="kg">Quilograma (kg)</option>
+                <option value="g">Grama (g)</option>
+                <option value="l">Litro (l)</option>
+                <option value="ml">Mililitro (ml)</option>
+                <option value="cx">Caixa (cx)</option>
+                <option value="pct">Pacote (pct)</option>
               </select>
             </div>
             <div>
@@ -399,7 +482,7 @@ function SidesTab({ hotelId }: { hotelId: string }) {
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState<{
     name: string;
-    ingredients: { ingredient_id: string; quantity: string }[];
+    ingredients: { ingredient_id: string; quantity: string; unit: UnitType }[];
   }>({ name: '', ingredients: [] });
 
   const loadSides = useCallback(async () => {
@@ -425,14 +508,24 @@ function SidesTab({ hotelId }: { hotelId: string }) {
       await supabase.from('side_ingredients').delete().eq('side_id', editingId);
       const items = formData.ingredients
         .filter((i) => i.ingredient_id && i.quantity)
-        .map((i) => ({ side_id: editingId, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
+        .map((i) => ({ 
+          side_id: editingId, 
+          ingredient_id: i.ingredient_id, 
+          quantity: parseFloat(i.quantity),
+          unit: i.unit 
+        }));
       if (items.length > 0) await supabase.from('side_ingredients').insert(items);
     } else {
       const { data } = await supabase.from('sides').insert([{ name: formData.name, hotel_id: hotelId }]).select().single();
       if (data) {
         const items = formData.ingredients
           .filter((i) => i.ingredient_id && i.quantity)
-          .map((i) => ({ side_id: data.id, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
+          .map((i) => ({ 
+            side_id: data.id, 
+            ingredient_id: i.ingredient_id, 
+            quantity: parseFloat(i.quantity),
+            unit: i.unit
+          }));
         if (items.length > 0) await supabase.from('side_ingredients').insert(items);
       }
     }
@@ -446,7 +539,11 @@ function SidesTab({ hotelId }: { hotelId: string }) {
     setEditingId(side.id);
     setFormData({
       name: side.name,
-      ingredients: (data || []).map((si: any) => ({ ingredient_id: si.ingredient_id, quantity: si.quantity.toString() })),
+      ingredients: (data || []).map((si: any) => ({ 
+        ingredient_id: si.ingredient_id, 
+        quantity: si.quantity.toString(),
+        unit: si.unit || (ingredients.find(i => i.id === si.ingredient_id)?.unit || 'und')
+      })),
     });
     setShowForm(true);
   }
@@ -511,7 +608,7 @@ function SidesTab({ hotelId }: { hotelId: string }) {
               <label className={labelCls}>Ingredientes</label>
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '' }] })}
+                onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
                 className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
               >
                 + Adicionar Ingrediente
@@ -524,7 +621,12 @@ function SidesTab({ hotelId }: { hotelId: string }) {
                     <SearchableSelect
                       options={ingredientOptions}
                       placeholder="Selecionar ingrediente..."
-                      onSelect={(val) => { const n = [...formData.ingredients]; n[idx].ingredient_id = val; setFormData({ ...formData, ingredients: n }); }}
+                      onSelect={(val) => { 
+                        const n = [...formData.ingredients]; 
+                        n[idx].ingredient_id = val; 
+                        n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
+                        setFormData({ ...formData, ingredients: n }); 
+                      }}
                     />
                     {ing.ingredient_id && (
                       <p className="mt-1 text-[10px] text-slate-500 font-medium">
@@ -536,8 +638,21 @@ function SidesTab({ hotelId }: { hotelId: string }) {
                     <input
                       type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
                       onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                      className="w-full sm:w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                      className="w-full sm:w-24 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
                     />
+                    <select
+                      value={ing.unit}
+                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
+                      className="w-full sm:w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                    >
+                      <option value="und">und</option>
+                      <option value="kg">kg</option>
+                      <option value="g">g</option>
+                      <option value="l">l</option>
+                      <option value="ml">ml</option>
+                      <option value="cx">cx</option>
+                      <option value="pct">pct</option>
+                    </select>
                     <button
                       type="button"
                       onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
@@ -642,8 +757,8 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
                 <div key={si.id} className="flex justify-between items-center text-xs">
                   <span className="text-slate-600 dark:text-slate-300 truncate mr-2">{si.ingredient?.name}</span>
                   <div className="text-right flex-shrink-0">
-                    <span className="text-slate-400">{si.quantity}{si.ingredient?.unit}</span>
-                    <span className="ml-2 font-mono text-slate-900 dark:text-white font-semibold">R$ {((si.quantity ?? 0) * (si.ingredient?.price_per_unit ?? 0)).toFixed(2)}</span>
+                    <span className="text-slate-400">{si.quantity}{si.unit || si.ingredient?.unit}</span>
+                    <span className="ml-2 font-mono text-slate-900 dark:text-white font-semibold">R$ {((si.quantity ?? 0) * getUnitFactor(si.unit || si.ingredient?.unit, si.ingredient?.unit) * (si.ingredient?.price_per_unit ?? 0)).toFixed(2)}</span>
                   </div>
                 </div>
               ))}
@@ -678,7 +793,7 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
   const [formData, setFormData] = useState<{
     name: string;
     production_sector_id: string;
-    ingredients: { ingredient_id: string; quantity: string }[];
+    ingredients: { ingredient_id: string; quantity: string; unit: UnitType }[];
     sides: { side_id: string; quantity: string }[];
   }>({ name: '', production_sector_id: '', ingredients: [], sides: [] });
 
@@ -730,7 +845,12 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
       await supabase.from('dish_sides').delete().eq('dish_id', editingId);
       
       const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
-        .map((i) => ({ dish_id: editingId, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
+        .map((i) => ({ 
+          dish_id: editingId, 
+          ingredient_id: i.ingredient_id, 
+          quantity: parseFloat(i.quantity),
+          unit: i.unit
+        }));
       const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
         .map((s) => ({ dish_id: editingId, side_id: s.side_id, quantity: parseInt(s.quantity) }));
       
@@ -740,7 +860,12 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
       const { data } = await supabase.from('dishes').insert([dishData]).select().single();
       if (data) {
         const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
-          .map((i) => ({ dish_id: data.id, ingredient_id: i.ingredient_id, quantity: parseFloat(i.quantity) }));
+          .map((i) => ({ 
+            dish_id: data.id, 
+            ingredient_id: i.ingredient_id, 
+            quantity: parseFloat(i.quantity),
+            unit: i.unit
+          }));
         const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
           .map((s) => ({ dish_id: data.id, side_id: s.side_id, quantity: parseInt(s.quantity) }));
         if (ingItems.length > 0) await supabase.from('dish_ingredients').insert(ingItems);
@@ -761,7 +886,11 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
     setFormData({
       name: dish.name,
       production_sector_id: dish.production_sector_id || '',
-      ingredients: (ingRes.data || []).map((di: any) => ({ ingredient_id: di.ingredient_id, quantity: di.quantity.toString() })),
+      ingredients: (ingRes.data || []).map((di: any) => ({ 
+        ingredient_id: di.ingredient_id, 
+        quantity: di.quantity.toString(),
+        unit: di.unit || (ingredients.find(i => i.id === di.ingredient_id)?.unit || 'und')
+      })),
       sides: (sidesRes.data || []).map((ds: any) => ({ side_id: ds.side_id, quantity: ds.quantity.toString() })),
     });
     setShowForm(true);
@@ -855,7 +984,7 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
               <label className={labelCls}>Ingredientes Diretos</label>
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '' }] })}
+                onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
                 className={`text-xs font-semibold ${tabColorHex} hover:underline`}
               >
                 + Adicionar Ingrediente
@@ -868,7 +997,12 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
                     <SearchableSelect
                       options={ingredientOptions}
                       placeholder="Buscar ingrediente..."
-                      onSelect={(val) => { const n = [...formData.ingredients]; n[idx].ingredient_id = val; setFormData({ ...formData, ingredients: n }); }}
+                      onSelect={(val) => { 
+                        const n = [...formData.ingredients]; 
+                        n[idx].ingredient_id = val; 
+                        n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
+                        setFormData({ ...formData, ingredients: n }); 
+                      }}
                     />
                     {ing.ingredient_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{ingredients.find(i => i.id === ing.ingredient_id)?.name}</p>}
                   </div>
@@ -878,6 +1012,19 @@ function DishesTab({ hotelId, type }: { hotelId: string; type: 'dish' | 'drink' 
                       onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
                       className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
                     />
+                    <select
+                      value={ing.unit}
+                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
+                      className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-1 py-2 text-sm text-slate-900 dark:text-white"
+                    >
+                      <option value="und">und</option>
+                      <option value="kg">kg</option>
+                      <option value="g">g</option>
+                      <option value="l">l</option>
+                      <option value="ml">ml</option>
+                      <option value="cx">cx</option>
+                      <option value="pct">pct</option>
+                    </select>
                     <button
                       type="button"
                       onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
@@ -1041,7 +1188,7 @@ function DishCard({ dish, isExpanded, onToggle, onEdit, onDelete }: {
                     {details.ingredients.map((di) => (
                       <div key={di.id} className="flex justify-between text-xs">
                         <span className="text-slate-600 dark:text-slate-300 truncate mr-2">{di.ingredient?.name}</span>
-                        <span className="text-slate-400 font-medium flex-shrink-0">{di.quantity}{di.ingredient?.unit}</span>
+                        <span className="text-slate-400 font-medium flex-shrink-0">{di.quantity}{di.unit || di.ingredient?.unit}</span>
                       </div>
                     ))}
                   </div>
