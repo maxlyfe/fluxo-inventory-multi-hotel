@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { 
-  UtensilsCrossed, Users, Clock, Loader2, Package, CheckCircle, 
-  ChefHat, Timer
+import {
+  UtensilsCrossed, Users, Loader2, Package, CheckCircle,
+  ChefHat, Timer, Clock,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { erbonService, ErbonGuest } from '../../lib/erbonService';
@@ -18,21 +18,33 @@ interface BreakfastRecord {
   date: string;
 }
 
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+const formatSeconds = (s: number) => {
+  if (s <= 0) return '00:00:00';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+};
+
+// ─── component ───────────────────────────────────────────────────────────────
+
 const BreakfastKitchen: React.FC = () => {
   const { selectedHotel } = useHotel();
   const [records, setRecords] = useState<Record<string, BreakfastRecord>>({});
-  const [config, setConfig] = useState<{ start_time: string, end_time: string } | null>(null);
+  const [config, setConfig] = useState<{ start_time: string; end_time: string } | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // 1. Fetch Guests from Erbon (Base for total count)
+  // ── data: guests from Erbon ──────────────────────────────────────────────
   const { data: guests, loading: loadingErbon } = useErbonData<ErbonGuest[]>(
     (hotelId) => erbonService.fetchBreakfastGuests(hotelId),
     [],
-    { autoRefreshMs: 600_000 } // 10 min refresh for guest list
+    { autoRefreshMs: 600_000 },
   );
 
-  // 2. Fetch Initial Records from Supabase
+  // ── data: breakfast records ──────────────────────────────────────────────
   const loadInitialRecords = useCallback(async () => {
     if (!selectedHotel) return;
     const today = new Date().toISOString().split('T')[0];
@@ -42,18 +54,16 @@ const BreakfastKitchen: React.FC = () => {
         .select('*')
         .eq('hotel_id', selectedHotel.id)
         .eq('date', today);
-      
       if (error) throw error;
-
       const map: Record<string, BreakfastRecord> = {};
-      data?.forEach(r => { map[String(r.id_guest)] = r; });
+      data?.forEach((r) => { map[String(r.id_guest)] = r; });
       setRecords(map);
     } catch (err) {
       console.error('[BreakfastKitchen] Error loading records:', err);
     }
   }, [selectedHotel]);
 
-  // 3. Fetch Config
+  // ── data: config ─────────────────────────────────────────────────────────
   const loadConfig = useCallback(async () => {
     if (!selectedHotel) return;
     try {
@@ -62,7 +72,6 @@ const BreakfastKitchen: React.FC = () => {
         .select('start_time, end_time')
         .eq('hotel_id', selectedHotel.id)
         .maybeSingle();
-      
       if (error) throw error;
       if (data) setConfig(data);
     } catch (err) {
@@ -77,181 +86,291 @@ const BreakfastKitchen: React.FC = () => {
     return () => clearInterval(timer);
   }, [loadInitialRecords, loadConfig]);
 
-  // 4. Real-time updates - Dashboard updates automatically when hall interacts
+  // ── realtime ─────────────────────────────────────────────────────────────
   const handleRealtimeUpdate = useCallback((payload: any) => {
-    console.log('[BreakfastKitchen] Real-time event received:', payload);
     const today = new Date().toISOString().split('T')[0];
-    
     if (payload.eventType === 'DELETE') {
       const oldId = (payload.old as any)?.id_guest;
       if (oldId) {
-        setRecords(prev => {
-          const newMap = { ...prev };
-          delete newMap[oldId];
-          return newMap;
-        });
-        setRefreshTrigger(v => v + 1);
+        setRecords((prev) => { const m = { ...prev }; delete m[oldId]; return m; });
+        setRefreshTrigger((v) => v + 1);
       }
       return;
     }
-
-    // INSERT ou UPDATE
     if (payload.new && payload.new.date === today) {
-      setRecords(prev => {
-        // Só atualiza se o dado for realmente novo ou diferente para evitar loops
+      setRecords((prev) => {
         if (prev[payload.new.id_guest]?.status === payload.new.status) return prev;
-        
-        return {
-          ...prev,
-          [payload.new.id_guest]: payload.new as BreakfastRecord
-        };
+        return { ...prev, [payload.new.id_guest]: payload.new as BreakfastRecord };
       });
-      setRefreshTrigger(v => v + 1);
+      setRefreshTrigger((v) => v + 1);
     }
   }, []);
 
   useRealtimeSubscription<any>(
     'breakfast_records',
     `hotel_id=eq.${selectedHotel?.id}`,
-    handleRealtimeUpdate
+    handleRealtimeUpdate,
   );
 
-  // Fallback Polling - A cada 30 segundos busca dados frescos se o Realtime falhar
   useEffect(() => {
-    const pollInterval = setInterval(() => {
-      console.log('[BreakfastKitchen] Polling for fresh data...');
-      loadInitialRecords();
-    }, 30000);
-    return () => clearInterval(pollInterval);
+    const poll = setInterval(() => loadInitialRecords(), 30_000);
+    return () => clearInterval(poll);
   }, [loadInitialRecords]);
 
-  // 5. Calculations
+  // ── stats ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const totalErbon = guests?.length || 0;
-    // Contar visitantes (Day Use) que estão nos records
-    const dayUseCount = Object.values(records).filter(r => String(r.id_guest).startsWith('DU-')).length;
+    const dayUseCount = Object.values(records).filter((r) => String(r.id_guest).startsWith('DU-')).length;
     const total = totalErbon + dayUseCount;
-    
     const recordList = Object.values(records);
-    const ate = recordList.filter(r => r.status === 'checked_in').length;
-    const kits = recordList.filter(r => r.status === 'kit_requested').length;
+    const ate = recordList.filter((r) => r.status === 'checked_in').length;
+    const kits = recordList.filter((r) => r.status === 'kit_requested').length;
     const pending = Math.max(0, total - ate - kits);
     const progress = total > 0 ? Math.round(((ate + kits) / total) * 100) : 0;
-
     return { total, ate, kits, pending, progress };
   }, [guests, records, refreshTrigger]);
 
-  // 6. Timers
+  // ── timer info ────────────────────────────────────────────────────────────
   const timerInfo = useMemo(() => {
     if (!config) return null;
-    
     const todayStr = format(currentTime, 'yyyy-MM-dd');
     const start = parseISO(`${todayStr}T${config.start_time}`);
     const end = parseISO(`${todayStr}T${config.end_time}`);
-
     if (currentTime < start) {
-      const diff = differenceInSeconds(start, currentTime);
-      return { label: 'INÍCIO EM', color: 'text-amber-500', seconds: diff };
+      return { label: 'INÍCIO EM', colorClass: 'text-amber-400', seconds: differenceInSeconds(start, currentTime) };
     } else if (currentTime < end) {
-      const diff = differenceInSeconds(end, currentTime);
-      return { label: 'ENCERRA EM', color: 'text-emerald-500', seconds: diff };
-    } else {
-      return { label: 'ENCERRADO', color: 'text-rose-500', seconds: 0 };
+      return { label: 'ENCERRA EM', colorClass: 'text-emerald-400', seconds: differenceInSeconds(end, currentTime) };
     }
+    return { label: 'ENCERRADO', colorClass: 'text-rose-400', seconds: 0 };
   }, [config, currentTime]);
 
-  const formatSeconds = (s: number) => {
-    if (s <= 0) return '00:00:00';
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-  };
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — locked to viewport, TV-optimised
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 md:p-12 flex flex-col justify-center">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-12">
-        <div className="flex items-center gap-6">
-          <div className="w-20 h-20 rounded-3xl bg-sky-600 flex items-center justify-center shadow-2xl shadow-sky-500/20">
-            <ChefHat className="w-12 h-12 text-white" />
+    <div
+      className="h-screen w-screen overflow-hidden bg-gray-950 text-white flex flex-col select-none"
+      style={{ padding: '2vh 2.5vw', gap: '2vh' }}
+    >
+
+      {/* ── HEADER ── */}
+      <div className="flex items-center justify-between shrink-0" style={{ gap: '2vw' }}>
+
+        {/* Left: logo + title */}
+        <div className="flex items-center" style={{ gap: '1.5vw' }}>
+          <div
+            className="rounded-2xl bg-sky-600 flex items-center justify-center shrink-0"
+            style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)' }}
+          >
+            <ChefHat style={{ width: 'clamp(28px,3vw,48px)', height: 'clamp(28px,3vw,48px)' }} className="text-white" />
           </div>
           <div>
-            <h1 className="text-5xl font-black text-gray-900 dark:text-white tracking-tighter uppercase">COZINHA — CAFÉ DA MANHÃ</h1>
-            <p className="text-2xl font-bold text-gray-500 dark:text-gray-400 mt-2">
-              {selectedHotel?.name} · {format(currentTime, "eeee, d 'de' MMMM", { locale: ptBR }).toUpperCase()}
+            <h1
+              className="font-black uppercase tracking-tight text-white leading-none"
+              style={{ fontSize: 'clamp(1.25rem,2.5vw,3rem)' }}
+            >
+              COZINHA — CAFÉ DA MANHÃ
+            </h1>
+            <p
+              className="font-semibold text-gray-400 mt-1"
+              style={{ fontSize: 'clamp(0.75rem,1.2vw,1.25rem)' }}
+            >
+              {selectedHotel?.name} &middot;{' '}
+              {format(currentTime, "eeee, d 'de' MMMM", { locale: ptBR }).toUpperCase()}
             </p>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 px-10 py-6 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 shadow-2xl flex items-center gap-8">
+        {/* Center: clock */}
+        <div className="flex flex-col items-center shrink-0">
+          <div className="flex items-center gap-2">
+            <Clock
+              className="text-sky-400"
+              style={{ width: 'clamp(18px,2vw,32px)', height: 'clamp(18px,2vw,32px)' }}
+            />
+            <span
+              className="font-mono font-black tabular-nums text-white leading-none"
+              style={{ fontSize: 'clamp(2rem,5.5vw,7rem)' }}
+            >
+              {format(currentTime, 'HH:mm:ss')}
+            </span>
+          </div>
+          <span
+            className="font-bold text-gray-500 uppercase tracking-[0.2em]"
+            style={{ fontSize: 'clamp(0.6rem,0.8vw,0.875rem)' }}
+          >
+            HORA ATUAL
+          </span>
+        </div>
+
+        {/* Right: countdown timer */}
+        <div
+          className="bg-gray-900 border border-gray-800 rounded-2xl flex items-center shrink-0"
+          style={{ gap: '1.5vw', padding: '1.5vh 2vw' }}
+        >
           <div className="flex flex-col items-end">
-            <span className="text-sm font-black text-gray-400 tracking-[0.2em]">{timerInfo?.label || 'AGUARDANDO'}</span>
-            <span className={`text-6xl font-mono font-black tabular-nums ${timerInfo?.color || 'text-gray-300'}`}>
+            <span
+              className="font-black text-gray-500 uppercase tracking-[0.15em]"
+              style={{ fontSize: 'clamp(0.6rem,0.8vw,0.875rem)' }}
+            >
+              {timerInfo?.label || 'AGUARDANDO'}
+            </span>
+            <span
+              className={`font-mono font-black tabular-nums leading-none ${timerInfo?.colorClass || 'text-gray-600'}`}
+              style={{ fontSize: 'clamp(1.5rem,3.2vw,4rem)' }}
+            >
               {timerInfo && timerInfo.seconds > 0 ? formatSeconds(timerInfo.seconds) : '--:--:--'}
             </span>
           </div>
-          <div className="w-16 h-16 rounded-3xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center">
-            <Timer className={`w-8 h-8 ${timerInfo?.color || 'text-gray-300'}`} />
-          </div>
+          <Timer
+            className={timerInfo?.colorClass || 'text-gray-600'}
+            style={{ width: 'clamp(24px,2.5vw,40px)', height: 'clamp(24px,2.5vw,40px)' }}
+          />
         </div>
       </div>
 
-      {/* Main Stats Grid - Huge cards for TV display */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        
-        {/* Total Card */}
-        <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-12 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-3xl bg-sky-50 dark:bg-sky-900/10 flex items-center justify-center mb-6">
-            <Users className="w-10 h-10 text-sky-500" />
-          </div>
-          <p className="text-lg font-black text-gray-400 uppercase tracking-widest mb-4">Total de Hóspedes</p>
-          <p className="text-9xl font-black text-gray-900 dark:text-white tabular-nums">{stats.total}</p>
-        </div>
-
-        {/* Ate Card */}
-        <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-12 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-3xl bg-emerald-50 dark:bg-emerald-900/10 flex items-center justify-center mb-6">
-            <CheckCircle className="w-10 h-10 text-emerald-500" />
-          </div>
-          <p className="text-lg font-black text-gray-400 uppercase tracking-widest mb-4">Já Tomaram Café</p>
-          <div className="flex flex-col items-center">
-            <p className="text-9xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">{stats.ate}</p>
-            <span className="text-2xl font-black text-emerald-600/50 mt-2">{stats.progress}% CONCLUÍDO</span>
-          </div>
-        </div>
-
-        {/* Pending Card - Focus Point */}
-        <div className="bg-sky-600 rounded-[3rem] p-12 border border-sky-500 shadow-2xl shadow-sky-500/20 flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-3xl bg-white/10 flex items-center justify-center mb-6">
-            <UtensilsCrossed className="w-10 h-10 text-white" />
-          </div>
-          <p className="text-lg font-black text-white/70 uppercase tracking-widest mb-4">Pendentes de Café</p>
-          <p className="text-9xl font-black text-white tabular-nums">{stats.pending}</p>
-        </div>
-
-        {/* Kits Card */}
-        <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-12 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-3xl bg-amber-50 dark:bg-amber-900/10 flex items-center justify-center mb-6">
-            <Package className="w-10 h-10 text-amber-500" />
-          </div>
-          <p className="text-lg font-black text-gray-400 uppercase tracking-widest mb-4">Kits Entregues</p>
-          <p className="text-9xl font-black text-amber-600 dark:text-amber-400 tabular-nums">{stats.kits}</p>
-        </div>
-
+      {/* ── PROGRESS BAR ── */}
+      <div className="shrink-0 w-full bg-gray-800 rounded-full overflow-hidden" style={{ height: '0.6vh', minHeight: 4 }}>
+        <div
+          className="h-full bg-sky-500 rounded-full transition-all duration-1000"
+          style={{ width: `${stats.progress}%` }}
+        />
       </div>
 
-      {/* Footer message */}
-      <div className="mt-16 text-center">
-        <p className="text-gray-400 dark:text-gray-500 text-xl font-medium animate-pulse uppercase">
-          Atualização em tempo real · Aguardando interações do salão
+      {/* ── CARDS ── */}
+      <div
+        className="grid grid-cols-4 flex-1 min-h-0"
+        style={{ gap: '2vw' }}
+      >
+
+        {/* Total */}
+        <div className="bg-gray-900 border border-gray-800 rounded-3xl flex flex-col items-center justify-center">
+          <div
+            className="rounded-2xl bg-sky-900/40 flex items-center justify-center"
+            style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)', marginBottom: '2vh' }}
+          >
+            <Users
+              className="text-sky-400"
+              style={{ width: 'clamp(26px,3vw,44px)', height: 'clamp(26px,3vw,44px)' }}
+            />
+          </div>
+          <p
+            className="font-black text-gray-500 uppercase tracking-widest text-center"
+            style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
+          >
+            Total de Hóspedes
+          </p>
+          <p
+            className="font-black text-white tabular-nums leading-none"
+            style={{ fontSize: 'clamp(4rem,11vw,13rem)' }}
+          >
+            {stats.total}
+          </p>
+        </div>
+
+        {/* Já tomaram */}
+        <div className="bg-gray-900 border border-gray-800 rounded-3xl flex flex-col items-center justify-center">
+          <div
+            className="rounded-2xl bg-emerald-900/40 flex items-center justify-center"
+            style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)', marginBottom: '2vh' }}
+          >
+            <CheckCircle
+              className="text-emerald-400"
+              style={{ width: 'clamp(26px,3vw,44px)', height: 'clamp(26px,3vw,44px)' }}
+            />
+          </div>
+          <p
+            className="font-black text-gray-500 uppercase tracking-widest text-center"
+            style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
+          >
+            Já Tomaram Café
+          </p>
+          <p
+            className="font-black text-emerald-400 tabular-nums leading-none"
+            style={{ fontSize: 'clamp(4rem,11vw,13rem)' }}
+          >
+            {stats.ate}
+          </p>
+          <p
+            className="font-black text-emerald-600 tabular-nums"
+            style={{ fontSize: 'clamp(0.9rem,1.5vw,2rem)', marginTop: '0.5vh' }}
+          >
+            {stats.progress}% CONCLUÍDO
+          </p>
+        </div>
+
+        {/* Pendentes — destaque */}
+        <div className="bg-sky-600 border border-sky-500 rounded-3xl flex flex-col items-center justify-center shadow-2xl shadow-sky-500/20">
+          <div
+            className="rounded-2xl bg-white/10 flex items-center justify-center"
+            style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)', marginBottom: '2vh' }}
+          >
+            <UtensilsCrossed
+              className="text-white"
+              style={{ width: 'clamp(26px,3vw,44px)', height: 'clamp(26px,3vw,44px)' }}
+            />
+          </div>
+          <p
+            className="font-black text-white/70 uppercase tracking-widest text-center"
+            style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
+          >
+            Pendentes de Café
+          </p>
+          <p
+            className="font-black text-white tabular-nums leading-none"
+            style={{ fontSize: 'clamp(4rem,11vw,13rem)' }}
+          >
+            {stats.pending}
+          </p>
+        </div>
+
+        {/* Kits */}
+        <div className="bg-gray-900 border border-gray-800 rounded-3xl flex flex-col items-center justify-center">
+          <div
+            className="rounded-2xl bg-amber-900/40 flex items-center justify-center"
+            style={{ width: 'clamp(48px,5vw,80px)', height: 'clamp(48px,5vw,80px)', marginBottom: '2vh' }}
+          >
+            <Package
+              className="text-amber-400"
+              style={{ width: 'clamp(26px,3vw,44px)', height: 'clamp(26px,3vw,44px)' }}
+            />
+          </div>
+          <p
+            className="font-black text-gray-500 uppercase tracking-widest text-center"
+            style={{ fontSize: 'clamp(0.65rem,1vw,1.1rem)', marginBottom: '1vh' }}
+          >
+            Kits Entregues
+          </p>
+          <p
+            className="font-black text-amber-400 tabular-nums leading-none"
+            style={{ fontSize: 'clamp(4rem,11vw,13rem)' }}
+          >
+            {stats.kits}
+          </p>
+        </div>
+      </div>
+
+      {/* ── FOOTER ── */}
+      <div className="shrink-0 flex items-center justify-between">
+        <p
+          className="text-gray-600 font-semibold uppercase tracking-widest animate-pulse"
+          style={{ fontSize: 'clamp(0.6rem,0.85vw,0.875rem)' }}
+        >
+          ● Atualização em tempo real · Aguardando interações do salão
+        </p>
+        <p
+          className="text-gray-700 font-semibold"
+          style={{ fontSize: 'clamp(0.6rem,0.85vw,0.875rem)' }}
+        >
+          {format(currentTime, "dd/MM/yyyy")}
         </p>
       </div>
 
+      {/* ── Loading badge ── */}
       {loadingErbon && (
-        <div className="fixed bottom-8 right-8 bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-xl flex items-center gap-3 border border-gray-100 dark:border-gray-800">
-          <Loader2 className="w-5 h-5 animate-spin text-sky-500" />
-          <span className="text-sm font-bold text-gray-500">Sincronizando com Erbon...</span>
+        <div className="fixed bottom-6 right-6 bg-gray-900 border border-gray-800 px-4 py-3 rounded-2xl flex items-center gap-3 shadow-xl">
+          <Loader2 className="w-5 h-5 animate-spin text-sky-400" />
+          <span className="text-sm font-bold text-gray-400">Sincronizando com Erbon...</span>
         </div>
       )}
     </div>
