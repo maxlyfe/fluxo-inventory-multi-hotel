@@ -49,7 +49,8 @@ const BreakfastKitchen: React.FC = () => {
   const [config, setConfig] = useState<FullConfig | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeMeal, setActiveMeal] = useState<MealType>('breakfast');
-  const [showClockOnly, setShowClockClockOnly] = useState(false);
+  const [showClockOnly, setShowClockOnly] = useState(false);
+  const [manualOverride, setManualOverride] = useState(false);
 
   // ── data: guests from Erbon ──────────────────────────────────────────────
   const { data: allGuests, loading: loadingErbon } = useErbonData<ErbonGuest[]>(
@@ -63,8 +64,6 @@ const BreakfastKitchen: React.FC = () => {
     if (!allGuests) return [];
     if (activeMeal === 'breakfast') return allGuests;
     
-    // MAP (Meia Pensão) e FAP (Pensão Completa)
-    // Na Erbon geralmente vem no campo mealPlan
     return allGuests.filter(g => {
       const plan = (g.mealPlan || '').toUpperCase();
       if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP');
@@ -118,33 +117,29 @@ const BreakfastKitchen: React.FC = () => {
 
   // ── logic: auto-clock and auto-meal detection ───────────────────────────
   useEffect(() => {
-    if (!config) return;
+    if (!config || manualOverride) return;
     const todayStr = format(currentTime, 'yyyy-MM-dd');
     const transitionMs = (config.clock_transition_minutes || 30) * 60 * 1000;
 
     const meals = [
       { type: 'breakfast', end: `${todayStr}T${config.end_time}` },
-      { type: 'map', end: `${todayStr}T${config.lunch_end_time}` }, // Usando lunch como MAP por padrão
+      { type: 'map', end: `${todayStr}T${config.lunch_end_time}` },
       { type: 'fap', end: `${todayStr}T${config.dinner_end_time}` }
     ];
 
-    // Verifica se deve mostrar o relógio
     let shouldShowClock = true;
     for (const m of meals) {
       const endTime = parseISO(m.end);
       const transitionTime = new Date(endTime.getTime() + transitionMs);
       
-      // Se estamos entre o início (não definido aqui mas assumido) e o fim + transição
-      // Para simplificar: se o café acabou há menos de X minutos, mostra dashboard.
-      // Se estamos em horário comercial de refeição, mostra dashboard.
       if (isBefore(currentTime, transitionTime) && isAfter(currentTime, addMinutes(endTime, -240))) {
         shouldShowClock = false;
         break;
       }
     }
     
-    setShowClockClockOnly(shouldShowClock);
-  }, [config, currentTime]);
+    setShowClockOnly(shouldShowClock);
+  }, [config, currentTime, manualOverride]);
 
   // ── realtime ─────────────────────────────────────────────────────────────
   const handleRealtimeUpdate = useCallback((payload: any) => {
@@ -215,7 +210,7 @@ const BreakfastKitchen: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────
   if (showClockOnly) {
     return (
-      <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-white p-10">
+      <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-white p-10 select-none">
         <div className="text-[25vw] font-black font-mono leading-none tracking-tighter">
           {format(currentTime, 'HH:mm')}
         </div>
@@ -226,10 +221,13 @@ const BreakfastKitchen: React.FC = () => {
           {format(currentTime, "eeee, d 'de' MMMM", { locale: ptBR })}
         </div>
         <button 
-          onClick={() => setShowClockClockOnly(false)}
-          className="absolute bottom-10 right-10 p-4 bg-gray-900 rounded-full opacity-20 hover:opacity-100 transition-opacity"
+          onClick={() => {
+            setShowClockOnly(false);
+            setManualOverride(true);
+          }}
+          className="absolute bottom-10 right-10 p-6 bg-gray-900/50 hover:bg-gray-800 rounded-full transition-all group shadow-2xl border border-white/5"
         >
-          <ArrowLeft className="w-8 h-8" />
+          <ArrowLeft className="w-10 h-10 text-gray-400 group-hover:text-white" />
         </button>
       </div>
     );
@@ -268,9 +266,9 @@ const BreakfastKitchen: React.FC = () => {
                 COZINHA — {activeMeal === 'breakfast' ? 'CAFÉ DA MANHÃ' : activeMeal === 'map' ? 'ALMOÇO (MAP/FAP)' : 'JANTAR (FAP)'}
               </h1>
               <div className="flex gap-1">
-                <button onClick={() => setActiveMeal('breakfast')} className={`px-3 py-1 rounded-lg text-xs font-bold ${activeMeal === 'breakfast' ? 'bg-sky-500 text-white' : 'bg-gray-800 text-gray-500'}`}>CAFÉ</button>
-                <button onClick={() => setActiveMeal('map')} className={`px-3 py-1 rounded-lg text-xs font-bold ${activeMeal === 'map' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-500'}`}>ALMOÇO</button>
-                <button onClick={() => setActiveMeal('fap')} className={`px-3 py-1 rounded-lg text-xs font-bold ${activeMeal === 'fap' ? 'bg-purple-500 text-white' : 'bg-gray-800 text-gray-500'}`}>JANTAR</button>
+                <button onClick={() => setActiveMeal('breakfast')} className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${activeMeal === 'breakfast' ? 'bg-sky-500 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'}`}>CAFÉ</button>
+                <button onClick={() => setActiveMeal('map')} className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${activeMeal === 'map' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'}`}>ALMOÇO</button>
+                <button onClick={() => setActiveMeal('fap')} className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${activeMeal === 'fap' ? 'bg-purple-500 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'}`}>JANTAR</button>
               </div>
             </div>
             <p
@@ -284,8 +282,14 @@ const BreakfastKitchen: React.FC = () => {
         </div>
 
         {/* Center: clock */}
-        <div className="flex flex-col items-center shrink-0">
-          <div className="flex items-center gap-2">
+        <div 
+          className="flex flex-col items-center shrink-0 cursor-pointer group"
+          onClick={() => {
+            setShowClockOnly(true);
+            setManualOverride(false);
+          }}
+        >
+          <div className="flex items-center gap-2 group-hover:scale-110 transition-transform">
             <Clock
               className="text-sky-400"
               style={{ width: 'clamp(18px,2vw,32px)', height: 'clamp(18px,2vw,32px)' }}
@@ -298,10 +302,10 @@ const BreakfastKitchen: React.FC = () => {
             </span>
           </div>
           <span
-            className="font-bold text-gray-500 uppercase tracking-[0.2em]"
+            className="font-bold text-gray-500 uppercase tracking-[0.2em] group-hover:text-sky-400 transition-colors"
             style={{ fontSize: 'clamp(0.6rem,0.8vw,0.875rem)' }}
           >
-            HORA ATUAL
+            {manualOverride ? 'CLIQUE PARA VOLTAR AO RELÓGIO' : 'HORA ATUAL'}
           </span>
         </div>
 
