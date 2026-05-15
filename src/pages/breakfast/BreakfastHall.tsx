@@ -57,31 +57,59 @@ const BreakfastHall: React.FC = () => {
       .catch(err => console.error('Erro ao buscar dados de pensão:', err));
   }, [selectedHotel]);
 
+  // Mapeamento de pensão para humano
+  const getMealLabel = (p: string | null | undefined): string => {
+    if (!p) return '—';
+    const m: Record<string, string> = { 
+      RO: 'ROOM ONLY', 
+      BB: 'CAFÉ DA MANHÃ', 
+      HB: 'MEIA PENSÃO',      // MAP
+      FB: 'PENSÃO COMPLETA',  // FAP
+      AI: 'ALL INCLUSIVE' 
+    };
+    return m[p.toUpperCase()] || p.toUpperCase();
+  };
+
+  const [bookingDetails, setBookingDetails] = useState<Record<number, string>>({});
+
+  // Carregar detalhes de cada reserva única encontrada
+  useEffect(() => {
+    if (!allGuests || !selectedHotel) return;
+
+    const uniqueBookingIds = Array.from(new Set(allGuests.map(g => g.idBooking)));
+    
+    uniqueBookingIds.forEach(id => {
+      if (bookingDetails[id]) return;
+
+      erbonService.fetchBookingByInternalId(selectedHotel.id, id)
+        .then(booking => {
+          if (booking) {
+            const regime = (booking.segmentDesc || booking.rateDesc || '').toUpperCase();
+            setBookingDetails(prev => ({ ...prev, [id]: regime }));
+          }
+        })
+        .catch(err => console.error(`Erro ao buscar reserva ${id}:`, err));
+    });
+  }, [allGuests, selectedHotel]);
+
   // Filtrar hóspedes baseado no plano de refeição
   const guests = useMemo(() => {
     if (!allGuests) return [];
     
-    // Mapeamento: RoomDescription -> Regime/Pensão
-    const roomToRegime = new Map();
-    pensionData.forEach(p => {
-       // Vamos assumir que p.room ou algo similar tem o nome do quarto
-       // O log nos dirá qual o campo correto.
-       roomToRegime.set(String(p.room || p.roomDescription || ''), (p.pension || p.regime || '').toUpperCase());
-    });
-    
     if (activeMeal === 'breakfast') return allGuests;
     
     return allGuests.filter(g => {
-      const regime = roomToRegime.get(String(g.roomDescription)) || '';
-      const isMap = regime.includes('MAP') || regime.includes('MEIA PENSÃO');
-      const isFap = regime.includes('FAP') || regime.includes('PENSÃO COMPLETA');
+      const regime = bookingDetails[g.idBooking] || '';
+      
+      const isMap = regime.includes('MEIA PENSÃO') || regime.includes('MAP') || regime.includes('HB');
+      const isFap = regime.includes('PENSÃO COMPLETA') || regime.includes('FAP') || regime.includes('FB');
       
       if (activeMeal === 'map') return isMap;
       if (activeMeal === 'fap') return isFap;
       
       return false;
     });
-  }, [allGuests, activeMeal, pensionData]);
+  }, [allGuests, activeMeal, bookingDetails]);
 
   // 2. Fetch Records from Supabase for Today
   const loadRecords = useCallback(async () => {
