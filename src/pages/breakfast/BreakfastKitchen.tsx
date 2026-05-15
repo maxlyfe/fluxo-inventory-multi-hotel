@@ -117,11 +117,8 @@ const BreakfastKitchen: React.FC = () => {
 
   // ── logic: auto-clock and auto-meal detection ───────────────────────────
   useEffect(() => {
-    if (!config) return;
-    
-    // Se o usuário clicou manualmente no relógio, o override vira true e o auto-toggle para.
-    // O auto-toggle só deve rodar se não houver override manual.
-    if (manualOverride) return;
+    // Se o usuário interagiu manualmente, não fazemos NADA nessa função de auto-toggle.
+    if (!config || manualOverride) return;
 
     const todayStr = format(currentTime, 'yyyy-MM-dd');
     const transitionMs = (config.clock_transition_minutes || 30) * 60 * 1000;
@@ -140,18 +137,29 @@ const BreakfastKitchen: React.FC = () => {
 
       const transitionTime = new Date(endTime.getTime() + transitionMs);
       
-      // Regra: Se estamos dentro da janela da refeição (até 4h antes do fim), mostra o dashboard (shouldShowClock = false)
+      // Se estamos na janela ativa, não mostra o relógio
       if (isBefore(currentTime, transitionTime) && isAfter(currentTime, addMinutes(endTime, -240))) {
         shouldShowClock = false;
         break;
       }
     }
     
-    // Só atualiza o estado se ele for diferente para evitar re-renders desnecessários
     if (showClockOnly !== shouldShowClock) {
       setShowClockOnly(shouldShowClock);
     }
-  }, [config, currentTime, manualOverride, showClockOnly]);
+  }, [config, currentTime, manualOverride]); // Removi showClockOnly desta dependência para não causar loops estranhos.
+
+  // Event handler para clicar no relógio (fullscreen)
+  const handleToggleFullscreen = () => {
+    setManualOverride(true);
+    setShowClockOnly(true);
+  };
+
+  // Event handler para sair do relógio
+  const handleExitFullscreen = () => {
+    setManualOverride(true); // O usuário agora está no controle, mantém override
+    setShowClockOnly(false);
+  };
 
   // ── realtime ─────────────────────────────────────────────────────────────
   const handleRealtimeUpdate = useCallback((payload: any) => {
@@ -233,10 +241,7 @@ const BreakfastKitchen: React.FC = () => {
           {format(currentTime, "eeee, d 'de' MMMM", { locale: ptBR })}
         </div>
         <button 
-          onClick={() => {
-            setShowClockOnly(false);
-            setManualOverride(true);
-          }}
+          onClick={handleExitFullscreen}
           className="absolute bottom-10 right-10 p-6 bg-gray-900/50 hover:bg-gray-800 rounded-full transition-all group shadow-2xl border border-white/5"
         >
           <ArrowLeft className="w-10 h-10 text-gray-400 group-hover:text-white" />
@@ -296,10 +301,7 @@ const BreakfastKitchen: React.FC = () => {
         {/* Center: clock */}
         <div 
           className="flex flex-col items-center shrink-0 cursor-pointer group"
-          onClick={() => {
-            setShowClockOnly(true);
-            setManualOverride(false);
-          }}
+          onClick={handleToggleFullscreen}
         >
           <div className="flex items-center gap-2 group-hover:scale-110 transition-transform">
             <Clock
