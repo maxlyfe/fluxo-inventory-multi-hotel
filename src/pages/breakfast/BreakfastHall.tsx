@@ -48,10 +48,16 @@ const BreakfastHall: React.FC = () => {
     if (!allGuests) return [];
     if (activeMeal === 'breakfast') return allGuests;
     
+    // DEBUG: Logar o que estamos recebendo do Erbon
+    console.log('[BreakfastHall] guests meal plans:', allGuests.map(g => ({ name: g.guestName, plan: g.mealPlan })));
+    
     return allGuests.filter(g => {
       const plan = (g.mealPlan || '').toUpperCase();
+      
+      // Ajuste: verificar se o plano contém a sigla, tratando casos como 'MAP-PENSÃO' ou 'FAP'
       if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP');
       if (activeMeal === 'fap') return plan.includes('FAP');
+      
       return true;
     });
   }, [allGuests, activeMeal]);
