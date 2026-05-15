@@ -81,21 +81,14 @@ const BreakfastHall: React.FC = () => {
   const guests = useMemo(() => {
     if (!allGuests) return [];
     
-    if (activeMeal === 'breakfast') return allGuests;
+    // DEBUG: Log detalhado para encontrar onde está o regime
+    if (allGuests.length > 0) {
+      console.log('[DEBUG] Estrutura da reserva do primeiro hóspede:', JSON.stringify(allGuests[0], null, 2));
+    }
     
-    return allGuests.filter(g => {
-      const regime = bookingDetails[g.idBooking] || '';
-      
-      // Lógica de inclusão: Verifica se o regime da reserva contém as siglas comuns
-      const isMap = regime.includes('MAP') || regime.includes('MEIA PENSÃO') || regime.includes('PENSÃO');
-      const isFap = regime.includes('FAP') || regime.includes('PENSÃO COMPLETA');
-      
-      if (activeMeal === 'map') return isMap;
-      if (activeMeal === 'fap') return isFap;
-      
-      return false;
-    });
-  }, [allGuests, activeMeal, bookingDetails]);
+    // Lista todos os hóspedes para permitir identificação
+    return allGuests;
+  }, [allGuests, activeMeal]);
 
   // 2. Fetch Records from Supabase for Today
   const loadRecords = useCallback(async () => {
