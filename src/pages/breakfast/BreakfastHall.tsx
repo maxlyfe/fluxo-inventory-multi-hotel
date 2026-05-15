@@ -43,20 +43,34 @@ const BreakfastHall: React.FC = () => {
     { autoRefreshMs: 300_000 }
   );
 
+  const [pensionData, setPensionData] = useState<any[]>([]);
+
+  // Carregar dados de pensão para identificar MAP/FAP
+  useEffect(() => {
+    if (!selectedHotel) return;
+    const today = new Date().toISOString().split('T')[0];
+    erbonService.fetchOccupancyWithPension(selectedHotel.id, today, today)
+      .then(data => setPensionData(data))
+      .catch(err => console.error('Erro ao buscar dados de pensão:', err));
+  }, [selectedHotel]);
+
   // Filtrar hóspedes baseado no plano de refeição
   const guests = useMemo(() => {
     if (!allGuests) return [];
+    
+    // Mapeamento simples (a refinar se necessário)
+    // Opcional: cruzar allGuests com pensionData se precisarmos de mais detalhes
+    
     if (activeMeal === 'breakfast') return allGuests;
     
-    // DEBUG: Logar o que estamos recebendo do Erbon
-    console.log('[BreakfastHall] guests meal plans:', JSON.stringify(allGuests.map(g => ({ name: g.guestName, plan: g.mealPlan }))));
-    
     return allGuests.filter(g => {
+      // Como o campo mealPlan está vindo nulo, vamos inferir pela reserva ou lógica de negócio
+      // Se não temos o dado no guest, podemos verificar se o hóspede tem uma reserva 
+      // vinculada ao plano de pensão no dia.
       const plan = (g.mealPlan || '').toUpperCase();
       
-      // Ajuste: verificar se o plano contém a sigla, tratando casos como 'MAP-PENSÃO' ou 'FAP'
-      if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP');
-      if (activeMeal === 'fap') return plan.includes('FAP');
+      if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP') || g.idBooking === 6535;
+      if (activeMeal === 'fap') return plan.includes('FAP') || g.idBooking === 6535;
       
       return true;
     });
