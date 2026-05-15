@@ -56,21 +56,22 @@ const BreakfastHall: React.FC = () => {
 
   // Filtrar hóspedes baseado no plano de refeição
   const guests = useMemo(() => {
+    console.log('[BreakfastHall] Calculating guests. allGuests count:', allGuests?.length, 'activeMeal:', activeMeal);
     if (!allGuests) return [];
-    
-    // Mapeamento simples (a refinar se necessário)
-    // Opcional: cruzar allGuests com pensionData se precisarmos de mais detalhes
     
     if (activeMeal === 'breakfast') return allGuests;
     
     return allGuests.filter(g => {
-      // Como o campo mealPlan está vindo nulo, vamos inferir pela reserva ou lógica de negócio
-      // Se não temos o dado no guest, podemos verificar se o hóspede tem uma reserva 
-      // vinculada ao plano de pensão no dia.
+      // Log individual de cada hóspede para debugging
+      console.log('[BreakfastHall] Evaluating guest:', g.guestName, 'ID:', g.idBooking, 'Plan:', g.mealPlan);
+      
       const plan = (g.mealPlan || '').toUpperCase();
       
-      if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP') || g.idBooking === 6535;
-      if (activeMeal === 'fap') return plan.includes('FAP') || g.idBooking === 6535;
+      const isMap = plan.includes('MAP') || plan.includes('FAP') || g.idBooking === 6535;
+      const isFap = plan.includes('FAP') || g.idBooking === 6535;
+
+      if (activeMeal === 'map') return isMap;
+      if (activeMeal === 'fap') return isFap;
       
       return true;
     });
