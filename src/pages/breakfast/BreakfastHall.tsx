@@ -50,45 +50,38 @@ const BreakfastHall: React.FC = () => {
     if (!selectedHotel) return;
     const today = new Date().toISOString().split('T')[0];
     erbonService.fetchOccupancyWithPension(selectedHotel.id, today, today)
-      .then(data => setPensionData(data))
+      .then(data => {
+        console.log('[DEBUG] Estrutura da pensionData:', JSON.stringify(data[0], null, 2));
+        setPensionData(data);
+      })
       .catch(err => console.error('Erro ao buscar dados de pensão:', err));
   }, [selectedHotel]);
-
-  const [bookingDetails, setBookingDetails] = useState<Record<number, string>>({});
-
-  // Carregar detalhes de cada reserva única encontrada
-  useEffect(() => {
-    if (!allGuests || !selectedHotel) return;
-
-    const uniqueBookingIds = Array.from(new Set(allGuests.map(g => g.idBooking)));
-    
-    uniqueBookingIds.forEach(id => {
-      if (bookingDetails[id]) return; // Já carregado
-
-      erbonService.fetchBookingByInternalId(selectedHotel.id, id)
-        .then(booking => {
-          if (booking) {
-            // No Erbon, 'segmentDesc' ou 'rateDesc' costumam conter o regime/pensão
-            const regime = (booking.segmentDesc || booking.rateDesc || '').toUpperCase();
-            setBookingDetails(prev => ({ ...prev, [id]: regime }));
-          }
-        })
-        .catch(err => console.error(`Erro ao buscar reserva ${id}:`, err));
-    });
-  }, [allGuests, selectedHotel]);
 
   // Filtrar hóspedes baseado no plano de refeição
   const guests = useMemo(() => {
     if (!allGuests) return [];
     
-    // DEBUG: Log detalhado para encontrar onde está o regime
-    if (allGuests.length > 0) {
-      console.log('[DEBUG] Estrutura da reserva do primeiro hóspede:', JSON.stringify(allGuests[0], null, 2));
-    }
+    // Mapeamento: RoomDescription -> Regime/Pensão
+    const roomToRegime = new Map();
+    pensionData.forEach(p => {
+       // Vamos assumir que p.room ou algo similar tem o nome do quarto
+       // O log nos dirá qual o campo correto.
+       roomToRegime.set(String(p.room || p.roomDescription || ''), (p.pension || p.regime || '').toUpperCase());
+    });
     
-    // Lista todos os hóspedes para permitir identificação
-    return allGuests;
-  }, [allGuests, activeMeal]);
+    if (activeMeal === 'breakfast') return allGuests;
+    
+    return allGuests.filter(g => {
+      const regime = roomToRegime.get(String(g.roomDescription)) || '';
+      const isMap = regime.includes('MAP') || regime.includes('MEIA PENSÃO');
+      const isFap = regime.includes('FAP') || regime.includes('PENSÃO COMPLETA');
+      
+      if (activeMeal === 'map') return isMap;
+      if (activeMeal === 'fap') return isFap;
+      
+      return false;
+    });
+  }, [allGuests, activeMeal, pensionData]);
 
   // 2. Fetch Records from Supabase for Today
   const loadRecords = useCallback(async () => {
