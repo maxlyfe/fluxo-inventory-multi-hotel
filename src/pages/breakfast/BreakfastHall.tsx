@@ -49,7 +49,7 @@ const BreakfastHall: React.FC = () => {
     if (activeMeal === 'breakfast') return allGuests;
     
     // DEBUG: Logar o que estamos recebendo do Erbon
-    console.log('[BreakfastHall] guests meal plans:', allGuests.map(g => ({ name: g.guestName, plan: g.mealPlan })));
+    console.log('[BreakfastHall] guests meal plans:', JSON.stringify(allGuests.map(g => ({ name: g.guestName, plan: g.mealPlan }))));
     
     return allGuests.filter(g => {
       const plan = (g.mealPlan || '').toUpperCase();
