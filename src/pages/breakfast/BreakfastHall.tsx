@@ -250,10 +250,31 @@ const BreakfastHall: React.FC = () => {
 
   if (!erbonConfigured && !loadingErbon) return <ErbonNotConfigured hotelName={selectedHotel?.name} />;
 
-  const mealColor = activeMeal === 'breakfast' ? 'orange' : activeMeal === 'map' ? 'amber' : 'purple';
-  const mealIcon = activeMeal === 'breakfast' ? <Coffee className={`w-5 h-5 text-${mealColor}-600`} /> : 
-                   activeMeal === 'map' ? <Sun className={`w-5 h-5 text-${mealColor}-600`} /> : 
-                   <Moon className={`w-5 h-5 text-${mealColor}-600`} />;
+  const mealStyles = {
+    breakfast: {
+      color: 'orange',
+      bgLight: 'bg-orange-100 dark:bg-orange-900/30',
+      text: 'text-orange-600',
+      btn: 'bg-orange-500 hover:bg-orange-600 shadow-orange-200'
+    },
+    map: {
+      color: 'amber',
+      bgLight: 'bg-amber-100 dark:bg-amber-900/30',
+      text: 'text-amber-600',
+      btn: 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'
+    },
+    fap: {
+      color: 'purple',
+      bgLight: 'bg-purple-100 dark:bg-purple-900/30',
+      text: 'text-purple-600',
+      btn: 'bg-purple-500 hover:bg-purple-600 shadow-purple-200'
+    }
+  };
+
+  const currentStyle = mealStyles[activeMeal];
+  const mealIcon = activeMeal === 'breakfast' ? <Coffee className={`w-5 h-5 ${currentStyle.text}`} /> : 
+                   activeMeal === 'map' ? <Sun className={`w-5 h-5 ${currentStyle.text}`} /> : 
+                   <Moon className={`w-5 h-5 ${currentStyle.text}`} />;
 
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-5xl">
@@ -261,7 +282,7 @@ const BreakfastHall: React.FC = () => {
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className={`w-10 h-10 rounded-xl bg-${mealColor}-100 dark:bg-${mealColor}-900/30 flex items-center justify-center`}>
+            <div className={`w-10 h-10 rounded-xl ${currentStyle.bgLight} flex items-center justify-center`}>
               {mealIcon}
             </div>
             <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Checklist {activeMeal === 'breakfast' ? 'Salão' : activeMeal === 'map' ? 'Almoço' : 'Jantar'}</h1>

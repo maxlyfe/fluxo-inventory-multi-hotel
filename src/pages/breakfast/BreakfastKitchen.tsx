@@ -117,29 +117,41 @@ const BreakfastKitchen: React.FC = () => {
 
   // ── logic: auto-clock and auto-meal detection ───────────────────────────
   useEffect(() => {
-    if (!config || manualOverride) return;
+    if (!config) return;
+    
+    // Se o usuário clicou manualmente no relógio, o override vira true e o auto-toggle para.
+    // O auto-toggle só deve rodar se não houver override manual.
+    if (manualOverride) return;
+
     const todayStr = format(currentTime, 'yyyy-MM-dd');
     const transitionMs = (config.clock_transition_minutes || 30) * 60 * 1000;
 
     const meals = [
-      { type: 'breakfast', end: `${todayStr}T${config.end_time}` },
-      { type: 'map', end: `${todayStr}T${config.lunch_end_time}` },
-      { type: 'fap', end: `${todayStr}T${config.dinner_end_time}` }
+      { type: 'breakfast', end: config.end_time ? `${todayStr}T${config.end_time}` : null },
+      { type: 'map', end: config.lunch_end_time ? `${todayStr}T${config.lunch_end_time}` : null },
+      { type: 'fap', end: config.dinner_end_time ? `${todayStr}T${config.dinner_end_time}` : null }
     ];
 
     let shouldShowClock = true;
     for (const m of meals) {
+      if (!m.end) continue;
       const endTime = parseISO(m.end);
+      if (isNaN(endTime.getTime())) continue;
+
       const transitionTime = new Date(endTime.getTime() + transitionMs);
       
+      // Regra: Se estamos dentro da janela da refeição (até 4h antes do fim), mostra o dashboard (shouldShowClock = false)
       if (isBefore(currentTime, transitionTime) && isAfter(currentTime, addMinutes(endTime, -240))) {
         shouldShowClock = false;
         break;
       }
     }
     
-    setShowClockOnly(shouldShowClock);
-  }, [config, currentTime, manualOverride]);
+    // Só atualiza o estado se ele for diferente para evitar re-renders desnecessários
+    if (showClockOnly !== shouldShowClock) {
+      setShowClockOnly(shouldShowClock);
+    }
+  }, [config, currentTime, manualOverride, showClockOnly]);
 
   // ── realtime ─────────────────────────────────────────────────────────────
   const handleRealtimeUpdate = useCallback((payload: any) => {
