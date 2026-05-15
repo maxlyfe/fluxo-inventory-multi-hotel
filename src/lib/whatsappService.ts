@@ -2,8 +2,71 @@
 // Serviço de integração com WhatsApp Business Cloud API (Meta)
 
 import { supabase } from './supabase';
+import { differenceInHours } from 'date-fns';
 
 const WHATSAPP_PROXY = '/.netlify/functions/whatsapp-proxy';
+
+// ── Inbox Interfaces ─────────────────────────────────────────────────────────
+
+export interface WaConversation {
+  id: string;
+  hotel_id: string;
+  contact_phone: string;
+  contact_name: string | null;
+  contact_id: string | null;
+  status: 'open' | 'closed' | 'bot';
+  assigned_to: string | null;
+  last_message_at: string | null;
+  last_message_preview: string | null;
+  unread_count: number;
+  last_customer_message_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // joined
+  labels?: WaLabel[];
+  assignee?: { full_name: string | null; id: string } | null;
+}
+
+export interface WaMessage {
+  id: string;
+  conversation_id: string;
+  hotel_id: string | null;
+  whatsapp_message_id: string | null;
+  direction: 'inbound' | 'outbound';
+  type: 'text' | 'template' | 'image' | 'audio' | 'video' | 'document' | 'sticker' | 'location' | 'interactive' | 'unknown';
+  content: {
+    text?: string;
+    template_name?: string;
+    media_url?: string;
+    caption?: string;
+    filename?: string;
+    [key: string]: unknown;
+  };
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+  sent_by: string | null;
+  sent_at: string;
+  created_at: string;
+}
+
+export interface WaLabel {
+  id: string;
+  hotel_id: string | null;
+  name: string;
+  color: string;
+  is_active: boolean;
+}
+
+export interface WaAutoResponse {
+  id: string;
+  hotel_id: string | null;
+  name: string;
+  trigger_type: 'first_message' | 'keyword' | 'out_of_hours' | 'always';
+  trigger_keywords: string[] | null;
+  response_text: string;
+  is_active: boolean;
+  priority: number;
+  created_at: string;
+}
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -484,5 +547,292 @@ export const whatsappService = {
       .limit(limit);
     if (error) throw error;
     return data || [];
+  },
+};
+
+// ── Inbox Service ─────────────────────────────────────────────────────────────
+
+export const waInboxService = {
+
+  // ── Conversations ───────────────────────────────────────────────────────
+
+  async getConversations(hotelId: string, opts?: {
+    status?: string;
+    labelId?: string;
+    search?: string;
+  }): Promise<WaConversation[]> {
+    let q = supabase
+      .from('whatsapp_conversations')
+      .select(`
+        *,
+        assignee:profiles!assigned_to(id, full_name),
+        labels:whatsapp_conversation_labels(
+          label:whatsapp_labels(id, name, color, is_active)
+        )
+      `)
+      .eq('hotel_id', hotelId)
+      .order('last_message_at', { ascending: false, nullsFirst: false });
+
+    if (opts?.status && opts.status !== 'all') {
+      q = q.eq('status', opts.status);
+    }
+    if (opts?.search) {
+      q = q.or(`contact_name.ilike.%${opts.search}%,contact_phone.ilike.%${opts.search}%,last_message_preview.ilike.%${opts.search}%`);
+    }
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    // flatten labels
+    const convs = (data || []).map((c: any) => ({
+      ...c,
+      labels: (c.labels || []).map((l: any) => l.label).filter(Boolean),
+    })) as WaConversation[];
+
+    // client-side label filter (join table makes server filtering complex)
+    if (opts?.labelId) {
+      return convs.filter(c => c.labels?.some(l => l.id === opts.labelId));
+    }
+    return convs;
+  },
+
+  async getConversation(id: string): Promise<WaConversation | null> {
+    const { data, error } = await supabase
+      .from('whatsapp_conversations')
+      .select(`
+        *,
+        assignee:profiles!assigned_to(id, full_name),
+        labels:whatsapp_conversation_labels(
+          label:whatsapp_labels(id, name, color, is_active)
+        )
+      `)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return { ...data, labels: (data.labels || []).map((l: any) => l.label).filter(Boolean) } as WaConversation;
+  },
+
+  async updateConversation(id: string, updates: Partial<Pick<WaConversation, 'status' | 'assigned_to' | 'contact_name'>>): Promise<void> {
+    const { error } = await supabase
+      .from('whatsapp_conversations')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+  },
+
+  async markConversationRead(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('whatsapp_conversations')
+      .update({ unread_count: 0, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+  },
+
+  // ── Messages ────────────────────────────────────────────────────────────
+
+  async getMessages(conversationId: string, limit = 60): Promise<WaMessage[]> {
+    const { data, error } = await supabase
+      .from('whatsapp_messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('sent_at', { ascending: true })
+      .limit(limit);
+    if (error) throw error;
+    return (data || []) as WaMessage[];
+  },
+
+  /** Envia texto livre (só válido dentro da janela de 24h) */
+  async sendText(params: {
+    conversationId: string;
+    hotelId: string;
+    recipientPhone: string;
+    text: string;
+    sentBy?: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const cfg = await whatsappService.getConfig(params.hotelId);
+    if (!cfg) return { success: false, error: 'WhatsApp não configurado para este hotel' };
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: formatWhatsAppNumber(params.recipientPhone),
+      type: 'text',
+      text: { preview_url: false, body: params.text },
+    };
+
+    try {
+      const res = await fetch(WHATSAPP_PROXY, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wa-phone-number-id': cfg.phone_number_id,
+          'x-wa-access-token': cfg.access_token,
+          'x-wa-action': 'send',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, error: data?.error?.message || 'Erro ao enviar' };
+
+      const waMessageId = data?.messages?.[0]?.id || null;
+
+      // persist locally
+      await supabase.from('whatsapp_messages').insert({
+        conversation_id: params.conversationId,
+        hotel_id: params.hotelId,
+        whatsapp_message_id: waMessageId,
+        direction: 'outbound',
+        type: 'text',
+        content: { text: params.text },
+        status: 'sent',
+        sent_by: params.sentBy || null,
+        sent_at: new Date().toISOString(),
+      });
+
+      // update conversation preview
+      await supabase.from('whatsapp_conversations').update({
+        last_message_at: new Date().toISOString(),
+        last_message_preview: params.text.slice(0, 80),
+        updated_at: new Date().toISOString(),
+      }).eq('id', params.conversationId);
+
+      return { success: true, messageId: waMessageId };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  /** Envia template (qualquer momento) */
+  async sendTemplateFromInbox(params: {
+    conversationId: string;
+    hotelId: string;
+    recipientPhone: string;
+    templateName: string;
+    languageCode?: string;
+    bodyParams?: string[];
+    sentBy?: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const result = await whatsappService.sendTemplate({
+      hotelId: params.hotelId,
+      recipientPhone: params.recipientPhone,
+      templateName: params.templateName,
+      languageCode: params.languageCode,
+      bodyParams: params.bodyParams,
+    });
+    if (!result.success) return result;
+
+    await supabase.from('whatsapp_messages').insert({
+      conversation_id: params.conversationId,
+      hotel_id: params.hotelId,
+      whatsapp_message_id: result.messageId || null,
+      direction: 'outbound',
+      type: 'template',
+      content: { template_name: params.templateName, params: params.bodyParams },
+      status: 'sent',
+      sent_by: params.sentBy || null,
+      sent_at: new Date().toISOString(),
+    });
+
+    await supabase.from('whatsapp_conversations').update({
+      last_message_at: new Date().toISOString(),
+      last_message_preview: `[Template: ${params.templateName}]`,
+      updated_at: new Date().toISOString(),
+    }).eq('id', params.conversationId);
+
+    return result;
+  },
+
+  // ── Labels ───────────────────────────────────────────────────────────────
+
+  async getLabels(hotelId: string): Promise<WaLabel[]> {
+    const { data, error } = await supabase
+      .from('whatsapp_labels')
+      .select('*')
+      .or(`hotel_id.eq.${hotelId},hotel_id.is.null`)
+      .eq('is_active', true)
+      .order('name');
+    if (error) throw error;
+    return (data || []) as WaLabel[];
+  },
+
+  async saveLabel(label: Partial<WaLabel> & { name: string; hotel_id: string }): Promise<WaLabel> {
+    if (label.id) {
+      const { data, error } = await supabase.from('whatsapp_labels')
+        .update({ name: label.name, color: label.color || '#6B7280' })
+        .eq('id', label.id).select().single();
+      if (error) throw error;
+      return data as WaLabel;
+    }
+    const { data, error } = await supabase.from('whatsapp_labels')
+      .insert({ hotel_id: label.hotel_id, name: label.name, color: label.color || '#6B7280' })
+      .select().single();
+    if (error) throw error;
+    return data as WaLabel;
+  },
+
+  async deleteLabel(id: string): Promise<void> {
+    const { error } = await supabase.from('whatsapp_labels').update({ is_active: false }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async addLabelToConversation(conversationId: string, labelId: string): Promise<void> {
+    await supabase.from('whatsapp_conversation_labels')
+      .upsert({ conversation_id: conversationId, label_id: labelId });
+  },
+
+  async removeLabelFromConversation(conversationId: string, labelId: string): Promise<void> {
+    await supabase.from('whatsapp_conversation_labels')
+      .delete().eq('conversation_id', conversationId).eq('label_id', labelId);
+  },
+
+  // ── Auto-Responses ───────────────────────────────────────────────────────
+
+  async getAutoResponses(hotelId: string): Promise<WaAutoResponse[]> {
+    const { data, error } = await supabase
+      .from('whatsapp_auto_responses')
+      .select('*')
+      .or(`hotel_id.eq.${hotelId},hotel_id.is.null`)
+      .order('priority', { ascending: false });
+    if (error) throw error;
+    return (data || []) as WaAutoResponse[];
+  },
+
+  async saveAutoResponse(rule: Partial<WaAutoResponse> & { name: string; trigger_type: string; response_text: string; hotel_id: string }): Promise<WaAutoResponse> {
+    const payload = {
+      hotel_id: rule.hotel_id,
+      name: rule.name,
+      trigger_type: rule.trigger_type,
+      trigger_keywords: rule.trigger_keywords || null,
+      response_text: rule.response_text,
+      is_active: rule.is_active ?? true,
+      priority: rule.priority ?? 0,
+      updated_at: new Date().toISOString(),
+    };
+    if (rule.id) {
+      const { data, error } = await supabase.from('whatsapp_auto_responses').update(payload).eq('id', rule.id).select().single();
+      if (error) throw error;
+      return data as WaAutoResponse;
+    }
+    const { data, error } = await supabase.from('whatsapp_auto_responses').insert(payload).select().single();
+    if (error) throw error;
+    return data as WaAutoResponse;
+  },
+
+  async toggleAutoResponse(id: string, isActive: boolean): Promise<void> {
+    const { error } = await supabase.from('whatsapp_auto_responses').update({ is_active: isActive }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async deleteAutoResponse(id: string): Promise<void> {
+    const { error } = await supabase.from('whatsapp_auto_responses').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  isWithin24hWindow(conv: WaConversation): boolean {
+    if (!conv.last_customer_message_at) return false;
+    return differenceInHours(new Date(), new Date(conv.last_customer_message_at)) < 24;
   },
 };

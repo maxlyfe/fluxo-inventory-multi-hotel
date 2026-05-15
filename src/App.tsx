@@ -119,6 +119,11 @@ import BreakfastHall      from './pages/breakfast/BreakfastHall';
 import BreakfastKitchen   from './pages/breakfast/BreakfastKitchen';
 import BreakfastSettings  from './pages/breakfast/BreakfastSettings';
 
+// ── Pages — Mensagens WhatsApp ─────────────────────────────────────────────
+import WhatsAppInbox         from './pages/messages/WhatsAppInbox';
+import WhatsAppBroadcast     from './pages/messages/WhatsAppBroadcast';
+import WhatsAppAutoResponses from './pages/messages/WhatsAppAutoResponses';
+
 // ── Components ────────────────────────────────────────────────────────────────
 import PrivateRoute from './components/PrivateRoute';
 import MainLayout   from './components/MainLayout';
@@ -418,6 +423,23 @@ function App() {
                     <Route path="/reports" element={
                       <PrivateRoute module="reports">
                         <ReportsPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Mensagens WhatsApp ───────────────────────────── */}
+                    <Route path="/messages" element={
+                      <PrivateRoute module="whatsapp_inbox">
+                        <WhatsAppInbox />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/messages/broadcast" element={
+                      <PrivateRoute module="whatsapp_inbox">
+                        <WhatsAppBroadcast />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/messages/auto-responses" element={
+                      <PrivateRoute module="whatsapp_inbox">
+                        <WhatsAppAutoResponses />
                       </PrivateRoute>
                     } />
 

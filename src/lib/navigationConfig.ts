@@ -18,6 +18,7 @@ import {
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
+  MessageCircle, Bot, Radio,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -152,6 +153,18 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'commercial', label: 'Clientes Corp.',  href: '/commercial/clients', icon: Briefcase, iconName: 'Briefcase', color: '#8b5cf6' },
       { module: 'commercial', label: 'Grupos',          href: '/commercial/groups',  icon: Users,     iconName: 'Users',     color: '#3b82f6' },
       { module: 'commercial', label: 'Metas',           href: '/commercial/revenue', icon: Target,    iconName: 'Target',    color: '#10b981' },
+    ],
+  },
+  {
+    key: 'mensagens',
+    label: 'Mensagens',
+    icon: MessageCircle,
+    module: 'whatsapp_inbox',
+    activePrefixes: ['/messages'],
+    items: [
+      { module: 'whatsapp_inbox', label: 'Caixa de Entrada', href: '/messages',                icon: MessageCircle, iconName: 'MessageCircle', color: '#22c55e' },
+      { module: 'whatsapp_inbox', label: 'Disparos',         href: '/messages/broadcast',      icon: Radio,         iconName: 'Radio',         color: '#3b82f6' },
+      { module: 'whatsapp_inbox', label: 'Auto-respostas',   href: '/messages/auto-responses', icon: Bot,           iconName: 'Bot',           color: '#8b5cf6' },
     ],
   },
   {
