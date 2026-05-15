@@ -54,28 +54,48 @@ const BreakfastHall: React.FC = () => {
       .catch(err => console.error('Erro ao buscar dados de pensão:', err));
   }, [selectedHotel]);
 
+  const [bookingDetails, setBookingDetails] = useState<Record<number, string>>({});
+
+  // Carregar detalhes de cada reserva única encontrada
+  useEffect(() => {
+    if (!allGuests || !selectedHotel) return;
+
+    const uniqueBookingIds = Array.from(new Set(allGuests.map(g => g.idBooking)));
+    
+    uniqueBookingIds.forEach(id => {
+      if (bookingDetails[id]) return; // Já carregado
+
+      erbonService.fetchBookingByInternalId(selectedHotel.id, id)
+        .then(booking => {
+          if (booking) {
+            // No Erbon, 'segmentDesc' ou 'rateDesc' costumam conter o regime/pensão
+            const regime = (booking.segmentDesc || booking.rateDesc || '').toUpperCase();
+            setBookingDetails(prev => ({ ...prev, [id]: regime }));
+          }
+        })
+        .catch(err => console.error(`Erro ao buscar reserva ${id}:`, err));
+    });
+  }, [allGuests, selectedHotel]);
+
   // Filtrar hóspedes baseado no plano de refeição
   const guests = useMemo(() => {
-    console.log('[BreakfastHall] Calculating guests. allGuests count:', allGuests?.length, 'activeMeal:', activeMeal);
     if (!allGuests) return [];
     
     if (activeMeal === 'breakfast') return allGuests;
     
     return allGuests.filter(g => {
-      // Log individual de cada hóspede para debugging
-      console.log('[BreakfastHall] Evaluating guest:', g.guestName, 'ID:', g.idBooking, 'Plan:', g.mealPlan);
+      const regime = bookingDetails[g.idBooking] || '';
       
-      const plan = (g.mealPlan || '').toUpperCase();
+      // Lógica de inclusão: Verifica se o regime da reserva contém as siglas comuns
+      const isMap = regime.includes('MAP') || regime.includes('MEIA PENSÃO') || regime.includes('PENSÃO');
+      const isFap = regime.includes('FAP') || regime.includes('PENSÃO COMPLETA');
       
-      const isMap = plan.includes('MAP') || plan.includes('FAP') || g.idBooking === 6535;
-      const isFap = plan.includes('FAP') || g.idBooking === 6535;
-
       if (activeMeal === 'map') return isMap;
       if (activeMeal === 'fap') return isFap;
       
-      return true;
+      return false;
     });
-  }, [allGuests, activeMeal]);
+  }, [allGuests, activeMeal, bookingDetails]);
 
   // 2. Fetch Records from Supabase for Today
   const loadRecords = useCallback(async () => {
