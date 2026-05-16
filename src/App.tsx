@@ -128,6 +128,7 @@ import WhatsAppAutoResponses from './pages/messages/WhatsAppAutoResponses';
 import PrivateRoute from './components/PrivateRoute';
 import MainLayout   from './components/MainLayout';
 import Toast        from './components/ui/Toast';
+import AppUpdateModal from './components/AppUpdateModal';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import Chatbot      from './components/Chatbot';
 
@@ -218,6 +219,7 @@ function App() {
 
                 <PushNotificationSetup />
                 <Toast />
+                <AppUpdateModal />
 
                 <Routes>
                   {/* ── Rotas públicas ────────────────────────────────────── */}
