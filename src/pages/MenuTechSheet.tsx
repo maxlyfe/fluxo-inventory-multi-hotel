@@ -8,7 +8,7 @@ import type { Ingredient, UnitType, Side, SideIngredient, Dish, DishIngredient, 
 import type { Product } from '../types/product';
 
 // Suppress unused import warnings for icons used only in JSX
-void Printer; void GripVertical; void Palette;
+void Printer; void GripVertical; void Palette; void Beer;
 
 // ─── Unit Conversion helpers ──────────────────────────────────────────────────
 
@@ -600,94 +600,119 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
             Sincronizar
           </button>
           <button
-            onClick={() => { showForm ? resetForm() : setShowForm(true); }}
+            onClick={() => setShowForm(true)}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
           >
-            {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? 'Cancelar' : 'Novo Ingrediente'}
+            <Plus size={16} />
+            Novo Ingrediente
           </button>
         </div>
       </div>
 
-      {/* Form */}
+      {/* Modal Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
-            {editingId ? 'Editar Ingrediente' : 'Novo Ingrediente'}
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className={labelCls}>Nome</label>
-              <input
-                type="text" required value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className={inputCls}
-                placeholder="Ex: Mel"
-              />
-            </div>
-            <div>
-              <label className={labelCls}>Unidade</label>
-              <select
-                value={formData.unit}
-                onChange={(e) => setFormData({ ...formData, unit: e.target.value as UnitType })}
-                className={selectCls}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) resetForm(); }}
+        >
+          <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                {editingId ? 'Editar Ingrediente' : 'Novo Ingrediente'}
+              </h3>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               >
-                <option value="und">Unidade (und)</option>
-                <option value="kg">Quilograma (kg)</option>
-                <option value="g">Grama (g)</option>
-                <option value="l">Litro (l)</option>
-                <option value="ml">Mililitro (ml)</option>
-                <option value="cx">Caixa (cx)</option>
-                <option value="pct">Pacote (pct)</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Preço de compra (R$)</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                required
-                value={formData.price_per_unit}
-                onChange={(e) => setFormData({ ...formData, price_per_unit: e.target.value })}
-                className={inputCls}
-                placeholder="0,00"
-              />
-            </div>
-          </div>
-
-          {/* Conteúdo da embalagem */}
-          <div>
-            <label className={labelCls}>Conteúdo da embalagem</label>
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={formData.purchase_qty_per_unit}
-                onChange={e => setFormData({ ...formData, purchase_qty_per_unit: e.target.value })}
-                placeholder="1"
-                className={inputCls + ' w-24'}
-              />
-              <span className="text-xs text-slate-400">{formData.unit}</span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                = R$ {previewPricePerUnit}/{formData.unit}
-              </span>
-            </div>
-            <p className="mt-1 text-[10px] text-slate-400">
-              Quantidade de {formData.unit} por embalagem comprada. Ex: 1 pacote = 2,5 kg → insira 2,5
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <button type="submit" className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
-              <Check size={16} /> {editingId ? 'Atualizar' : 'Salvar'}
-            </button>
-            {editingId && (
-              <button type="button" onClick={resetForm} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold transition-colors">
-                <X size={16} /> Cancelar
+                <X size={16} />
               </button>
-            )}
+            </div>
+            {/* Scrollable body */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className={labelCls}>Nome</label>
+                    <input
+                      type="text" required value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className={inputCls}
+                      placeholder="Ex: Mel"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Unidade</label>
+                    <select
+                      value={formData.unit}
+                      onChange={(e) => setFormData({ ...formData, unit: e.target.value as UnitType })}
+                      className={selectCls}
+                    >
+                      <option value="und">Unidade (und)</option>
+                      <option value="kg">Quilograma (kg)</option>
+                      <option value="g">Grama (g)</option>
+                      <option value="l">Litro (l)</option>
+                      <option value="ml">Mililitro (ml)</option>
+                      <option value="cx">Caixa (cx)</option>
+                      <option value="pct">Pacote (pct)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Preço de compra (R$)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      required
+                      value={formData.price_per_unit}
+                      onChange={(e) => setFormData({ ...formData, price_per_unit: e.target.value })}
+                      className={inputCls}
+                      placeholder="0,00"
+                    />
+                  </div>
+                </div>
+
+                {/* Conteúdo da embalagem */}
+                <div>
+                  <label className={labelCls}>Conteúdo da embalagem</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formData.purchase_qty_per_unit}
+                      onChange={e => setFormData({ ...formData, purchase_qty_per_unit: e.target.value })}
+                      placeholder="1"
+                      className={inputCls + ' w-24'}
+                    />
+                    <span className="text-xs text-slate-400">{formData.unit}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      = R$ {previewPricePerUnit}/{formData.unit}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Quantidade de {formData.unit} por embalagem comprada. Ex: 1 pacote = 2,5 kg → insira 2,5
+                  </p>
+                </div>
+              </div>
+              {/* Footer with action buttons */}
+              <div className="flex gap-2 px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="flex-1 py-2.5 text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors"
+                >
+                  <Check size={15} /> {editingId ? 'Atualizar' : 'Salvar'}
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
+        </div>
       )}
 
       {/* Table */}
@@ -921,102 +946,128 @@ function SidesTab({ hotelId }: { hotelId: string }) {
           />
         </div>
         <button
-          onClick={() => { showForm ? resetForm() : setShowForm(true); }}
+          onClick={() => setShowForm(true)}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
         >
-          {showForm ? <X size={16} /> : <Plus size={16} />}
-          {showForm ? 'Cancelar' : 'Novo Acompanhamento'}
+          <Plus size={16} />
+          Novo Acompanhamento
         </button>
       </div>
 
-      {/* Form */}
+      {/* Modal Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
-            {editingId ? 'Editar Acompanhamento' : 'Novo Acompanhamento'}
-          </h3>
-          <div>
-            <label className={labelCls}>Nome do Acompanhamento</label>
-            <input
-              type="text" required value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className={inputCls}
-              placeholder="Ex: Molho Caesar"
-            />
-          </div>
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className={labelCls}>Ingredientes</label>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) resetForm(); }}
+        >
+          <div className="w-full max-w-lg bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                {editingId ? 'Editar Acompanhamento' : 'Novo Acompanhamento'}
+              </h3>
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
-                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                onClick={resetForm}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               >
-                + Adicionar Ingrediente
+                <X size={16} />
               </button>
             </div>
-            <div className="space-y-3">
-              {formData.ingredients.map((ing, idx) => (
-                <div key={idx} className="flex flex-col sm:flex-row gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                  <div className="flex-1">
-                    <SearchableSelect
-                      options={ingredientOptions}
-                      placeholder="Selecionar ingrediente..."
-                      onSelect={(val) => {
-                        const n = [...formData.ingredients];
-                        n[idx].ingredient_id = val;
-                        n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
-                        setFormData({ ...formData, ingredients: n });
-                      }}
-                    />
-                    {ing.ingredient_id && (
-                      <p className="mt-1 text-[10px] text-slate-500 font-medium">
-                        Selecionado: {ingredients.find(i => i.id === ing.ingredient_id)?.name}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
-                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                      className="w-full sm:w-24 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
-                    />
-                    <select
-                      value={ing.unit}
-                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
-                      className="w-full sm:w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
-                    >
-                      <option value="und">und</option>
-                      <option value="kg">kg</option>
-                      <option value="g">g</option>
-                      <option value="l">l</option>
-                      <option value="ml">ml</option>
-                      <option value="cx">cx</option>
-                      <option value="pct">pct</option>
-                    </select>
+            {/* Scrollable body */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                <div>
+                  <label className={labelCls}>Nome do Acompanhamento</label>
+                  <input
+                    type="text" required value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className={inputCls}
+                    placeholder="Ex: Molho Caesar"
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className={labelCls}>Ingredientes</label>
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                      className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
+                      className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
                     >
-                      <Trash2 size={15} />
+                      + Adicionar Ingrediente
                     </button>
                   </div>
+                  <div className="space-y-3">
+                    {formData.ingredients.map((ing, idx) => (
+                      <div key={idx} className="flex flex-col sm:flex-row gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <div className="flex-1">
+                          <SearchableSelect
+                            options={ingredientOptions}
+                            placeholder="Selecionar ingrediente..."
+                            onSelect={(val) => {
+                              const n = [...formData.ingredients];
+                              n[idx].ingredient_id = val;
+                              n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
+                              setFormData({ ...formData, ingredients: n });
+                            }}
+                          />
+                          {ing.ingredient_id && (
+                            <p className="mt-1 text-[10px] text-slate-500 font-medium">
+                              Selecionado: {ingredients.find(i => i.id === ing.ingredient_id)?.name}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
+                            onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
+                            className="w-full sm:w-24 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                          />
+                          <select
+                            value={ing.unit}
+                            onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
+                            className="w-full sm:w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                          >
+                            <option value="und">und</option>
+                            <option value="kg">kg</option>
+                            <option value="g">g</option>
+                            <option value="l">l</option>
+                            <option value="ml">ml</option>
+                            <option value="cx">cx</option>
+                            <option value="pct">pct</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
+                            className="p-2 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              </div>
+              {/* Footer with action buttons */}
+              <div className="flex gap-2 px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="flex-1 py-2.5 text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors"
+                >
+                  <Check size={15} /> {editingId ? 'Atualizar' : 'Salvar'}
+                </button>
+              </div>
+            </form>
           </div>
-          <div className="flex gap-2">
-            <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
-              <Check size={16} /> {editingId ? 'Atualizar' : 'Salvar'}
-            </button>
-            {editingId && (
-              <button type="button" onClick={resetForm} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold transition-colors">
-                <X size={16} /> Cancelar
-              </button>
-            )}
-          </div>
-        </form>
+        </div>
       )}
 
       {/* Cards */}
@@ -1315,154 +1366,183 @@ function DishesTab({
             />
           </div>
           <button
-            onClick={() => { showForm ? resetForm() : setShowForm(true); }}
+            onClick={() => setShowForm(true)}
             className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
           >
-            {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? 'Cancelar' : 'Nova Ficha'}
+            <Plus size={16} />
+            Nova Ficha
           </button>
         </div>
       </div>
 
-      {/* Form */}
+      {/* Modal Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
-          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
-            {editingId ? 'Editar Ficha Técnica' : `Nova Ficha Técnica — ${categoryName}`}
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>Nome</label>
-              <input
-                type="text" required value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className={inputCls}
-                placeholder="Ex: Picanha na Chapa"
-              />
-            </div>
-            <div>
-              <label className={labelCls}>Setor de Produção (para baixa de estoque)</label>
-              <select
-                required
-                value={formData.production_sector_id}
-                onChange={(e) => setFormData({ ...formData, production_sector_id: e.target.value })}
-                className={selectCls}
-              >
-                <option value="">Selecione um setor...</option>
-                {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Ingredients */}
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <label className={labelCls}>Ingredientes Diretos</label>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) resetForm(); }}
+        >
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                {editingId ? 'Editar Ficha' : `Nova Ficha — ${categoryName}`}
+              </h3>
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
-                className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
+                onClick={resetForm}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               >
-                + Adicionar Ingrediente
+                <X size={16} />
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {formData.ingredients.map((ing, idx) => (
-                <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                  <div className="flex-1">
-                    <SearchableSelect
-                      options={ingredientOptions}
-                      placeholder="Buscar ingrediente..."
-                      onSelect={(val) => {
-                        const n = [...formData.ingredients];
-                        n[idx].ingredient_id = val;
-                        n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
-                        setFormData({ ...formData, ingredients: n });
-                      }}
-                    />
-                    {ing.ingredient_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{ingredients.find(i => i.id === ing.ingredient_id)?.name}</p>}
-                  </div>
-                  <div className="flex gap-1 items-start">
+            {/* Scrollable body */}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Nome</label>
                     <input
-                      type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
-                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                      className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                      type="text" required value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className={inputCls}
+                      placeholder="Ex: Picanha na Chapa"
                     />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Setor de Produção (para baixa de estoque)</label>
                     <select
-                      value={ing.unit}
-                      onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
-                      className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-1 py-2 text-sm text-slate-900 dark:text-white"
+                      required
+                      value={formData.production_sector_id}
+                      onChange={(e) => setFormData({ ...formData, production_sector_id: e.target.value })}
+                      className={selectCls}
                     >
-                      <option value="und">und</option>
-                      <option value="kg">kg</option>
-                      <option value="g">g</option>
-                      <option value="l">l</option>
-                      <option value="ml">ml</option>
-                      <option value="cx">cx</option>
-                      <option value="pct">pct</option>
+                      <option value="">Selecione um setor...</option>
+                      {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                      className="p-2 text-red-400 hover:text-red-600"
-                    >
-                      <Trash2 size={15} />
-                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Sides */}
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <label className={labelCls}>Acompanhamentos / Sub-Fichas</label>
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, sides: [...formData.sides, { side_id: '', quantity: '1' }] })}
-                className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
-              >
-                + Adicionar Acompanhamento
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {formData.sides.map((side, idx) => (
-                <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                  <div className="flex-1">
-                    <SearchableSelect
-                      options={sideOptions}
-                      placeholder="Selecionar..."
-                      onSelect={(val) => { const n = [...formData.sides]; n[idx].side_id = val; setFormData({ ...formData, sides: n }); }}
-                    />
-                    {side.side_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{sides.find(s => s.id === side.side_id)?.name}</p>}
-                  </div>
-                  <div className="flex gap-1 items-start">
-                    <input
-                      type="number" step="1" value={side.quantity} placeholder="Qtd" required
-                      onChange={(e) => { const n = [...formData.sides]; n[idx].quantity = e.target.value; setFormData({ ...formData, sides: n }); }}
-                      className="w-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
-                    />
+                {/* Ingredients */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className={labelCls}>Ingredientes Diretos</label>
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
-                      className="p-2 text-red-400 hover:text-red-600"
+                      onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
+                      className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
                     >
-                      <Trash2 size={15} />
+                      + Adicionar Ingrediente
                     </button>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {formData.ingredients.map((ing, idx) => (
+                      <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <div className="flex-1">
+                          <SearchableSelect
+                            options={ingredientOptions}
+                            placeholder="Buscar ingrediente..."
+                            onSelect={(val) => {
+                              const n = [...formData.ingredients];
+                              n[idx].ingredient_id = val;
+                              n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
+                              setFormData({ ...formData, ingredients: n });
+                            }}
+                          />
+                          {ing.ingredient_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{ingredients.find(i => i.id === ing.ingredient_id)?.name}</p>}
+                        </div>
+                        <div className="flex gap-1 items-start">
+                          <input
+                            type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
+                            onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
+                            className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                          />
+                          <select
+                            value={ing.unit}
+                            onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
+                            className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-1 py-2 text-sm text-slate-900 dark:text-white"
+                          >
+                            <option value="und">und</option>
+                            <option value="kg">kg</option>
+                            <option value="g">g</option>
+                            <option value="l">l</option>
+                            <option value="ml">ml</option>
+                            <option value="cx">cx</option>
+                            <option value="pct">pct</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
+                            className="p-2 text-red-400 hover:text-red-600"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          <button
-            type="submit"
-            className="w-full flex justify-center items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md"
-          >
-            {editingId ? <><Check size={18} /> Salvar Alterações</> : <><Plus size={18} /> Criar Ficha</>}
-          </button>
-        </form>
+                {/* Sides */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className={labelCls}>Acompanhamentos / Sub-Fichas</label>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, sides: [...formData.sides, { side_id: '', quantity: '1' }] })}
+                      className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
+                    >
+                      + Adicionar Acompanhamento
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {formData.sides.map((side, idx) => (
+                      <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <div className="flex-1">
+                          <SearchableSelect
+                            options={sideOptions}
+                            placeholder="Selecionar..."
+                            onSelect={(val) => { const n = [...formData.sides]; n[idx].side_id = val; setFormData({ ...formData, sides: n }); }}
+                          />
+                          {side.side_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{sides.find(s => s.id === side.side_id)?.name}</p>}
+                        </div>
+                        <div className="flex gap-1 items-start">
+                          <input
+                            type="number" step="1" value={side.quantity} placeholder="Qtd" required
+                            onChange={(e) => { const n = [...formData.sides]; n[idx].quantity = e.target.value; setFormData({ ...formData, sides: n }); }}
+                            className="w-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
+                            className="p-2 text-red-400 hover:text-red-600"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {/* Footer with action buttons */}
+              <div className="flex gap-2 px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="flex-1 py-2.5 text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors"
+                >
+                  <Check size={15} /> {editingId ? 'Atualizar' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Cards */}
