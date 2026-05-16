@@ -135,6 +135,8 @@ export interface ErbonBooking {
   checkInDateTime: string;
   checkOutDateTime: string;
   adultQuantity: number;
+  childQuantity?: number;
+  babyQuantity?: number;
   totalBookingRate: number;
   totalBookingRateWithTax: number;
   rateDesc: string | null;
@@ -851,6 +853,87 @@ export const erbonService = {
     });
     if (!res.ok) throw new Error(`Erro ao buscar hóspedes in-house (${res.status})`);
     return await res.json();
+  },
+
+  /**
+   * Busca todos os hóspedes relevantes para o salão/restaurante no dia:
+   * 1. Hóspedes In-House
+   * 2. Reservas com Check-in hoje (que ainda não entraram)
+   * 3. Placeholders para hóspedes não identificados em reservas de hoje
+   */
+  async fetchHallGuests(hotelId: string): Promise<ErbonGuest[]> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Buscar in-house
+      const inHouse = await this.fetchInHouseGuests(hotelId);
+      
+      // Buscar reservas que chegam hoje
+      const arrivals = await this.searchBookings(hotelId, {
+        checkin: today,
+        status: 'RESERVA'
+      });
+
+      // Converter arrivals (ErbonBooking) para ErbonGuest
+      const arrivalGuests: ErbonGuest[] = [];
+      arrivals.forEach(b => {
+        const identifiedGuests = b.guestList || [];
+        const totalExpected = (b.adultQuantity || 0) + (b.childQuantity || 0) + (b.babyQuantity || 0);
+        const paxCount = Math.max(totalExpected, identifiedGuests.length, 1); // Pelo menos 1 pax
+
+        // 1. Adicionar hóspedes identificados
+        identifiedGuests.forEach(g => {
+          // Evitar duplicados se o hóspede já estiver inHouse (já fez check-in antecipado/erro status)
+          if (!inHouse.some(ih => ih.idGuest === g.id)) {
+            arrivalGuests.push({
+              idGuest: g.id,
+              idBooking: b.bookingInternalID,
+              guestName: g.name || 'Hóspede Identificado',
+              lastName: '',
+              contactEmail: g.email,
+              roomDescription: b.roomDescription || 'A CHEGAR',
+              bookingNumber: String(b.erbonNumber || b.bookingInternalID),
+              checkInDate: b.checkInDateTime,
+              checkOutDate: b.checkOutDateTime,
+              mealPlan: b.rateDesc || b.segmentDesc || 'BB',
+              localityGuest: '',
+              stateGuest: '',
+              countryGuestISO: '',
+              birthDate: ''
+            });
+          }
+        });
+
+        // 2. Adicionar placeholders para o restante da ocupação da reserva
+        const missingCount = paxCount - identifiedGuests.length;
+        if (missingCount > 0) {
+          for (let i = 0; i < missingCount; i++) {
+            arrivalGuests.push({
+              idGuest: -Number(`${b.bookingInternalID}${i + 1}`), // ID negativo para não conflitar
+              idBooking: b.bookingInternalID,
+              guestName: `Hóspede não identificado (${i + 1}/${missingCount})`,
+              lastName: '',
+              contactEmail: '',
+              roomDescription: b.roomDescription || 'A CHEGAR',
+              bookingNumber: String(b.erbonNumber || b.bookingInternalID),
+              checkInDate: b.checkInDateTime,
+              checkOutDate: b.checkOutDateTime,
+              mealPlan: b.rateDesc || b.segmentDesc || 'BB',
+              localityGuest: '',
+              stateGuest: '',
+              countryGuestISO: '',
+              birthDate: ''
+            });
+          }
+        }
+      });
+
+      return [...inHouse, ...arrivalGuests];
+    } catch (err: any) {
+      console.error('[Erbon] fetchHallGuests error:', err);
+      // Fallback para apenas inHouse se der erro na busca de reservas
+      return this.fetchInHouseGuests(hotelId).catch(() => []);
+    }
   },
 
   async fetchTodayCheckouts(hotelId: string): Promise<ErbonGuest[]> {

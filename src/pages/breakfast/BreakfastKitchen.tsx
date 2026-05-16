@@ -46,31 +46,63 @@ const formatSeconds = (s: number) => {
 const BreakfastKitchen: React.FC = () => {
   const { selectedHotel } = useHotel();
   const [records, setRecords] = useState<Record<string, BreakfastRecord>>({});
+  const [allRecords, setAllRecords] = useState<any[]>([]);
   const [config, setConfig] = useState<FullConfig | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeMeal, setActiveMeal] = useState<MealType>('breakfast');
   const [showClockOnly, setShowClockOnly] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
 
-  // ── data: guests from Erbon ──────────────────────────────────────────────
+  // ── data: guests from Erbon (In-House + Arrivals) ────────────────────────
   const { data: allGuests, loading: loadingErbon } = useErbonData<ErbonGuest[]>(
-    (hotelId) => erbonService.fetchBreakfastGuests(hotelId),
+    (hotelId) => erbonService.fetchHallGuests(hotelId),
     [],
     { autoRefreshMs: 600_000 },
   );
 
-  // Filtrar hóspedes baseado no plano de refeição
+  // Identificar tipo de pensão
+  const getPensionType = (g: ErbonGuest): 'CM' | 'MAP' | 'FAP' | 'RO' => {
+    const plan = (g.mealPlan || '').toUpperCase();
+    if (plan.includes('FAP') || plan.includes('FB') || plan.includes('COMPLETA')) return 'FAP';
+    if (plan.includes('MAP') || plan.includes('HB') || plan.includes('MEIA')) return 'MAP';
+    if (plan.includes('BB') || plan.includes('CAFÉ') || plan.includes('BREAKFAST')) return 'CM';
+    return 'RO';
+  };
+
+  // Filtrar hóspedes baseado no plano de refeição e na lógica de migração MAP
   const filteredGuests = useMemo(() => {
     if (!allGuests) return [];
-    if (activeMeal === 'breakfast') return allGuests;
     
     return allGuests.filter(g => {
-      const plan = (g.mealPlan || '').toUpperCase();
-      if (activeMeal === 'map') return plan.includes('MAP') || plan.includes('FAP');
-      if (activeMeal === 'fap') return plan.includes('FAP');
-      return true;
+      const type = getPensionType(g);
+      
+      // CAFÉ: Todos que tem algum plano de refeição (BB, MAP, FAP)
+      if (activeMeal === 'breakfast') {
+        return type === 'CM' || type === 'MAP' || type === 'FAP';
+      }
+      
+      // ALMOÇO: MAP e FAP
+      if (activeMeal === 'map') {
+        return type === 'MAP' || type === 'FAP';
+      }
+      
+      // JANTAR: FAP sempre. MAP somente se NÃO almoçou hoje.
+      if (activeMeal === 'fap') {
+        if (type === 'FAP') return true;
+        if (type === 'MAP') {
+          // Lógica de Migração: Verificar se almoçou hoje
+          const hadLunch = allRecords.some(r => 
+            String(r.id_guest) === String(g.idGuest) && 
+            r.meal_type === 'map' && 
+            (r.status === 'checked_in' || r.status === 'kit_requested')
+          );
+          return !hadLunch;
+        }
+      }
+      
+      return false;
     });
-  }, [allGuests, activeMeal]);
+  }, [allGuests, activeMeal, allRecords]);
 
   // ── data: records ──────────────────────────────────────────────
   const loadInitialRecords = useCallback(async () => {
@@ -81,11 +113,15 @@ const BreakfastKitchen: React.FC = () => {
         .from('breakfast_records')
         .select('*')
         .eq('hotel_id', selectedHotel.id)
-        .eq('date', today)
-        .eq('meal_type', activeMeal);
+        .eq('date', today);
       if (error) throw error;
+      
+      setAllRecords(data || []);
+
       const map: Record<string, BreakfastRecord> = {};
-      data?.forEach((r) => { map[String(r.id_guest)] = r; });
+      data?.filter(r => r.meal_type === activeMeal).forEach((r) => { 
+        map[String(r.id_guest)] = r; 
+      });
       setRecords(map);
     } catch (err) {
       console.error('[BreakfastKitchen] Error loading records:', err);

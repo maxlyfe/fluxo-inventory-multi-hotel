@@ -28,6 +28,7 @@ const BreakfastHall: React.FC = () => {
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<number | string | null>(null);
   const [records, setRecords] = useState<Record<string, BreakfastRecord>>({});
+  const [allRecords, setAllRecords] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
   const [showHistory, setShowHistory] = useState(false);
   
@@ -36,80 +37,69 @@ const BreakfastHall: React.FC = () => {
   const [dayUseName, setDayUseName] = useState('');
   const [isSavingDayUse, setIsSavingDayUse] = useState(false);
 
-  // 1. Fetch Guests from Erbon
+  // 1. Fetch Guests from Erbon (In-House + Arrivals)
   const { data: allGuests, loading: loadingErbon, error: erbonError, refetch, erbonConfigured } = useErbonData<ErbonGuest[]>(
-    (hotelId) => erbonService.fetchBreakfastGuests(hotelId),
+    (hotelId) => erbonService.fetchHallGuests(hotelId),
     [],
     { autoRefreshMs: 300_000 }
   );
 
   const [pensionData, setPensionData] = useState<any[]>([]);
 
-  // Carregar dados de pensão para identificar MAP/FAP
+  // Carregar dados de pensão para identificar MAP/FAP totals
   useEffect(() => {
     if (!selectedHotel) return;
     const today = new Date().toISOString().split('T')[0];
     erbonService.fetchOccupancyWithPension(selectedHotel.id, today, today)
       .then(data => {
-        console.log('[DEBUG] Estrutura da pensionData:', JSON.stringify(data[0], null, 2));
         setPensionData(data);
       })
       .catch(err => console.error('Erro ao buscar dados de pensão:', err));
   }, [selectedHotel]);
 
-  // Mapeamento de pensão para humano
-  const getMealLabel = (p: string | null | undefined): string => {
-    if (!p) return '—';
-    const m: Record<string, string> = { 
-      RO: 'ROOM ONLY', 
-      BB: 'CAFÉ DA MANHÃ', 
-      HB: 'MEIA PENSÃO',      // MAP
-      FB: 'PENSÃO COMPLETA',  // FAP
-      AI: 'ALL INCLUSIVE' 
-    };
-    return m[p.toUpperCase()] || p.toUpperCase();
+  // Identificar tipo de pensão
+  const getPensionType = (g: ErbonGuest): 'CM' | 'MAP' | 'FAP' | 'RO' => {
+    const plan = (g.mealPlan || '').toUpperCase();
+    if (plan.includes('FAP') || plan.includes('FB') || plan.includes('COMPLETA')) return 'FAP';
+    if (plan.includes('MAP') || plan.includes('HB') || plan.includes('MEIA')) return 'MAP';
+    if (plan.includes('BB') || plan.includes('CAFÉ') || plan.includes('BREAKFAST')) return 'CM';
+    return 'RO';
   };
 
-  const [bookingDetails, setBookingDetails] = useState<Record<number, string>>({});
-
-  // Carregar detalhes de cada reserva única encontrada
-  useEffect(() => {
-    if (!allGuests || !selectedHotel) return;
-
-    const uniqueBookingIds = Array.from(new Set(allGuests.map(g => g.idBooking)));
-    
-    uniqueBookingIds.forEach(id => {
-      if (bookingDetails[id]) return;
-
-      erbonService.fetchBookingByInternalId(selectedHotel.id, id)
-        .then(booking => {
-          if (booking) {
-            const regime = (booking.segmentDesc || booking.rateDesc || '').toUpperCase();
-            setBookingDetails(prev => ({ ...prev, [id]: regime }));
-          }
-        })
-        .catch(err => console.error(`Erro ao buscar reserva ${id}:`, err));
-    });
-  }, [allGuests, selectedHotel]);
-
-  // Filtrar hóspedes baseado no plano de refeição
+  // Filtrar hóspedes baseado no plano de refeição e na lógica de migração MAP
   const guests = useMemo(() => {
     if (!allGuests) return [];
     
-    if (activeMeal === 'breakfast') return allGuests;
-    
     return allGuests.filter(g => {
-      const regime = bookingDetails[g.idBooking] || '';
+      const type = getPensionType(g);
       
-      const isMap = regime.includes('MEIA PENSÃO') || regime.includes('MAP') || regime.includes('HB');
-      const isFap = regime.includes('PENSÃO COMPLETA') || regime.includes('FAP') || regime.includes('FB');
+      // CAFÉ: Todos que tem algum plano de refeição (BB, MAP, FAP)
+      if (activeMeal === 'breakfast') {
+        return type === 'CM' || type === 'MAP' || type === 'FAP';
+      }
       
-      if (activeMeal === 'map') return isMap;
-      if (activeMeal === 'fap') return isFap;
+      // ALMOÇO: MAP e FAP
+      if (activeMeal === 'map') {
+        return type === 'MAP' || type === 'FAP';
+      }
+      
+      // JANTAR: FAP sempre. MAP somente se NÃO almoçou hoje.
+      if (activeMeal === 'fap') {
+        if (type === 'FAP') return true;
+        if (type === 'MAP') {
+          // Lógica de Migração: Verificar se almoçou hoje
+          const hadLunch = allRecords.some(r => 
+            String(r.id_guest) === String(g.idGuest) && 
+            r.meal_type === 'map' && 
+            (r.status === 'checked_in' || r.status === 'kit_requested')
+          );
+          return !hadLunch;
+        }
+      }
       
       return false;
     });
-  }, [allGuests, activeMeal, bookingDetails]);
+  }, [allGuests, activeMeal, allRecords]);
 
   // 2. Fetch Records from Supabase for Today
   const loadRecords = useCallback(async () => {
@@ -121,13 +111,14 @@ const BreakfastHall: React.FC = () => {
         .from('breakfast_records')
         .select('*')
         .eq('hotel_id', selectedHotel.id)
-        .eq('date', today)
-        .eq('meal_type', activeMeal);
+        .eq('date', today);
 
       if (error) throw error;
       
+      setAllRecords(data || []);
+
       const recordsMap: Record<string, BreakfastRecord> = {};
-      data?.forEach(r => {
+      data?.filter(r => r.meal_type === activeMeal).forEach(r => {
         recordsMap[String(r.id_guest)] = r as BreakfastRecord;
       });
       setRecords(recordsMap);
@@ -504,10 +495,12 @@ interface GuestCardProps {
 
 const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, activeMeal, onUpdate }) => {
   const status = guest.record?.status || 'pending';
+  const isPlaceholder = typeof guest.idGuest === 'number' && guest.idGuest < 0;
   const [showFullNames, setShowFullNames] = useState(false);
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const startPress = () => {
+    if (isPlaceholder) return;
     timerRef.current = setTimeout(() => {
       setShowFullNames(true);
       if (window.navigator.vibrate) window.navigator.vibrate(50);
@@ -528,6 +521,7 @@ const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, activeMeal, on
       <div className={`bg-white dark:bg-gray-800 rounded-2xl border transition-all shadow-sm ${
         status === 'checked_in' ? 'border-emerald-200 dark:border-emerald-800/40 opacity-70' :
         status === 'kit_requested' ? 'border-amber-200 dark:border-amber-800/40 opacity-70' :
+        isPlaceholder ? 'border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50' :
         'border-gray-100 dark:border-gray-700 hover:border-sky-200'
       }`}>
         <div className="p-3 md:p-4 flex items-center gap-3 md:gap-4">
@@ -535,6 +529,7 @@ const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, activeMeal, on
           <div className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex flex-col items-center justify-center flex-shrink-0 shadow-sm ${
             status === 'checked_in' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' :
             status === 'kit_requested' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+            isPlaceholder ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' :
             'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
           }`}>
             <span className="text-[8px] md:text-[10px] uppercase font-black opacity-50 leading-none mb-0.5 md:mb-1">UH</span>
@@ -543,15 +538,22 @@ const GuestCard: React.FC<GuestCardProps> = ({ guest, isUpdating, activeMeal, on
 
           {/* Info */}
           <div 
-            className="flex-1 min-w-0 cursor-help"
+            className={`flex-1 min-w-0 ${isPlaceholder ? '' : 'cursor-help'}`}
             onTouchStart={startPress}
             onTouchEnd={endPress}
             onMouseDown={startPress}
             onMouseUp={endPress}
             onMouseLeave={endPress}
           >
-            <h3 className="font-bold text-gray-800 dark:text-white truncate text-sm md:text-base">{guest.guestName}</h3>
-            <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">{guest.mealPlan}</p>
+            <h3 className={`font-bold truncate text-sm md:text-base ${isPlaceholder ? 'text-gray-400 italic' : 'text-gray-800 dark:text-white'}`}>
+              {guest.guestName}
+            </h3>
+            <div className="flex items-center gap-2">
+              <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest">{guest.mealPlan}</p>
+              {isPlaceholder && (
+                <span className="text-[8px] px-1.5 py-0.5 rounded-md bg-gray-200 dark:bg-gray-700 text-gray-500 font-bold uppercase">Reserva</span>
+              )}
+            </div>
             {guest.record?.consumed_at && (
               <p className="text-[9px] md:text-[10px] font-bold text-emerald-600 mt-0.5 md:mt-1 uppercase">Entrada às {format(parseISO(guest.record.consumed_at), 'HH:mm')}</p>
             )}
