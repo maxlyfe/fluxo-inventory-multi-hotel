@@ -1,4 +1,4 @@
-export type UnitType = 'g' | 'ml' | 'und' | 'kg' | 'l' | 'cx' | 'pct';
+export type UnitType = 'g' | 'ml' | 'und' | 'kg' | 'l' | 'cx' | 'pct' | 'lt' | 'fardo' | 'saco' | 'caixa' | 'pote' | 'lata' | 'bisnaga' | 'sachê' | 'duzia';
 
 export interface Ingredient {
   id: string;

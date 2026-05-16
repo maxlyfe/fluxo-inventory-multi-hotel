@@ -143,13 +143,13 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [filtered, setFiltered] = useState<Ingredient[]>([]);
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', unit: 'g' as UnitType, price_per_unit: '' });
   const [products, setProducts] = useState<Product[]>([]);
-  const [showProductSearch, setShowProductSearch] = useState(false);
   const [linkingIngredientId, setLinkingIngredientId] = useState<string | null>(null);
-  const [showInventorySearch, setShowInventorySearch] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const loadIngredients = useCallback(async () => {
     const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
@@ -161,13 +161,80 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     setProducts(data || []);
   }, [hotelId]);
 
-  useEffect(() => { loadIngredients(); loadProducts(); }, [loadIngredients, loadProducts]);
+  /** Sincroniza todos os produtos ativos como ingredientes (cria os que ainda não existem) */
+  const syncFromInventory = useCallback(async (silent = false) => {
+    if (!silent) setSyncing(true);
+    try {
+      const { data: prods } = await supabase
+        .from('products')
+        .select('id, name, average_price, unit_measure')
+        .eq('hotel_id', hotelId)
+        .eq('is_active', true);
+
+      if (!prods || prods.length === 0) {
+        if (!silent) addNotification('Nenhum produto ativo no inventário.', 'info');
+        return;
+      }
+
+      // Busca product_ids já existentes nos ingredientes
+      const { data: existingIngs } = await supabase
+        .from('ingredients')
+        .select('product_id')
+        .eq('hotel_id', hotelId)
+        .not('product_id', 'is', null);
+
+      const existingIds = new Set((existingIngs || []).map((i: { product_id: string }) => i.product_id));
+
+      const newRows = prods
+        .filter(p => !existingIds.has(p.id))
+        .map(p => ({
+          name: p.name,
+          unit: ((p.unit_measure as UnitType) || 'und'),
+          price_per_unit: p.average_price || 0,
+          product_id: p.id,
+          hotel_id: hotelId,
+        }));
+
+      if (newRows.length > 0) {
+        await supabase.from('ingredients').insert(newRows);
+      }
+
+      await loadIngredients();
+      if (!silent) {
+        addNotification(
+          newRows.length > 0
+            ? `${newRows.length} produto${newRows.length > 1 ? 's' : ''} adicionado${newRows.length > 1 ? 's' : ''} aos ingredientes.`
+            : 'Ingredientes já sincronizados com o inventário.',
+          'success'
+        );
+      }
+    } catch {
+      if (!silent) addNotification('Erro ao sincronizar com inventário.', 'error');
+    } finally {
+      if (!silent) setSyncing(false);
+    }
+  }, [hotelId, loadIngredients, addNotification]);
+
+  // Na primeira carga: sincroniza silenciosamente
+  useEffect(() => {
+    loadProducts();
+    syncFromInventory(true);
+  }, [loadProducts, syncFromInventory]);
 
   useEffect(() => {
-    if (!search.trim()) { setFiltered(ingredients); return; }
-    const q = search.toLowerCase();
-    setFiltered(ingredients.filter((i) => i.name.toLowerCase().includes(q)));
-  }, [search, ingredients]);
+    let list = ingredients;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((i) => i.name.toLowerCase().includes(q));
+    }
+    if (categoryFilter) {
+      const catProductIds = new Set(
+        products.filter(p => p.category === categoryFilter).map(p => p.id)
+      );
+      list = list.filter(i => (i as any).product_id == null || catProductIds.has((i as any).product_id));
+    }
+    setFiltered(list);
+  }, [search, categoryFilter, ingredients, products]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -211,40 +278,6 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     addNotification('Ingrediente vinculado ao produto!', 'success');
   }
 
-  async function handleImportFromInventory(productId: string) {
-    const product = products.find(p => p.id === productId);
-    if (!product) return;
-
-    const { data: existing } = await supabase
-      .from('ingredients')
-      .select('id')
-      .eq('product_id', product.id)
-      .eq('hotel_id', hotelId)
-      .maybeSingle();
-
-    if (existing) {
-      addNotification('Este produto já existe nos ingredientes!', 'info');
-      setShowInventorySearch(false);
-      return;
-    }
-
-    const { error } = await supabase.from('ingredients').insert([{
-      name: product.name,
-      unit: (product.unit_measure as UnitType) || 'und',
-      price_per_unit: product.average_price || 0,
-      product_id: product.id,
-      hotel_id: hotelId
-    }]);
-
-    if (error) {
-      addNotification('Erro ao importar produto', 'error');
-    } else {
-      addNotification('Produto importado com sucesso!', 'success');
-      loadIngredients();
-    }
-    setShowInventorySearch(false);
-  }
-
   async function handleUnlinkProduct(ingredientId: string) {
     await supabase.from('ingredients').update({ product_id: null }).eq('id', ingredientId);
     loadIngredients();
@@ -266,40 +299,41 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     <div className="space-y-4">
       {/* Actions bar */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Buscar ingrediente..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-colors"
-          />
+        <div className="flex flex-1 gap-2 max-w-2xl">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar ingrediente..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-colors"
+            />
+          </div>
+          {/* Filtro por categoria */}
+          {[...new Set(products.map(p => p.category).filter(Boolean))].length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value)}
+              className="px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            >
+              <option value="">Todas categorias</option>
+              {[...new Set(products.map(p => p.category).filter(Boolean))].sort().map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          )}
         </div>
         <div className="flex gap-2">
-          <div className="relative">
-            {showInventorySearch ? (
-              <div className="absolute right-0 top-0 z-50 w-64 flex items-center gap-1">
-                <SearchableSelect
-                  options={productOptions}
-                  placeholder="Puxar produto..."
-                  onSelect={(val) => handleImportFromInventory(val)}
-                  className="shadow-xl"
-                />
-                <button onClick={() => setShowInventorySearch(false)} className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
-                  <X size={16} className="text-slate-400" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowInventorySearch(true)}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
-              >
-                <Package size={16} />
-                Puxar do Inventário
-              </button>
-            )}
-          </div>
+          <button
+            onClick={() => syncFromInventory(false)}
+            disabled={syncing}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
+            title="Sincronizar produtos do inventário como ingredientes"
+          >
+            {syncing ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+            Sincronizar
+          </button>
           <button
             onClick={() => { showForm ? resetForm() : setShowForm(true); }}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
