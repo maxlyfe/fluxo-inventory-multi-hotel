@@ -60,9 +60,13 @@ const BreakfastHall: React.FC = () => {
   // Identificar tipo de pensão
   const getPensionType = (g: ErbonGuest): 'CM' | 'MAP' | 'FAP' | 'RO' => {
     const plan = (g.mealPlan || '').toUpperCase();
+    
+    // Prioridade 1: Siglas explícitas
     if (plan.includes('FAP') || plan.includes('FB') || plan.includes('COMPLETA')) return 'FAP';
     if (plan.includes('MAP') || plan.includes('HB') || plan.includes('MEIA')) return 'MAP';
+    
     if (plan.includes('BB') || plan.includes('CAFÉ') || plan.includes('BREAKFAST')) return 'CM';
+    
     return 'RO';
   };
 
