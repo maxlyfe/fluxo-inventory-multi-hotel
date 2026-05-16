@@ -5,10 +5,19 @@ export interface Ingredient {
   name: string;
   unit: UnitType;
   price_per_unit: number;
+  purchase_qty_per_unit?: number; // quantas unidades de receita vêm em 1 embalagem comprada
   created_at: string;
-  // Fase 3: Vínculo a produto e multi-hotel
   product_id?: string | null;
   hotel_id?: string | null;
+}
+
+export interface DishCategory {
+  id: string;
+  hotel_id: string | null;
+  name: string;
+  color: string;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface Side {
@@ -31,6 +40,7 @@ export interface Dish {
   id: string;
   name: string;
   type: 'dish' | 'drink';
+  category_id?: string | null;
   created_at: string;
   hotel_id?: string | null;
   production_sector_id?: string | null;
