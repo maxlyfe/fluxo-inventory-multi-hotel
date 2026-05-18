@@ -1,6 +1,6 @@
 {
   "latestVersion": "1.1.0",
-  "url": "https://github.com/maxlyfe/fluxo-inventory-multi-hotel/releases/download/v1.1.0/LyFe%20Hoteles.apk",
+  "url": "/downloads/LyFe%20Hoteles.apk",
   "notes": "Login com Google corrigido no aplicativo. Novas funcionalidades: módulo de mensagens WhatsApp, fichas técnicas dinâmicas e melhorias gerais.",
   "minVersion": "1.0.0",
   "forceUpdate": false

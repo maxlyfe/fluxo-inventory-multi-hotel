@@ -8,8 +8,11 @@ interface UpdateManifest {
   forceUpdate: boolean;
 }
 
-// URL absoluta do manifest — independente do server.url do Capacitor
+// URL absoluta do manifest — sempre busca do servidor de produção
 const MANIFEST_URL = 'https://lyfehoteles.com.br/update-manifest.json';
+
+// URL base para montar download links relativos do manifest
+const SITE_BASE = 'https://lyfehoteles.com.br';
 
 export function useAppUpdate() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -59,7 +62,11 @@ export function useAppUpdate() {
     if (!manifest?.url) return;
     try {
       const { Browser } = await import('@capacitor/browser');
-      await Browser.open({ url: manifest.url });
+      // Converte URL relativa ("/downloads/...") em absoluta
+      const url = manifest.url.startsWith('http')
+        ? manifest.url
+        : `${SITE_BASE}${manifest.url}`;
+      await Browser.open({ url });
     } catch (err) {
       console.error('[Update] Erro ao abrir download:', err);
     }

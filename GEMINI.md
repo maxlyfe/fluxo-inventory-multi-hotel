@@ -405,11 +405,70 @@ npm run lint     # Linting (ESLint)
 npm run test     # Executar testes (Vitest)
 npm run preview  # Preview do build local
 npx tsc --noEmit # Apenas type checking
+npm run build:apk # Build completo do APK Android (ver seção 15)
 ```
 
 ---
 
 ## 14. Hoteis da Rede
+
+| Hotel | Codigo |
+|-------|--------|
+| Costa do Sol | CDS |
+| Brava Club | BRV |
+| Maria Maria | MMA |
+| Villa Pitanga | VPT |
+
+---
+
+## 15. Aplicativo Android (Capacitor)
+
+### Arquitetura
+- APK é um wrapper Capacitor que carrega `https://lyfehoteles.com.br` em WebView
+- Mudanças de UI/lógica web NÃO precisam de rebuild do APK (carregam ao vivo)
+- Rebuild só necessário para: nova versão, mudança em `capacitor.config.ts`, AndroidManifest, plugins nativos
+
+### Comando de Build
+```bash
+npm run build:apk
+```
+O script `scripts/build-apk.js` faz tudo automaticamente:
+1. Remove APKs de `public/downloads/` temporariamente (evita bundling no APK)
+2. `npm run build` + `npx cap sync android`
+3. `gradlew assembleDebug` com Java 21 do Android Studio
+4. Copia APK gerado para `public/downloads/LyFe Hoteles.apk`
+
+> ⚠️ **NUNCA** use o Java do sistema para o build (pode ser incompatível). O script já usa o Java embutido no Android Studio (`C:/Program Files/Android/Android Studio/jbr`).
+
+> ⚠️ **NUNCA** rode `npm run build` + `cap sync` com APKs em `public/downloads/` — eles seriam incluídos no bundle Android, inflando o APK de 68MB para 136MB+.
+
+### Processo de Release
+1. Bump `versionCode` (+1) e `versionName` (semver) em `android/app/build.gradle`
+2. Atualizar `public/update-manifest.json` com nova versão e notas
+3. `npm run build:apk`
+4. `git add android/app/build.gradle public/update-manifest.json "public/downloads/LyFe Hoteles.apk"`
+5. `git commit -m "release(android): vX.X.X"` + `git push`
+6. Netlify publica em ~2min → download disponível em `lyfehoteles.com.br/downloads/LyFe Hoteles.apk`
+
+### Auto-Atualização
+- Hook: `src/hooks/useAppUpdate.ts` — só roda em `isNativePlatform() = true`
+- Busca: `https://lyfehoteles.com.br/update-manifest.json` (com cache-bust)
+- Compara `manifest.latestVersion` vs `App.getInfo().version`
+- Modal: `src/components/AppUpdateModal.tsx`
+- Download: abre `Browser.open()` → `lyfehoteles.com.br/downloads/LyFe Hoteles.apk`
+
+### Google OAuth no APK (PKCE)
+- Detecção: `Capacitor.isNativePlatform()` — NUNCA `typeof window.Capacitor`
+- Flow: `skipBrowserRedirect: true` → `Browser.open(url)` → `appUrlOpen` → `exchangeCodeForSession(code)`
+- Supabase client com `flowType: 'pkce'` em `src/lib/supabase.ts`
+- Redirect URL cadastrada no Supabase: `com.lyfe.fluxo://login-callback`
+
+### Versões
+| Versão | versionCode | Notas |
+|---|---|---|
+| 1.0.0 | 1 | Lançamento inicial |
+| 1.0.1 | 2 | Correções gerais |
+| 1.1.0 | 3 | Google OAuth PKCE, WhatsApp, fichas técnicas |
 
 | Hotel | Codigo |
 |-------|--------|
