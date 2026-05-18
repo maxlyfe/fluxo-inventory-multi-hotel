@@ -393,23 +393,31 @@ const Login: React.FC = () => {
       return;
     }
 
-    // No APK: instala listener browserFinished para resetar o spinner
-    // caso o usuário cancele o login ou o browser feche sem retornar sessão.
+    // No APK: usa appStateChange para detectar quando o Custom Tab fecha e o app
+    // volta ao primeiro plano. Isso é mais confiável que browserFinished no Android.
     try {
       const { Capacitor } = await import('@capacitor/core');
       if (!Capacitor.isNativePlatform()) return;
 
-      const { Browser } = await import('@capacitor/browser');
-      const handle = await Browser.addListener('browserFinished', async () => {
-        handle.remove();
-        // Aguarda 800ms para dar tempo ao OAuthCallbackHandler processar o deep link
-        await new Promise(r => setTimeout(r, 800));
-        const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+      const { App: CapApp } = await import('@capacitor/app');
+      let stateHandle: { remove: () => void } | null = null;
+
+      stateHandle = await CapApp.addListener('appStateChange', async ({ isActive }) => {
+        if (!isActive) return; // app foi para background (abrindo Custom Tab) — esperar retorno
+
+        // App voltou ao foreground → Custom Tab fechou (auth concluída ou cancelada)
+        stateHandle?.remove();
+
+        // Aguarda 1s para o OAuthCallbackHandler terminar exchangeCodeForSession
+        await new Promise(r => setTimeout(r, 1000));
+
+        const { supabase: sb } = await import('../lib/supabase');
+        const { data: { session } } = await sb.auth.getSession();
         if (!session) {
-          // Browser fechou sem sessão → cancelado ou falhou
+          // Nenhuma sessão → usuário cancelou ou OAuth falhou
           setGoogleLoading(false);
         }
-        // Se sessão existe, onAuthStateChange no AuthContext vai redirecionar
+        // Se sessão existe, onAuthStateChange no AuthContext navega automaticamente
       });
     } catch {
       // Não é ambiente Capacitor — nada a fazer
