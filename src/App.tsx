@@ -157,7 +157,8 @@ import { supabase } from './lib/supabase';
 // ---------------------------------------------------------------------------
 function OAuthCallbackHandler() {
   useEffect(() => {
-    let handle: { remove: () => void } | null = null;
+    let urlHandle:     { remove: () => void } | null = null;
+    let browserHandle: { remove: () => void } | null = null;
 
     (async () => {
       try {
@@ -167,25 +168,51 @@ function OAuthCallbackHandler() {
         const { App: CapApp } = await import('@capacitor/app');
         const { Browser }     = await import('@capacitor/browser');
 
-        handle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+        // ── Deep-link: app recebe "com.lyfe.fluxo://login-callback?code=..." ──
+        urlHandle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
           if (!url.includes('login-callback')) return;
 
           await Browser.close().catch(() => { /* ignore */ });
 
           try {
             const urlObj = new URL(url);
-            const code   = urlObj.searchParams.get('code');
+
+            // PKCE flow: ?code=...
+            const code = urlObj.searchParams.get('code');
             if (code) {
               await supabase.auth.exchangeCodeForSession(code);
+              return;
+            }
+
+            // Implicit flow fallback: #access_token=...
+            const hash   = urlObj.hash.slice(1);         // remove '#'
+            const params = new URLSearchParams(hash);
+            const accessToken  = params.get('access_token');
+            const refreshToken = params.get('refresh_token');
+            if (accessToken && refreshToken) {
+              await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
             }
           } catch (err) {
-            console.error('[OAuth] Falha ao trocar code por sessão:', err);
+            console.error('[OAuth] Falha ao processar callback:', err);
           }
+        });
+
+        // ── browserFinished: browser fechou sem retornar deep link ─────────
+        // (usuário cancelou ou Google não conseguiu redirecionar)
+        // Neste caso a sessão pode já ter sido estabelecida — apenas garante
+        // que o estado não fique travado verificando explicitamente.
+        browserHandle = await Browser.addListener('browserFinished', async () => {
+          // Se não há sessão ativa 1s após fechar o browser, a autenticação
+          // falhou / foi cancelada — não fazemos nada aqui; Login.tsx escuta
+          // o mesmo evento e reseta o loading.
         });
       } catch { /* ambiente sem Capacitor */ }
     })();
 
-    return () => { handle?.remove(); };
+    return () => {
+      urlHandle?.remove();
+      browserHandle?.remove();
+    };
   }, []);
 
   return null;

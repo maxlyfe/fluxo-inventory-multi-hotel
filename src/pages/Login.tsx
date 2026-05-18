@@ -385,10 +385,34 @@ const Login: React.FC = () => {
   const handleGoogle = async () => {
     setError('');
     setGoogleLoading(true);
+
     const result = await loginWithGoogle();
     if (!result.success) {
       setError(result.message || 'Erro ao iniciar login com Google.');
       setGoogleLoading(false);
+      return;
+    }
+
+    // No APK: instala listener browserFinished para resetar o spinner
+    // caso o usuário cancele o login ou o browser feche sem retornar sessão.
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (!Capacitor.isNativePlatform()) return;
+
+      const { Browser } = await import('@capacitor/browser');
+      const handle = await Browser.addListener('browserFinished', async () => {
+        handle.remove();
+        // Aguarda 800ms para dar tempo ao OAuthCallbackHandler processar o deep link
+        await new Promise(r => setTimeout(r, 800));
+        const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+        if (!session) {
+          // Browser fechou sem sessão → cancelado ou falhou
+          setGoogleLoading(false);
+        }
+        // Se sessão existe, onAuthStateChange no AuthContext vai redirecionar
+      });
+    } catch {
+      // Não é ambiente Capacitor — nada a fazer
     }
   };
 

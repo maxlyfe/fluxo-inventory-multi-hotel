@@ -49,11 +49,18 @@ try {
   run('npx cap sync android', { cwd: ROOT });
 
   // ── 4. Gradle build ────────────────────────────────────────────────────────
-  const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
-  run(`${gradlew} assembleDebug`, {
-    cwd: ANDROID,
-    env: { ...process.env, JAVA_HOME },
-  });
+  if (process.platform === 'win32') {
+    // No Windows, invoca via PowerShell para garantir que o cwd/JAVA_HOME funcionem
+    run(
+      `powershell -NoProfile -Command "` +
+      `$env:JAVA_HOME='${JAVA_HOME}'; ` +
+      `Set-Location '${ANDROID.replace(/'/g, "''")}'; ` +
+      `.\\gradlew.bat assembleDebug"`,
+      { cwd: ANDROID, env: { ...process.env, JAVA_HOME } }
+    );
+  } else {
+    run('./gradlew assembleDebug', { cwd: ANDROID, env: { ...process.env, JAVA_HOME } });
+  }
 
   // ── 5. Copiar APK gerado para public/downloads/ ────────────────────────────
   const destName = 'LyFe Hoteles.apk';

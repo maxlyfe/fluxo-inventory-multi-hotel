@@ -196,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           },
         });
         if (error) return { success: false, message: error.message };
-        if (data.url) await Browser.open({ url: data.url, windowName: '_self' });
+        if (data.url) await Browser.open({ url: data.url });
         return { success: true };
       } else {
         // Na web: fluxo normal, redireciona no mesmo tab
