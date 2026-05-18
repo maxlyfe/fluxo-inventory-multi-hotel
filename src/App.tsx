@@ -157,31 +157,32 @@ import { supabase } from './lib/supabase';
 // ---------------------------------------------------------------------------
 function OAuthCallbackHandler() {
   useEffect(() => {
-    const isApp = typeof (window as Window & { Capacitor?: unknown }).Capacitor !== 'undefined';
-    if (!isApp) return;
-
     let handle: { remove: () => void } | null = null;
 
     (async () => {
-      const { App: CapApp } = await import('@capacitor/app');
-      const { Browser }     = await import('@capacitor/browser');
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return;         // sai se for browser
 
-      handle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
-        if (!url.includes('login-callback')) return;
+        const { App: CapApp } = await import('@capacitor/app');
+        const { Browser }     = await import('@capacitor/browser');
 
-        // Fecha o in-app browser imediatamente
-        await Browser.close().catch(() => { /* ignore */ });
+        handle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+          if (!url.includes('login-callback')) return;
 
-        try {
-          const urlObj = new URL(url);
-          const code   = urlObj.searchParams.get('code');
-          if (code) {
-            await supabase.auth.exchangeCodeForSession(code);
+          await Browser.close().catch(() => { /* ignore */ });
+
+          try {
+            const urlObj = new URL(url);
+            const code   = urlObj.searchParams.get('code');
+            if (code) {
+              await supabase.auth.exchangeCodeForSession(code);
+            }
+          } catch (err) {
+            console.error('[OAuth] Falha ao trocar code por sessão:', err);
           }
-        } catch (err) {
-          console.error('[OAuth] Falha ao trocar code por sessão:', err);
-        }
-      });
+        });
+      } catch { /* ambiente sem Capacitor */ }
     })();
 
     return () => { handle?.remove(); };

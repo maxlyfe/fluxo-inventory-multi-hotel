@@ -9,7 +9,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Supabase URL and Anon Key must be defined in environment variables");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    flowType: 'pkce',          // PKCE: retorna ?code= em vez de #access_token=
+    detectSessionInUrl: true,  // troca o code por sessão automaticamente no browser
+  },
+});
 
 // Helper function to create a query builder with hotel filter
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

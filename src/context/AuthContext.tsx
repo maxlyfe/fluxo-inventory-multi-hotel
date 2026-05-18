@@ -180,8 +180,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async () => {
     try {
-      // Detecta se está rodando dentro do Capacitor (APK nativo)
-      const isApp = typeof (window as Window & { Capacitor?: unknown }).Capacitor !== 'undefined';
+      // Detecta se está rodando em plataforma nativa (APK/iOS) — nunca true no browser
+      const { Capacitor } = await import('@capacitor/core');
+      const isApp = Capacitor.isNativePlatform();
 
       if (isApp) {
         // No APK: abre in-app browser e usa PKCE flow com deep link de retorno
