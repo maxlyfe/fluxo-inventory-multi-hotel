@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'LyFe Hoteles',
   webDir: 'dist',
   server: {
-    url: 'https://meridiana.netlify.app',
+    url: 'https://lyfehoteles.com.br',
     cleartext: true
   },
   android: {
