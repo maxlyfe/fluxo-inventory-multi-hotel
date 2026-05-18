@@ -1,6 +1,6 @@
 // src/App.tsx
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   BrowserRouter, Routes, Route, Navigate,
 } from 'react-router-dom';
@@ -145,6 +145,51 @@ import { usePermissions } from './hooks/usePermissions';
 // ── Push notifications ────────────────────────────────────────────────────────
 import { usePushNotifications } from './hooks/usePushNotifications';
 
+// ── Supabase (para troca de code OAuth no APK) ────────────────────────────────
+import { supabase } from './lib/supabase';
+
+// ---------------------------------------------------------------------------
+// OAuthCallbackHandler
+// Escuta deep links do Capacitor. Quando o in-app browser retorna para
+// "com.lyfe.fluxo://login-callback?code=..." fecha o browser e troca o
+// code por uma sessão Supabase (PKCE flow).
+// Só ativa em ambiente APK (window.Capacitor presente).
+// ---------------------------------------------------------------------------
+function OAuthCallbackHandler() {
+  useEffect(() => {
+    const isApp = typeof (window as Window & { Capacitor?: unknown }).Capacitor !== 'undefined';
+    if (!isApp) return;
+
+    let handle: { remove: () => void } | null = null;
+
+    (async () => {
+      const { App: CapApp } = await import('@capacitor/app');
+      const { Browser }     = await import('@capacitor/browser');
+
+      handle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+        if (!url.includes('login-callback')) return;
+
+        // Fecha o in-app browser imediatamente
+        await Browser.close().catch(() => { /* ignore */ });
+
+        try {
+          const urlObj = new URL(url);
+          const code   = urlObj.searchParams.get('code');
+          if (code) {
+            await supabase.auth.exchangeCodeForSession(code);
+          }
+        } catch (err) {
+          console.error('[OAuth] Falha ao trocar code por sessão:', err);
+        }
+      });
+    })();
+
+    return () => { handle?.remove(); };
+  }, []);
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // PushNotificationSetup
 // Componente interno que ativa o push após o login.
@@ -217,6 +262,7 @@ function App() {
             <HotelProvider>
               <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
 
+                <OAuthCallbackHandler />
                 <PushNotificationSetup />
                 <Toast />
                 <AppUpdateModal />

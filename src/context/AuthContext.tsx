@@ -180,21 +180,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async () => {
     try {
-      // Detecta se está rodando dentro do Capacitor (App)
-      const isApp = window.hasOwnProperty('Capacitor');
-      const redirectTo = isApp 
-        ? 'com.lyfe.fluxo://login-callback' 
-        : `${window.location.origin}/`;
+      // Detecta se está rodando dentro do Capacitor (APK nativo)
+      const isApp = typeof (window as Window & { Capacitor?: unknown }).Capacitor !== 'undefined';
 
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { 
-          redirectTo, 
-          queryParams: { prompt: 'select_account' } 
-        },
-      });
-      if (error) return { success: false, message: error.message };
-      return { success: true };
+      if (isApp) {
+        // No APK: abre in-app browser e usa PKCE flow com deep link de retorno
+        const { Browser } = await import('@capacitor/browser');
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: 'com.lyfe.fluxo://login-callback',
+            skipBrowserRedirect: true,
+            queryParams: { prompt: 'select_account' },
+          },
+        });
+        if (error) return { success: false, message: error.message };
+        if (data.url) await Browser.open({ url: data.url, windowName: '_self' });
+        return { success: true };
+      } else {
+        // Na web: fluxo normal, redireciona no mesmo tab
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: `${window.location.origin}/`,
+            queryParams: { prompt: 'select_account' },
+          },
+        });
+        if (error) return { success: false, message: error.message };
+        return { success: true };
+      }
     } catch (e: unknown) {
       return { success: false, message: e instanceof Error ? e.message : 'Erro ao entrar com Google.' };
     }
