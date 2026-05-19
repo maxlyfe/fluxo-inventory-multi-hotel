@@ -172,32 +172,64 @@ function OAuthCallbackHandler() {
         const { App: CapApp } = await import('@capacitor/app');
         const { Browser }     = await import('@capacitor/browser');
 
+        // Helper para emitir info na UI (painel de debug do Login)
+        const emit = (type: 'info' | 'error', message: string) =>
+          window.dispatchEvent(new CustomEvent(`oauth-${type}`, { detail: { message } }));
+
         // ── Deep-link: app recebe "com.lyfe.fluxo://login-callback?code=..." ──
         urlHandle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
-          if (!url.includes('login-callback')) return;
+          emit('info', `📨 appUrlOpen: ${url.slice(0, 80)}${url.length > 80 ? '…' : ''}`);
+          if (!url.includes('login-callback')) {
+            emit('info', '⏭️  URL ignorada (não é login-callback)');
+            return;
+          }
 
           await Browser.close().catch(() => { /* ignore */ });
+          emit('info', '🔒 Custom Tab fechado');
 
           try {
             const urlObj = new URL(url);
 
+            // Erro retornado pelo OAuth provider
+            const oauthErr = urlObj.searchParams.get('error');
+            if (oauthErr) {
+              const desc = urlObj.searchParams.get('error_description') || oauthErr;
+              emit('error', `Provider: ${desc}`);
+              return;
+            }
+
             // PKCE flow: ?code=...
             const code = urlObj.searchParams.get('code');
             if (code) {
-              await supabase.auth.exchangeCodeForSession(code);
+              emit('info', `🔑 Code recebido (${code.slice(0, 8)}…), trocando por sessão`);
+              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+              if (error) {
+                emit('error', `exchangeCodeForSession: ${error.message}`);
+              } else {
+                emit('info', `✅ Sessão estabelecida: ${data.session?.user.email || 'sem email'}`);
+              }
               return;
             }
 
             // Implicit flow fallback: #access_token=...
-            const hash   = urlObj.hash.slice(1);         // remove '#'
+            const hash   = urlObj.hash.slice(1);
             const params = new URLSearchParams(hash);
             const accessToken  = params.get('access_token');
             const refreshToken = params.get('refresh_token');
             if (accessToken && refreshToken) {
-              await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+              emit('info', '🔑 Tokens recebidos via implicit flow, definindo sessão');
+              const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+              if (error) {
+                emit('error', `setSession: ${error.message}`);
+              } else {
+                emit('info', '✅ Sessão estabelecida via implicit flow');
+              }
+              return;
             }
+
+            emit('error', 'Callback OAuth sem code nem token');
           } catch (err) {
-            console.error('[OAuth] Falha ao processar callback:', err);
+            emit('error', `Exceção: ${err instanceof Error ? err.message : 'desconhecida'}`);
           }
         });
 

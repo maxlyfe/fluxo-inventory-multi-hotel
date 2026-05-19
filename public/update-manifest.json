@@ -1,7 +1,7 @@
 {
-  "latestVersion": "1.4.0",
+  "latestVersion": "1.5.0",
   "url": "/downloads/LyFe%20Hoteles.apk",
-  "notes": "Login com Google totalmente reformulado: bridge HTTPS estática (mais rápida e confiável) + timeout de segurança no spinner.",
+  "notes": "Bridge OAuth via Intent URL + painel de debug visível em tela ao tentar login.",
   "minVersion": "1.0.0",
   "forceUpdate": false
 }

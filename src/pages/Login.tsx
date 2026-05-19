@@ -356,6 +356,18 @@ const Login: React.FC = () => {
   const [mounted, setMounted]   = useState(false);
   const [showMobileModal, setShowMobileModal] = useState(false);
 
+  // Debug log visível em tela (APK não tem console acessível)
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
+
+  const logRef = useRef<(msg: string) => void>(() => {});
+  useEffect(() => {
+    logRef.current = (msg: string) => {
+      const ts = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+      setDebugLog(prev => [...prev.slice(-19), `${ts}  ${msg}`]); // últimas 20 linhas
+    };
+  }, []);
+
   const { login, loginWithGoogle, needsName } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -365,6 +377,27 @@ const Login: React.FC = () => {
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 80);
     return () => clearTimeout(t);
+  }, []);
+
+  // Escuta eventos de erro do OAuth disparados pelo OAuthCallbackHandler
+  useEffect(() => {
+    const onErr = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { message?: string };
+      const msg = detail?.message || 'Erro desconhecido no OAuth';
+      logRef.current(`❌ ERRO: ${msg}`);
+      setError(msg);
+      setGoogleLoading(false);
+    };
+    const onInfo = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { message?: string };
+      if (detail?.message) logRef.current(`ℹ️  ${detail.message}`);
+    };
+    window.addEventListener('oauth-error', onErr);
+    window.addEventListener('oauth-info', onInfo);
+    return () => {
+      window.removeEventListener('oauth-error', onErr);
+      window.removeEventListener('oauth-info', onInfo);
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -385,55 +418,64 @@ const Login: React.FC = () => {
   const handleGoogle = async () => {
     setError('');
     setGoogleLoading(true);
+    setShowDebug(true); // abre painel de debug automaticamente
+    setDebugLog([]);    // limpa log anterior
+    const log = logRef.current;
+    log('▶️  Iniciando login Google');
 
     // Safety timeout absoluto: 30s. Se algo der errado, reseta para não travar UI.
     const safetyTimer = setTimeout(() => {
-      console.warn('[OAuth] Safety timeout (30s) — resetando estado de loading');
+      log('⏱️  Safety timeout 30s atingido — resetando');
+      setError('O login demorou muito. Tente novamente.');
       setGoogleLoading(false);
     }, 30000);
 
     const result = await loginWithGoogle();
     if (!result.success) {
       clearTimeout(safetyTimer);
+      log(`❌ loginWithGoogle falhou: ${result.message}`);
       setError(result.message || 'Erro ao iniciar login com Google.');
       setGoogleLoading(false);
       return;
     }
+    log('✅ Custom Tab aberto, aguardando OAuth');
 
     // No APK: usa appStateChange para detectar quando o Custom Tab fecha e o app
     // volta ao primeiro plano. Mais confiável que browserFinished no Android.
     try {
       const { Capacitor } = await import('@capacitor/core');
-      if (!Capacitor.isNativePlatform()) return;
+      const isNative = Capacitor.isNativePlatform();
+      log(`📱 isNativePlatform: ${isNative}`);
+      if (!isNative) return;
 
       const { App: CapApp } = await import('@capacitor/app');
       let stateHandle: { remove: () => void } | null = null;
 
       stateHandle = await CapApp.addListener('appStateChange', async ({ isActive }) => {
-        if (!isActive) return; // app foi para background (abrindo Custom Tab) — esperar retorno
+        log(`🔄 appStateChange isActive=${isActive}`);
+        if (!isActive) return;
 
-        // App voltou ao foreground → Custom Tab fechou (auth concluída ou cancelada)
-        console.log('[OAuth] App voltou ao foreground — verificando sessão');
+        // App voltou ao foreground → Custom Tab fechou
         stateHandle?.remove();
-
-        // Aguarda 1.5s para o OAuthCallbackHandler terminar exchangeCodeForSession
+        log('⏳ Aguardando 1.5s para exchangeCodeForSession...');
         await new Promise(r => setTimeout(r, 1500));
 
         const { supabase: sb } = await import('../lib/supabase');
         const { data: { session } } = await sb.auth.getSession();
         if (!session) {
-          // Nenhuma sessão → usuário cancelou ou OAuth falhou
-          console.log('[OAuth] Sem sessão após retorno — resetando loading');
+          log('❌ Sem sessão após retorno — OAuth falhou');
           clearTimeout(safetyTimer);
+          setError('Login com Google não foi concluído. Tente novamente.');
           setGoogleLoading(false);
         } else {
-          console.log('[OAuth] Sessão estabelecida com sucesso');
+          log(`✅ Sessão estabelecida: ${session.user.email}`);
           clearTimeout(safetyTimer);
-          // onAuthStateChange no AuthContext navega automaticamente
+          // onAuthStateChange navega automaticamente
         }
       });
-    } catch {
-      // Não é ambiente Capacitor — nada a fazer
+      log('👂 Listener appStateChange instalado');
+    } catch (e) {
+      log(`⚠️  Erro ao instalar listener: ${e instanceof Error ? e.message : 'unk'}`);
     }
   };
 
@@ -768,6 +810,57 @@ const Login: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* ── Debug Panel (visível só após tentar login OAuth) ──────────────── */}
+      {showDebug && debugLog.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 99999,
+            background: 'rgba(0,0,0,0.92)',
+            color: '#0f0',
+            fontFamily: 'monospace',
+            fontSize: 11,
+            padding: '8px 12px',
+            maxHeight: '40vh',
+            overflowY: 'auto',
+            borderTop: '1px solid #0f0',
+          }}
+        >
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 6,
+            paddingBottom: 6,
+            borderBottom: '1px solid rgba(0,255,0,0.2)',
+          }}>
+            <span style={{ fontWeight: 'bold' }}>🔧 DEBUG OAuth</span>
+            <button
+              onClick={() => setShowDebug(false)}
+              style={{
+                background: 'transparent',
+                border: '1px solid #0f0',
+                color: '#0f0',
+                padding: '2px 10px',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 10,
+              }}
+            >
+              FECHAR
+            </button>
+          </div>
+          {debugLog.map((line, i) => (
+            <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.5 }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 };

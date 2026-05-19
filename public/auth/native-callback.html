@@ -29,10 +29,10 @@
     p { margin: 0; }
     .title { font-size: 15px; opacity: 0.85; font-weight: 500; }
     .hint  { font-size: 12px; opacity: 0.45; max-width: 320px; line-height: 1.5; }
-    #fallback-btn {
+    .btn {
       display: none;
       margin-top: 1rem;
-      padding: 0.75rem 1.5rem;
+      padding: 0.85rem 1.75rem;
       background: #fff;
       color: #0f172a;
       border: none;
@@ -41,49 +41,112 @@
       font-size: 14px;
       cursor: pointer;
       text-decoration: none;
+      box-shadow: 0 4px 16px rgba(255,255,255,0.15);
+    }
+    .debug {
+      position: fixed;
+      bottom: 8px;
+      left: 8px;
+      right: 8px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.25);
+      font-family: monospace;
+      word-break: break-all;
     }
   </style>
   <script>
-    // Executa IMEDIATAMENTE (antes do body/render) para máxima velocidade.
+    // Executa IMEDIATAMENTE (no <head>, antes do body) para máxima velocidade.
     (function() {
       try {
-        var url = new URL(window.location.href);
+        var url       = new URL(window.location.href);
         var code      = url.searchParams.get('code');
         var oauthErr  = url.searchParams.get('error');
         var errDesc   = url.searchParams.get('error_description');
         var hashFrag  = url.hash; // implicit flow: #access_token=...
 
-        var params = new URLSearchParams();
-        if (code)     params.set('code', code);
+        var query = new URLSearchParams();
+        if (code)     query.set('code', code);
         if (oauthErr) {
-          params.set('error', oauthErr);
-          if (errDesc) params.set('error_description', errDesc);
+          query.set('error', oauthErr);
+          if (errDesc) query.set('error_description', errDesc);
+        }
+        var queryStr = query.toString();
+
+        // ── ESTRATÉGIA 1: Android Intent URL ────────────────────────────────
+        // Formato explícito que Chrome converte DIRETAMENTE em intent Android.
+        // É a forma MAIS CONFIÁVEL de disparar deep link a partir de um Custom Tab.
+        // O 'S.browser_fallback_url' faz Chrome abrir uma URL HTTPS caso o app
+        // não esteja instalado (caso raro mas evita travamento).
+        var intentUrl = 'intent://login-callback';
+        if (queryStr) intentUrl += '?' + queryStr;
+        if (hashFrag) intentUrl += hashFrag;
+        intentUrl +=
+          '#Intent;' +
+          'scheme=com.lyfe.fluxo;' +
+          'package=com.lyfe.fluxo;' +
+          'S.browser_fallback_url=' + encodeURIComponent('https://lyfehoteles.com.br/?oauth_fallback=1') + ';' +
+          'end';
+
+        // ── ESTRATÉGIA 2: Custom Scheme URL (fallback) ──────────────────────
+        var customSchemeUrl = 'com.lyfe.fluxo://login-callback';
+        if (queryStr) customSchemeUrl += '?' + queryStr;
+        if (hashFrag) customSchemeUrl += hashFrag;
+
+        // Guarda no escopo global para os botões fallback usarem
+        window.__lyfeIntentUrl  = intentUrl;
+        window.__lyfeCustomUrl  = customSchemeUrl;
+
+        // Detecta navegador (Intent URL só funciona em Chromium)
+        var ua = navigator.userAgent || '';
+        var isChromium = /Chrome|CriOS|Chromium/.test(ua) && !/Edge|EdgA|EdgiOS/.test(ua);
+
+        // Tenta Intent URL primeiro (Chrome), fallback para custom scheme
+        var primary = isChromium ? intentUrl : customSchemeUrl;
+        var secondary = isChromium ? customSchemeUrl : intentUrl;
+
+        // Redireciona IMEDIATAMENTE via window.location.replace
+        try {
+          window.location.replace(primary);
+        } catch (e) {
+          // Se falhar, tenta o secundário em 100ms
+          setTimeout(function() {
+            window.location.replace(secondary);
+          }, 100);
         }
 
-        var deepLink = 'com.lyfe.fluxo://login-callback';
-        var search = params.toString();
-        if (search)   deepLink += '?' + search;
-        if (hashFrag) deepLink += hashFrag;
-
-        // Guarda no escopo global para o botão fallback usar
-        window.__lyfeDeepLink = deepLink;
-
-        // Redireciona IMEDIATAMENTE — Chrome Custom Tab dispara intent Android
-        window.location.replace(deepLink);
-
-        // Fallback após 2.5s: mostra botão manual caso o redirect tenha falhado
+        // ── ESTRATÉGIA 3: Fallback após 1s — tenta o método secundário ─────
         setTimeout(function() {
-          var btn = document.getElementById('fallback-btn');
-          if (btn) {
-            btn.style.display = 'inline-block';
-            btn.href = deepLink;
+          if (document.visibilityState === 'visible') {
+            // Ainda estamos visíveis = redirect anterior não disparou intent
+            try { window.location.replace(secondary); } catch (e) { /* ignore */ }
           }
+        }, 1000);
+
+        // ── ESTRATÉGIA 4: Após 2.5s mostra botões manuais ───────────────────
+        setTimeout(function() {
+          if (document.visibilityState !== 'visible') return; // já saiu da página
+          var btn1 = document.getElementById('btn-intent');
+          var btn2 = document.getElementById('btn-scheme');
+          if (btn1) { btn1.style.display = 'inline-block'; btn1.href = intentUrl; }
+          if (btn2) { btn2.style.display = 'inline-block'; btn2.href = customSchemeUrl; }
+          var hint = document.getElementById('hint');
+          if (hint) hint.textContent = 'Não conseguimos abrir o aplicativo automaticamente. Toque em um dos botões abaixo:';
         }, 2500);
-      } catch (e) {
-        // Em caso de erro grave, navegação para o domínio principal
+
+        // Debug info (pequeno, no rodapé) — útil pra você verificar via console remoto
         document.addEventListener('DOMContentLoaded', function() {
-          var hint = document.querySelector('.hint');
-          if (hint) hint.textContent = 'Erro ao processar autenticação: ' + (e && e.message ? e.message : 'desconhecido');
+          var dbg = document.getElementById('debug');
+          if (dbg) {
+            dbg.textContent =
+              'UA: ' + (isChromium ? 'Chromium' : 'Outro') +
+              ' | code: ' + (code ? code.slice(0, 8) + '...' : 'nenhum') +
+              ' | error: ' + (oauthErr || 'nenhum');
+          }
+        });
+      } catch (e) {
+        document.addEventListener('DOMContentLoaded', function() {
+          var hint = document.getElementById('hint');
+          if (hint) hint.textContent = 'Erro: ' + (e && e.message ? e.message : 'desconhecido');
         });
       }
     })();
@@ -92,7 +155,9 @@
 <body>
   <div class="spinner"></div>
   <p class="title">Retornando ao aplicativo…</p>
-  <p class="hint">Se nada acontecer em alguns segundos, toque no botão abaixo.</p>
-  <a id="fallback-btn" href="#">Abrir LyFe Hoteles</a>
+  <p class="hint" id="hint">Aguarde alguns segundos…</p>
+  <a id="btn-intent" class="btn" href="#">Abrir LyFe Hoteles</a>
+  <a id="btn-scheme" class="btn" href="#" style="background:rgba(255,255,255,0.1); color:#fff;">Tentar outro método</a>
+  <div class="debug" id="debug"></div>
 </body>
 </html>
