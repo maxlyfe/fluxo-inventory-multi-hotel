@@ -103,10 +103,11 @@ export async function processErbonSalesDeductions(
         });
         result.processed++;
       } else if (mapping.dish_id) {
-        const itemType = await deductDecomposedDish(hotelId, mapping.dish_id, agg.qty, agg.date, processedBy, result, productNames, sectorNames);
+        // Passamos o sectorId mapeado do departamento Erbon para que a baixa ocorra no setor que vendeu
+        const itemType = await deductDecomposedDish(hotelId, mapping.dish_id, agg.qty, agg.date, processedBy, result, productNames, sectorNames, sectorId);
         await supabase.from('erbon_sales_processed').insert({
           hotel_id: hotelId, erbon_service_id: agg.service_id, erbon_department: agg.department,
-          transaction_date: agg.date, quantity: agg.qty, sector_id: null,
+          transaction_date: agg.date, quantity: agg.qty, sector_id: sectorId,
           dish_id: mapping.dish_id, deduction_type: 'decomposed', processed_by: processedBy,
           item_type: itemType || 'dish'
         });
@@ -158,13 +159,16 @@ function getUnitFactor(from: string, to: string): number {
 
 async function deductDecomposedDish(
   hotelId: string, dishId: string, dishQuantity: number, date: string, processedBy: string,
-  result: DeductionResult, productNames: Map<string, string>, sectorNames: Map<string, string>
+  result: DeductionResult, productNames: Map<string, string>, sectorNames: Map<string, string>,
+  overrideSectorId?: string | null
 ): Promise<string> {
   const { data: dish } = await supabase.from('dishes').select('id, name, type, production_sector_id').eq('id', dishId).single();
   if (!dish) throw new Error(`Item ${dishId} não encontrado`);
-  if (!dish.production_sector_id) throw new Error(`${dish.type === 'dish' ? 'Prato' : 'Bebida'} "${dish.name}" sem setor de produção definido`);
+  
+  // Prioriza o setor passado (da transação Erbon), senão usa o fixo da ficha
+  const sectorId = overrideSectorId || dish.production_sector_id;
+  if (!sectorId) throw new Error(`${dish.type === 'dish' ? 'Prato' : 'Bebida'} "${dish.name}" sem setor de produção definido e sem mapeamento de setor na transação`);
 
-  const sectorId = dish.production_sector_id;
   const { data: dishIngredients } = await supabase
     .from('dish_ingredients').select('quantity, unit, ingredient:ingredients(id, name, unit, product_id)').eq('dish_id', dishId);
   const { data: dishSides } = await supabase

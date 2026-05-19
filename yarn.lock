@@ -196,6 +196,16 @@
   resolved "https://registry.npmjs.org/@capacitor/android/-/android-8.3.3.tgz"
   integrity sha512-Km7/voqtWVrN+qDHktoYb7DIliW+eakglH4jyT7C0dxODW/gDrMi19yC0ATNM2+rtaj3e2i46pgZ3A5UCa+44Q==
 
+"@capacitor/app@^8.1.0":
+  version "8.1.0"
+  resolved "https://registry.npmjs.org/@capacitor/app/-/app-8.1.0.tgz"
+  integrity sha512-MlmttTOWHDedr/G4SrhNRxsXMqY+R75S4MM4eIgzsgCzOYhb/MpCkA5Q3nuOCfL1oHm26xjUzqZ5aupbOwdfYg==
+
+"@capacitor/browser@^8.0.3":
+  version "8.0.3"
+  resolved "https://registry.npmjs.org/@capacitor/browser/-/browser-8.0.3.tgz"
+  integrity sha512-WJWPHEPbweiFoHYmVlCbZf5yrqJ2Rchx2Xvbmd+3Lf+Zkpq3nXBThThY2CF69lYEg1NINGF9BcHThIOEU1gZlQ==
+
 "@capacitor/cli@^8.3.3":
   version "8.3.3"
   resolved "https://registry.npmjs.org/@capacitor/cli/-/cli-8.3.3.tgz"
@@ -219,7 +229,7 @@
     tslib "^2.8.1"
     xml2js "^0.6.2"
 
-"@capacitor/core@^8.3.0", "@capacitor/core@^8.3.3":
+"@capacitor/core@^8.3.0", "@capacitor/core@^8.3.3", "@capacitor/core@>=8.0.0":
   version "8.3.3"
   resolved "https://registry.npmjs.org/@capacitor/core/-/core-8.3.3.tgz"
   integrity sha512-xx1FIriZQ5jwqEkZwmWQHfXNEn5a9ZLOtdFoJXslh0ian6T/EU+QJtRmZw3KRsmcUV6p5ufczBrzF1rVP8Nu3A==

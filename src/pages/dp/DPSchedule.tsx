@@ -1406,20 +1406,40 @@ export default function DPSchedule() {
   const getEntry = (empId: string, day: string) =>
     entries.find(e => e.employee_id === empId && e.day_date === day) || null;
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const saveEntry = async (partial: Partial<ScheduleEntry>) => {
-    if (!schedule) return;
-    const existing = entries.find(e => e.employee_id === partial.employee_id && e.day_date === partial.day_date);
+    if (!schedule || isSaving) return;
+    setIsSaving(true);
     try {
-      if (existing?.id) {
-        const { data } = await supabase.from('schedule_entries')
-          .update({ ...partial, updated_by: user?.id }).eq('id', existing.id).select().single();
-        if (data) setEntries(prev => prev.map(e => e.id === existing.id ? data as ScheduleEntry : e));
-      } else {
-        const { data } = await supabase.from('schedule_entries')
-          .insert({ ...partial, schedule_id: schedule.id, updated_by: user?.id }).select().single();
-        if (data) setEntries(prev => [...prev, data as ScheduleEntry]);
+      console.log('[DPSchedule] Upserting entry:', { ...partial, schedule_id: schedule.id });
+      const { data, error } = await supabase.from('schedule_entries')
+        .upsert({
+          ...partial,
+          schedule_id: schedule.id,
+          updated_by: user?.id
+        }, {
+          onConflict: 'schedule_id,employee_id,day_date'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (data) {
+        setEntries(prev => {
+          const exists = prev.some(e => e.id === data.id);
+          if (exists) {
+            return prev.map(e => e.id === data.id ? data as ScheduleEntry : e);
+          }
+          return [...prev, data as ScheduleEntry];
+        });
       }
-    } catch (e) { console.error('Erro ao salvar célula:', e); }
+    } catch (e) {
+      console.error('Erro ao salvar célula:', e);
+      addNotification('error', 'Erro ao salvar. Tente novamente.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const saveTransferEntry = async (entryId: string, start: string, end: string) => {
@@ -1435,19 +1455,35 @@ export default function DPSchedule() {
   };
 
   const fillWeek = async (toInsert: Partial<ScheduleEntry>[]) => {
-    if (!schedule) return;
-    const empId    = toInsert[0]?.employee_id;
+    if (!schedule || isSaving) return;
+    const empId = toInsert[0]?.employee_id;
     if (!empId) return;
     const dayDates = weekDays.map(d => format(d, 'yyyy-MM-dd'));
-    await supabase.from('schedule_entries')
-      .delete().eq('schedule_id', schedule.id).eq('employee_id', empId).in('day_date', dayDates);
-    const withId = toInsert.map(e => ({ ...e, schedule_id: schedule.id, updated_by: user?.id }));
-    const { data } = await supabase.from('schedule_entries').insert(withId).select();
-    if (data) {
-      setEntries(prev => [
-        ...prev.filter(e => !(e.employee_id === empId && dayDates.includes(e.day_date))),
-        ...(data as ScheduleEntry[]),
-      ]);
+    
+    setIsSaving(true);
+    try {
+      // 1. Clear existing to be clean
+      await supabase.from('schedule_entries')
+        .delete().eq('schedule_id', schedule.id).eq('employee_id', empId).in('day_date', dayDates);
+
+      // 2. Upsert new entries
+      const withId = toInsert.map(e => ({ ...e, schedule_id: schedule.id, updated_by: user?.id }));
+      const { data, error } = await supabase.from('schedule_entries')
+        .upsert(withId, { onConflict: 'schedule_id,employee_id,day_date' })
+        .select();
+
+      if (error) throw error;
+      if (data) {
+        setEntries(prev => [
+          ...prev.filter(e => !(e.employee_id === empId && dayDates.includes(e.day_date))),
+          ...(data as ScheduleEntry[]),
+        ]);
+      }
+    } catch (e) {
+      console.error('Erro ao preencher semana:', e);
+      addNotification('error', 'Erro ao salvar. Tente novamente.');
+    } finally {
+      setIsSaving(false);
     }
   };
 

@@ -87,11 +87,13 @@ function TabButton({ isActive, onClick, label, color }: { isActive: boolean; onC
 
 export default function MenuTechSheet() {
   const { selectedHotel } = useHotel();
+  const { addNotification } = useNotification();
   const hotelId = selectedHotel?.id || '';
   const [activeTab, setActiveTab] = useState<string>('ingredients');
   const [categories, setCategories] = useState<DishCategory[]>([]);
   const [showCategoryMgr, setShowCategoryMgr] = useState(false);
   const [outrosCount, setOutrosCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   const loadCategories = useCallback(async () => {
     if (!hotelId) return;
@@ -113,12 +115,68 @@ export default function MenuTechSheet() {
     setOutrosCount(count || 0);
   }, [hotelId]);
 
+  /** Sincroniza todos os produtos ativos como ingredientes (cria os que ainda não existem) */
+  const syncFromInventory = useCallback(async (silent = false) => {
+    if (!hotelId) return;
+    if (!silent) setSyncing(true);
+    try {
+      const { data: prods } = await supabase
+        .from('products')
+        .select('id, name, average_price, unit_measure')
+        .eq('hotel_id', hotelId)
+        .eq('is_active', true);
+
+      if (!prods || prods.length === 0) {
+        if (!silent) addNotification('Nenhum produto ativo no inventário.', 'info');
+        return;
+      }
+
+      // Busca product_ids já existentes nos ingredientes
+      const { data: existingIngs } = await supabase
+        .from('ingredients')
+        .select('product_id')
+        .eq('hotel_id', hotelId)
+        .not('product_id', 'is', null);
+
+      const existingIds = new Set((existingIngs || []).map((i: { product_id: string }) => i.product_id));
+
+      const newRows = prods
+        .filter(p => !existingIds.has(p.id))
+        .map(p => ({
+          name: p.name,
+          unit: ((p.unit_measure as UnitType) || 'und'),
+          price_per_unit: p.average_price || 0,
+          purchase_qty_per_unit: 1,
+          product_id: p.id,
+          hotel_id: hotelId,
+        }));
+
+      if (newRows.length > 0) {
+        await supabase.from('ingredients').insert(newRows);
+      }
+
+      if (!silent) {
+        addNotification(
+          newRows.length > 0
+            ? `${newRows.length} produto${newRows.length > 1 ? 's' : ''} adicionado${newRows.length > 1 ? 's' : ''} aos ingredientes.`
+            : 'Ingredientes já sincronizados com o inventário.',
+          'success'
+        );
+      }
+    } catch {
+      if (!silent) addNotification('Erro ao sincronizar com inventário.', 'error');
+    } finally {
+      if (!silent) setSyncing(false);
+    }
+  }, [hotelId, addNotification]);
+
   useEffect(() => {
     if (hotelId) {
       loadCategories();
       loadOutrosCount();
+      syncFromInventory(true);
     }
-  }, [hotelId, loadCategories, loadOutrosCount]);
+  }, [hotelId, loadCategories, loadOutrosCount, syncFromInventory]);
 
   if (!selectedHotel) {
     return (
@@ -170,7 +228,7 @@ export default function MenuTechSheet() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'ingredients' && <IngredientsTab hotelId={hotelId} />}
+      {activeTab === 'ingredients' && <IngredientsTab hotelId={hotelId} onSync={() => syncFromInventory(false)} syncing={syncing} />}
       {activeTab === 'sides' && <SidesTab hotelId={hotelId} />}
       {categories.map(cat => activeTab === `cat_${cat.id}` && (
         <DishesTab
@@ -205,6 +263,7 @@ export default function MenuTechSheet() {
     </div>
   );
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CATEGORY MANAGER MODAL
@@ -372,7 +431,7 @@ function CategoryRow({ cat, onDelete, onRename, isDeleting }: {
 // INGREDIENTS TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function IngredientsTab({ hotelId }: { hotelId: string }) {
+function IngredientsTab({ hotelId, onSync, syncing }: { hotelId: string; onSync: () => void; syncing: boolean }) {
   const { addNotification } = useNotification();
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [filtered, setFiltered] = useState<Ingredient[]>([]);
@@ -389,7 +448,6 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [linkingIngredientId, setLinkingIngredientId] = useState<string | null>(null);
   const [showProductSearch, setShowProductSearch] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const loadIngredients = useCallback(async () => {
     const { data } = await supabase.from('ingredients').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
@@ -401,66 +459,11 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
     setProducts(data || []);
   }, [hotelId]);
 
-  /** Sincroniza todos os produtos ativos como ingredientes (cria os que ainda não existem) */
-  const syncFromInventory = useCallback(async (silent = false) => {
-    if (!silent) setSyncing(true);
-    try {
-      const { data: prods } = await supabase
-        .from('products')
-        .select('id, name, average_price, unit_measure')
-        .eq('hotel_id', hotelId)
-        .eq('is_active', true);
-
-      if (!prods || prods.length === 0) {
-        if (!silent) addNotification('Nenhum produto ativo no inventário.', 'info');
-        return;
-      }
-
-      // Busca product_ids já existentes nos ingredientes
-      const { data: existingIngs } = await supabase
-        .from('ingredients')
-        .select('product_id')
-        .eq('hotel_id', hotelId)
-        .not('product_id', 'is', null);
-
-      const existingIds = new Set((existingIngs || []).map((i: { product_id: string }) => i.product_id));
-
-      const newRows = prods
-        .filter(p => !existingIds.has(p.id))
-        .map(p => ({
-          name: p.name,
-          unit: ((p.unit_measure as UnitType) || 'und'),
-          price_per_unit: p.average_price || 0,
-          purchase_qty_per_unit: 1,
-          product_id: p.id,
-          hotel_id: hotelId,
-        }));
-
-      if (newRows.length > 0) {
-        await supabase.from('ingredients').insert(newRows);
-      }
-
-      await loadIngredients();
-      if (!silent) {
-        addNotification(
-          newRows.length > 0
-            ? `${newRows.length} produto${newRows.length > 1 ? 's' : ''} adicionado${newRows.length > 1 ? 's' : ''} aos ingredientes.`
-            : 'Ingredientes já sincronizados com o inventário.',
-          'success'
-        );
-      }
-    } catch {
-      if (!silent) addNotification('Erro ao sincronizar com inventário.', 'error');
-    } finally {
-      if (!silent) setSyncing(false);
-    }
-  }, [hotelId, loadIngredients, addNotification]);
-
   // Na primeira carga: sincroniza silenciosamente
   useEffect(() => {
     loadProducts();
-    syncFromInventory(true);
-  }, [loadProducts, syncFromInventory]);
+    loadIngredients();
+  }, [loadProducts, loadIngredients, syncing]);
 
   useEffect(() => {
     let list = ingredients;
@@ -591,7 +594,7 @@ function IngredientsTab({ hotelId }: { hotelId: string }) {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => syncFromInventory(false)}
+            onClick={onSync}
             disabled={syncing}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
             title="Sincronizar produtos do inventário como ingredientes"
@@ -1400,7 +1403,7 @@ function DishesTab({
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className={labelCls}>Nome</label>
+                    <label className={labelCls}>Nome da Ficha Técnica</label>
                     <input
                       type="text" required value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -1409,50 +1412,57 @@ function DishesTab({
                     />
                   </div>
                   <div>
-                    <label className={labelCls}>Setor de Produção (para baixa de estoque)</label>
+                    <label className={labelCls}>Setor de Produção (Opcional)</label>
                     <select
-                      required
                       value={formData.production_sector_id}
                       onChange={(e) => setFormData({ ...formData, production_sector_id: e.target.value })}
                       className={selectCls}
                     >
-                      <option value="">Selecione um setor...</option>
+                      <option value="">Setor dinâmico (conforme venda)</option>
                       {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Se vazio, o sistema usará o setor que realizou a venda na Erbon.
+                    </p>
                   </div>
                 </div>
 
                 {/* Ingredients */}
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <label className={labelCls}>Ingredientes Diretos</label>
+                    <label className={labelCls}>Produtos / Ingredientes</label>
                     <button
                       type="button"
                       onClick={() => setFormData({ ...formData, ingredients: [...formData.ingredients, { ingredient_id: '', quantity: '', unit: 'und' }] })}
                       className="text-xs font-semibold text-orange-600 dark:text-orange-400 hover:underline"
                     >
-                      + Adicionar Ingrediente
+                      + Adicionar Item
                     </button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {formData.ingredients.map((ing, idx) => (
                       <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <SearchableSelect
                             options={ingredientOptions}
-                            placeholder="Buscar ingrediente..."
+                            placeholder="Buscar produto..."
                             onSelect={(val) => {
                               const n = [...formData.ingredients];
                               n[idx].ingredient_id = val;
-                              n[idx].unit = ingredients.find(i => i.id === val)?.unit || 'und';
+                              const found = ingredients.find(i => i.id === val);
+                              n[idx].unit = found?.unit || 'und';
                               setFormData({ ...formData, ingredients: n });
                             }}
                           />
-                          {ing.ingredient_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{ingredients.find(i => i.id === ing.ingredient_id)?.name}</p>}
+                          {ing.ingredient_id && (
+                            <p className="mt-1 text-[10px] font-bold text-orange-600 dark:text-orange-400 truncate">
+                              {ingredients.find(i => i.id === ing.ingredient_id)?.name}
+                            </p>
+                          )}
                         </div>
                         <div className="flex gap-1 items-start">
                           <input
-                            type="number" step="0.001" value={ing.quantity} placeholder="Qtd" required
+                            type="text" inputMode="decimal" value={ing.quantity} placeholder="Qtd" required
                             onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
                             className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
                           />
