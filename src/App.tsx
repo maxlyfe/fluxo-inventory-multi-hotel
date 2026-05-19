@@ -149,7 +149,8 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 import { supabase } from './lib/supabase';
 
 // ── Bridge OAuth para APK ────────────────────────────────────────────────────
-import NativeCallback from './pages/auth/NativeCallback';
+// A bridge HTTPS é servida como HTML estático em /public/auth/native-callback.html
+// (configurado em netlify.toml). Não precisa de componente React.
 
 // ---------------------------------------------------------------------------
 // OAuthCallbackHandler
@@ -300,7 +301,6 @@ function App() {
 
                 <Routes>
                   {/* ── Rotas públicas ────────────────────────────────────── */}
-                  <Route path="/auth/native-callback" element={<NativeCallback />} />
                   <Route path="/login"            element={<Login />} />
                   <Route path="/select-hotel"     element={<HotelSelection />} />
                   <Route path="/public/sectors"   element={<PublicSectorsPage />} />

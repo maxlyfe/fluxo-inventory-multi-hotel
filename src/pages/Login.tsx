@@ -386,15 +386,22 @@ const Login: React.FC = () => {
     setError('');
     setGoogleLoading(true);
 
+    // Safety timeout absoluto: 30s. Se algo der errado, reseta para não travar UI.
+    const safetyTimer = setTimeout(() => {
+      console.warn('[OAuth] Safety timeout (30s) — resetando estado de loading');
+      setGoogleLoading(false);
+    }, 30000);
+
     const result = await loginWithGoogle();
     if (!result.success) {
+      clearTimeout(safetyTimer);
       setError(result.message || 'Erro ao iniciar login com Google.');
       setGoogleLoading(false);
       return;
     }
 
     // No APK: usa appStateChange para detectar quando o Custom Tab fecha e o app
-    // volta ao primeiro plano. Isso é mais confiável que browserFinished no Android.
+    // volta ao primeiro plano. Mais confiável que browserFinished no Android.
     try {
       const { Capacitor } = await import('@capacitor/core');
       if (!Capacitor.isNativePlatform()) return;
@@ -406,18 +413,24 @@ const Login: React.FC = () => {
         if (!isActive) return; // app foi para background (abrindo Custom Tab) — esperar retorno
 
         // App voltou ao foreground → Custom Tab fechou (auth concluída ou cancelada)
+        console.log('[OAuth] App voltou ao foreground — verificando sessão');
         stateHandle?.remove();
 
-        // Aguarda 1s para o OAuthCallbackHandler terminar exchangeCodeForSession
-        await new Promise(r => setTimeout(r, 1000));
+        // Aguarda 1.5s para o OAuthCallbackHandler terminar exchangeCodeForSession
+        await new Promise(r => setTimeout(r, 1500));
 
         const { supabase: sb } = await import('../lib/supabase');
         const { data: { session } } = await sb.auth.getSession();
         if (!session) {
           // Nenhuma sessão → usuário cancelou ou OAuth falhou
+          console.log('[OAuth] Sem sessão após retorno — resetando loading');
+          clearTimeout(safetyTimer);
           setGoogleLoading(false);
+        } else {
+          console.log('[OAuth] Sessão estabelecida com sucesso');
+          clearTimeout(safetyTimer);
+          // onAuthStateChange no AuthContext navega automaticamente
         }
-        // Se sessão existe, onAuthStateChange no AuthContext navega automaticamente
       });
     } catch {
       // Não é ambiente Capacitor — nada a fazer

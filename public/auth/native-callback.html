@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Retornando ao LyFe Hoteles…</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+      padding: 2rem;
+      text-align: center;
+    }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 3px solid rgba(255,255,255,0.15);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    p { margin: 0; }
+    .title { font-size: 15px; opacity: 0.85; font-weight: 500; }
+    .hint  { font-size: 12px; opacity: 0.45; max-width: 320px; line-height: 1.5; }
+    #fallback-btn {
+      display: none;
+      margin-top: 1rem;
+      padding: 0.75rem 1.5rem;
+      background: #fff;
+      color: #0f172a;
+      border: none;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+  </style>
+  <script>
+    // Executa IMEDIATAMENTE (antes do body/render) para máxima velocidade.
+    (function() {
+      try {
+        var url = new URL(window.location.href);
+        var code      = url.searchParams.get('code');
+        var oauthErr  = url.searchParams.get('error');
+        var errDesc   = url.searchParams.get('error_description');
+        var hashFrag  = url.hash; // implicit flow: #access_token=...
+
+        var params = new URLSearchParams();
+        if (code)     params.set('code', code);
+        if (oauthErr) {
+          params.set('error', oauthErr);
+          if (errDesc) params.set('error_description', errDesc);
+        }
+
+        var deepLink = 'com.lyfe.fluxo://login-callback';
+        var search = params.toString();
+        if (search)   deepLink += '?' + search;
+        if (hashFrag) deepLink += hashFrag;
+
+        // Guarda no escopo global para o botão fallback usar
+        window.__lyfeDeepLink = deepLink;
+
+        // Redireciona IMEDIATAMENTE — Chrome Custom Tab dispara intent Android
+        window.location.replace(deepLink);
+
+        // Fallback após 2.5s: mostra botão manual caso o redirect tenha falhado
+        setTimeout(function() {
+          var btn = document.getElementById('fallback-btn');
+          if (btn) {
+            btn.style.display = 'inline-block';
+            btn.href = deepLink;
+          }
+        }, 2500);
+      } catch (e) {
+        // Em caso de erro grave, navegação para o domínio principal
+        document.addEventListener('DOMContentLoaded', function() {
+          var hint = document.querySelector('.hint');
+          if (hint) hint.textContent = 'Erro ao processar autenticação: ' + (e && e.message ? e.message : 'desconhecido');
+        });
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div class="spinner"></div>
+  <p class="title">Retornando ao aplicativo…</p>
+  <p class="hint">Se nada acontecer em alguns segundos, toque no botão abaixo.</p>
+  <a id="fallback-btn" href="#">Abrir LyFe Hoteles</a>
+</body>
+</html>
