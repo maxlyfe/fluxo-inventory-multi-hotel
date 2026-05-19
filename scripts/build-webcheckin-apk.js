@@ -24,7 +24,7 @@ const SRC       = path.join(ROOT, 'android');
 const DST       = path.join(ROOT, 'android-webcheckin');
 const DOWNLOADS = path.join(ROOT, 'public', 'downloads');
 const APK_OUT   = path.join(DST, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
-const APK_NAME  = 'LyFe Check-in.apk';
+const APK_NAME  = 'LyFe Web Check-in.apk';
 const JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr';
 
 // Identidade do APK Web Check-in

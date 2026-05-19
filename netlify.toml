@@ -30,8 +30,10 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate, no-cache, no-store"
 
-# APK: cache curto (10 min) para distribuir versões novas rapidamente
+# APK: Content-Type correto (Android reconhece como instalável)
+# + cache curto (10 min) para distribuir versões novas rapidamente
 [[headers]]
   for = "/downloads/*.apk"
   [headers.values]
+    Content-Type = "application/vnd.android.package-archive"
     Cache-Control = "public, max-age=600, must-revalidate"
