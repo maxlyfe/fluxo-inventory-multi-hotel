@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronRight, Layout, Home,
   LogOut, UserCircle2, Menu, X, Boxes, ClipboardList,
@@ -28,6 +28,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
   const { can, isAdmin, isDev, canAccessContacts } = usePermissions();
   const { selectedHotel }                    = useHotel();
   const location                             = useLocation();
+  const navigate                             = useNavigate();
+
+  // Logout robusto: aguarda + força redirect para /login
+  const handleLogout = async () => {
+    try {
+      await authLogout();
+    } finally {
+      navigate('/login', { replace: true });
+    }
+  };
 
   // Desktop: hover-to-expand
   const [isHovered,       setIsHovered]       = useState(false);
@@ -251,7 +261,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
           </span>
         </Link>
         <button
-          onClick={() => authLogout()}
+          onClick={handleLogout}
           className="w-full flex items-center gap-3 px-2 py-2 rounded-xl text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 hover:text-red-500 transition-all"
         >
           <LogOut className="w-5 h-5 shrink-0" />

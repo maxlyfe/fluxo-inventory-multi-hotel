@@ -238,10 +238,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signOut();
+      // scope: 'local' limpa a sessão local SEM esperar resposta do servidor.
+      // Garante logout instantâneo no APK mesmo com rede ruim/instável.
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      // Limpa state imediatamente (não espera onAuthStateChange para evitar UI travada)
+      setUser(null);
+      setSession(null);
+      setNeedsName(false);
       if (error) return { success: false, message: error.message };
       return { success: true };
     } catch (e: unknown) {
+      // Mesmo em erro, limpa o state local — usuário sai do app
+      setUser(null);
+      setSession(null);
       return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
     } finally {
       setLoading(false);

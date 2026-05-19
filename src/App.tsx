@@ -172,20 +172,15 @@ function OAuthCallbackHandler() {
         const { App: CapApp } = await import('@capacitor/app');
         const { Browser }     = await import('@capacitor/browser');
 
-        // Helper para emitir info na UI (painel de debug do Login)
-        const emit = (type: 'info' | 'error', message: string) =>
-          window.dispatchEvent(new CustomEvent(`oauth-${type}`, { detail: { message } }));
+        // Helper: dispatcha erro para o Login.tsx (apenas erros, sem info logs)
+        const emitErr = (message: string) =>
+          window.dispatchEvent(new CustomEvent('oauth-error', { detail: { message } }));
 
         // ── Deep-link: app recebe "com.lyfe.fluxo://login-callback?code=..." ──
         urlHandle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
-          emit('info', `📨 appUrlOpen: ${url.slice(0, 80)}${url.length > 80 ? '…' : ''}`);
-          if (!url.includes('login-callback')) {
-            emit('info', '⏭️  URL ignorada (não é login-callback)');
-            return;
-          }
+          if (!url.includes('login-callback')) return;
 
           await Browser.close().catch(() => { /* ignore */ });
-          emit('info', '🔒 Custom Tab fechado');
 
           try {
             const urlObj = new URL(url);
@@ -193,21 +188,15 @@ function OAuthCallbackHandler() {
             // Erro retornado pelo OAuth provider
             const oauthErr = urlObj.searchParams.get('error');
             if (oauthErr) {
-              const desc = urlObj.searchParams.get('error_description') || oauthErr;
-              emit('error', `Provider: ${desc}`);
+              emitErr(urlObj.searchParams.get('error_description') || oauthErr);
               return;
             }
 
             // PKCE flow: ?code=...
             const code = urlObj.searchParams.get('code');
             if (code) {
-              emit('info', `🔑 Code recebido (${code.slice(0, 8)}…), trocando por sessão`);
-              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-              if (error) {
-                emit('error', `exchangeCodeForSession: ${error.message}`);
-              } else {
-                emit('info', `✅ Sessão estabelecida: ${data.session?.user.email || 'sem email'}`);
-              }
+              const { error } = await supabase.auth.exchangeCodeForSession(code);
+              if (error) emitErr(`Falha na troca de código: ${error.message}`);
               return;
             }
 
@@ -217,19 +206,14 @@ function OAuthCallbackHandler() {
             const accessToken  = params.get('access_token');
             const refreshToken = params.get('refresh_token');
             if (accessToken && refreshToken) {
-              emit('info', '🔑 Tokens recebidos via implicit flow, definindo sessão');
               const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-              if (error) {
-                emit('error', `setSession: ${error.message}`);
-              } else {
-                emit('info', '✅ Sessão estabelecida via implicit flow');
-              }
+              if (error) emitErr(`Falha ao definir sessão: ${error.message}`);
               return;
             }
 
-            emit('error', 'Callback OAuth sem code nem token');
+            emitErr('Callback OAuth sem código de autorização.');
           } catch (err) {
-            emit('error', `Exceção: ${err instanceof Error ? err.message : 'desconhecida'}`);
+            emitErr(err instanceof Error ? err.message : 'Erro desconhecido no OAuth');
           }
         });
 

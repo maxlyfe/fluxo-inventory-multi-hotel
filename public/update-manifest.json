@@ -1,7 +1,7 @@
 {
-  "latestVersion": "1.5.0",
+  "latestVersion": "1.6.0",
   "url": "/downloads/LyFe%20Hoteles.apk",
-  "notes": "Bridge OAuth via Intent URL + painel de debug visível em tela ao tentar login.",
+  "notes": "Redirecionamento automático após login Google e logout robusto. Painel de debug removido.",
   "minVersion": "1.0.0",
   "forceUpdate": false
 }
