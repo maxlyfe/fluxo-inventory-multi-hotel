@@ -13,8 +13,8 @@ import {
   Settings, LayoutList, Tag, Package, Search, X, Plus,
 } from 'lucide-react';
 import {
-  format, getYear, getMonth, startOfMonth, endOfYear,
-  eachMonthOfInterval, startOfYear, addYears, subYears,
+  format, getYear, getMonth, startOfMonth, endOfMonth, endOfYear,
+  eachMonthOfInterval, startOfYear, addYears, subYears, isAfter,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -34,6 +34,7 @@ import {
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { supabase } from '../../lib/supabase';
+import { erbonService, parseErbonGuests } from '../../lib/erbonService';
 import ExpensesSettings from './ExpensesSettings';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -230,6 +231,9 @@ const ExpensesGuestReport: React.FC = () => {
 
   // Formulário do mês
   const [formGuests,  setFormGuests]  = useState({ first: 0, second: 0 });
+  // Indica se cada quinzena foi auto-preenchida via Erbon (mostra badge "via Erbon")
+  const [erbonFilled, setErbonFilled] = useState({ first: false, second: false });
+  const [erbonLoading, setErbonLoading] = useState(false);
   const [formEntries, setFormEntries] = useState<Record<string, { first: number; second: number }>>({});
 
   // ── Fechar picker ao clicar fora ─────────────────────────────────────────
@@ -384,6 +388,7 @@ const ExpensesGuestReport: React.FC = () => {
       first:  gc?.first_fortnight_guests  ?? 0,
       second: gc?.second_fortnight_guests ?? 0,
     });
+    setErbonFilled({ first: false, second: false }); // reseta flag ao mudar de mês
     const init: Record<string, { first: number; second: number }> = {};
     suppliers.forEach(s => {
       const entry = allEntries.find(e => e.supplier_id === s.id && e.month_date.slice(0, 7) === key);
@@ -391,6 +396,76 @@ const ExpensesGuestReport: React.FC = () => {
     });
     setFormEntries(init);
   }, [currentMonth, allGuests, allEntries, suppliers]);
+
+  // ── Auto-preenchimento via Erbon ──────────────────────────────────────────
+  // Lógica: busca occupancy do mês inteiro do PMS, soma hóspedes por quinzena.
+  // Só preenche uma quinzena se TODA ELA já passou (todos os dias no passado).
+  // Só sobrescreve o input se o valor atual for 0 (não pisa em dados manuais).
+  useEffect(() => {
+    if (!selectedHotel?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      // 1. Checa se o hotel tem Erbon configurado (sem isso não faz request)
+      const config = await erbonService.getConfig(selectedHotel.id).catch(() => null);
+      if (!config || cancelled) return;
+
+      const monthStart = startOfMonth(currentMonth);
+      const monthEnd   = endOfMonth(currentMonth);
+      const dateFrom   = format(monthStart, 'yyyy-MM-dd');
+      const dateTo     = format(monthEnd,   'yyyy-MM-dd');
+
+      // Limite das quinzenas (datas com tempo 23:59 para garantir "todo o dia passou")
+      const today = new Date();
+      const day15  = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 15, 23, 59, 59);
+      const lastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59);
+
+      const firstComplete  = isAfter(today, day15);
+      const secondComplete = isAfter(today, lastDay);
+
+      // Se nenhuma quinzena passou ainda, não faz request
+      if (!firstComplete && !secondComplete) return;
+
+      setErbonLoading(true);
+      try {
+        const data = await erbonService.fetchOccupancyWithPension(
+          selectedHotel.id, dateFrom, dateTo,
+        );
+        if (cancelled) return;
+
+        let firstSum = 0, secondSum = 0;
+        for (const d of data) {
+          const day = parseInt((d.date || '').slice(8, 10), 10);
+          if (isNaN(day)) continue;
+          const guests = parseErbonGuests(d.totalGuestByType);
+          if (day <= 15) firstSum += guests;
+          else           secondSum += guests;
+        }
+
+        // Aplica os valores: apenas em quinzenas completas E com campo em 0
+        setFormGuests(prev => {
+          const next = { ...prev };
+          const filledNow = { first: false, second: false };
+          if (firstComplete && prev.first === 0 && firstSum > 0) {
+            next.first = firstSum;
+            filledNow.first = true;
+          }
+          if (secondComplete && prev.second === 0 && secondSum > 0) {
+            next.second = secondSum;
+            filledNow.second = true;
+          }
+          if (filledNow.first || filledNow.second) setErbonFilled(filledNow);
+          return next;
+        });
+      } catch (err) {
+        console.warn('[Erbon] Auto-fill falhou:', err);
+      } finally {
+        if (!cancelled) setErbonLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [currentMonth, selectedHotel?.id, allGuests]);
 
   // ── Salvar mês ────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -760,17 +835,32 @@ const ExpensesGuestReport: React.FC = () => {
 
           {/* Hóspedes */}
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4">
-            <h4 className="font-bold text-blue-700 dark:text-blue-300 flex items-center gap-2 mb-3 text-sm">
-              <Users className="w-4 h-4" /> Hóspedes
+            <h4 className="font-bold text-blue-700 dark:text-blue-300 flex items-center justify-between gap-2 mb-3 text-sm">
+              <span className="flex items-center gap-2"><Users className="w-4 h-4" /> Hóspedes</span>
+              {erbonLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />}
             </h4>
             <div className="space-y-2">
               {([['first', '1ª Quinzena'], ['second', '2ª Quinzena']] as const).map(([key, label]) => (
                 <div key={key}>
-                  <label className="text-xs text-blue-600 dark:text-blue-300 font-medium">{label}</label>
+                  <label className="text-xs text-blue-600 dark:text-blue-300 font-medium flex items-center gap-1.5">
+                    {label}
+                    {erbonFilled[key] && (
+                      <span
+                        className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 uppercase tracking-wider"
+                        title="Auto-preenchido com dados do Erbon"
+                      >
+                        Erbon
+                      </span>
+                    )}
+                  </label>
                   <input
                     type="number" min={0}
                     value={formGuests[key] || ''}
-                    onChange={e => setFormGuests(p => ({ ...p, [key]: parseFloat(e.target.value) || 0 }))}
+                    onChange={e => {
+                      setFormGuests(p => ({ ...p, [key]: parseFloat(e.target.value) || 0 }));
+                      // Remove badge "Erbon" assim que o usuário edita manualmente
+                      if (erbonFilled[key]) setErbonFilled(p => ({ ...p, [key]: false }));
+                    }}
                     className="mt-0.5 w-full px-3 py-2 text-sm rounded-xl border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-400 outline-none"
                     placeholder="0"
                   />

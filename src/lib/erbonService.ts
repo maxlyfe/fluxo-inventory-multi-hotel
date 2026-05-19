@@ -202,6 +202,26 @@ export interface ErbonAvailabilityDay {
   [key: string]: any; // Estrutura a validar com dados reais
 }
 
+/**
+ * Faz o parse do campo `totalGuestByType` retornado pelo endpoint
+ * /occupancy/withpension. O campo pode vir em dois formatos:
+ *   - Número puro: "47"
+ *   - String com pares "tipo:quantidade" separados por vírgula:
+ *       "ADT:30, CHD:12, INF:5"  (somamos 47)
+ * Retorna 0 se vazio/inválido.
+ */
+export function parseErbonGuests(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+  return trimmed.split(',').reduce((sum, part) => {
+    const segments = part.split(':');
+    const valStr = segments.length > 1 ? segments[1] : segments[0];
+    const val = parseInt((valStr || '').trim() || '0', 10);
+    return sum + (isNaN(val) ? 0 : val);
+  }, 0);
+}
+
 export interface ErbonAccountReceivable {
   [key: string]: any; // Estrutura a validar com dados reais
 }
