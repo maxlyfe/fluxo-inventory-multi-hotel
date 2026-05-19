@@ -1,7 +1,7 @@
 // src/pages/dp/PublicScheduleEdit.tsx
 // Página pública para líder de setor preencher escala (sem login)
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../context/NotificationContext';
