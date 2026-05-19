@@ -8,11 +8,16 @@ interface UpdateManifest {
   forceUpdate: boolean;
 }
 
-// URL absoluta do manifest — sempre busca do servidor de produção
-const MANIFEST_URL = 'https://lyfehoteles.com.br/update-manifest.json';
-
 // URL base para montar download links relativos do manifest
 const SITE_BASE = 'https://lyfehoteles.com.br';
+
+// Cada APK consulta o SEU PROPRIO manifest, baseado no appId nativo.
+// Assim "LyFe Hoteles" não pede para atualizar para "LyFe Check-in" e vice-versa.
+const MANIFEST_BY_APP_ID: Record<string, string> = {
+  'com.lyfe.fluxo':      `${SITE_BASE}/update-manifest.json`,
+  'com.lyfe.webcheckin': `${SITE_BASE}/web-checkin-update-manifest.json`,
+};
+const DEFAULT_MANIFEST_URL = `${SITE_BASE}/update-manifest.json`;
 
 // Intervalo de re-check enquanto o app está aberto: 30 minutos
 const RECHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -35,14 +40,17 @@ export function useAppUpdate() {
         return;
       }
 
-      // Versão instalada no dispositivo
+      // Versão instalada + identidade do app
       const { App } = await import('@capacitor/app');
       const info = await App.getInfo();
       setCurrentVersion(info.version);
       currentVersionRef.current = info.version;
 
+      // Escolhe o manifest correto baseado no appId (cada APK tem o seu)
+      const manifestUrl = MANIFEST_BY_APP_ID[info.id] || DEFAULT_MANIFEST_URL;
+
       // Busca manifest com cache-busting agressivo (timestamp + cache:no-store)
-      const response = await fetch(`${MANIFEST_URL}?t=${Date.now()}`, {
+      const response = await fetch(`${manifestUrl}?t=${Date.now()}`, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
       });

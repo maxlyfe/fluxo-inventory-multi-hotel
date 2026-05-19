@@ -28,11 +28,15 @@ const APK_NAME  = 'LyFe Web Check-in.apk';
 const JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr';
 
 // Identidade do APK Web Check-in
-const APP_ID      = 'com.lyfe.webcheckin';
-const APP_NAME    = 'LyFe Check-in';
-const APP_URL     = 'https://lyfehoteles.com.br/web-checkin';
+// ⚠️ Para liberar uma nova versão: incremente VERSION_CODE (+1) e VERSION_NAME (semver)
+//    e atualize VERSION_NOTES com as mudanças desta release.
+const APP_ID       = 'com.lyfe.webcheckin';
+const APP_NAME     = 'LyFe Check-in';
+const APP_URL      = 'https://lyfehoteles.com.br/web-checkin';
 const VERSION_CODE = 1;
 const VERSION_NAME = '1.0.0';
+const VERSION_NOTES = 'Aplicativo dedicado para tablets de Web Check-in.';
+const UPDATE_MANIFEST = path.join(ROOT, 'public', 'web-checkin-update-manifest.json');
 
 function log(msg) { console.log(`\n▶ ${msg}`); }
 function run(cmd, opts = {}) {
@@ -139,6 +143,21 @@ const apkDst = path.join(DOWNLOADS, APK_NAME);
 fs.copyFileSync(APK_OUT, apkDst);
 const sizeMB = (fs.statSync(apkDst).size / 1024 / 1024).toFixed(1);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Atualizar o update-manifest específico do Check-in
+//    (assim este APK so notifica quando HOUVER uma versao nova DESTE app —
+//     nunca pede para atualizar para a versao do "LyFe Hoteles")
+// ─────────────────────────────────────────────────────────────────────────────
+const manifestData = {
+  latestVersion: VERSION_NAME,
+  url:           `/downloads/${encodeURIComponent(APK_NAME)}`,
+  notes:         VERSION_NOTES,
+  minVersion:    '1.0.0',
+  forceUpdate:   false,
+};
+fs.writeFileSync(UPDATE_MANIFEST, JSON.stringify(manifestData, null, 2) + '\n');
+log(`web-checkin-update-manifest.json: latestVersion=${VERSION_NAME}`);
+
 console.log('\n────────────────────────────────────────────────');
 console.log(`✅ ${APP_NAME} v${VERSION_NAME} criado com sucesso!`);
 console.log(`   Arquivo : public/downloads/${APK_NAME}`);
@@ -147,7 +166,7 @@ console.log(`   App ID  : ${APP_ID}`);
 console.log(`   URL     : ${APP_URL}`);
 console.log('────────────────────────────────────────────────');
 console.log('\nPróximos passos:');
-console.log('  1. git add public/downloads/LyFe\\ Check-in.apk');
-console.log('  2. git commit -m "release(webcheckin): vX.X.X"');
+console.log('  1. git add "public/downloads/LyFe Web Check-in.apk" public/web-checkin-update-manifest.json');
+console.log(`  2. git commit -m "release(webcheckin): v${VERSION_NAME}"`);
 console.log('  3. git push');
-console.log('  4. Download via lyfehoteles.com.br/downloads/LyFe Check-in.apk\n');
+console.log('  4. Download via lyfehoteles.com.br/downloads/LyFe%20Web%20Check-in.apk\n');
