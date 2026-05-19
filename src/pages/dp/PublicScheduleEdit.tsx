@@ -642,13 +642,18 @@ export default function PublicScheduleEdit() {
 
   const [isSaving, setIsSaving] = useState(false);
 
+  const isFutureWeek = useMemo(() => {
+    if (!tokenData) return false;
+    const currentWeekStart = getWeekSunday(new Date());
+    const targetWeekStart = new Date(tokenData.week_start + 'T00:00:00');
+    return targetWeekStart > currentWeekStart;
+  }, [tokenData]);
+
   const saveEntry = async (partial: Partial<ScheduleEntry>) => {
     if (!tokenData || isSaving) return;
 
-    // Double-check: block past week edits
-    const currentWeekStart = getWeekSunday(new Date());
-    if (new Date(tokenData.week_start + 'T00:00:00') < currentWeekStart) {
-      addNotification('error', 'Esta semana já passou. Edição bloqueada.');
+    if (!isFutureWeek) {
+      addNotification('error', 'Edição bloqueada: O link público permite apenas alterações em semanas futuras.');
       return;
     }
 
@@ -686,6 +691,12 @@ export default function PublicScheduleEdit() {
 
   const fillWeek = async (toInsert: Partial<ScheduleEntry>[]) => {
     if (!tokenData || isSaving) return;
+
+    if (!isFutureWeek) {
+      addNotification('error', 'Edição bloqueada: O link público permite apenas alterações em semanas futuras.');
+      return;
+    }
+
     const empId = toInsert[0]?.employee_id;
     if (!empId) return;
     const dayDates = weekDays.map(d => format(d, 'yyyy-MM-dd'));
@@ -718,6 +729,7 @@ export default function PublicScheduleEdit() {
   };
 
   const openCell = (e: React.MouseEvent, empId: string, dayDate: string, sector: string) => {
+    if (!isFutureWeek) return;
     setCellEditor({ empId, dayDate, sector, entry: getEntry(empId, dayDate) });
   };
 
@@ -794,9 +806,18 @@ export default function PublicScheduleEdit() {
 
       {/* Info */}
       <div className="max-w-6xl mx-auto px-4 pt-3">
-        <p className="text-xs text-blue-600 dark:text-blue-400">
-          ⚡ Clique no <strong>nome</strong> para auto-preencher · Clique em qualquer <strong>célula</strong> para editar
-        </p>
+        {isFutureWeek ? (
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            ⚡ Clique no <strong>nome</strong> para auto-preencher · Clique em qualquer <strong>célula</strong> para editar
+          </p>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="h-4 w-4" />
+            <p className="text-xs font-bold">
+              Edição bloqueada: O link público permite apenas alterações em semanas futuras.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -836,16 +857,16 @@ export default function PublicScheduleEdit() {
                     ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/40 dark:bg-gray-800/50'
                   }`}>
                   {/* Name — click to auto-fill */}
-                  <td onClick={() => setAutoFillEmp(emp)}
-                    className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-100 dark:border-gray-700 cursor-pointer group">
+                  <td onClick={() => isFutureWeek && setAutoFillEmp(emp)}
+                    className={`px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-100 dark:border-gray-700 group ${isFutureWeek ? 'cursor-pointer' : 'cursor-default'}`}>
                     <div className="flex items-center gap-1">
-                      <span className="font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors text-xs">
+                      <span className={`font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap transition-colors text-xs ${isFutureWeek ? 'group-hover:text-blue-600 dark:group-hover:text-blue-400' : ''}`}>
                         {emp.name.split(' ')[0]}&nbsp;
                         <span className="text-gray-400 font-normal">
                           {emp.name.split(' ').slice(1, 2).join('')?.charAt(0) || ''}.
                         </span>
                       </span>
-                      <Zap className="h-2.5 w-2.5 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      {isFutureWeek && <Zap className="h-2.5 w-2.5 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </div>
                     {emp.work_schedule && (
                       <span className="text-[11px] text-gray-400 dark:text-gray-500">
