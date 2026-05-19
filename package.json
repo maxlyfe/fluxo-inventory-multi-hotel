@@ -12,7 +12,8 @@
     "supabase": "supabase",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:apk": "node scripts/build-apk.js"
+    "build:apk": "node scripts/build-apk.js",
+    "build:webcheckin-apk": "node scripts/build-webcheckin-apk.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.3",
