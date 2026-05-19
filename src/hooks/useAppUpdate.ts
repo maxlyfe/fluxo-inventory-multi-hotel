@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface UpdateManifest {
   latestVersion: string;
@@ -14,16 +14,20 @@ const MANIFEST_URL = 'https://lyfehoteles.com.br/update-manifest.json';
 // URL base para montar download links relativos do manifest
 const SITE_BASE = 'https://lyfehoteles.com.br';
 
+// Intervalo de re-check enquanto o app está aberto: 30 minutos
+const RECHECK_INTERVAL_MS = 30 * 60 * 1000;
+
 export function useAppUpdate() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [manifest, setManifest] = useState<UpdateManifest | null>(null);
   const [currentVersion, setCurrentVersion] = useState<string>('0.0.0');
   const [loading, setLoading] = useState(true);
 
+  // Guarda a versão atual num ref para evitar recriar o callback
+  const currentVersionRef = useRef('0.0.0');
+
   const checkUpdate = useCallback(async () => {
     try {
-      setLoading(true);
-
       // Só executa em plataforma nativa (APK/iOS)
       const { Capacitor } = await import('@capacitor/core');
       if (!Capacitor.isNativePlatform()) {
@@ -35,9 +39,13 @@ export function useAppUpdate() {
       const { App } = await import('@capacitor/app');
       const info = await App.getInfo();
       setCurrentVersion(info.version);
+      currentVersionRef.current = info.version;
 
-      // Busca manifest com cache-busting
-      const response = await fetch(`${MANIFEST_URL}?t=${Date.now()}`);
+      // Busca manifest com cache-busting agressivo (timestamp + cache:no-store)
+      const response = await fetch(`${MANIFEST_URL}?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (!response.ok) {
         console.warn('[Update] Manifest não disponível:', response.status);
         return;
@@ -50,6 +58,9 @@ export function useAppUpdate() {
       const isNewer = compareVersions(data.latestVersion, info.version) > 0;
       if (isNewer) {
         setUpdateAvailable(true);
+        console.log(`[Update] Nova versão disponível: ${data.latestVersion} (instalada: ${info.version})`);
+      } else {
+        console.log(`[Update] Já está na versão mais recente: ${info.version}`);
       }
     } catch (err) {
       console.error('[Update] Erro ao verificar atualizações:', err);
@@ -72,8 +83,45 @@ export function useAppUpdate() {
     }
   }, [manifest]);
 
+  // Re-check em três momentos:
+  //   1. Na montagem do componente (App abriu)
+  //   2. Quando app volta ao foreground (appStateChange)
+  //   3. Periodicamente a cada 30 min enquanto app aberto
   useEffect(() => {
-    checkUpdate();
+    checkUpdate(); // momento 1
+
+    let stateHandle: { remove: () => void } | null = null;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return;
+
+        const { App: CapApp } = await import('@capacitor/app');
+
+        // momento 2: app voltou ao foreground
+        stateHandle = await CapApp.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) {
+            console.log('[Update] App voltou ao foreground — re-checando manifesto');
+            checkUpdate();
+          }
+        });
+
+        // momento 3: intervalo periódico
+        intervalId = setInterval(() => {
+          console.log('[Update] Re-check periódico (30 min)');
+          checkUpdate();
+        }, RECHECK_INTERVAL_MS);
+      } catch {
+        // ambiente sem Capacitor
+      }
+    })();
+
+    return () => {
+      stateHandle?.remove();
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [checkUpdate]);
 
   return {

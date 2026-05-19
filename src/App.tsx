@@ -148,6 +148,9 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 // ── Supabase (para troca de code OAuth no APK) ────────────────────────────────
 import { supabase } from './lib/supabase';
 
+// ── Bridge OAuth para APK ────────────────────────────────────────────────────
+import NativeCallback from './pages/auth/NativeCallback';
+
 // ---------------------------------------------------------------------------
 // OAuthCallbackHandler
 // Escuta deep links do Capacitor. Quando o in-app browser retorna para
@@ -297,6 +300,7 @@ function App() {
 
                 <Routes>
                   {/* ── Rotas públicas ────────────────────────────────────── */}
+                  <Route path="/auth/native-callback" element={<NativeCallback />} />
                   <Route path="/login"            element={<Login />} />
                   <Route path="/select-hotel"     element={<HotelSelection />} />
                   <Route path="/public/sectors"   element={<PublicSectorsPage />} />

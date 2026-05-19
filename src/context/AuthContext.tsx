@@ -185,12 +185,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const isApp = Capacitor.isNativePlatform();
 
       if (isApp) {
-        // No APK: abre in-app browser e usa PKCE flow com deep link de retorno
+        // No APK: abre in-app browser e usa PKCE flow.
+        // O redirect vai para uma PÁGINA BRIDGE em HTTPS (não direto para o
+        // custom scheme), porque Chrome Custom Tab BLOQUEIA redirect 302 para
+        // schemes custom. A bridge é uma página em lyfehoteles.com.br que
+        // re-redireciona via JS para com.lyfe.fluxo://login-callback,
+        // navegação que o Chrome aceita e converte em intent Android.
         const { Browser } = await import('@capacitor/browser');
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-            redirectTo: 'com.lyfe.fluxo://login-callback',
+            redirectTo: 'https://lyfehoteles.com.br/auth/native-callback',
             skipBrowserRedirect: true,
             queryParams: { prompt: 'select_account' },
           },

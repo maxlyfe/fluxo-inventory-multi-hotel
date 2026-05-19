@@ -16,3 +16,15 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Manifesto de atualização: nunca cachear (sempre versão mais recente)
+[[headers]]
+  for = "/update-manifest.json"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate, no-cache, no-store"
+
+# APK: cache curto (10 min) para distribuir versões novas rapidamente
+[[headers]]
+  for = "/downloads/*.apk"
+  [headers.values]
+    Cache-Control = "public, max-age=600, must-revalidate"
