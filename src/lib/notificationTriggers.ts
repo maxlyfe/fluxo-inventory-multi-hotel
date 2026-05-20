@@ -4,7 +4,7 @@
 // ===========================
 
 import { supabase } from './supabase';
-import { createNotification as createNotificationBase } from './notifications';
+import { createNotification as createNotificationBase, sendPushNotificationToUser } from './notifications';
 
 // Interfaces adaptadas para estrutura real
 interface NotificationData {
@@ -194,9 +194,25 @@ const triggerNotification = async (
       is_read: false
     }));
 
-    // Inserir todas as notificações
+    // Inserir notificações no banco E disparar push FCM em paralelo para cada usuário.
+    // Push é best-effort: falha de FCM não bloqueia a notificação in-app.
     for (const notification of notifications) {
       await createNotificationInternal(notification);
+
+      // Envia push notification (pop-up no Windows/Android) — não awaita para
+      // não bloquear o loop. Erros são tratados dentro de sendPushNotificationToUser.
+      void sendPushNotificationToUser(
+        notification.user_id,
+        titleTemplate,
+        messageTemplate,
+        {
+          eventType,
+          targetPath: notification.target_path || '/',
+          relatedEntityId:   notification.related_entity_id   || '',
+          relatedEntityType: notification.related_entity_type || '',
+          hotelId:           notification.hotel_id            || '',
+        }
+      );
     }
 
   } catch (error) {
