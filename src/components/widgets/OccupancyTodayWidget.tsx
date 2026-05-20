@@ -9,22 +9,41 @@ export default function OccupancyTodayWidget() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  const [hasConfig, setHasConfig] = useState(false);
+
   useEffect(() => {
     async function fetchData() {
-      if (!selectedHotel?.id) return;
+      if (!selectedHotel?.id) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
+        // Só busca se o hotel tem Erbon configurado E ativo
+        // (evita erro "Não foi possível completar a operação" em hotéis sem PMS)
+        const config = await erbonService.getConfig(selectedHotel.id).catch(() => null);
+        if (!config || !config.is_active) {
+          setHasConfig(false);
+          setLoading(false);
+          return;
+        }
+        setHasConfig(true);
+
         const today = format(new Date(), 'yyyy-MM-dd');
         const occupancy = await erbonService.fetchOccupancyWithPension(selectedHotel.id, today, today);
         if (occupancy && occupancy[0]) setData(occupancy[0]);
       } catch (err) {
-        console.error(err);
+        // Log silencioso — não atrapalha a UI dos hotéis sem PMS
+        console.warn('[OccupancyTodayWidget] Falha ao buscar Erbon:', err);
       } finally {
         setLoading(false);
       }
     }
     fetchData();
   }, [selectedHotel?.id]);
+
+  // Não renderiza o widget se o hotel não tem Erbon configurado
+  if (!loading && !hasConfig) return null;
 
   if (loading) {
     return (

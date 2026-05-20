@@ -63,27 +63,19 @@ export default function MaintenanceEquipmentDetail() {
   const [notFound, setNotFound]   = useState(false);
 
   // ---------------------------------------------------------------------------
-  // Redirect if not logged in
+  // Fetch equipment data — acessível para QUALQUER usuário (com ou sem login)
+  //   - Sem login: vê info básica + botão "Abrir Chamado"
+  //   - Com login: vê info completa + histórico de chamados
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      navigate(`/login?redirect=/maintenance/equipment/${qrId}`, { replace: true });
-    }
-  }, [user, authLoading, qrId]);
-
-  // ---------------------------------------------------------------------------
-  // Fetch equipment data diretamente do Supabase (usuário já está logado)
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    if (!qrId || !user) return;
+    if (!qrId || authLoading) return;
 
     const fetchData = async () => {
       setLoading(true);
       setNotFound(false);
 
       try {
-        // Busca equipamento pelo qr_code_id
+        // Busca equipamento pelo qr_code_id (público — RLS deve permitir SELECT anônimo)
         const { data: eq, error: eqErr } = await supabase
           .from('maintenance_equipment')
           .select('*, hotels:hotel_id(id, name)')
@@ -104,15 +96,19 @@ export default function MaintenanceEquipmentDetail() {
 
         setEquipment(eq as Equipment);
 
-        // Busca tickets deste equipamento
-        const { data: tks, error: tkErr } = await supabase
-          .from('maintenance_tickets')
-          .select('id, title, status, priority, opened_by_name, created_at, resolved_at')
-          .eq('equipment_id', eq.id)
-          .order('created_at', { ascending: false });
+        // Só busca histórico de tickets se o usuário está logado
+        if (user) {
+          const { data: tks, error: tkErr } = await supabase
+            .from('maintenance_tickets')
+            .select('id, title, status, priority, opened_by_name, created_at, resolved_at')
+            .eq('equipment_id', eq.id)
+            .order('created_at', { ascending: false });
 
-        if (tkErr) console.error('Erro ao buscar tickets:', tkErr);
-        setTickets((tks || []) as Ticket[]);
+          if (tkErr) console.error('Erro ao buscar tickets:', tkErr);
+          setTickets((tks || []) as Ticket[]);
+        } else {
+          setTickets([]);
+        }
 
       } catch (err) {
         console.error('Erro inesperado:', err);
@@ -123,7 +119,7 @@ export default function MaintenanceEquipmentDetail() {
     };
 
     fetchData();
-  }, [qrId, user]);
+  }, [qrId, user, authLoading]);
 
   // ---------------------------------------------------------------------------
   // Warranty helpers
@@ -150,7 +146,7 @@ export default function MaintenanceEquipmentDetail() {
   // ---------------------------------------------------------------------------
   // Loading / Not found
   // ---------------------------------------------------------------------------
-  if (authLoading || (loading && user)) return (
+  if (authLoading || loading) return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="flex flex-col items-center gap-3 text-gray-400">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -220,19 +216,30 @@ export default function MaintenanceEquipmentDetail() {
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Total', value: totalTickets,    color: 'text-gray-900 dark:text-white'   },
-            { label: 'Abertos', value: openTickets,   color: 'text-amber-600 dark:text-amber-400' },
-            { label: 'Resolvidos', value: resolvedTickets, color: 'text-green-600 dark:text-green-400' },
-          ].map(s => (
-            <div key={s.label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 text-center">
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{s.label}</p>
-            </div>
-          ))}
-        </div>
+        {/* Stats — só para usuários logados (anon vê só o botão de abrir chamado) */}
+        {user && (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Total', value: totalTickets,    color: 'text-gray-900 dark:text-white'   },
+              { label: 'Abertos', value: openTickets,   color: 'text-amber-600 dark:text-amber-400' },
+              { label: 'Resolvidos', value: resolvedTickets, color: 'text-green-600 dark:text-green-400' },
+            ].map(s => (
+              <div key={s.label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 text-center">
+                <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Banner sutil para usuários anônimos */}
+        {!user && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-3 text-center">
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              Funcionário do hotel? <Link to={`/login?redirect=/maintenance/equipment/${qrId}`} className="font-bold underline">Entre</Link> para ver o histórico de manutenções.
+            </p>
+          </div>
+        )}
 
         {/* Info card */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
