@@ -410,31 +410,40 @@ export async function fetchHotelPolicies(hotelId: string): Promise<{
 
 // ── Buscar reserva ─────────────────────────────────────────────────────────
 
+// Dois modos independentes de busca:
+//   1. byBooking: recepcionista informa o número da reserva (busca direta)
+//   2. byGuest:   hóspede informa sobrenome + check-in + check-out
+//                 (busca por intervalo de datas e filtra por sobrenome)
+export type SearchReservationInput =
+  | { mode: 'byBooking'; bookingNumber: string }
+  | { mode: 'byGuest';   surname: string; checkin: string; checkout: string };
+
 export async function searchReservation(
   hotelId: string,
-  query: string
+  input: SearchReservationInput
 ): Promise<{ booking: ErbonBooking; guests: WebCheckinGuest[] } | null> {
-  const trimmed = query.trim();
   const params: Record<string, string> = {};
+  let surnameFilter: string | null = null;
 
-  if (trimmed.includes('@')) {
-    params.guestEmail = trimmed;
-  } else if (/^\d+$/.test(trimmed)) {
+  if (input.mode === 'byBooking') {
+    const trimmed = input.bookingNumber.trim();
+    if (!trimmed) return null;
     params.bookingNumber = trimmed;
   } else {
-    const today = new Date().toISOString().split('T')[0];
-    const next7 = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-    params.checkin  = today;
-    params.checkout = next7;
+    surnameFilter = input.surname.trim().toLowerCase();
+    if (!surnameFilter || !input.checkin || !input.checkout) return null;
+    params.checkin  = input.checkin;   // formato ISO 'yyyy-MM-dd'
+    params.checkout = input.checkout;
   }
 
   const results = await erbonService.searchBookings(hotelId, params);
   if (!results.length) return null;
 
   let booking: ErbonBooking;
-  if (!trimmed.includes('@') && !/^\d+$/.test(trimmed)) {
+  if (surnameFilter) {
+    // Match: qualquer hóspede da reserva cujo nome contenha o sobrenome informado
     const match = results.find(b =>
-      b.guestList?.some(g => g.name?.toLowerCase().includes(trimmed.toLowerCase()))
+      b.guestList?.some(g => (g.name || '').toLowerCase().includes(surnameFilter!))
     );
     if (!match) return null;
     booking = match;

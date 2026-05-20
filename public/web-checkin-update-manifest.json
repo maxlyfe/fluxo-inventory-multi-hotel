@@ -1,7 +1,7 @@
 {
-  "latestVersion": "1.0.0",
+  "latestVersion": "1.1.0",
   "url": "/downloads/LyFe%20Web%20Check-in.apk",
-  "notes": "Aplicativo dedicado para tablets de Web Check-in.",
+  "notes": "Busca de reserva em 2 modos: por número (recepção) ou por sobrenome+datas (link enviado ao hóspede). Campos de data em dd/mm/aaaa com calendário.",
   "minVersion": "1.0.0",
   "forceUpdate": false
 }

@@ -33,9 +33,9 @@ const JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr';
 const APP_ID       = 'com.lyfe.webcheckin';
 const APP_NAME     = 'LyFe Check-in';
 const APP_URL      = 'https://lyfehoteles.com.br/web-checkin';
-const VERSION_CODE = 1;
-const VERSION_NAME = '1.0.0';
-const VERSION_NOTES = 'Aplicativo dedicado para tablets de Web Check-in.';
+const VERSION_CODE = 2;
+const VERSION_NAME = '1.1.0';
+const VERSION_NOTES = 'Busca de reserva em 2 modos: por número (recepção) ou por sobrenome+datas (link enviado ao hóspede). Campos de data em dd/mm/aaaa com calendário.';
 const UPDATE_MANIFEST = path.join(ROOT, 'public', 'web-checkin-update-manifest.json');
 
 function log(msg) { console.log(`\n▶ ${msg}`); }
