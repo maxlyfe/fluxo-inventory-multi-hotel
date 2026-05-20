@@ -1,5 +1,6 @@
 // src/pages/UserManagement.tsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import {
   Users, Key, AlertTriangle, UserCog, Bell, PlusCircle,
@@ -404,14 +405,51 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
   onToggleBan: () => void; onForceLogout: () => void; onRemovePhoto: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Calcula posição do dropdown relativa ao viewport ao abrir
+  // (renderiza via Portal → escapa do overflow-hidden do card pai)
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current) return;
+    const r = buttonRef.current.getBoundingClientRect();
+    setCoords({
+      top:   r.bottom + 6,
+      right: window.innerWidth - r.right,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) updatePosition();
+  }, [open, updatePosition]);
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const t = setTimeout(() => document.addEventListener('mousedown', handler), 60);
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', handler); };
-  }, [open]);
+
+    const handler = (e: MouseEvent) => {
+      const t = e.target as Node;
+      // Fecha se clicou fora do botão E fora do menu portalado
+      if (
+        buttonRef.current && !buttonRef.current.contains(t) &&
+        menuRef.current && !menuRef.current.contains(t)
+      ) {
+        setOpen(false);
+      }
+    };
+    const onScroll = () => updatePosition();
+    const onResize = () => updatePosition();
+
+    const tm = setTimeout(() => document.addEventListener('mousedown', handler), 60);
+    window.addEventListener('scroll',  onScroll, true);
+    window.addEventListener('resize',  onResize);
+    return () => {
+      clearTimeout(tm);
+      document.removeEventListener('mousedown', handler);
+      window.removeEventListener('scroll',  onScroll, true);
+      window.removeEventListener('resize',  onResize);
+    };
+  }, [open, updatePosition]);
 
   const item = (label: string, icon: React.ReactNode, onClick: () => void, cls = 'text-slate-700 dark:text-slate-200', isDisabled = false) => (
     <button
@@ -425,8 +463,9 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
   );
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={buttonRef}
         onClick={() => setOpen(v => !v)}
         className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
         aria-label="Ações do usuário"
@@ -434,8 +473,18 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
         <MoreVertical className="h-4 w-4" />
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 py-1.5 overflow-hidden">
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={{
+            position: 'fixed',
+            top:   coords.top,
+            right: coords.right,
+            zIndex: 9999,
+            width: 224, // = w-56
+          }}
+          className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 overflow-hidden"
+        >
           {item('Alterar senha', <Key className="h-4 w-4 text-indigo-500" />, onChangePassword, undefined, disabled)}
           {item('Alterar função', <UserCog className="h-4 w-4 text-amber-500" />, onChangeRole, undefined, disabled || isMe)}
           {item('Notificações', <Bell className="h-4 w-4 text-blue-500" />, onNotifications)}
@@ -463,9 +512,10 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
               forcingLogout
             )
           )}
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
