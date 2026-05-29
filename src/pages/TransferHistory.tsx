@@ -1,23 +1,32 @@
 // src/pages/TransferHistory.tsx
-// Histórico de transferências entre hotéis com tracking inteligente de dívidas
+// Histórico de transferências entre hotéis — redesign focado em auditoria + dívidas em R$
+//
+// 3 abas:
+//   1. "Saldo R$"  (padrão) — Quanto cada hotel deve para o outro em R$
+//   2. "Por Dia"            — Visão cronológica, agrupada por data (auditoria)
+//   3. "Por Item"           — Histórico por produto com evolução de preço unitário
+//
+// Filtros globais: período (de–até), hotel parceiro, busca por item, status
+// Export: Excel (.xlsx) respeitando os filtros aplicados
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
+import * as XLSX from 'xlsx';
 import {
   ArrowLeftRight, ChevronDown, ChevronRight, Package,
   TrendingUp, TrendingDown, Scale, Building2, Search,
-  Filter, ArrowUpRight, ArrowDownLeft, CheckCircle2,
-  AlertCircle, Clock, X, HandCoins, Loader2, AlertTriangle,
+  ArrowUpRight, ArrowDownLeft, CheckCircle2,
+  Clock, X, HandCoins, Loader2, Calendar as CalendarIcon,
+  Download, AlertTriangle, FileSpreadsheet,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO, startOfDay, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+// ─── Types ───────────────────────────────────────────────────────────────────
+
 interface Transfer {
   id: string;
   source_hotel_id: string;
@@ -25,76 +34,133 @@ interface Transfer {
   product_id: string;
   quantity: number;
   unit_value: number | null;
-  status: string; // pending | completed | cancelled
+  status: 'pending' | 'completed' | 'cancelled' | string;
   notes: string | null;
   created_at: string;
   completed_at: string | null;
-  source_hotel: { id: string; name: string } | null;
+  source_hotel:      { id: string; name: string } | null;
   destination_hotel: { id: string; name: string } | null;
   product: { id: string; name: string; image_url: string | null; category: string } | null;
 }
 
-interface HotelPairSummary {
-  otherHotelId: string;
-  otherHotelName: string;
-  products: ProductDebtSummary[];
-  totalSent: number;
-  totalReceived: number;
-  netItems: number; // positive = they owe us (sent more), negative = we owe them (received more)
-  totalValueSent: number;
-  totalValueReceived: number;
+type Tab = 'balance' | 'byDay' | 'byItem';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const fmtBRL = (v: number) =>
+  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
+
+const fmtBRLOrDash = (v: number | null) =>
+  v == null ? '—' : fmtBRL(v);
+
+const dateKey = (iso: string) => iso.slice(0, 10); // 'YYYY-MM-DD'
+
+// Máscara dd/mm/aaaa
+function maskDateBR(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  const parts: string[] = [];
+  if (digits.length > 0) parts.push(digits.slice(0, 2));
+  if (digits.length > 2) parts.push(digits.slice(2, 4));
+  if (digits.length > 4) parts.push(digits.slice(4, 8));
+  return parts.join('/');
+}
+function brToISO(br: string): string | null {
+  const m = br.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, d, mo, y] = m;
+  const day = +d, mon = +mo, year = +y;
+  if (mon < 1 || mon > 12 || day < 1 || day > 31 || year < 1900 || year > 2100) return null;
+  const dt = new Date(year, mon - 1, day);
+  if (dt.getFullYear() !== year || dt.getMonth() !== mon - 1 || dt.getDate() !== day) return null;
+  return `${y}-${mo}-${d}`;
+}
+function isoToBR(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
-interface ProductDebtSummary {
-  productId: string;
-  productName: string;
-  productImage: string | null;
-  productCategory: string;
-  totalSent: number;
-  totalReceived: number;
-  net: number; // positive = sent more (they owe us), negative = received more (we owe them)
-  transfers: TransferLine[];
+// ─── DateBR Input (dd/mm/aaaa + calendário) ─────────────────────────────────
+
+function DateBRInput({ value, onChange, placeholder = 'dd/mm/aaaa' }: {
+  value: string; onChange: (br: string) => void; placeholder?: string;
+}) {
+  const dateRef = useRef<HTMLInputElement>(null);
+  const openPicker = () => {
+    const el = dateRef.current;
+    if (!el) return;
+    try { (el as any).showPicker?.(); } catch {}
+    el.focus();
+  };
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={e => onChange(maskDateBR(e.target.value))}
+        placeholder={placeholder}
+        maxLength={10}
+        className="w-32 sm:w-36 pl-3 pr-9 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+      />
+      <button
+        type="button"
+        onClick={openPicker}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-orange-500 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+        aria-label="Abrir calendário"
+      >
+        <CalendarIcon className="w-3.5 h-3.5" />
+      </button>
+      <input
+        ref={dateRef}
+        type="date"
+        value={brToISO(value) || ''}
+        onChange={e => onChange(e.target.value ? isoToBR(e.target.value) : '')}
+        tabIndex={-1}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 opacity-0 pointer-events-none"
+      />
+    </div>
+  );
 }
 
-interface TransferLine {
-  id: string;
-  date: string;
-  quantity: number;
-  direction: 'sent' | 'received';
-  otherHotelName: string;
-  unitValue: number | null;
-  status: string;
-  notes: string | null;
-}
+// ─── Componente principal ────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 const TransferHistory: React.FC = () => {
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification();
 
-  const [transfers, setTransfers] = useState<Transfer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [transfers, setTransfers]   = useState<Transfer[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [tab, setTab]               = useState<Tab>('balance');
+
+  // ── Filtros globais ──────────────────────────────────────────────────────
+  const today = useMemo(() => format(new Date(), 'dd/MM/yyyy'), []);
+  const past30 = useMemo(() => format(subDays(new Date(), 30), 'dd/MM/yyyy'), []);
+  const [dateFromBR, setDateFromBR] = useState(past30);
+  const [dateToBR, setDateToBR]     = useState(today);
+  const [filterHotelId, setFilterHotelId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('all');
-  const [expandedHotels, setExpandedHotels] = useState<Set<string>>(new Set());
-  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('completed');
+
+  // Item selecionado na aba "Por Item"
+  const [selectedItemId, setSelectedItemId] = useState<string>('');
+
+  // Modal: cancelar dívida
   const [forgiveConfirm, setForgiveConfirm] = useState<{
-    hotelId: string;
-    hotelName: string;
-    products: (ProductDebtSummary & { cancelQty: string })[];
+    hotelId: string; hotelName: string;
+    products: Array<{ productId: string; productName: string; net: number; cancelQty: string }>;
   } | null>(null);
   const [forgiving, setForgiving] = useState(false);
 
-  // ── Fetch transfers ──────────────────────────────────────────────────────
+  // Expansões (aba Por Dia)
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
+
+  // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchTransfers = useCallback(async () => {
     if (!selectedHotel?.id) return;
     setLoading(true);
     try {
-      // Transfers where this hotel is source OR destination
-      const { data: sentData, error: sentErr } = await supabase
+      const { data, error } = await supabase
         .from('hotel_transfers')
         .select(`
           id, source_hotel_id, destination_hotel_id, product_id,
@@ -105,308 +171,279 @@ const TransferHistory: React.FC = () => {
         `)
         .or(`source_hotel_id.eq.${selectedHotel.id},destination_hotel_id.eq.${selectedHotel.id}`)
         .order('created_at', { ascending: false });
-
-      if (sentErr) throw sentErr;
-      setTransfers((sentData || []) as unknown as Transfer[]);
+      if (error) throw error;
+      setTransfers((data || []) as unknown as Transfer[]);
     } catch (err: any) {
       console.error('Erro ao buscar transferências:', err);
-      addNotification('Erro ao carregar histórico de transferências.', 'error');
+      addNotification('Erro ao carregar transferências.', 'error');
     } finally {
       setLoading(false);
     }
   }, [selectedHotel, addNotification]);
 
-  useEffect(() => {
-    fetchTransfers();
-  }, [fetchTransfers]);
+  useEffect(() => { fetchTransfers(); }, [fetchTransfers]);
 
-  // ── Build summaries ──────────────────────────────────────────────────────
-  const hotelPairs = useMemo(() => {
+  // ── Aplicar filtros globais ─────────────────────────────────────────────
+  const filteredTransfers = useMemo(() => {
+    if (!selectedHotel?.id) return [] as Transfer[];
+
+    const fromISO = brToISO(dateFromBR);
+    const toISO   = brToISO(dateToBR);
+    const term = searchTerm.trim().toLowerCase();
+
+    return transfers.filter(t => {
+      // Período
+      const day = dateKey(t.created_at);
+      if (fromISO && day < fromISO) return false;
+      if (toISO   && day > toISO)   return false;
+
+      // Status
+      if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+
+      // Hotel parceiro
+      if (filterHotelId) {
+        const otherId = t.source_hotel_id === selectedHotel.id
+          ? t.destination_hotel_id : t.source_hotel_id;
+        if (otherId !== filterHotelId) return false;
+      }
+
+      // Item (busca livre)
+      if (term) {
+        const name = t.product?.name?.toLowerCase() || '';
+        if (!name.includes(term)) return false;
+      }
+
+      return true;
+    });
+  }, [transfers, selectedHotel, dateFromBR, dateToBR, statusFilter, filterHotelId, searchTerm]);
+
+  // Lista de hotéis parceiros (pra dropdown)
+  const partnerHotels = useMemo(() => {
     if (!selectedHotel?.id) return [];
-
-    // Filtro de busca (aplicado a tudo)
-    const matchesSearch = (t: Transfer) => {
-      if (!searchTerm) return true;
-      const term = searchTerm.toLowerCase();
-      const productName = t.product?.name?.toLowerCase() || '';
-      const sourceName = t.source_hotel?.name?.toLowerCase() || '';
-      const destName = t.destination_hotel?.name?.toLowerCase() || '';
-      return productName.includes(term) || sourceName.includes(term) || destName.includes(term);
-    };
-
-    // Group by other hotel
-    const pairMap = new Map<string, {
-      otherHotelId: string;
-      otherHotelName: string;
-      productMap: Map<string, ProductDebtSummary>;
-    }>();
-
+    const map = new Map<string, string>();
     for (const t of transfers) {
-      if (!matchesSearch(t)) continue;
+      const otherId = t.source_hotel_id === selectedHotel.id ? t.destination_hotel_id : t.source_hotel_id;
+      const otherName = t.source_hotel_id === selectedHotel.id
+        ? (t.destination_hotel?.name || '?')
+        : (t.source_hotel?.name || '?');
+      if (otherId && !map.has(otherId)) map.set(otherId, otherName);
+    }
+    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [transfers, selectedHotel]);
 
-      const isSent = t.source_hotel_id === selectedHotel.id;
-      const otherHotelId = isSent ? t.destination_hotel_id : t.source_hotel_id;
-      const otherHotelName = isSent
-        ? (t.destination_hotel?.name || 'Hotel desconhecido')
-        : (t.source_hotel?.name || 'Hotel desconhecido');
-
-      if (!pairMap.has(otherHotelId)) {
-        pairMap.set(otherHotelId, {
-          otherHotelId,
-          otherHotelName,
-          productMap: new Map(),
-        });
-      }
-
-      const pair = pairMap.get(otherHotelId)!;
-      const productId = t.product_id;
-      const productName = t.product?.name || 'Produto desconhecido';
-
-      if (!pair.productMap.has(productId)) {
-        pair.productMap.set(productId, {
-          productId,
-          productName,
-          productImage: t.product?.image_url || null,
-          productCategory: t.product?.category || '',
-          totalSent: 0,
-          totalReceived: 0,
-          net: 0,
-          transfers: [],
-        });
-      }
-
-      const ps = pair.productMap.get(productId)!;
-
-      // Dívida inteligente: conta completed (transferências reais)
-      // Cancelled com "Dívida cancelada" são compensações que também afetam o saldo
-      if (t.status === 'completed') {
-        if (isSent) ps.totalSent += t.quantity;
-        else ps.totalReceived += t.quantity;
-      } else if (t.status === 'cancelled' && t.notes?.includes('Dívida cancelada')) {
-        // Compensações de dívida: contam para zerar o saldo
-        if (isSent) ps.totalSent += t.quantity;
-        else ps.totalReceived += t.quantity;
-      }
-
-      // Linhas de transferência: respeita o filtro de status para exibição
-      if (statusFilter === 'all' || t.status === statusFilter) {
-        ps.transfers.push({
-          id: t.id,
-          date: t.created_at,
-          quantity: t.quantity,
-          direction: isSent ? 'sent' : 'received',
-          otherHotelName,
-          unitValue: t.unit_value,
-          status: t.status,
-          notes: t.notes,
-        });
+  // Lista de itens únicos (pra aba Por Item — só os que aparecem nas transferências filtradas)
+  const uniqueItems = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; category: string }>();
+    for (const t of filteredTransfers) {
+      if (t.product && !map.has(t.product.id)) {
+        map.set(t.product.id, { id: t.product.id, name: t.product.name, category: t.product.category });
       }
     }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredTransfers]);
 
-    // Calculate nets and build final array
-    const results: HotelPairSummary[] = [];
-    for (const [, pair] of pairMap) {
-      const products: ProductDebtSummary[] = [];
-      let totalSent = 0;
-      let totalReceived = 0;
-      let totalValueSent = 0;
-      let totalValueReceived = 0;
-
-      for (const [, ps] of pair.productMap) {
-        ps.net = ps.totalSent - ps.totalReceived; // positive = they owe us
-        ps.transfers.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-        // Só inclui o produto se tiver transferências visíveis OU dívida pendente
-        if (ps.transfers.length > 0 || ps.net !== 0) {
-          products.push(ps);
-        }
-        totalSent += ps.totalSent;
-        totalReceived += ps.totalReceived;
-
-        // Valores monetários
-        for (const tl of ps.transfers) {
-          const val = (tl.unitValue || 0) * tl.quantity;
-          if (tl.direction === 'sent') totalValueSent += val;
-          else totalValueReceived += val;
-        }
+  // ── Aba 1: Saldo R$ ──────────────────────────────────────────────────────
+  const balanceByHotel = useMemo(() => {
+    if (!selectedHotel?.id) return [];
+    type Row = {
+      hotelId: string; hotelName: string;
+      sentR: number; receivedR: number;
+      sentUnits: number; receivedUnits: number;
+      // detalhes por produto para o modal
+      products: Map<string, { productId: string; productName: string; sentUnits: number; receivedUnits: number; sentR: number; receivedR: number }>;
+    };
+    const rowMap = new Map<string, Row>();
+    for (const t of filteredTransfers) {
+      const isSent  = t.source_hotel_id === selectedHotel.id;
+      const otherId = isSent ? t.destination_hotel_id : t.source_hotel_id;
+      const otherName = (isSent ? t.destination_hotel?.name : t.source_hotel?.name) || '?';
+      if (!otherId) continue;
+      if (!rowMap.has(otherId)) {
+        rowMap.set(otherId, {
+          hotelId: otherId, hotelName: otherName,
+          sentR: 0, receivedR: 0, sentUnits: 0, receivedUnits: 0,
+          products: new Map(),
+        });
       }
+      const r = rowMap.get(otherId)!;
+      const value = (t.unit_value || 0) * t.quantity;
+      const isReal = t.status === 'completed' || (t.status === 'cancelled' && t.notes?.includes('Dívida cancelada'));
+      if (!isReal) continue;
+      if (isSent) { r.sentR += value;     r.sentUnits += t.quantity; }
+      else        { r.receivedR += value; r.receivedUnits += t.quantity; }
 
-      // Não mostra pares sem produtos visíveis
-      if (products.length === 0) continue;
+      const pid = t.product_id;
+      if (!r.products.has(pid)) {
+        r.products.set(pid, {
+          productId: pid,
+          productName: t.product?.name || 'Desconhecido',
+          sentUnits: 0, receivedUnits: 0, sentR: 0, receivedR: 0,
+        });
+      }
+      const p = r.products.get(pid)!;
+      if (isSent) { p.sentUnits += t.quantity; p.sentR += value; }
+      else        { p.receivedUnits += t.quantity; p.receivedR += value; }
+    }
+    return Array.from(rowMap.values()).sort((a, b) => a.hotelName.localeCompare(b.hotelName));
+  }, [filteredTransfers, selectedHotel]);
 
-      products.sort((a, b) => a.productName.localeCompare(b.productName));
+  const totalBalance = useMemo(() => {
+    let sentR = 0, receivedR = 0;
+    for (const r of balanceByHotel) { sentR += r.sentR; receivedR += r.receivedR; }
+    return { sentR, receivedR, net: sentR - receivedR };
+  }, [balanceByHotel]);
 
-      results.push({
-        otherHotelId: pair.otherHotelId,
-        otherHotelName: pair.otherHotelName,
-        products,
-        totalSent,
-        totalReceived,
-        netItems: totalSent - totalReceived, // positive = they owe us
-        totalValueSent,
-        totalValueReceived,
+  // ── Aba 2: Por Dia ───────────────────────────────────────────────────────
+  const transfersByDay = useMemo(() => {
+    const map = new Map<string, Transfer[]>();
+    for (const t of filteredTransfers) {
+      const k = dateKey(t.created_at);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(t);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0])) // mais recente primeiro
+      .map(([day, list]) => {
+        list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+        const totalR = list.reduce((s, t) => s + (t.unit_value || 0) * t.quantity, 0);
+        return { day, list, totalR };
       });
+  }, [filteredTransfers]);
+
+  // ── Aba 3: Por Item ──────────────────────────────────────────────────────
+  const itemHistory = useMemo(() => {
+    if (!selectedItemId || !selectedHotel?.id) return null;
+    const list = filteredTransfers.filter(t => t.product_id === selectedItemId);
+
+    // Agrupa por hotel parceiro
+    type ByHotel = {
+      hotelId: string; hotelName: string;
+      lines: Transfer[];
+      totalUnits: number; totalR: number;
+    };
+    const map = new Map<string, ByHotel>();
+    for (const t of list) {
+      const isSent = t.source_hotel_id === selectedHotel.id;
+      const otherId = isSent ? t.destination_hotel_id : t.source_hotel_id;
+      const otherName = (isSent ? t.destination_hotel?.name : t.source_hotel?.name) || '?';
+      if (!otherId) continue;
+      if (!map.has(otherId)) {
+        map.set(otherId, { hotelId: otherId, hotelName: otherName, lines: [], totalUnits: 0, totalR: 0 });
+      }
+      const r = map.get(otherId)!;
+      r.lines.push(t);
+      r.totalUnits += t.quantity;
+      r.totalR += (t.unit_value || 0) * t.quantity;
     }
+    for (const r of map.values()) r.lines.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const itemName = list[0]?.product?.name || uniqueItems.find(i => i.id === selectedItemId)?.name || '';
+    return {
+      itemName,
+      byHotel: Array.from(map.values()).sort((a, b) => a.hotelName.localeCompare(b.hotelName)),
+    };
+  }, [selectedItemId, filteredTransfers, selectedHotel, uniqueItems]);
 
-    results.sort((a, b) => a.otherHotelName.localeCompare(b.otherHotelName));
-    return results;
-  }, [transfers, selectedHotel, statusFilter, searchTerm]);
-
-  // ── Global stats ─────────────────────────────────────────────────────────
-  const globalStats = useMemo(() => {
-    let totalSent = 0;
-    let totalReceived = 0;
-    let totalValueSent = 0;
-    let totalValueReceived = 0;
-
-    for (const pair of hotelPairs) {
-      totalSent += pair.totalSent;
-      totalReceived += pair.totalReceived;
-      totalValueSent += pair.totalValueSent;
-      totalValueReceived += pair.totalValueReceived;
+  // ── Export Excel ─────────────────────────────────────────────────────────
+  const exportExcel = () => {
+    if (filteredTransfers.length === 0) {
+      addNotification('Nenhuma transferência para exportar com os filtros atuais.', 'warning');
+      return;
     }
-
-    return { totalSent, totalReceived, totalValueSent, totalValueReceived, net: totalSent - totalReceived };
-  }, [hotelPairs]);
-
-  // ── Cancelar dívida ─────────────────────────────────────────────────────
-  const openForgiveModal = (hotelId: string, hotelName: string, products: ProductDebtSummary[]) => {
-    setForgiveConfirm({
-      hotelId,
-      hotelName,
-      products: products
-        .filter(p => p.net !== 0)
-        .map(p => ({ ...p, cancelQty: String(Math.abs(p.net)) })),
+    const rows = filteredTransfers.map(t => {
+      const isSent = t.source_hotel_id === selectedHotel?.id;
+      return {
+        'Data':       format(parseISO(t.created_at), 'dd/MM/yyyy', { locale: ptBR }),
+        'Hora':       format(parseISO(t.created_at), 'HH:mm'),
+        'Direção':    isSent ? 'Enviado' : 'Recebido',
+        'Origem':     t.source_hotel?.name || '',
+        'Destino':    t.destination_hotel?.name || '',
+        'Item':       t.product?.name || '',
+        'Categoria':  t.product?.category || '',
+        'Quantidade': t.quantity,
+        'Valor Unit (R$)':  t.unit_value ?? '',
+        'Valor Total (R$)': (t.unit_value || 0) * t.quantity,
+        'Status':           t.status === 'completed' ? 'Concluída' : t.status === 'pending' ? 'Pendente' : 'Cancelada',
+        'Observações':      t.notes || '',
+      };
     });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Transferências');
+    const slug = (selectedHotel?.name || 'hotel').toLowerCase().replace(/\s+/g, '-');
+    const fromISO = brToISO(dateFromBR) || 'inicio';
+    const toISO   = brToISO(dateToBR)   || 'fim';
+    XLSX.writeFile(wb, `transferencias_${slug}_${fromISO}_${toISO}.xlsx`);
+    addNotification(`Exportadas ${rows.length} transferências.`, 'success');
   };
 
-  const handleForgiveQtyChange = (productId: string, value: string) => {
-    if (!forgiveConfirm) return;
-    setForgiveConfirm({
-      ...forgiveConfirm,
-      products: forgiveConfirm.products.map(p =>
-        p.productId === productId ? { ...p, cancelQty: value } : p
-      ),
-    });
+  // ── Cancelar dívida ──────────────────────────────────────────────────────
+  const openForgiveModal = (hotelId: string, hotelName: string, products: Array<any>) => {
+    const dueProducts = products.filter(p => {
+      const net = p.sentUnits - p.receivedUnits;
+      return net !== 0;
+    }).map(p => ({
+      productId: p.productId,
+      productName: p.productName,
+      net: p.sentUnits - p.receivedUnits,
+      cancelQty: String(Math.abs(p.sentUnits - p.receivedUnits)),
+    }));
+    if (dueProducts.length === 0) {
+      addNotification('Não há dívida pendente em unidades neste hotel.', 'warning');
+      return;
+    }
+    setForgiveConfirm({ hotelId, hotelName, products: dueProducts });
   };
 
-  const handleForgiveDebt = async () => {
+  const handleForgive = async () => {
     if (!forgiveConfirm || !selectedHotel?.id) return;
-
-    const itemsToCancel = forgiveConfirm.products
+    const items = forgiveConfirm.products
       .map(p => ({ ...p, qty: parseInt(p.cancelQty) || 0 }))
       .filter(p => p.qty > 0);
-
-    if (itemsToCancel.length === 0) {
-      addNotification('Informe ao menos uma quantidade para cancelar.', 'error');
+    if (!items.length) {
+      addNotification('Informe ao menos uma quantidade.', 'error');
       return;
     }
-
-    // Validar que não excede a dívida
-    const overLimit = itemsToCancel.find(p => p.qty > Math.abs(p.net));
-    if (overLimit) {
-      addNotification(
-        `"${overLimit.productName}": quantidade (${overLimit.qty}) excede a dívida (${Math.abs(overLimit.net)}).`,
-        'error'
-      );
+    const over = items.find(p => p.qty > Math.abs(p.net));
+    if (over) {
+      addNotification(`"${over.productName}": quantidade excede a dívida (${Math.abs(over.net)}).`, 'error');
       return;
     }
-
     setForgiving(true);
     try {
-      for (const ps of itemsToCancel) {
-        // Se net > 0 (devem-nos), criamos "recebimento virtual"
-        // Se net < 0 (devemos), criamos "envio virtual"
-        const sourceId = ps.net > 0 ? forgiveConfirm.hotelId : selectedHotel.id;
-        const destId = ps.net > 0 ? selectedHotel.id : forgiveConfirm.hotelId;
-
-        const { error: insertErr } = await supabase
-          .from('hotel_transfers')
-          .insert({
-            source_hotel_id: sourceId,
-            destination_hotel_id: destId,
-            product_id: ps.productId,
-            quantity: ps.qty,
-            unit_value: null,
-            status: 'cancelled',
-            notes: 'Dívida cancelada',
-            completed_at: new Date().toISOString(),
-          });
-
-        if (insertErr) throw insertErr;
+      for (const p of items) {
+        const sourceId = p.net > 0 ? forgiveConfirm.hotelId : selectedHotel.id;
+        const destId   = p.net > 0 ? selectedHotel.id : forgiveConfirm.hotelId;
+        const { error } = await supabase.from('hotel_transfers').insert({
+          source_hotel_id: sourceId, destination_hotel_id: destId,
+          product_id: p.productId, quantity: p.qty,
+          unit_value: null, status: 'cancelled',
+          notes: 'Dívida cancelada', completed_at: new Date().toISOString(),
+        });
+        if (error) throw error;
       }
-
-      addNotification(`Dívida de ${itemsToCancel.length} item(s) cancelada com sucesso!`, 'success');
+      addNotification(`Dívida de ${items.length} item(s) cancelada!`, 'success');
       setForgiveConfirm(null);
       fetchTransfers();
     } catch (err: any) {
-      console.error('Erro ao cancelar dívida:', err);
-      addNotification('Erro ao cancelar dívida: ' + (err.message || 'Erro desconhecido'), 'error');
+      addNotification('Erro ao cancelar dívida: ' + (err.message || ''), 'error');
     } finally {
       setForgiving(false);
     }
   };
 
-  // ── Toggle helpers ───────────────────────────────────────────────────────
-  const toggleHotel = (hotelId: string) => {
-    setExpandedHotels(prev => {
+  // ── Toggle dia ───────────────────────────────────────────────────────────
+  const toggleDay = (day: string) => {
+    setExpandedDays(prev => {
       const next = new Set(prev);
-      if (next.has(hotelId)) next.delete(hotelId);
-      else next.add(hotelId);
+      if (next.has(day)) next.delete(day); else next.add(day);
       return next;
     });
   };
 
-  const toggleProduct = (key: string) => {
-    setExpandedProducts(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
 
-  // ── Debt status helpers ──────────────────────────────────────────────────
-  const getDebtBadge = (net: number) => {
-    if (net === 0) return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
-        <CheckCircle2 className="w-3.5 h-3.5" /> Equilibrado
-      </span>
-    );
-    if (net > 0) return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
-        <TrendingUp className="w-3.5 h-3.5" /> Devem {net}
-      </span>
-    );
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">
-        <TrendingDown className="w-3.5 h-3.5" /> Devendo {Math.abs(net)}
-      </span>
-    );
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed': return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-          <CheckCircle2 className="w-3 h-3" /> Concluída
-        </span>
-      );
-      case 'pending': return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-          <Clock className="w-3 h-3" /> Pendente
-        </span>
-      );
-      case 'cancelled': return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-          <X className="w-3 h-3" /> Cancelada
-        </span>
-      );
-      default: return null;
-    }
-  };
-
-  // ── Loading / no hotel ───────────────────────────────────────────────────
   if (!selectedHotel) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
@@ -423,315 +460,274 @@ const TransferHistory: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white flex items-center gap-3">
             <ArrowLeftRight className="h-8 w-8 text-orange-500" />
-            Histórico de Transferências
+            Transferências
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {selectedHotel.name} — Rastreio inteligente de transferências e dívidas
+            {selectedHotel.name} — Saldos, histórico cronológico e auditoria
           </p>
         </div>
+        <button
+          onClick={exportExcel}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          Exportar Excel
+        </button>
       </div>
 
-      {/* ── Summary Cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <ArrowUpRight className="w-5 h-5 text-red-500" />
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Enviados</span>
+      {/* ── Filtros globais ──────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Período */}
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Período</label>
+            <div className="flex items-center gap-2">
+              <DateBRInput value={dateFromBR} onChange={setDateFromBR} />
+              <span className="text-xs text-gray-400">até</span>
+              <DateBRInput value={dateToBR} onChange={setDateToBR} />
+            </div>
           </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{globalStats.totalSent}</p>
-          {globalStats.totalValueSent > 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {globalStats.totalValueSent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </p>
-          )}
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <ArrowDownLeft className="w-5 h-5 text-green-500" />
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Recebidos</span>
+          {/* Hotel parceiro */}
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Hotel parceiro</label>
+            <select
+              value={filterHotelId}
+              onChange={e => setFilterHotelId(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500"
+            >
+              <option value="">Todos</option>
+              {partnerHotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
           </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{globalStats.totalReceived}</p>
-          {globalStats.totalValueReceived > 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {globalStats.totalValueReceived.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </p>
-          )}
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Scale className="w-5 h-5 text-blue-500" />
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Saldo</span>
+          {/* Busca por item */}
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Buscar item</label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Nome do produto..."
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
           </div>
-          <p className={`text-2xl font-bold ${globalStats.net > 0 ? 'text-green-600' : globalStats.net < 0 ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}>
-            {globalStats.net > 0 ? '+' : ''}{globalStats.net}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {globalStats.net > 0 ? 'Devem-nos' : globalStats.net < 0 ? 'Devendo' : 'Equilibrado'}
-          </p>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Building2 className="w-5 h-5 text-purple-500" />
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Hotéis</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-800 dark:text-white">{hotelPairs.length}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Com transferências</p>
-        </div>
-      </div>
-
-      {/* ── Filters ─────────────────────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 mb-6">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Buscar por produto ou hotel..."
-              className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-            />
-          </div>
-          <div className="flex gap-2">
-            {(['all', 'completed', 'pending', 'cancelled'] as const).map(s => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
-                  statusFilter === s
-                    ? 'bg-orange-600 text-white shadow-sm'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                {s === 'all' ? 'Todas' : s === 'completed' ? 'Concluídas' : s === 'pending' ? 'Pendentes' : 'Canceladas'}
-              </button>
-            ))}
+          {/* Status */}
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">Status</label>
+            <div className="flex gap-1.5">
+              {(['all', 'completed', 'pending', 'cancelled'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`flex-1 px-2 py-2 text-xs font-medium rounded-lg transition-colors ${
+                    statusFilter === s
+                      ? 'bg-orange-500 text-white shadow-sm'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {s === 'all' ? 'Todas' : s === 'completed' ? 'Concl.' : s === 'pending' ? 'Pend.' : 'Canc.'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Loading ─────────────────────────────────────────────────────────── */}
-      {loading && (
-        <div className="flex justify-center py-12">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500"></div>
-        </div>
-      )}
+      {/* ── Tabs ─────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-gray-800 rounded-t-xl shadow-sm border border-gray-100 dark:border-gray-700 border-b-0 px-2 pt-2 flex gap-1">
+        {([
+          { key: 'balance' as Tab, label: 'Saldo R$',    icon: HandCoins },
+          { key: 'byDay' as Tab,   label: 'Por Dia',     icon: CalendarIcon },
+          { key: 'byItem' as Tab,  label: 'Por Item',    icon: Package },
+        ]).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-lg transition-colors ${
+              tab === key
+                ? 'bg-orange-500 text-white'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+          >
+            <Icon className="w-4 h-4" /> {label}
+          </button>
+        ))}
+      </div>
 
-      {/* ── No data ─────────────────────────────────────────────────────────── */}
-      {!loading && hotelPairs.length === 0 && (
-        <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <ArrowLeftRight className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
-            Nenhuma transferência encontrada
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            As transferências entre hotéis aparecerão aqui com rastreio automático de dívidas.
-          </p>
-        </div>
-      )}
+      <div className="bg-white dark:bg-gray-800 rounded-b-xl rounded-tr-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
 
-      {/* ── Hotel Pairs ─────────────────────────────────────────────────────── */}
-      {!loading && hotelPairs.map(pair => {
-        const isExpanded = expandedHotels.has(pair.otherHotelId);
-
-        return (
-          <div key={pair.otherHotelId} className="mb-4">
-            {/* Hotel pair header */}
-            <div className="w-full bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleHotel(pair.otherHotelId)}>
-                <div className="flex items-center gap-3">
-                  {isExpanded ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
-                  ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-5 h-5 text-purple-500" />
-                    <span className="font-semibold text-gray-800 dark:text-white text-lg">
-                      {pair.otherHotelName}
-                    </span>
-                  </div>
-                  {getDebtBadge(pair.netItems)}
+        {/* ── Loading ──────────────────────────────────────────────────── */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+            <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+            <p className="text-sm">Carregando transferências...</p>
+          </div>
+        ) : filteredTransfers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+            <Package className="w-12 h-12 opacity-30" />
+            <p className="text-sm font-medium">Nenhuma transferência encontrada com os filtros atuais.</p>
+          </div>
+        ) : (
+          <>
+            {/* ─── Aba 1: Saldo R$ ──────────────────────────────────────── */}
+            {tab === 'balance' && (
+              <div className="space-y-3">
+                {/* Total global */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <SummaryBox label="Total Enviado" value={fmtBRL(totalBalance.sentR)} color="text-red-600" icon={<ArrowUpRight className="w-4 h-4 text-red-500" />} />
+                  <SummaryBox label="Total Recebido" value={fmtBRL(totalBalance.receivedR)} color="text-green-600" icon={<ArrowDownLeft className="w-4 h-4 text-green-500" />} />
+                  <SummaryBox
+                    label={totalBalance.net > 0 ? 'Devem-nos' : totalBalance.net < 0 ? 'Devemos' : 'Equilibrado'}
+                    value={fmtBRL(Math.abs(totalBalance.net))}
+                    color={totalBalance.net > 0 ? 'text-blue-600' : totalBalance.net < 0 ? 'text-orange-600' : 'text-gray-600'}
+                    icon={<Scale className="w-4 h-4 text-blue-500" />}
+                  />
                 </div>
 
-                <div className="flex items-center gap-4 text-sm">
-                  {/* Botão cancelar dívida — só aparece se há dívida */}
-                  {pair.netItems !== 0 && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openForgiveModal(pair.otherHotelId, pair.otherHotelName, pair.products);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition-colors"
-                      title="Cancelar todas as dívidas com este hotel"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      Cancelar dívida
-                    </button>
-                  )}
-                  <div className="text-right">
-                    <span className="text-gray-500 dark:text-gray-400 text-xs">Enviados</span>
-                    <p className="font-semibold text-red-600 dark:text-red-400">{pair.totalSent} un</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-gray-500 dark:text-gray-400 text-xs">Recebidos</span>
-                    <p className="font-semibold text-green-600 dark:text-green-400">{pair.totalReceived} un</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-gray-500 dark:text-gray-400 text-xs">Produtos</span>
-                    <p className="font-semibold text-gray-700 dark:text-gray-300">{pair.products.length}</p>
-                  </div>
+                {/* Tabela por hotel */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-700 text-xs uppercase text-gray-500 dark:text-gray-400">
+                        <th className="text-left py-2 px-3 font-semibold">Hotel</th>
+                        <th className="text-right py-2 px-3 font-semibold">Enviado (R$)</th>
+                        <th className="text-right py-2 px-3 font-semibold">Recebido (R$)</th>
+                        <th className="text-right py-2 px-3 font-semibold">Saldo (R$)</th>
+                        <th className="text-center py-2 px-3 font-semibold">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {balanceByHotel.map(r => {
+                        const netR = r.sentR - r.receivedR;
+                        const netUnits = r.sentUnits - r.receivedUnits;
+                        return (
+                          <tr key={r.hotelId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                            <td className="py-3 px-3 font-semibold text-gray-800 dark:text-white">
+                              <div className="flex items-center gap-2">
+                                <Building2 className="w-4 h-4 text-gray-400" />
+                                {r.hotelName}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-right text-red-600 dark:text-red-400">{fmtBRL(r.sentR)}</td>
+                            <td className="py-3 px-3 text-right text-green-600 dark:text-green-400">{fmtBRL(r.receivedR)}</td>
+                            <td className={`py-3 px-3 text-right font-bold ${netR > 0 ? 'text-blue-600' : netR < 0 ? 'text-orange-600' : 'text-gray-500'}`}>
+                              {netR === 0 ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Equilibrado
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1">
+                                  {netR > 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                                  {netR > 0 ? '+' : ''}{fmtBRL(netR)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              {netUnits !== 0 && (
+                                <button
+                                  onClick={() => openForgiveModal(r.hotelId, r.hotelName, Array.from(r.products.values()))}
+                                  className="px-3 py-1.5 text-xs font-semibold bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg transition-colors"
+                                >
+                                  Cancelar dívida
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Products list */}
-            {isExpanded && (
-              <div className="mt-2 space-y-2 pl-4">
-                {pair.products.map(ps => {
-                  const productKey = `${pair.otherHotelId}-${ps.productId}`;
-                  const isProductExpanded = expandedProducts.has(productKey);
-
+            {/* ─── Aba 2: Por Dia ──────────────────────────────────────────── */}
+            {tab === 'byDay' && (
+              <div className="space-y-2">
+                {transfersByDay.map(({ day, list, totalR }) => {
+                  const isOpen = expandedDays.has(day);
+                  const dayDate = parseISO(day);
                   return (
-                    <div key={ps.productId} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 overflow-hidden">
-                      {/* Product header */}
+                    <div key={day} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
                       <button
-                        onClick={() => toggleProduct(productKey)}
-                        className="w-full p-3 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+                        onClick={() => toggleDay(day)}
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-700/40 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            {isProductExpanded ? (
-                              <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            )}
-                            <div className="w-8 h-8 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
-                              {ps.productImage ? (
-                                <img src={ps.productImage} alt={ps.productName} className="w-full h-full object-cover" />
-                              ) : (
-                                <Package className="w-4 h-4 text-gray-400" />
-                              )}
-                            </div>
-                            <div className="text-left">
-                              <p className="font-medium text-sm text-gray-800 dark:text-white">{ps.productName}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">{ps.productCategory}</p>
-                            </div>
+                        <div className="flex items-center gap-3">
+                          {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+                          <div className="text-left">
+                            <p className="font-semibold text-gray-800 dark:text-white">
+                              {format(dayDate, "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                              {format(dayDate, 'EEEE', { locale: ptBR })} · {list.length} transferência{list.length !== 1 ? 's' : ''}
+                            </p>
                           </div>
-
-                          <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-3 text-xs">
-                              <span className="text-red-500 font-medium">
-                                <ArrowUpRight className="w-3 h-3 inline mr-0.5" />{ps.totalSent}
-                              </span>
-                              <span className="text-green-500 font-medium">
-                                <ArrowDownLeft className="w-3 h-3 inline mr-0.5" />{ps.totalReceived}
-                              </span>
-                            </div>
-
-                            {/* Net badge per product */}
-                            {ps.net === 0 ? (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">
-                                Quitado
-                              </span>
-                            ) : ps.net > 0 ? (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium">
-                                Devem {ps.net}
-                              </span>
-                            ) : (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 font-medium">
-                                Devendo {Math.abs(ps.net)}
-                              </span>
-                            )}
-                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtBRL(totalR)}</p>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wider">total movimentado</p>
                         </div>
                       </button>
 
-                      {/* Transfer details */}
-                      {isProductExpanded && (
-                        <div className="border-t border-gray-100 dark:border-gray-700">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="bg-gray-50 dark:bg-gray-700/50">
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Data</th>
-                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Direção</th>
-                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Qtd</th>
-                                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Valor Unit.</th>
-                                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Total</th>
-                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                      {isOpen && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50/50 dark:bg-gray-800/50 text-[10px] uppercase text-gray-500">
+                              <tr>
+                                <th className="text-left  py-2 px-3 font-semibold">Hora</th>
+                                <th className="text-left  py-2 px-3 font-semibold">Dir</th>
+                                <th className="text-left  py-2 px-3 font-semibold">Hotel</th>
+                                <th className="text-left  py-2 px-3 font-semibold">Item</th>
+                                <th className="text-right py-2 px-3 font-semibold">Qtd</th>
+                                <th className="text-right py-2 px-3 font-semibold">V. Unit</th>
+                                <th className="text-right py-2 px-3 font-semibold">V. Total</th>
+                                <th className="text-center py-2 px-3 font-semibold">Status</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                              {ps.transfers.map(tl => (
-                                <tr key={tl.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                                  <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300">
-                                    {format(new Date(tl.date), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-center">
-                                    {tl.direction === 'sent' ? (
-                                      <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
-                                        <ArrowUpRight className="w-3.5 h-3.5" /> Enviado
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-medium">
-                                        <ArrowDownLeft className="w-3.5 h-3.5" /> Recebido
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-center font-semibold text-gray-800 dark:text-white">
-                                    {tl.quantity}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400">
-                                    {tl.unitValue
-                                      ? tl.unitValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                      : '—'}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-right font-medium text-gray-700 dark:text-gray-300">
-                                    {tl.unitValue
-                                      ? (tl.unitValue * tl.quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                      : '—'}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-center">
-                                    {getStatusBadge(tl.status)}
-                                  </td>
-                                </tr>
-                              ))}
+                              {list.map(t => {
+                                const isSent = t.source_hotel_id === selectedHotel.id;
+                                const otherName = (isSent ? t.destination_hotel?.name : t.source_hotel?.name) || '?';
+                                const total = (t.unit_value || 0) * t.quantity;
+                                return (
+                                  <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                                    <td className="py-2 px-3 text-gray-700 dark:text-gray-300 font-mono">{format(parseISO(t.created_at), 'HH:mm')}</td>
+                                    <td className="py-2 px-3">
+                                      {isSent
+                                        ? <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 font-bold">→</span>
+                                        : <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-bold">←</span>}
+                                    </td>
+                                    <td className="py-2 px-3 text-gray-800 dark:text-gray-200">{otherName}</td>
+                                    <td className="py-2 px-3 text-gray-800 dark:text-gray-200">
+                                      {t.product?.name || '—'}
+                                      {t.product?.category && (
+                                        <span className="ml-1 text-[10px] text-gray-400">· {t.product.category}</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-semibold text-gray-800 dark:text-gray-200">{t.quantity}</td>
+                                    <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{fmtBRLOrDash(t.unit_value)}</td>
+                                    <td className="py-2 px-3 text-right font-bold text-gray-800 dark:text-gray-200">
+                                      {t.unit_value != null ? fmtBRL(total) : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <StatusBadge status={t.status} />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
-
-                          {/* Product debt summary bar */}
-                          <div className={`px-4 py-2.5 flex items-center justify-between text-sm ${
-                            ps.net === 0
-                              ? 'bg-green-50 dark:bg-green-900/20'
-                              : ps.net > 0
-                                ? 'bg-blue-50 dark:bg-blue-900/20'
-                                : 'bg-orange-50 dark:bg-orange-900/20'
-                          }`}>
-                            <span className="font-medium text-gray-700 dark:text-gray-300">
-                              Balanço deste item:
-                            </span>
-                            <span className={`font-bold ${
-                              ps.net === 0
-                                ? 'text-green-700 dark:text-green-400'
-                                : ps.net > 0
-                                  ? 'text-blue-700 dark:text-blue-400'
-                                  : 'text-orange-700 dark:text-orange-400'
-                            }`}>
-                              {ps.net === 0
-                                ? 'Dívida quitada'
-                                : ps.net > 0
-                                  ? `Devem ${ps.net} unidades`
-                                  : `Devendo ${Math.abs(ps.net)} unidades`}
-                            </span>
-                          </div>
                         </div>
                       )}
                     </div>
@@ -739,101 +735,142 @@ const TransferHistory: React.FC = () => {
                 })}
               </div>
             )}
-          </div>
-        );
-      })}
-      {/* ── Modal cancelar dívida ────────────────────────────────────────── */}
-      {forgiveConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
-            {/* Header */}
-            <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-800 dark:text-white">Cancelar dívida</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {forgiveConfirm.hotelName} — Escolha os itens e quantidades
-                </p>
-              </div>
-            </div>
 
-            {/* Lista de produtos com inputs */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-2">
-              {forgiveConfirm.products.map(p => {
-                const maxQty = Math.abs(p.net);
-                const currentQty = parseInt(p.cancelQty) || 0;
-                const isOver = currentQty > maxQty;
-                const isEmpty = currentQty === 0 || p.cancelQty === '' || p.cancelQty === '0';
-
-                return (
-                  <div
-                    key={p.productId}
-                    className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                      isOver
-                        ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10'
-                        : isEmpty
-                          ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40'
-                          : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'
-                    }`}
+            {/* ─── Aba 3: Por Item ─────────────────────────────────────────── */}
+            {tab === 'byItem' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                    Selecione um item
+                  </label>
+                  <select
+                    value={selectedItemId}
+                    onChange={e => setSelectedItemId(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                        {p.productName}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {p.net > 0 ? (
-                          <span className="text-blue-600 dark:text-blue-400">Devem {maxQty}</span>
-                        ) : (
-                          <span className="text-orange-600 dark:text-orange-400">Devendo {maxQty}</span>
-                        )}
-                      </p>
+                    <option value="">— Escolha um produto —</option>
+                    {uniqueItems.map(it => (
+                      <option key={it.id} value={it.id}>{it.name}{it.category ? ` (${it.category})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {!selectedItemId && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+                    <Package className="w-10 h-10 opacity-30" />
+                    <p className="text-sm">Selecione um item acima para ver o histórico por período.</p>
+                  </div>
+                )}
+
+                {itemHistory && itemHistory.byHotel.map(h => (
+                  <div key={h.hotelId} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-700/40">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-gray-400" />
+                        <p className="font-semibold text-gray-800 dark:text-white">{h.hotelName}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtBRL(h.totalR)}</p>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wider">{h.totalUnits} unidades</p>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-0.5">
-                      <input
-                        type="number"
-                        min="0"
-                        max={maxQty}
-                        value={p.cancelQty}
-                        onChange={e => handleForgiveQtyChange(p.productId, e.target.value)}
-                        className={`w-20 px-2.5 py-1.5 text-sm text-center border rounded-lg focus:outline-none focus:ring-2 transition-all dark:bg-gray-700 dark:text-gray-100 ${
-                          isOver
-                            ? 'border-red-400 focus:ring-red-400'
-                            : 'border-gray-300 dark:border-gray-600 focus:ring-red-500'
-                        }`}
-                      />
-                      {isOver && (
-                        <span className="text-[11px] text-red-500 font-medium">máx. {maxQty}</span>
-                      )}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50/50 dark:bg-gray-800/50 text-[10px] uppercase text-gray-500">
+                          <tr>
+                            <th className="text-left  py-2 px-3 font-semibold">Data</th>
+                            <th className="text-left  py-2 px-3 font-semibold">Dir</th>
+                            <th className="text-right py-2 px-3 font-semibold">Qtd</th>
+                            <th className="text-right py-2 px-3 font-semibold">V. Unit (nesse dia)</th>
+                            <th className="text-right py-2 px-3 font-semibold">V. Total</th>
+                            <th className="text-center py-2 px-3 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                          {h.lines.map(t => {
+                            const isSent = t.source_hotel_id === selectedHotel.id;
+                            const total = (t.unit_value || 0) * t.quantity;
+                            return (
+                              <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                                <td className="py-2 px-3 text-gray-700 dark:text-gray-300">
+                                  {format(parseISO(t.created_at), 'dd/MM/yyyy HH:mm')}
+                                </td>
+                                <td className="py-2 px-3">
+                                  {isSent
+                                    ? <span className="text-red-600 dark:text-red-400 font-bold">→</span>
+                                    : <span className="text-green-600 dark:text-green-400 font-bold">←</span>}
+                                </td>
+                                <td className="py-2 px-3 text-right font-semibold text-gray-800 dark:text-gray-200">{t.quantity}</td>
+                                <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{fmtBRLOrDash(t.unit_value)}</td>
+                                <td className="py-2 px-3 text-right font-bold text-gray-800 dark:text-gray-200">
+                                  {t.unit_value != null ? fmtBRL(total) : '—'}
+                                </td>
+                                <td className="py-2 px-3 text-center"><StatusBadge status={t.status} /></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
-            {/* Footer */}
-            <div className="p-5 border-t border-gray-100 dark:border-gray-700 flex gap-3">
-              <button
-                onClick={() => setForgiveConfirm(null)}
-                disabled={forgiving}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Voltar
+      {/* ── Modal: Cancelar Dívida ───────────────────────────────────────── */}
+      {forgiveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 dark:text-white">Cancelar dívida</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">com {forgiveConfirm.hotelName}</p>
+              </div>
+              <button onClick={() => setForgiveConfirm(null)} className="text-gray-400 hover:text-gray-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-6 py-4 overflow-y-auto flex-1">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 text-xs text-amber-700 dark:text-amber-300 flex gap-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <p>Cancelar uma dívida registra uma "compensação virtual" que zera o saldo em unidades. Use quando as partes acertaram fora do sistema.</p>
+              </div>
+              <div className="space-y-2">
+                {forgiveConfirm.products.map(p => (
+                  <div key={p.productId} className="flex items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{p.productName}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Saldo: {p.net > 0 ? 'devem' : 'devendo'} {Math.abs(p.net)} un
+                      </p>
+                    </div>
+                    <input
+                      type="number" min={0} max={Math.abs(p.net)}
+                      value={p.cancelQty}
+                      onChange={e => setForgiveConfirm({
+                        ...forgiveConfirm,
+                        products: forgiveConfirm.products.map(x => x.productId === p.productId ? { ...x, cancelQty: e.target.value } : x),
+                      })}
+                      className="w-20 px-2 py-1.5 text-sm text-right border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+              <button onClick={() => setForgiveConfirm(null)} className="px-4 py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                Cancelar
               </button>
               <button
-                onClick={handleForgiveDebt}
+                onClick={handleForgive}
                 disabled={forgiving}
-                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-60 flex items-center gap-2"
               >
-                {forgiving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <X className="w-4 h-4" />
-                    Confirmar cancelamento
-                  </>
-                )}
+                {forgiving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Confirmar cancelamento
               </button>
             </div>
           </div>
@@ -842,5 +879,38 @@ const TransferHistory: React.FC = () => {
     </div>
   );
 };
+
+// ─── Subcomponentes ─────────────────────────────────────────────────────────
+
+function SummaryBox({ label, value, color, icon }: { label: string; value: string; color: string; icon: React.ReactNode }) {
+  return (
+    <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 border border-gray-100 dark:border-gray-700">
+      <div className="flex items-center gap-1.5 mb-1">
+        {icon}
+        <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</span>
+      </div>
+      <p className={`text-lg font-bold ${color}`}>{value}</p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === 'completed') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+      <CheckCircle2 className="w-3 h-3" /> Concl.
+    </span>
+  );
+  if (status === 'pending') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+      <Clock className="w-3 h-3" /> Pend.
+    </span>
+  );
+  if (status === 'cancelled') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+      <X className="w-3 h-3" /> Canc.
+    </span>
+  );
+  return null;
+}
 
 export default TransferHistory;
