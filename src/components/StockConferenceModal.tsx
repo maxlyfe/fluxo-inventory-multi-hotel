@@ -209,18 +209,24 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const checkExistingDraft = async () => {
     setIsLoadingDraft(true);
     try {
+      // ⚠️ .maybeSingle() falha com PGRST116 quando há > 1 rascunho.
+      // Usa .limit(1) + order para pegar sempre o mais recente sem errar.
       let query = supabase.from('stock_counts')
-        .select('id, items:stock_count_items(product_id, counted_quantity)')
-        .eq('hotel_id', hotelId).eq('status', 'draft');
+        .select('id, created_at, items:stock_count_items(product_id, counted_quantity)')
+        .eq('hotel_id', hotelId)
+        .eq('status', 'draft')
+        .order('created_at', { ascending: false })
+        .limit(1);
       if (sectorId) query = query.eq('sector_id', sectorId);
       else query = query.is('sector_id', null);
-      const { data, error } = await query.maybeSingle();
+      const { data, error } = await query;
       if (error) throw error;
-      if (data) {
+      const draft = data?.[0];
+      if (draft) {
         const draftCounts: Record<string, number> = {};
-        data.items.forEach((item: any) => { draftCounts[item.product_id] = item.counted_quantity; });
+        draft.items.forEach((item: any) => { draftCounts[item.product_id] = item.counted_quantity; });
         setCounts(draftCounts);
-        setActiveCountId(data.id);
+        setActiveCountId(draft.id);
         addNotification('Rascunho de conferência retomado.', 'info');
       }
     } catch (err) { console.error('Erro ao buscar rascunho:', err); }
