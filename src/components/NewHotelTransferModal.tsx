@@ -20,6 +20,7 @@ interface Product {
   quantity: number;
   image_url?: string;
   average_price?: number;
+  last_purchase_price?: number;
   is_active: boolean;
 }
 
@@ -129,7 +130,14 @@ const NewHotelTransferModal: React.FC<NewHotelTransferModalProps> = ({
     if (itemsToTransfer.some(i => i.quantity <= 0)) { addNotification('Todos os itens devem ter quantidade maior que zero.', 'error'); return; }
 
     setIsLoading(true);
-    const payload = itemsToTransfer.map(i => ({ product_id: i.product.id, quantity: i.quantity }));
+    // Captura o valor unitário do produto no momento da transferência
+    // (average_price preferido; fallback last_purchase_price). Sem isso o
+    // relatório /inventory/transfers mostra tudo R$ 0,00.
+    const payload = itemsToTransfer.map(i => ({
+      product_id: i.product.id,
+      quantity: i.quantity,
+      unit_value: i.product.average_price ?? i.product.last_purchase_price ?? undefined,
+    }));
     const result  = await transferMultipleProducts(selectedHotel!.id, destinationHotelId, payload, user?.email || 'Sistema');
     if (result?.success) { addNotification('Transferência realizada com sucesso!', 'success'); onSuccess(); }
     else addNotification(`Falha na transferência: ${result?.message || 'Erro desconhecido.'}`, 'error');
