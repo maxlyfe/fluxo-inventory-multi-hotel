@@ -209,26 +209,58 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const checkExistingDraft = async () => {
     setIsLoadingDraft(true);
     try {
-      // ⚠️ .maybeSingle() falha com PGRST116 quando há > 1 rascunho.
-      // Usa .limit(1) + order para pegar sempre o mais recente sem errar.
+      // Busca TODOS os rascunhos do setor (pode haver mais de um por bug antigo
+      // ou por sessões parciais). A ideia do rascunho é acumulativa: contar 10,
+      // pausar, voltar e contar mais 20 — sempre no MESMO registro.
+      // Se existirem múltiplos rascunhos, fundem-se em um só (soma as contagens,
+      // o mais recente prevalece em caso de mesmo produto) e os duplicados são
+      // apagados.
       let query = supabase.from('stock_counts')
         .select('id, created_at, items:stock_count_items(product_id, counted_quantity)')
         .eq('hotel_id', hotelId)
         .eq('status', 'draft')
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .order('created_at', { ascending: false }); // mais recente primeiro
       if (sectorId) query = query.eq('sector_id', sectorId);
-      else query = query.is('sector_id', null);
+      else          query = query.is('sector_id', null);
+
       const { data, error } = await query;
       if (error) throw error;
-      const draft = data?.[0];
-      if (draft) {
-        const draftCounts: Record<string, number> = {};
-        draft.items.forEach((item: any) => { draftCounts[item.product_id] = item.counted_quantity; });
-        setCounts(draftCounts);
-        setActiveCountId(draft.id);
-        addNotification('Rascunho de conferência retomado.', 'info');
+      if (!data || data.length === 0) return;
+
+      // Funde todos os rascunhos: o mais recente (data[0]) tem prioridade
+      // para cada produto. Os outros rascunhos adicionam produtos ainda não
+      // contados no mais recente.
+      const merged: Record<string, number> = {};
+      // Percorre do mais antigo ao mais recente (invertido) para que o mais
+      // recente sobrescreva o mais antigo no caso de produto repetido.
+      for (const draft of [...data].reverse()) {
+        draft.items.forEach((item: any) => {
+          merged[item.product_id] = item.counted_quantity;
+        });
       }
+
+      const keeper = data[0]; // rascunho mais recente — vira o único
+
+      // Se havia duplicatas, apaga as mais antigas e salva a fusão no keeper
+      if (data.length > 1) {
+        const idsToDelete = data.slice(1).map((d: any) => d.id);
+        await supabase.from('stock_counts').delete().in('id', idsToDelete);
+        // Regrava os itens do keeper com a contagem fundida
+        await supabase.from('stock_count_items').delete().eq('stock_count_id', keeper.id);
+        const fusedItems = Object.entries(merged).map(([product_id, counted_quantity]) => ({
+          stock_count_id: keeper.id,
+          product_id,
+          counted_quantity,
+          previous_quantity: products.find(p => p.id === product_id)?.quantity || 0,
+        }));
+        if (fusedItems.length > 0) {
+          await supabase.from('stock_count_items').insert(fusedItems);
+        }
+      }
+
+      setCounts(merged);
+      setActiveCountId(keeper.id);
+      addNotification('Rascunho retomado — continue de onde parou.', 'info');
     } catch (err) { console.error('Erro ao buscar rascunho:', err); }
     finally { setIsLoadingDraft(false); }
   };
@@ -324,21 +356,40 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
     try {
       let countId = activeCountId;
       if (!countId) {
-        const { data: nc, error: ce } = await supabase.from('stock_counts').insert({
-          hotel_id: hotelId, sector_id: sectorId || null,
-          status: isFinal ? 'finished' : 'draft',
-          started_at: new Date().toISOString(),
-          finished_at: isFinal ? new Date().toISOString() : null,
-          notes: sectorId ? 'Conferência de Setor' : 'Conferência de Inventário Principal',
-        }).select().single();
-        if (ce) throw ce;
-        countId = nc.id; setActiveCountId(countId);
-      } else {
-        const { error: ue } = await supabase.from('stock_counts').update({
-          status: isFinal ? 'finished' : 'draft', finished_at: isFinal ? new Date().toISOString() : null,
-        }).eq('id', countId);
-        if (ue) throw ue;
+        // Antes de criar, verifica se já existe rascunho não carregado (segurança extra).
+        // Garante que nunca haja 2 rascunhos simultâneos para o mesmo setor.
+        let existsQuery = supabase.from('stock_counts')
+          .select('id')
+          .eq('hotel_id', hotelId)
+          .eq('status', 'draft')
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (sectorId) existsQuery = existsQuery.eq('sector_id', sectorId);
+        else          existsQuery = existsQuery.is('sector_id', null);
+        const { data: existingDraft } = await existsQuery;
+        if (existingDraft?.[0]) {
+          // Rascunho já existe — reutiliza (nunca cria duplicata)
+          countId = existingDraft[0].id;
+          setActiveCountId(countId);
+        } else {
+          // Nenhum rascunho — cria o primeiro
+          const { data: nc, error: ce } = await supabase.from('stock_counts').insert({
+            hotel_id: hotelId, sector_id: sectorId || null,
+            status: isFinal ? 'finished' : 'draft',
+            started_at: new Date().toISOString(),
+            finished_at: isFinal ? new Date().toISOString() : null,
+            notes: sectorId ? 'Conferência de Setor' : 'Conferência de Inventário Principal',
+          }).select().single();
+          if (ce) throw ce;
+          countId = nc.id; setActiveCountId(countId);
+        }
       }
+      // Atualiza status e datas
+      const { error: ue } = await supabase.from('stock_counts').update({
+        status: isFinal ? 'finished' : 'draft',
+        finished_at: isFinal ? new Date().toISOString() : null,
+      }).eq('id', countId);
+      if (ue) throw ue;
 
       const countItems = Object.entries(counts).map(([productId, countedQty]) => ({
         stock_count_id: countId,
