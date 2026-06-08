@@ -145,6 +145,9 @@ import { usePermissions } from './hooks/usePermissions';
 // ── Push notifications ────────────────────────────────────────────────────────
 import { usePushNotifications } from './hooks/usePushNotifications';
 
+// ── Verificações diárias de notificações ─────────────────────────────────────
+import { checkContractExpirations, checkBirthdayNotifications } from './lib/notificationTriggers';
+
 // ── Supabase (para troca de code OAuth no APK) ────────────────────────────────
 import { supabase } from './lib/supabase';
 
@@ -264,6 +267,27 @@ function PushNotificationSetup() {
 }
 
 // ---------------------------------------------------------------------------
+// DailyChecksRunner
+// Roda verificações diárias (contratos, aniversários) 1x por sessão assim
+// que o usuário está autenticado. Usa sessionStorage para não repetir.
+// ---------------------------------------------------------------------------
+function DailyChecksRunner() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    // Pequeno delay para não competir com o carregamento inicial da tela
+    const timer = setTimeout(() => {
+      void checkContractExpirations();
+      void checkBirthdayNotifications();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [user?.id]);
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // HomeGuard — para "/" redireciona não-autenticados para /select-hotel,
 // evitando o loop Home → select-hotel → Home
 // ---------------------------------------------------------------------------
@@ -312,6 +336,7 @@ function App() {
 
                 <OAuthCallbackHandler />
                 <PushNotificationSetup />
+                <DailyChecksRunner />
                 <Toast />
                 <AppUpdateModal />
 

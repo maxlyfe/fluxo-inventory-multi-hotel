@@ -10,7 +10,7 @@ import {
   Search, MoreVertical, Camera, Package, RotateCcw,
   BadgeCheck, BellOff, BellRing, ChevronDown,
   Inbox, DollarSign, Ban, Wrench, Sparkles, Hotel,
-  Receipt, ArrowLeftRight, MapPin, Building2, Filter,
+  Receipt, ArrowLeftRight, MapPin, Building2, Filter, Cake,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -74,6 +74,7 @@ const ACTIVE_NOTIFICATION_TYPES = [
   'REQUEST_SUBSTITUTED','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
   'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
   'room_needs_maintenance','room_dirty','room_clean','room_maint_ok',
+  'EMPLOYEE_BIRTHDAY',
 ];
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
@@ -114,6 +115,7 @@ const NOTIF_CONFIG: Record<string, NotifConfig> = {
   room_dirty:               { label: 'UH — Ficou suja',                  icon: Hotel,          iconColor: 'text-amber-600 dark:text-amber-400',  iconBg: 'bg-amber-100 dark:bg-amber-900/40' },
   room_clean:               { label: 'UH — Ficou limpa',                 icon: Sparkles,       iconColor: 'text-teal-600 dark:text-teal-400',    iconBg: 'bg-teal-100 dark:bg-teal-900/40' },
   room_maint_ok:            { label: 'UH — Liberada pela manutenção',    icon: ShieldCheck,    iconColor: 'text-green-600 dark:text-green-400',  iconBg: 'bg-green-100 dark:bg-green-900/40' },
+  EMPLOYEE_BIRTHDAY:        { label: 'Aniversário de colaborador',        icon: Cake,           iconColor: 'text-pink-600 dark:text-pink-400',    iconBg: 'bg-pink-100 dark:bg-pink-900/40' },
 };
 // Compat helper
 const notifLabel = (key: string) => NOTIF_CONFIG[key]?.label || key;
@@ -152,11 +154,8 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
     .filter(nt => ACTIVE_NOTIFICATION_TYPES.includes(nt.event_key))
     .map(nt => ({
       ...nt,
-      requires_hotel_filter: [
-        'NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR','NEW_BUDGET','BUDGET_APPROVED','BUDGET_CANCELLED',
-        'EXP_CONTRACT_ENDING_SOON','EXP_CONTRACT_ENDS_TODAY',
-        'room_needs_maintenance','room_dirty','room_clean','room_maint_ok',
-      ].includes(nt.event_key),
+      // Todos os tipos suportam filtro opcional de hotel (hotel_id = null = todos)
+      requires_hotel_filter: true,
       requires_sector_filter: ['NEW_REQUEST','ITEM_DELIVERED_TO_SECTOR'].includes(nt.event_key),
     }));
 }
@@ -1310,9 +1309,9 @@ const UserManagement = () => {
                       </FormField>
 
                       {selNotifType?.requires_hotel_filter && (
-                        <FormField label="Hotel" required>
-                          <select value={currentPref.hotel_id || ''} onChange={handleHotelChange} className={inputCls} required>
-                            <option value="">Selecione um hotel...</option>
+                        <FormField label="Hotel">
+                          <select value={currentPref.hotel_id || ''} onChange={handleHotelChange} className={inputCls}>
+                            <option value="">Todos os hotéis</option>
                             {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
                           </select>
                         </FormField>
@@ -1402,13 +1401,19 @@ const UserManagement = () => {
                               <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-snug">
                                 {notifLabel(eventKey) || '—'}
                               </p>
-                              {(pref.hotels || pref.sectors) && (
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-0.5">
-                                  <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
-                                  {pref.hotels?.name}
-                                  {pref.sectors ? ` · ${pref.sectors.name}` : pref.hotel_id && !pref.sector_id ? ' · Todos os setores' : ''}
-                                </p>
-                              )}
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-0.5">
+                                <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
+                                {pref.hotels?.name || 'Todos os hotéis'}
+                                {pref.sectors
+                                  ? ` · ${pref.sectors.name}`
+                                  : pref.hotel_id && !pref.sector_id
+                                    ? (() => {
+                                        const t = notifTypes.find(nt => nt.id === pref.notification_type_id);
+                                        return t?.requires_sector_filter ? ' · Todos os setores' : '';
+                                      })()
+                                    : ''
+                                }
+                              </p>
                             </div>
                           </div>
 

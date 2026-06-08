@@ -404,6 +404,83 @@ export const notifyContractEndsToday = async (eventData: NotificationEventData) 
 };
 
 /**
+ * Verifica colaboradores com aniversário hoje e dispara notificações.
+ * Roda 1x por sessão do navegador (sessionStorage guard).
+ * Consulta o banco para evitar duplicatas no mesmo dia.
+ */
+export const checkBirthdayNotifications = async () => {
+  const SESSION_KEY = 'birthday_check_done';
+  if (sessionStorage.getItem(SESSION_KEY)) return;
+  sessionStorage.setItem(SESSION_KEY, '1');
+
+  try {
+    // Buscar todos os colaboradores ativos com data de nascimento
+    const { data: employees, error } = await supabase
+      .from('employees')
+      .select('id, name, birth_date, hotel_id')
+      .eq('status', 'active')
+      .not('birth_date', 'is', null);
+
+    if (error || !employees || employees.length === 0) return;
+
+    const today = new Date();
+    const todayMonth = today.getMonth() + 1; // 1-12
+    const todayDay   = today.getDate();
+    const todayISO   = today.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    // Filtrar aniversariantes de hoje (mês e dia, ignorar ano)
+    const birthdaysToday = employees.filter(emp => {
+      if (!emp.birth_date) return false;
+      const [, mm, dd] = emp.birth_date.split('-').map(Number);
+      return mm === todayMonth && dd === todayDay;
+    });
+
+    if (birthdaysToday.length === 0) return;
+
+    // Verificar quais já foram notificados hoje (evitar duplicatas)
+    const { data: existingToday } = await supabase
+      .from('notifications')
+      .select('related_entity_id')
+      .eq('related_entity_type', 'employee_birthday')
+      .gte('created_at', todayISO + 'T00:00:00')
+      .lte('created_at', todayISO + 'T23:59:59');
+
+    const alreadyNotified = new Set(existingToday?.map(n => n.related_entity_id) || []);
+
+    for (const emp of birthdaysToday) {
+      if (alreadyNotified.has(emp.id)) continue;
+
+      // Calcular idade
+      const [birthYear] = emp.birth_date.split('-').map(Number);
+      const age = today.getFullYear() - birthYear;
+
+      const firstName = emp.name.split(' ')[0];
+      const hotel     = await resolveHotelName(emp.hotel_id);
+      const title     = `🎂 Aniversário hoje — ${hotel}`;
+      const message   = `${emp.name} faz ${age} anos hoje! 🎉`;
+
+      await triggerNotification(
+        'EMPLOYEE_BIRTHDAY',
+        {
+          hotel_id: emp.hotel_id,
+          hotel_name: hotel,
+          related_entity_id: emp.id,
+          related_entity_table: 'employees',
+          related_entity_type: 'employee_birthday',
+          // Dados extras para substituição no template
+          product_name: firstName, // reutilizando campo genérico para o nome
+          quantity: age,
+        },
+        title,
+        message
+      );
+    }
+  } catch (err) {
+    console.error('Erro ao verificar aniversários:', err);
+  }
+};
+
+/**
  * Verifica todos os contratos ativos e dispara notificações para os que vencem hoje ou em 5 dias.
  * Usa sessionStorage para rodar apenas 1x por sessão do navegador.
  * Verifica no banco se já existe notificação para o mesmo contrato hoje (evita duplicatas).
