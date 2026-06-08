@@ -573,6 +573,7 @@ const UserManagement = () => {
   const [allSectors, setAllSectors]           = useState(false);
   const [showInactive, setShowInactive]       = useState(false);
   const [selectedRole, setSelectedRole]       = useState<string | null>(null); // null = todos
+  const [testingNotif, setTestingNotif]       = useState(false);
 
   // ---------------------------------------------------------------------------
   // Toast helpers
@@ -799,6 +800,51 @@ const UserManagement = () => {
       showToast('error', err.message);
     } finally {
       setLoadingPrefs(false);
+    }
+  };
+
+  // Envia um push de TESTE para cada tipo de notificação ativo do usuário.
+  // Valida a entrega no dispositivo (web e APK). Requer que quem dispara seja
+  // admin (a Edge Function bloqueia envio para outros usuários se não for).
+  const handleTestNotifications = async () => {
+    if (!selUserNotif) return;
+    const activePrefs = userPrefs.filter(p => p.is_active);
+    if (activePrefs.length === 0) {
+      showToast('error', 'Nenhuma preferência ativa para testar. Adicione ao menos uma.');
+      return;
+    }
+    setTestingNotif(true);
+    let ok = 0, fail = 0;
+    try {
+      for (const pref of activePrefs) {
+        const eventKey = pref.notification_types?.event_key || '';
+        const label    = notifLabel(eventKey);
+        const hotelTxt = pref.hotels?.name ? ` — ${pref.hotels.name}` : '';
+        const title    = `🔔 Teste: ${label}${hotelTxt}`;
+        const body      = `Notificação de teste do tipo "${label}". Se você recebeu isto, as notificações estão funcionando! ✅`;
+        try {
+          const { error } = await supabase.functions.invoke('send-fcm-notification', {
+            body: {
+              target_user_id: selUserNotif.id,
+              title,
+              body,
+              data: { test: 'true', eventKey, url: '/' },
+            },
+          });
+          if (error) fail++; else ok++;
+        } catch {
+          fail++;
+        }
+      }
+      if (ok > 0 && fail === 0) {
+        showToast('success', `${ok} notificaç${ok === 1 ? 'ão' : 'ões'} de teste enviada${ok === 1 ? '' : 's'}! Verifique o dispositivo do usuário.`);
+      } else if (ok > 0) {
+        showToast('success', `${ok} enviada(s), ${fail} falhou(aram). Verifique se o usuário tem dispositivo registrado.`);
+      } else {
+        showToast('error', `Falha ao enviar. O usuário pode não ter dispositivo registrado, ou você não tem permissão (precisa ser admin).`);
+      }
+    } finally {
+      setTestingNotif(false);
     }
   };
 
@@ -1358,11 +1404,28 @@ const UserManagement = () => {
                       </div>
                     </form>
                   ) : (
-                    <button onClick={() => { setCurrentPref({}); setIsEditingPref(false); setShowPrefForm(true); setAllSectors(false); }}
-                      className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold text-blue-600 dark:text-blue-400 border-2 border-dashed border-blue-200 dark:border-blue-800/60 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors min-h-[44px]">
-                      <PlusCircle className="h-4 w-4" />
-                      Adicionar preferência
-                    </button>
+                    <div className="space-y-2">
+                      <button onClick={() => { setCurrentPref({}); setIsEditingPref(false); setShowPrefForm(true); setAllSectors(false); }}
+                        className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold text-blue-600 dark:text-blue-400 border-2 border-dashed border-blue-200 dark:border-blue-800/60 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors min-h-[44px]">
+                        <PlusCircle className="h-4 w-4" />
+                        Adicionar preferência
+                      </button>
+
+                      {/* Botão de teste — dispara push de cada tipo configurado */}
+                      {userPrefs.some(p => p.is_active) && (
+                        <button
+                          type="button"
+                          onClick={handleTestNotifications}
+                          disabled={testingNotif}
+                          className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold text-white bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 rounded-2xl transition-colors min-h-[44px] disabled:opacity-60"
+                        >
+                          {testingNotif
+                            ? <><Loader2 className="h-4 w-4 animate-spin" />Enviando testes...</>
+                            : <><BellRing className="h-4 w-4" />Enviar notificações de teste</>
+                          }
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {/* Preferences list */}
