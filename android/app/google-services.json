@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "446108850138",
+    "project_id": "gestaohotel-23603",
+    "storage_bucket": "gestaohotel-23603.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:446108850138:android:93c02d4136eb097a1952e3",
+        "android_client_info": {
+          "package_name": "com.lyfe.fluxo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYCGPfFIjaWZbyLFQJt7ttlTbF6yNWi2M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
