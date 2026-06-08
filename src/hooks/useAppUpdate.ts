@@ -82,9 +82,14 @@ export function useAppUpdate() {
     try {
       const { Browser } = await import('@capacitor/browser');
       // Converte URL relativa ("/downloads/...") em absoluta
-      const url = manifest.url.startsWith('http')
+      const base = manifest.url.startsWith('http')
         ? manifest.url
         : `${SITE_BASE}${manifest.url}`;
+      // Cache-bust pela versão: o APK tem Cache-Control max-age=600, então o
+      // navegador reentregaria o binário antigo do cache. Anexar a versão
+      // (e um timestamp) garante uma URL única → força baixar o APK novo.
+      const sep = base.includes('?') ? '&' : '?';
+      const url = `${base}${sep}v=${encodeURIComponent(manifest.latestVersion)}&t=${Date.now()}`;
       await Browser.open({ url });
     } catch (err) {
       console.error('[Update] Erro ao abrir download:', err);
