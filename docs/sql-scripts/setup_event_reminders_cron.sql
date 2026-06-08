@@ -1,7 +1,8 @@
 -- ============================================================================
--- CRON de lembretes de eventos — roda a cada 5 minutos.
+-- CRON de lembretes de eventos — roda de hora em hora (economia de recursos).
 -- Chama a Edge Function `event-reminders` (modo cron) que dispara os lembretes
--- 24h antes, manhã (07:00 BRT) e 10 min antes de cada evento.
+-- 24h antes, manhã (07:00 BRT) e ~1h antes de cada evento.
+-- (A notificação de "novo evento" é disparada na hora da criação pelo app.)
 --
 -- PRÉ-REQUISITO: a função deve estar deployada:
 --   npx supabase functions deploy event-reminders --project-ref bnmyflgyrlskhljrbyfc
@@ -20,7 +21,7 @@ WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'event-reminders');
 
 SELECT cron.schedule(
   'event-reminders',
-  '*/5 * * * *',  -- a cada 5 minutos
+  '0 * * * *',  -- de hora em hora (no minuto 0)
   $$
   SELECT net.http_post(
     url     := 'https://bnmyflgyrlskhljrbyfc.supabase.co/functions/v1/event-reminders',

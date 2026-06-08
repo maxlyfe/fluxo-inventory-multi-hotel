@@ -587,6 +587,7 @@ export default function EventsCalendar() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [events, setEvents]             = useState<EventItem[]>([]);
   const [eventTypes, setEventTypes]     = useState<EventType[]>([]);
+  const [myInvites, setMyInvites]       = useState<Record<string, string>>({}); // event_id → status
   const [loading, setLoading]           = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showEventForm, setShowEventForm]     = useState(false);
@@ -627,20 +628,64 @@ export default function EventsCalendar() {
       }));
       setEvents(evs);
       setEventTypes(types);
+
+      // Minhas respostas a convites (aceito/recusado)
+      const eventIds = evs.map(e => e.id);
+      const inviteMap: Record<string, string> = {};
+      if (eventIds.length && user) {
+        const { data: inv } = await supabase
+          .from('event_invitations')
+          .select('event_id, status')
+          .eq('user_id', user.id)
+          .in('event_id', eventIds);
+        (inv || []).forEach((i: any) => { inviteMap[i.event_id] = i.status; });
+      }
+      setMyInvites(inviteMap);
     } finally {
       setLoading(false);
     }
   }
 
+  // Papel do usuário em relação ao evento
+  function eventRole(ev: EventItem) {
+    const isOwner = ev.created_by === user?.id;
+    const isPublic = !(
+      ev.audience_all_network || ev.audience_all_hotel ||
+      (ev.target_sectors?.length) || (ev.target_user_ids?.length)
+    );
+    const isInvite = !isOwner && !isPublic;
+    const inviteStatus = myInvites[ev.id] || 'pending';
+    return { isOwner, isPublic, isInvite, inviteStatus };
+  }
+
+  // Aceitar / recusar convite (não bloqueia agenda até aceitar)
+  async function handleInviteResponse(eventId: string, status: 'accepted' | 'declined') {
+    if (!user) return;
+    await supabase.from('event_invitations').upsert(
+      { event_id: eventId, user_id: user.id, status, responded_at: new Date().toISOString() },
+      { onConflict: 'event_id,user_id' },
+    );
+    setMyInvites(m => ({ ...m, [eventId]: status }));
+  }
+
   const visibleEvents = useMemo(() => {
-    if (isAdmin) return events;
     const now = new Date();
     return events.filter(ev => {
-      if (ev.visibility_start && isBefore(now, parseISO(ev.visibility_start))) return false;
-      if (ev.visibility_end && isBefore(parseISO(ev.visibility_end), now)) return false;
+      // Convites recusados não bloqueiam a agenda (somem da grade)
+      const isOwner = ev.created_by === user?.id;
+      const isPublic = !(
+        ev.audience_all_network || ev.audience_all_hotel ||
+        (ev.target_sectors?.length) || (ev.target_user_ids?.length)
+      );
+      if (!isOwner && !isPublic && myInvites[ev.id] === 'declined') return false;
+      // Visibilidade programada (admin vê tudo)
+      if (!isAdmin) {
+        if (ev.visibility_start && isBefore(now, parseISO(ev.visibility_start))) return false;
+        if (ev.visibility_end && isBefore(parseISO(ev.visibility_end), now)) return false;
+      }
       return true;
     });
-  }, [events, isAdmin]);
+  }, [events, isAdmin, myInvites, user?.id]);
 
   const monthStart     = startOfMonth(currentMonth);
   const monthEnd       = endOfMonth(currentMonth);
@@ -658,20 +703,6 @@ export default function EventsCalendar() {
   }, [visibleEvents]);
 
   const selectedDateEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
-
-  async function handleConfirmation(eventId: string, status: 'confirmed' | 'declined') {
-    const { data: emp } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('hotel_id', selectedHotel!.id)
-      .eq('user_id', user!.id)
-      .maybeSingle();
-    if (!emp) return;
-    await supabase.from('event_confirmations').upsert(
-      { event_id: eventId, employee_id: emp.id, status, confirmed_at: new Date().toISOString() },
-      { onConflict: 'event_id,employee_id' }
-    );
-  }
 
   async function handleDeleteEvent(eventId: string) {
     await supabase.from('events').delete().eq('id', eventId);
@@ -877,23 +908,46 @@ export default function EventsCalendar() {
                           </div>
                         )}
 
-                        {/* Confirmação de presença — participantes (não-gestores) */}
-                        {!(isAdmin || ev.created_by === user?.id) && (
-                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                            <button
-                              onClick={() => handleConfirmation(ev.id, 'confirmed')}
-                              className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
-                            >
-                              <Check className="w-3 h-3" /> Confirmar
-                            </button>
-                            <button
-                              onClick={() => handleConfirmation(ev.id, 'declined')}
-                              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium transition-colors"
-                            >
-                              <X className="w-3 h-3" /> Recusar
-                            </button>
-                          </div>
-                        )}
+                        {/* Convite — participante (não-criador) de evento privado */}
+                        {(() => {
+                          const role = eventRole(ev);
+                          if (role.isOwner || role.isPublic) return null;
+                          if (role.inviteStatus === 'accepted') {
+                            return (
+                              <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                                <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                  <Check className="w-3 h-3" /> Você confirmou
+                                </span>
+                                <button
+                                  onClick={() => handleInviteResponse(ev.id, 'declined')}
+                                  className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+                                >
+                                  Cancelar presença
+                                </button>
+                              </div>
+                            );
+                          }
+                          // pending
+                          return (
+                            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                              <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold mr-auto">
+                                Convite pendente
+                              </span>
+                              <button
+                                onClick={() => handleInviteResponse(ev.id, 'accepted')}
+                                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-medium transition-colors"
+                              >
+                                <Check className="w-3 h-3" /> Aceitar
+                              </button>
+                              <button
+                                onClick={() => handleInviteResponse(ev.id, 'declined')}
+                                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium transition-colors"
+                              >
+                                <X className="w-3 h-3" /> Recusar
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>

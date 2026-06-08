@@ -98,7 +98,19 @@ async function notifyEvent(
   if (insErr) return 0; // já enviado (unique) ou erro — não duplica
 
   const { data: parts } = await admin.rpc("event_participant_ids", { p_event_id: ev.id });
-  const userIds: string[] = [...new Set((parts ?? []).map((p: any) => p.user_id).filter(Boolean))];
+  let userIds: string[] = [...new Set((parts ?? []).map((p: any) => p.user_id).filter(Boolean))];
+  if (userIds.length === 0) return 0;
+
+  // Remove quem recusou o convite — não recebe lembretes
+  const { data: declined } = await admin
+    .from("event_invitations")
+    .select("user_id")
+    .eq("event_id", ev.id)
+    .eq("status", "declined");
+  if (declined && declined.length > 0) {
+    const declinedSet = new Set(declined.map((d: any) => d.user_id));
+    userIds = userIds.filter((uid) => !declinedSet.has(uid));
+  }
   if (userIds.length === 0) return 0;
 
   const typeId = await eventTypeId(admin);
@@ -196,11 +208,11 @@ Deno.serve(async (req: Request) => {
           const title = `📅 Amanhã: ${ev.title}`;
           totalSent += await notifyEvent(admin, accessToken, projectId, ev, "24h", title, buildMsg(ev, ""));
         }
-        // 10 min antes
-        const t10 = new Date(startBrt.getTime() - 10 * 60 * 1000);
-        if (now >= t10) {
-          const title = `⏰ Em 10 min: ${ev.title}`;
-          totalSent += await notifyEvent(admin, accessToken, projectId, ev, "10min", title, buildMsg(ev, ""));
+        // ~1 hora antes (casa com o cron horário; antes era "10 min antes")
+        const t1h = new Date(startBrt.getTime() - 60 * 60 * 1000);
+        if (now >= t1h) {
+          const title = `⏰ Em breve: ${ev.title}`;
+          totalSent += await notifyEvent(admin, accessToken, projectId, ev, "1h", title, buildMsg(ev, ""));
         }
       }
     }
