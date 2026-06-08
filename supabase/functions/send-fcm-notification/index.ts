@@ -186,7 +186,27 @@ Deno.serve(async (req: Request) => {
     );
 
     const { data: callerProfile } = await supabaseAdmin
-      .from('profiles').select('role').eq('id', user.id).maybeSingle();
+      .from('profiles')
+      .select('role, custom_role_id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    // Reconhece admins do sistema de forma compatível com custom roles:
+    //  - role nativo 'admin' ou 'dev'
+    //  - custom role de sistema (is_system)
+    //  - custom role com permissão 'users_management' ou 'admin'
+    let isAdminCaller = callerProfile?.role === 'admin' || callerProfile?.role === 'dev';
+    if (!isAdminCaller && callerProfile?.custom_role_id) {
+      const { data: role } = await supabaseAdmin
+        .from('custom_roles')
+        .select('is_system, permissions')
+        .eq('id', callerProfile.custom_role_id)
+        .maybeSingle();
+      const perms: string[] = role?.permissions ?? [];
+      isAdminCaller = role?.is_system === true
+        || perms.includes('users_management')
+        || perms.includes('admin');
+    }
 
     // 3. Parsear payload
     const body = await req.json();
@@ -196,8 +216,8 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Campos obrigatórios: target_user_id, title, body.' }, 400);
     }
 
-    // Só admin pode enviar para outros usuários
-    if (target_user_id !== user.id && callerProfile?.role !== 'admin') {
+    // Só admin pode enviar para outros usuários (self é sempre permitido)
+    if (target_user_id !== user.id && !isAdminCaller) {
       return json({ error: 'Sem permissão para enviar notificação para este usuário.' }, 403);
     }
 
