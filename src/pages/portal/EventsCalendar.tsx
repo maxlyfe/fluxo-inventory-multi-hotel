@@ -14,7 +14,7 @@ import { ptBR } from 'date-fns/locale';
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, X, Clock,
   MapPin, AlertCircle, Loader2, Trash2, Edit2, Check,
-  Tag, Eye, EyeOff,
+  Tag, Eye, EyeOff, Users, Building2, Globe, Briefcase, Bell, Search,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,18 @@ interface EventItem {
   target_roles: string[] | null;
   is_mandatory: boolean;
   created_by: string | null;
+  // Audiência dinâmica (participantes)
+  audience_all_network?: boolean;
+  audience_all_hotel?: boolean;
+  target_user_ids?: string[] | null;
+  notify_on_create?: boolean;
   event_types?: { name: string; color: string } | null;
+}
+
+interface ParticipantUser {
+  user_id: string;
+  name: string;
+  sector: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,11 +89,51 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
       ? format(parseISO(event.visibility_start), "yyyy-MM-dd'T'HH:mm") : '',
     visibility_end: event?.visibility_end
       ? format(parseISO(event.visibility_end), "yyyy-MM-dd'T'HH:mm") : '',
-    target_sectors: (event?.target_sectors || []).join(', '),
-    target_roles: (event?.target_roles || []).join(', '),
     apply_to_all_hotels: event?.hotel_id === null,
   });
   const [saving, setSaving] = useState(false);
+
+  // ── Audiência (participantes) ──────────────────────────────────────────
+  const [allNetwork, setAllNetwork]   = useState(event?.audience_all_network || false);
+  const [allHotel, setAllHotel]       = useState(event?.audience_all_hotel || false);
+  const [selSectors, setSelSectors]   = useState<string[]>(event?.target_sectors || []);
+  const [selUserIds, setSelUserIds]   = useState<string[]>(event?.target_user_ids || []);
+  const [notifyOnCreate, setNotifyOnCreate] = useState(event?.notify_on_create ?? true);
+
+  const [sectors, setSectors]         = useState<string[]>([]);
+  const [people, setPeople]           = useState<ParticipantUser[]>([]);
+  const [peopleSearch, setPeopleSearch] = useState('');
+
+  // Carrega setores do DP e funcionários com login (user_id) do hotel
+  useEffect(() => {
+    (async () => {
+      const { data: emps } = await supabase
+        .from('employees')
+        .select('user_id, name, sector')
+        .eq('hotel_id', hotelId)
+        .eq('status', 'active')
+        .not('user_id', 'is', null)
+        .order('name');
+      const list = (emps || []) as ParticipantUser[];
+      setPeople(list);
+      const { data: allEmps } = await supabase
+        .from('employees')
+        .select('sector')
+        .eq('hotel_id', hotelId)
+        .not('sector', 'is', null);
+      const uniqueSectors = Array.from(new Set((allEmps || []).map((e: any) => e.sector).filter(Boolean))).sort();
+      setSectors(uniqueSectors);
+    })();
+  }, [hotelId]);
+
+  const toggle = (arr: string[], v: string, set: (a: string[]) => void) =>
+    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+
+  const filteredPeople = peopleSearch.trim()
+    ? people.filter(p => p.name.toLowerCase().includes(peopleSearch.toLowerCase()))
+    : people;
+
+  const hasAudience = allNetwork || allHotel || selSectors.length > 0 || selUserIds.length > 0;
 
   async function handleSave() {
     if (!form.title.trim() || !form.event_date) return;
@@ -100,15 +151,31 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
         is_mandatory: form.is_mandatory,
         visibility_start: form.visibility_start ? new Date(form.visibility_start).toISOString() : null,
         visibility_end: form.visibility_end ? new Date(form.visibility_end).toISOString() : null,
-        target_sectors: form.target_sectors.trim() ? form.target_sectors.split(',').map(s => s.trim()) : null,
-        target_roles: form.target_roles.trim() ? form.target_roles.split(',').map(s => s.trim()) : null,
+        audience_all_network: allNetwork,
+        audience_all_hotel: allHotel,
+        target_sectors: selSectors.length ? selSectors : null,
+        target_user_ids: selUserIds.length ? selUserIds : null,
+        notify_on_create: notifyOnCreate,
       };
+      let eventId = event?.id;
       if (event) {
         await supabase.from('events').update(payload).eq('id', event.id);
       } else {
         payload.created_by = user?.id;
-        await supabase.from('events').insert(payload);
+        const { data: created } = await supabase.from('events').insert(payload).select('id').single();
+        eventId = created?.id;
       }
+
+      // Notificar participantes na criação (opcional). Edge function resolve a
+      // audiência com service role e dispara sino + push (sem o limite de 403).
+      if (!event && eventId && notifyOnCreate && hasAudience) {
+        try {
+          await supabase.functions.invoke('event-reminders', {
+            body: { mode: 'created', event_id: eventId },
+          });
+        } catch { /* best-effort */ }
+      }
+
       onSaved();
       onClose();
     } finally {
@@ -242,6 +309,104 @@ function EventFormModal({ event, eventTypes, hotelId, onClose, onSaved }: {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Participantes (audiência) */}
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 space-y-3">
+            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" /> Participantes
+            </h3>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 -mt-1">
+              Sem participantes = evento público do hotel. Com participantes = visível só para eles.
+            </p>
+
+            {/* Grupos rápidos */}
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setAllNetwork(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  allNetwork ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'
+                }`}>
+                <Globe className="w-3.5 h-3.5" /> Toda a rede
+              </button>
+              <button type="button" onClick={() => setAllHotel(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  allHotel ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'
+                }`}>
+                <Building2 className="w-3.5 h-3.5" /> Todo o hotel
+              </button>
+            </div>
+
+            {/* Setores do DP */}
+            {!allNetwork && !allHotel && sectors.length > 0 && (
+              <div>
+                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1.5">
+                  <Briefcase className="w-3 h-3" /> Por setor
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {sectors.map(s => (
+                    <button key={s} type="button" onClick={() => toggle(selSectors, s, setSelSectors)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                        selSectors.includes(s) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'
+                      }`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Usuários individuais */}
+            {!allNetwork && !allHotel && (
+              <div>
+                <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1.5">
+                  <Users className="w-3 h-3" /> Pessoas {selUserIds.length > 0 && `(${selUserIds.length})`}
+                </label>
+                <div className="relative mb-1.5">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <input type="text" value={peopleSearch} onChange={e => setPeopleSearch(e.target.value)}
+                    placeholder="Buscar pessoa…"
+                    className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
+                </div>
+                <div className="max-h-40 overflow-y-auto space-y-0.5 rounded-lg border border-slate-100 dark:border-slate-700 p-1">
+                  {filteredPeople.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-3">Nenhum funcionário com acesso encontrado.</p>
+                  ) : filteredPeople.map(p => {
+                    const checked = selUserIds.includes(p.user_id);
+                    return (
+                      <button key={p.user_id} type="button" onClick={() => toggle(selUserIds, p.user_id, setSelUserIds)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
+                          checked ? 'bg-indigo-50 dark:bg-indigo-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                        }`}>
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          checked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 dark:border-slate-600'
+                        }`}>
+                          {checked && <Check className="w-3 h-3 text-white" />}
+                        </span>
+                        <span className="text-sm text-slate-700 dark:text-slate-200 truncate flex-1">{p.name}</span>
+                        {p.sector && <span className="text-[10px] text-slate-400 shrink-0">{p.sector}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Notificar ao criar */}
+            {hasAudience && (
+              <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                <input type="checkbox" checked={notifyOnCreate}
+                  onChange={e => setNotifyOnCreate(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 accent-indigo-600" />
+                <span className="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Bell className="w-3.5 h-3.5 text-indigo-500" /> Notificar participantes agora
+                </span>
+              </label>
+            )}
+            {hasAudience && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                Lembretes automáticos: 24h antes, na manhã do dia (7h) e 10 min antes.
+              </p>
+            )}
           </div>
 
           {/* Opções */}
@@ -439,21 +604,29 @@ export default function EventsCalendar() {
       const monthEnd   = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
 
       const [eventsRes, typesRes] = await Promise.all([
-        supabase
-          .from('events')
-          .select('*, event_types(name, color)')
-          .or(`hotel_id.eq.${selectedHotel!.id},hotel_id.is.null`)
-          .gte('event_date', monthStart)
-          .lte('event_date', monthEnd)
-          .order('event_date'),
+        // RPC aplica a visibilidade por participante no servidor (eventos
+        // privados só voltam para quem participa / criou).
+        supabase.rpc('get_my_events', {
+          p_hotel_id: selectedHotel!.id,
+          p_from: monthStart,
+          p_to: monthEnd,
+        }),
         supabase
           .from('event_types')
           .select('*')
           .eq('hotel_id', selectedHotel!.id),
       ]);
 
-      setEvents((eventsRes.data as any[]) || []);
-      setEventTypes(typesRes.data || []);
+      const types = typesRes.data || [];
+      const typeMap = new Map(types.map((t: any) => [t.id, t]));
+      const evs = ((eventsRes.data as any[]) || []).map(e => ({
+        ...e,
+        event_types: e.event_type_id && typeMap.get(e.event_type_id)
+          ? { name: typeMap.get(e.event_type_id).name, color: typeMap.get(e.event_type_id).color }
+          : null,
+      }));
+      setEvents(evs);
+      setEventTypes(types);
     } finally {
       setLoading(false);
     }
@@ -521,8 +694,8 @@ export default function EventsCalendar() {
           </div>
         </div>
 
-        {isAdmin && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {isAdmin && (
             <button
               onClick={() => setShowTypeManager(true)}
               className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
@@ -530,14 +703,15 @@ export default function EventsCalendar() {
             >
               <Tag className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => { setEditingEvent(null); setShowEventForm(true); }}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold active:scale-95 transition-all shadow-sm shadow-indigo-600/20"
-            >
-              <Plus className="w-4 h-4" /> Novo Evento
-            </button>
-          </div>
-        )}
+          )}
+          {/* Qualquer usuário pode criar eventos (agenda pessoal + convites) */}
+          <button
+            onClick={() => { setEditingEvent(null); setShowEventForm(true); }}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold active:scale-95 transition-all shadow-sm shadow-indigo-600/20"
+          >
+            <Plus className="w-4 h-4" /> Novo Evento
+          </button>
+        </div>
       </div>
 
       {/* ── Month Navigation ─────────────────────────────────────────────── */}
@@ -675,8 +849,8 @@ export default function EventsCalendar() {
                           <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">{ev.description}</p>
                         )}
 
-                        {/* Admin actions */}
-                        {isAdmin && (
+                        {/* Ações de gestão — admin ou criador do evento */}
+                        {(isAdmin || ev.created_by === user?.id) && (
                           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                             <button
                               onClick={() => { setEditingEvent(ev); setShowEventForm(true); }}
@@ -703,8 +877,8 @@ export default function EventsCalendar() {
                           </div>
                         )}
 
-                        {/* Confirmation buttons */}
-                        {!isAdmin && (
+                        {/* Confirmação de presença — participantes (não-gestores) */}
+                        {!(isAdmin || ev.created_by === user?.id) && (
                           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                             <button
                               onClick={() => handleConfirmation(ev.id, 'confirmed')}
