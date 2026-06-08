@@ -5,6 +5,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import {
+  useOfflineStockDraft, buildDraftKey, readLocalDraft, clearLocalDraft,
+} from '../hooks/useOfflineStockDraft';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -224,16 +227,25 @@ export default function PublicStockCount() {
         setStep('done');
         return;
       }
+      const serverCounts: Record<string, number> = {};
       if (sc) {
-        const draft: Record<string, number> = {};
-        (sc.items || []).forEach((it: any) => { draft[it.product_id] = it.counted_quantity; });
-        setCounts(draft);
+        (sc.items || []).forEach((it: any) => { serverCounts[it.product_id] = it.counted_quantity; });
         setActiveCountId(sc.id);
         if (sc.counted_by_name) {
           setCollaboratorName(sc.counted_by_name);
           restoredDraft = true;
         }
       }
+
+      // Recupera o rascunho LOCAL (localStorage) — protege contra queda de
+      // internet durante a contagem. Local prevalece por produto.
+      const localKey = token ? buildDraftKey({ token }) : null;
+      const local = localKey ? readLocalDraft(localKey) : null;
+      if (local && Object.keys(local.counts).length > 0) {
+        for (const [pid, q] of Object.entries(local.counts)) serverCounts[pid] = q;
+      }
+
+      if (Object.keys(serverCounts).length > 0) setCounts(serverCounts);
 
       // Se rascunho com nome conhecido → pula direto para contagem
       setStep(restoredDraft ? 'counting' : 'name');
@@ -266,6 +278,50 @@ export default function PublicStockCount() {
       }
     };
   }, [filteredProducts]);
+
+  // ── Rascunho offline-first ──────────────────────────────────────────────
+  const storageKey = token ? buildDraftKey({ token }) : null;
+
+  // Persiste rascunho no servidor sem UI (usado pelo autosave)
+  const persistDraftToServer = useCallback(async () => {
+    if (!tokenData || Object.keys(counts).length === 0) return;
+    const now = new Date().toISOString();
+    let countId = activeCountId;
+    if (!countId) {
+      const { data: sc, error } = await supabase.from('stock_counts').insert({
+        hotel_id:        tokenData.hotel_id,
+        sector_id:       tokenData.sector_id,
+        status:          'delegated_draft',
+        started_at:      now,
+        finished_at:     null,
+        counted_by_name: collaboratorName,
+        notes:           tokenData.sector_id ? 'Contagem delegada — Setor' : 'Contagem delegada — Inventário',
+      }).select('id').single();
+      if (error) throw error;
+      countId = sc!.id;
+      setActiveCountId(countId);
+    } else {
+      await supabase.from('stock_counts').update({
+        status: 'delegated_draft', counted_by_name: collaboratorName,
+      }).eq('id', countId);
+    }
+    const items = Object.entries(counts).map(([productId, q]) => ({
+      stock_count_id:    countId,
+      product_id:        productId,
+      previous_quantity: products.find(p => p.id === productId)?.quantity ?? 0,
+      counted_quantity:  q,
+    }));
+    await supabase.from('stock_count_items').delete().eq('stock_count_id', countId!);
+    await supabase.from('stock_count_items').insert(items);
+    await supabase.from('stock_count_tokens').update({ stock_count_id: countId }).eq('token', token!);
+  }, [tokenData, counts, activeCountId, collaboratorName, products, token]);
+
+  const draft = useOfflineStockDraft({
+    storageKey,
+    counts,
+    enabled: step === 'counting',
+    saveDraftToServer: persistDraftToServer,
+  });
 
   // ── Salvar ────────────────────────────────────────────────────────────────
 
@@ -316,6 +372,7 @@ export default function PublicStockCount() {
         .eq('token', token!);
 
       if (isFinal) {
+        if (storageKey) clearLocalDraft(storageKey); // limpa rascunho local
         setStep('done');
       }
     } catch (err: any) {
@@ -522,9 +579,23 @@ export default function PublicStockCount() {
             </p>
             <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{collaboratorName}</p>
           </div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 99 }}>
-            {countedProducts}/{totalProducts}{progressPct === 100 && ' ✓'}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,0.2)', padding: '3px 10px', borderRadius: 99 }}>
+              {countedProducts}/{totalProducts}{progressPct === 100 && ' ✓'}
+            </span>
+            {(() => {
+              const base: React.CSSProperties = { fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 };
+              if (!draft.isOnline || draft.status === 'offline')
+                return <span style={{ ...base, color: '#fcd34d' }}>● Offline — salvo no aparelho</span>;
+              if (draft.status === 'saving')
+                return <span style={{ ...base, color: '#e0e7ff' }}>↻ Salvando…</span>;
+              if (draft.status === 'saved')
+                return <span style={{ ...base, color: '#6ee7b7' }}>✓ Salvo</span>;
+              if (draft.status === 'error')
+                return <span style={{ ...base, color: '#fcd34d' }}>↻ Tentando salvar…</span>;
+              return null;
+            })()}
+          </div>
         </div>
         <div style={{ height: 3, background: 'rgba(255,255,255,0.2)' }}>
           <div style={{ height: '100%', width: `${progressPct}%`, background: progressPct === 100 ? '#4ade80' : 'rgba(255,255,255,0.9)', transition: 'width 0.4s ease' }} />

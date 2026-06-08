@@ -6,12 +6,16 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   X, Search, CheckCircle2, Save, ListChecks, AlertCircle,
   Camera, Barcode, Plus, ZapOff, Package, ChevronLeft, ChevronRight,
-  Loader2, Check, Share2,
+  Loader2, Check, Share2, Cloud, CloudOff, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import {
+  useOfflineStockDraft, buildDraftKey, readLocalDraft, clearLocalDraft,
+  type DraftSaveStatus,
+} from '../hooks/useOfflineStockDraft';
 
 interface Product {
   id: string;
@@ -98,6 +102,39 @@ const QtyInput: React.FC<{
       </button>
     </div>
   );
+};
+
+// ── Badge de status do autosave (rascunho offline-first) ─────────────────────
+const DraftStatus: React.FC<{ status: DraftSaveStatus; isOnline: boolean }> = ({ status, isOnline }) => {
+  if (!isOnline || status === 'offline') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-200 bg-amber-500/20 rounded-md px-1.5 py-0.5">
+        <CloudOff className="w-3 h-3" /> Offline — salvo no aparelho
+      </span>
+    );
+  }
+  if (status === 'saving') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-100">
+        <Loader2 className="w-3 h-3 animate-spin" /> Salvando…
+      </span>
+    );
+  }
+  if (status === 'saved') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-200">
+        <Cloud className="w-3 h-3" /> Salvo
+      </span>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-200">
+        <RefreshCw className="w-3 h-3" /> Tentando salvar…
+      </span>
+    );
+  }
+  return null;
 };
 
 // ── Componente principal ───────────────────────────────────────────────────────
@@ -225,42 +262,57 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
       const { data, error } = await query;
       if (error) throw error;
-      if (!data || data.length === 0) return;
 
-      // Funde todos os rascunhos: o mais recente (data[0]) tem prioridade
-      // para cada produto. Os outros rascunhos adicionam produtos ainda não
-      // contados no mais recente.
+      // Funde todos os rascunhos do SERVIDOR: o mais recente (data[0]) tem
+      // prioridade para cada produto.
       const merged: Record<string, number> = {};
-      // Percorre do mais antigo ao mais recente (invertido) para que o mais
-      // recente sobrescreva o mais antigo no caso de produto repetido.
-      for (const draft of [...data].reverse()) {
-        draft.items.forEach((item: any) => {
-          merged[item.product_id] = item.counted_quantity;
-        });
+      if (data && data.length > 0) {
+        for (const draft of [...data].reverse()) {
+          draft.items.forEach((item: any) => {
+            merged[item.product_id] = item.counted_quantity;
+          });
+        }
+        const keeper = data[0];
+        // Se havia duplicatas, apaga as mais antigas e salva a fusão no keeper
+        if (data.length > 1) {
+          const idsToDelete = data.slice(1).map((d: any) => d.id);
+          await supabase.from('stock_counts').delete().in('id', idsToDelete);
+          await supabase.from('stock_count_items').delete().eq('stock_count_id', keeper.id);
+          const fusedItems = Object.entries(merged).map(([product_id, counted_quantity]) => ({
+            stock_count_id: keeper.id,
+            product_id,
+            counted_quantity,
+            previous_quantity: products.find(p => p.id === product_id)?.quantity || 0,
+          }));
+          if (fusedItems.length > 0) {
+            await supabase.from('stock_count_items').insert(fusedItems);
+          }
+        }
+        setActiveCountId(keeper.id);
       }
 
-      const keeper = data[0]; // rascunho mais recente — vira o único
-
-      // Se havia duplicatas, apaga as mais antigas e salva a fusão no keeper
-      if (data.length > 1) {
-        const idsToDelete = data.slice(1).map((d: any) => d.id);
-        await supabase.from('stock_counts').delete().in('id', idsToDelete);
-        // Regrava os itens do keeper com a contagem fundida
-        await supabase.from('stock_count_items').delete().eq('stock_count_id', keeper.id);
-        const fusedItems = Object.entries(merged).map(([product_id, counted_quantity]) => ({
-          stock_count_id: keeper.id,
-          product_id,
-          counted_quantity,
-          previous_quantity: products.find(p => p.id === product_id)?.quantity || 0,
-        }));
-        if (fusedItems.length > 0) {
-          await supabase.from('stock_count_items').insert(fusedItems);
+      // Recupera o rascunho LOCAL (localStorage). Se a internet caiu durante a
+      // contagem, o servidor pode estar desatualizado — o local tem o que foi
+      // digitado por último. O local prevalece por produto (recupera o perdido).
+      const localKey = storageKey;
+      const local = localKey ? readLocalDraft(localKey) : null;
+      let recoveredOffline = false;
+      if (local && Object.keys(local.counts).length > 0) {
+        for (const [pid, qty] of Object.entries(local.counts)) {
+          if (merged[pid] !== qty) recoveredOffline = true;
+          merged[pid] = qty;
         }
       }
 
-      setCounts(merged);
-      setActiveCountId(keeper.id);
-      addNotification('Rascunho retomado — continue de onde parou.', 'info');
+      if (Object.keys(merged).length > 0) {
+        setCounts(merged);
+        addNotification(
+          recoveredOffline
+            ? 'Rascunho recuperado do dispositivo — continue de onde parou.'
+            : 'Rascunho retomado — continue de onde parou.',
+          'info',
+        );
+      }
     } catch (err) { console.error('Erro ao buscar rascunho:', err); }
     finally { setIsLoadingDraft(false); }
   };
@@ -350,40 +402,67 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
     setScanProduct(null); setScanQty('1');
   };
 
+  // ── Rascunho offline-first ──────────────────────────────────────────────
+  // Chave do localStorage para este contexto (desligado em contagem delegada).
+  const storageKey = useMemo(
+    () => (preloadCountId ? null : buildDraftKey({ hotelId, sectorId })),
+    [preloadCountId, hotelId, sectorId],
+  );
+
+  // Garante (criando/reutilizando) o registro de rascunho no servidor.
+  // Nunca cria duplicatas para o mesmo setor.
+  const ensureCountId = useCallback(async (): Promise<string> => {
+    if (activeCountId) return activeCountId;
+    let existsQuery = supabase.from('stock_counts')
+      .select('id')
+      .eq('hotel_id', hotelId)
+      .eq('status', 'draft')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (sectorId) existsQuery = existsQuery.eq('sector_id', sectorId);
+    else          existsQuery = existsQuery.is('sector_id', null);
+    const { data: existingDraft } = await existsQuery;
+    if (existingDraft?.[0]) { setActiveCountId(existingDraft[0].id); return existingDraft[0].id; }
+
+    const { data: nc, error: ce } = await supabase.from('stock_counts').insert({
+      hotel_id: hotelId, sector_id: sectorId || null,
+      status: 'draft',
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      notes: sectorId ? 'Conferência de Setor' : 'Conferência de Inventário Principal',
+    }).select().single();
+    if (ce) throw ce;
+    setActiveCountId(nc.id);
+    return nc.id;
+  }, [activeCountId, hotelId, sectorId]);
+
+  // Persiste o rascunho no servidor (sem UI/toast) — usado pelo autosave.
+  const persistDraftToServer = useCallback(async () => {
+    if (Object.keys(counts).length === 0) return;
+    const countId = await ensureCountId();
+    await supabase.from('stock_counts').update({ status: 'draft', finished_at: null }).eq('id', countId);
+    const items = Object.entries(counts).map(([productId, q]) => ({
+      stock_count_id: countId,
+      product_id: productId,
+      previous_quantity: products.find(p => p.id === productId)?.quantity || 0,
+      counted_quantity: q,
+    }));
+    await supabase.from('stock_count_items').delete().eq('stock_count_id', countId);
+    await supabase.from('stock_count_items').insert(items);
+  }, [counts, ensureCountId, products]);
+
+  const draft = useOfflineStockDraft({
+    storageKey,
+    counts,
+    enabled: isOpen && !preloadCountId && !isLoadingDraft,
+    saveDraftToServer: persistDraftToServer,
+  });
+
   const saveProgress = async (isFinal: boolean) => {
     if (Object.keys(counts).length === 0) { addNotification('Informe pelo menos uma quantidade.', 'warning'); return; }
     setIsSaving(true);
     try {
-      let countId = activeCountId;
-      if (!countId) {
-        // Antes de criar, verifica se já existe rascunho não carregado (segurança extra).
-        // Garante que nunca haja 2 rascunhos simultâneos para o mesmo setor.
-        let existsQuery = supabase.from('stock_counts')
-          .select('id')
-          .eq('hotel_id', hotelId)
-          .eq('status', 'draft')
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (sectorId) existsQuery = existsQuery.eq('sector_id', sectorId);
-        else          existsQuery = existsQuery.is('sector_id', null);
-        const { data: existingDraft } = await existsQuery;
-        if (existingDraft?.[0]) {
-          // Rascunho já existe — reutiliza (nunca cria duplicata)
-          countId = existingDraft[0].id;
-          setActiveCountId(countId);
-        } else {
-          // Nenhum rascunho — cria o primeiro
-          const { data: nc, error: ce } = await supabase.from('stock_counts').insert({
-            hotel_id: hotelId, sector_id: sectorId || null,
-            status: isFinal ? 'finished' : 'draft',
-            started_at: new Date().toISOString(),
-            finished_at: isFinal ? new Date().toISOString() : null,
-            notes: sectorId ? 'Conferência de Setor' : 'Conferência de Inventário Principal',
-          }).select().single();
-          if (ce) throw ce;
-          countId = nc.id; setActiveCountId(countId);
-        }
-      }
+      const countId = await ensureCountId();
       // Atualiza status e datas
       const { error: ue } = await supabase.from('stock_counts').update({
         status: isFinal ? 'finished' : 'draft',
@@ -413,6 +492,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
             if (pe) throw pe;
           }
         }
+        if (storageKey) clearLocalDraft(storageKey); // limpa rascunho local
         addNotification('Conferência finalizada e estoque atualizado!', 'success');
         onFinished(); onClose();
       } else {
@@ -458,7 +538,10 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
                 <ListChecks className="w-4 h-4 text-white/80 shrink-0" />
                 <div className="min-w-0">
                   <h2 className="text-sm font-bold text-white leading-tight truncate">Conferência de Estoque</h2>
-                  <p className="text-[10px] text-indigo-200 leading-tight">{sectorId ? 'Setor Selecionado' : 'Inventário Principal'}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[10px] text-indigo-200 leading-tight">{sectorId ? 'Setor Selecionado' : 'Inventário Principal'}</p>
+                    {!preloadCountId && <DraftStatus status={draft.status} isOnline={draft.isOnline} />}
+                  </div>
                 </div>
               </div>
 
