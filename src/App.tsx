@@ -145,8 +145,8 @@ import { usePermissions } from './hooks/usePermissions';
 // ── Push notifications ────────────────────────────────────────────────────────
 import { usePushNotifications } from './hooks/usePushNotifications';
 
-// ── Verificações diárias de notificações ─────────────────────────────────────
-import { checkContractExpirations, checkBirthdayNotifications } from './lib/notificationTriggers';
+// NOTA: verificações diárias (aniversário/contrato) migradas para o CRON do
+// Supabase (Edge Function daily-notifications). Ver supabase/functions/.
 
 // ── Supabase (para troca de code OAuth no APK) ────────────────────────────────
 import { supabase } from './lib/supabase';
@@ -266,26 +266,10 @@ function PushNotificationSetup() {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// DailyChecksRunner
-// Roda verificações diárias (contratos, aniversários) 1x por sessão assim
-// que o usuário está autenticado. Usa sessionStorage para não repetir.
-// ---------------------------------------------------------------------------
-function DailyChecksRunner() {
-  const { user } = useAuth();
-
-  useEffect(() => {
-    if (!user) return;
-    // Pequeno delay para não competir com o carregamento inicial da tela
-    const timer = setTimeout(() => {
-      void checkContractExpirations();
-      void checkBirthdayNotifications();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [user?.id]);
-
-  return null;
-}
+// NOTA: As verificações diárias (aniversários + contratos) foram movidas para
+// o CRON do Supabase (Edge Function `daily-notifications`, 08:00 Brasília).
+// Isso torna os disparos confiáveis (rodam mesmo sem ninguém abrir o app) e
+// elimina o 403 que ocorria quando um não-admin disparava push para terceiros.
 
 // ---------------------------------------------------------------------------
 // HomeGuard — para "/" redireciona não-autenticados para /select-hotel,
@@ -336,7 +320,6 @@ function App() {
 
                 <OAuthCallbackHandler />
                 <PushNotificationSetup />
-                <DailyChecksRunner />
                 <Toast />
                 <AppUpdateModal />
 
