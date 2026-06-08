@@ -6,6 +6,7 @@ import {
   requestFirebaseNotificationPermission,
   onForegroundMessage,
 } from '../lib/firebase';
+import { isNativePushPlatform, registerNativePush } from '../lib/nativePush';
 
 interface PushNotificationPayload {
   title?: string;
@@ -33,6 +34,21 @@ export function usePushNotifications(options?: UsePushNotificationsOptions) {
 
     const setup = async () => {
       try {
+        // ── APK (Capacitor) → push NATIVO via FCM ──────────────────────
+        // Funciona com o app fechado (bandeja do sistema). O Web SDK abaixo
+        // não funciona dentro do WebView Android.
+        if (isNativePushPlatform()) {
+          await registerNativePush(userId, (path) => {
+            // Navegar ao tocar na notificação (hash router → mantém SPA)
+            if (path && path !== '/') {
+              window.location.assign(path);
+            }
+          });
+          registeredRef.current = true;
+          return;
+        }
+
+        // ── Navegador (desktop/mobile web) → Firebase Web SDK ──────────
         const token = await requestFirebaseNotificationPermission();
         if (!token || cancelled) return;
 
