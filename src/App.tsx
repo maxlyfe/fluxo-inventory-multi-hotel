@@ -484,7 +484,12 @@ function App() {
                       </PrivateRoute>
                     } />
 
-                    {/* Grupos hoteleiros — exclusivo do dev (dono do SaaS) */}
+                    {/* Painel do Dev — grupos e unidades (exclusivo do dev) */}
+                    <Route path="/lyfe-dev" element={
+                      <PrivateRoute devOnly>
+                        <GroupsManagement />
+                      </PrivateRoute>
+                    } />
                     <Route path="/admin/groups" element={
                       <PrivateRoute devOnly>
                         <GroupsManagement />

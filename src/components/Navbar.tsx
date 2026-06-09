@@ -28,6 +28,7 @@ import {
   Check as CheckIcon,
   Home,
   ChevronRight,
+  Boxes as BoxesIcon,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -389,6 +390,18 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
 
           {/* ── Ações direita ──────────────────────────────────────────────── */}
           <div className="flex items-center gap-1 sm:gap-2 pr-1 sm:pr-0 flex-shrink-0">
+
+            {/* Painel do Dev — gestão de grupos e unidades (só dev) */}
+            {isDev && (
+              <Link
+                to="/lyfe-dev"
+                title="Painel do Dev — grupos e unidades"
+                className="p-2 rounded-full text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors"
+                aria-label="Painel do Dev"
+              >
+                <BoxesIcon className="h-5 w-5" />
+              </Link>
+            )}
 
             {/* Toggle tema */}
             <button
