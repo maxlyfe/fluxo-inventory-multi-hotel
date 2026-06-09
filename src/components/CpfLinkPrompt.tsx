@@ -13,7 +13,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { IdCard, X, CheckCircle2, ArrowRight, BellOff } from 'lucide-react';
+import { Fingerprint, X, CheckCircle2, ArrowRight, BellOff } from 'lucide-react';
 
 const SESSION_KEY = 'cpf_prompt_shown';
 
@@ -78,7 +78,7 @@ export default function CpfLinkPrompt() {
             <X className="w-4 h-4" />
           </button>
           <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center mb-3">
-            <IdCard className="w-6 h-6" />
+            <Fingerprint className="w-6 h-6" />
           </div>
           <h2 className="text-lg font-bold leading-tight">Vincule seu cadastro</h2>
           <p className="text-sm text-white/80 mt-1">Informe seu CPF e desbloqueie seu acesso completo</p>
