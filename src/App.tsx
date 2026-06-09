@@ -129,6 +129,7 @@ import PrivateRoute from './components/PrivateRoute';
 import MainLayout   from './components/MainLayout';
 import Toast        from './components/ui/Toast';
 import AppUpdateModal from './components/AppUpdateModal';
+import CpfLinkPrompt  from './components/CpfLinkPrompt';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import Chatbot      from './components/Chatbot';
 
@@ -320,6 +321,7 @@ function App() {
 
                 <OAuthCallbackHandler />
                 <PushNotificationSetup />
+                <CpfLinkPrompt />
                 <Toast />
                 <AppUpdateModal />
 

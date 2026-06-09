@@ -9,6 +9,7 @@ interface AppUser {
   full_name?: string;
   cpf?: string;
   photo_url?: string;
+  cpf_prompt_dismissed?: boolean;
   custom_role_id?: string;
   custom_role?: {
     id:          string;
@@ -66,7 +67,7 @@ async function fetchProfile(userId: string, forceCheck: boolean = false): Promis
 
     const { data, error } = await supabase
       .from('profiles')
-      .select(`role, full_name, photo_url, cpf, custom_role_id, custom_roles(id, name, permissions, color)`)
+      .select(`role, full_name, photo_url, cpf, cpf_prompt_dismissed, custom_role_id, custom_roles(id, name, permissions, color)`)
       .eq('id', userId)
       .maybeSingle();
 
@@ -90,6 +91,7 @@ async function fetchProfile(userId: string, forceCheck: boolean = false): Promis
         full_name:      data.full_name      || undefined,
         photo_url:      data.photo_url      || undefined,
         cpf:            data.cpf            || undefined,
+        cpf_prompt_dismissed: (data as any).cpf_prompt_dismissed || false,
         custom_role_id: data.custom_role_id || undefined,
         custom_role:    mapCustomRole(cr),
       }

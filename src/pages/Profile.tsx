@@ -105,7 +105,25 @@ export default function Profile() {
       } else if (error) {
         throw error;
       } else {
-        setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+        // Salvou o CPF — tenta vincular automaticamente ao cadastro do DP
+        if (!employee && cleanCpf.length === 11) {
+          const { data: byCpf } = await supabase
+            .from('employees')
+            .select('*, hotels(name)')
+            .eq('cpf', cleanCpf)
+            .maybeSingle();
+          if (byCpf) {
+            if (!byCpf.user_id) {
+              await supabase.from('employees').update({ user_id: user!.id }).eq('id', byCpf.id);
+            }
+            setEmployee(byCpf as EmployeeLink);
+            setMessage({ type: 'success', text: `Pronto! Você foi vinculado ao cadastro de ${byCpf.name}. 🎉` });
+          } else {
+            setMessage({ type: 'info', text: 'CPF salvo. Ainda não há um cadastro de colaborador com este CPF — peça ao RH/DP para cadastrá-lo e o vínculo será automático.' });
+          }
+        } else {
+          setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+        }
       }
 
       // Força uma verificação completa do esquema após salvar, para ver se o SQL já foi rodado
