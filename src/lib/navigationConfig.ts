@@ -273,8 +273,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Configurações',
     icon: SettingsIcon,
     adminOnly: true,
-    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/erbon', '/admin/whatsapp', '/admin/fnrh'],
+    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/groups', '/admin/erbon', '/admin/whatsapp', '/admin/fnrh'],
     items: [
+      { module: '__groups_dev__',     label: 'Grupos',            href: '/admin/groups',   icon: Boxes,         iconName: 'Boxes',         color: '#8b5cf6' },
       { module: 'users_management',   label: 'Usuários',          href: '/users',          icon: UsersRound,    iconName: 'UsersRound',    color: '#6366f1' },
       { module: 'roles_management',   label: 'Gestão de Perfis',  href: '/admin/roles',    icon: UserCog,       iconName: 'UserCog',       color: '#f59e0b' },
       { module: 'sectors_management', label: 'Gestão de Setores', href: '/admin/sectors',  icon: LayoutGrid,    iconName: 'LayoutGrid',    color: '#14b8a6' },

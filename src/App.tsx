@@ -78,6 +78,7 @@ import MaintenanceEquipmentDetail from './pages/MaintenanceEquipmentDetail';
 // ── Pages — Administração (novos) ─────────────────────────────────────────────
 import RolesManagement    from './pages/admin/RolesManagement';
 import SectorsManagement  from './pages/admin/SectorsManagement';
+import GroupsManagement   from './pages/admin/GroupsManagement';
 import ErbonIntegration     from './pages/admin/ErbonIntegration';
 import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
 import FNRHIntegration    from './pages/admin/FNRHIntegration';
@@ -480,6 +481,13 @@ function App() {
                     <Route path="/admin/sectors" element={
                       <PrivateRoute module="sectors_management">
                         <SectorsManagement />
+                      </PrivateRoute>
+                    } />
+
+                    {/* Grupos hoteleiros — exclusivo do dev (dono do SaaS) */}
+                    <Route path="/admin/groups" element={
+                      <PrivateRoute devOnly>
+                        <GroupsManagement />
                       </PrivateRoute>
                     } />
 

@@ -8,6 +8,8 @@ export interface Hotel {
   fantasy_name?: string;
   corporate_name?: string;
   cnpj?: string;
+  group_id?: string;
+}
 
 export interface HotelGroup {
   id: string;

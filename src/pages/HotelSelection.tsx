@@ -31,7 +31,10 @@ interface NewHotelData {
   address: string;
   description: string;
   image_url: string;
+  group_id: string;
 }
+
+interface GroupOption { id: string; name: string; }
 
 const HotelSelection = () => {
   const navigate = useNavigate();
@@ -56,7 +59,9 @@ const HotelSelection = () => {
     address: '',
     description: '',
     image_url: '',
+    group_id: '',
   });
+  const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
 
   /**
    * Busca a lista de hotéis do Supabase.
@@ -90,6 +95,13 @@ const HotelSelection = () => {
     fetchHotels();
   }, [fetchHotels]);
 
+  // Dev: carrega grupos para escolher ao criar hotel
+  useEffect(() => {
+    if (!isDev) return;
+    supabase.from('groups').select('id, name').eq('is_active', true).order('name')
+      .then(({ data }) => setGroupOptions(data || []));
+  }, [isDev]);
+
   /**
    * Salva o hotel selecionado no contexto.
    * - Autenticado   → dashboard (/)
@@ -117,18 +129,30 @@ const HotelSelection = () => {
       addNotification('error', 'Nome e Código são obrigatórios.');
       return;
     }
+    if (!newHotel.group_id) {
+      addNotification('error', 'Selecione o grupo do hotel.');
+      return;
+    }
 
     setIsSaving(true);
     try {
+      const payload = {
+        name: newHotel.name,
+        code: newHotel.code,
+        address: newHotel.address || null,
+        description: newHotel.description || null,
+        image_url: newHotel.image_url || null,
+        group_id: newHotel.group_id,
+      };
       const { error: insertError } = await supabase
         .from('hotels')
-        .insert([newHotel]);
+        .insert([payload]);
 
       if (insertError) throw insertError;
 
       addNotification('success', 'Novo hotel adicionado com sucesso!');
       setShowAddHotelModal(false);
-      setNewHotel({ name: '', code: '', address: '', description: '', image_url: '' });
+      setNewHotel({ name: '', code: '', address: '', description: '', image_url: '', group_id: '' });
       fetchHotels();
 
     } catch (err: any) {
@@ -395,6 +419,16 @@ const HotelSelection = () => {
               <div>
                 <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Código (Ex: CS)*</label>
                 <input id="code" name="code" type="text" value={newHotel.code} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" required />
+              </div>
+              <div>
+                <label htmlFor="group_id" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grupo*</label>
+                <select id="group_id" name="group_id" value={newHotel.group_id} onChange={handleNewHotelChange} className="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" required>
+                  <option value="">Selecione o grupo…</option>
+                  {groupOptions.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+                {groupOptions.length === 0 && (
+                  <p className="text-xs text-amber-500 mt-1">Nenhum grupo cadastrado. Crie um em Configurações → Grupos.</p>
+                )}
               </div>
               <div>
                 <label htmlFor="address" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Endereço</label>

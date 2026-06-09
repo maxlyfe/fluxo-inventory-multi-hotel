@@ -117,6 +117,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
       .map(s => {
         // Filtra os itens individualmente dentro de cada grupo
         const filteredItems = s.items.filter(i => {
+           if (i.module === '__groups_dev__') return isDev;
            if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
            return can(i.module);
         });

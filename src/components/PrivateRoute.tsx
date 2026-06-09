@@ -18,13 +18,15 @@ interface PrivateRouteProps {
   modules?:   string[];
   // Atalho para rotas exclusivas de admin
   adminOnly?: boolean;
+  // Atalho para rotas exclusivas de DEV (dono do SaaS) — admin NÃO tem acesso
+  devOnly?: boolean;
   // Verificação customizada adicional (ex: canAccessContacts)
   customCheck?: boolean;
   // Compatibilidade retroativa — ignorado (permissões agora vêm do perfil)
   roles?:     string[];
 }
 
-const PrivateRoute = ({ children, module, modules, adminOnly, customCheck }: PrivateRouteProps) => {
+const PrivateRoute = ({ children, module, modules, adminOnly, devOnly, customCheck }: PrivateRouteProps) => {
   const { user, loading } = useAuth();
   const { can, canAny, isAdmin, isDev } = usePermissions();
   const location          = useLocation();
@@ -41,6 +43,11 @@ const PrivateRoute = ({ children, module, modules, adminOnly, customCheck }: Pri
   // ── Não autenticado ───────────────────────────────────────────────────────
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // ── Rota exclusiva DEV (dono do SaaS) — admin NÃO acessa ──────────────────
+  if (devOnly && !isDev) {
+    return <Navigate to="/" replace />;
   }
 
   // ── Rota exclusiva admin — DEV tem bypass total ───────────────────────────

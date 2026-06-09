@@ -96,6 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
       .map(s => {
         // Filtrar itens estáticos por permissão
         const staticItems: NavItem[] = s.items.filter(i => {
+          if (i.module === '__groups_dev__') return isDev;
           if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
           if (!i.module) return true;
           return can(i.module);
