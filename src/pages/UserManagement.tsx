@@ -543,7 +543,7 @@ const UserManagement = () => {
 
   // Create user
   const [showCreate, setShowCreate]   = useState(false);
-  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory' });
+  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory', group_id: '' });
   const [showPwd, setShowPwd]         = useState(false);
   const [creating, setCreating]       = useState(false);
 
@@ -559,6 +559,7 @@ const UserManagement = () => {
   const [changingRole, setChangingRole]     = useState(false);
 
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
+  const [groupsList, setGroupsList]   = useState<{ id: string; name: string }[]>([]);
   const [togglingBan,   setTogglingBan]   = useState<string | null>(null);
   const [forcingLogout, setForcingLogout] = useState<string | null>(null);
 
@@ -616,6 +617,11 @@ const UserManagement = () => {
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));
     getHotels().then(setHotels).catch(() => showToast('error', 'Erro ao carregar hotéis.'));
     getSectors().then(setSectors).catch(() => showToast('error', 'Erro ao carregar setores.'));
+    // Dev pode escolher o grupo ao criar usuário
+    if (isDev) {
+      supabase.from('groups').select('id, name').eq('is_active', true).order('name')
+        .then(({ data }) => setGroupsList(data || []));
+    }
   }, [adminUser]);
 
   // ---------------------------------------------------------------------------
@@ -667,11 +673,14 @@ const UserManagement = () => {
     try {
       const selectedRole = customRoles.find(r => r.id === newUser.role);
       const systemRole   = selectedRole?.is_system ? 'admin' : 'guest';
+      if (isDev && !newUser.group_id) { showToast('error', 'Selecione o grupo do usuário.'); setCreating(false); return; }
       await callAdminAction({
         action: 'create_user', email: newUser.email, password: newUser.password,
         role: systemRole, custom_role_id: selectedRole?.id ?? null,
+        // dev escolhe o grupo; admin → backend usa o grupo do próprio admin
+        group_id: isDev ? newUser.group_id : undefined,
       });
-      setNewUser({ email: '', password: '', role: 'inventory' });
+      setNewUser({ email: '', password: '', role: 'inventory', group_id: '' });
       setShowCreate(false);
       await fetchUsers();
       showToast('success', `Usuário ${newUser.email} criado com sucesso!`);
@@ -1049,7 +1058,7 @@ const UserManagement = () => {
             <RefreshCw className="h-4 w-4" />
           </button>
           <button
-            onClick={() => { setShowCreate(v => !v); setNewUser({ email: '', password: '', role: 'inventory' }); }}
+            onClick={() => { setShowCreate(v => !v); setNewUser({ email: '', password: '', role: 'inventory', group_id: '' }); }}
             className="flex items-center gap-2 h-10 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-sm font-semibold rounded-xl transition-all shadow-sm shadow-blue-200 dark:shadow-blue-900/40">
             <UserPlus className="h-4 w-4" />
             <span className="hidden sm:inline">Novo usuário</span>
@@ -1093,6 +1102,14 @@ const UserManagement = () => {
                   {customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </FormField>
+              {isDev && (
+                <FormField label="Grupo" required>
+                  <select value={newUser.group_id} onChange={e => setNewUser({ ...newUser, group_id: e.target.value })} className={inputCls}>
+                    <option value="">Selecionar grupo...</option>
+                    {groupsList.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                </FormField>
+              )}
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowCreate(false)}
