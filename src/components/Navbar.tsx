@@ -68,8 +68,10 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   }, [selectedHotel]);
 
   useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => {
-      if (data) setAllHotels(data);
+    // Não lista hotéis ocultos (is_active=false). O RLS também protege no
+    // servidor; este filtro garante resultado imediato no cliente.
+    supabase.from('hotels').select('id, name, is_active').order('name').then(({ data }) => {
+      if (data) setAllHotels(data.filter((h: any) => h.is_active !== false).map((h: any) => ({ id: h.id, name: h.name })));
     });
   }, []);
 
