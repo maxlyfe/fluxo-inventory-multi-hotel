@@ -7,7 +7,8 @@ import { useHotel } from '../context/HotelContext';
 import {
   User, Mail, Camera, Save, Loader2, AlertCircle, CheckCircle,
   Hash, Building2, Briefcase, Calendar, Clock, LogOut,
-  ShieldCheck, ArrowRight, Trash2, Info, RefreshCw
+  ShieldCheck, ArrowRight, Trash2, Info, RefreshCw,
+  Lock, Eye, EyeOff
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -50,6 +51,12 @@ export default function Profile() {
   const [linking, setLinking]             = useState(false);
   const [unlinking, setUnlinking]         = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Alterar a própria senha (sem exigir a senha atual — sessão já autenticada)
+  const [newPassword, setNewPassword]         = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword]   = useState(false);
+  const [showPassword, setShowPassword]       = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -157,6 +164,31 @@ export default function Profile() {
       setMessage({ type: 'error', text: err.message || 'Erro ao salvar.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      setMessage({ type: 'error', text: 'A senha deve ter pelo menos 6 caracteres.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: 'error', text: 'As senhas não coincidem.' });
+      return;
+    }
+    setSavingPassword(true);
+    setMessage(null);
+    try {
+      // updateUser não exige a senha atual — a sessão já está autenticada
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setNewPassword(''); setConfirmPassword('');
+      setMessage({ type: 'success', text: 'Senha alterada com sucesso!' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Erro ao alterar a senha.' });
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -306,6 +338,63 @@ export default function Profile() {
             </div>
           </form>
           
+          {/* ── Alterar senha ─────────────────────────────────────────── */}
+          <form onSubmit={handleChangePassword} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Lock className="w-5 h-5 text-indigo-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Alterar Senha</h3>
+                <p className="text-xs text-slate-400">Defina uma nova senha de acesso</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Nova Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    autoComplete="new-password"
+                    className="w-full pl-12 pr-12 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  />
+                  <button type="button" onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Confirmar Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a nova senha"
+                    autoComplete="new-password"
+                    className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+            {confirmPassword && newPassword !== confirmPassword && (
+              <p className="text-xs text-red-500 font-semibold mt-3 px-1">As senhas não coincidem.</p>
+            )}
+            <div className="mt-6 flex justify-end">
+              <button type="submit" disabled={savingPassword || !newPassword || !confirmPassword}
+                className="px-10 py-4 bg-slate-800 dark:bg-slate-700 text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:bg-slate-900 dark:hover:bg-slate-600 transition-all shadow-xl active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                {savingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                Salvar Nova Senha
+              </button>
+            </div>
+          </form>
+
           {isCompatibilityMode && (
             <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl animate-fadeIn">
               <h4 className="text-amber-800 dark:text-amber-300 font-bold text-sm flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4" /> Atualização de Banco Pendente</h4>

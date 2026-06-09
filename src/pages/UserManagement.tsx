@@ -11,6 +11,7 @@ import {
   BadgeCheck, BellOff, BellRing, ChevronDown,
   Inbox, DollarSign, Ban, Wrench, Sparkles, Hotel,
   Receipt, ArrowLeftRight, MapPin, Building2, Filter, Cake,
+  Link2, Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -397,10 +398,10 @@ function StatChip({ value, label, color }: { value: number; label: string; color
 }
 
 // Context menu for user actions on mobile
-function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canManagePhotos, onChangePassword, onChangeRole, onNotifications, onToggleBan, onForceLogout, onRemovePhoto }: {
+function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canManagePhotos, onChangePassword, onGeneratePasswordLink, onChangeRole, onNotifications, onToggleBan, onForceLogout, onRemovePhoto }: {
   user: User; isMe: boolean; disabled: boolean; isBanning: boolean; forcingLogout: boolean;
   canManagePhotos: boolean;
-  onChangePassword: () => void; onChangeRole: () => void; onNotifications: () => void;
+  onChangePassword: () => void; onGeneratePasswordLink: () => void; onChangeRole: () => void; onNotifications: () => void;
   onToggleBan: () => void; onForceLogout: () => void; onRemovePhoto: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -485,6 +486,7 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
           className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 overflow-hidden"
         >
           {item('Alterar senha', <Key className="h-4 w-4 text-indigo-500" />, onChangePassword, undefined, disabled)}
+          {item('Gerar link de senha', <Link2 className="h-4 w-4 text-teal-500" />, onGeneratePasswordLink, undefined, disabled)}
           {item('Alterar função', <UserCog className="h-4 w-4 text-amber-500" />, onChangeRole, undefined, disabled || isMe)}
           {item('Notificações', <Bell className="h-4 w-4 text-blue-500" />, onNotifications)}
           {user.photo_url && canManagePhotos && (
@@ -557,6 +559,11 @@ const UserManagement = () => {
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [togglingBan,   setTogglingBan]   = useState<string | null>(null);
   const [forcingLogout, setForcingLogout] = useState<string | null>(null);
+
+  // Link temporário de redefinição de senha
+  const [pwdLink, setPwdLink]               = useState<{ url: string; email: string } | null>(null);
+  const [generatingLink, setGeneratingLink] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied]         = useState(false);
 
   // Notification prefs
   const [showNotif, setShowNotif]             = useState(false);
@@ -747,6 +754,39 @@ const UserManagement = () => {
   };
 
   const canManagePhotos = isDev || isAdmin || can('diretoria');
+
+  // Gera um link temporário (5 min) de redefinição de senha para o usuário
+  const handleGeneratePasswordLink = async (u: User) => {
+    setGeneratingLink(u.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('password-reset', {
+        body: { mode: 'generate', target_user_id: u.id },
+      });
+      if (error) {
+        const ctx = (error as any).context;
+        throw new Error(ctx?.error || error.message || 'Erro ao gerar link.');
+      }
+      if (data?.error) throw new Error(data.error);
+      const url = `${window.location.origin}/reset-password/${data.token}`;
+      setPwdLink({ url, email: u.email });
+      setLinkCopied(false);
+    } catch (e: any) {
+      showToast('error', e.message);
+    } finally {
+      setGeneratingLink(null);
+    }
+  };
+
+  const copyPwdLink = async () => {
+    if (!pwdLink) return;
+    try {
+      await navigator.clipboard.writeText(pwdLink.url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    } catch {
+      showToast('error', 'Não foi possível copiar. Copie manualmente.');
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Notification preferences
@@ -1138,6 +1178,7 @@ const UserManagement = () => {
                         isBanning={isBanning} forcingLogout={isForcing}
                         canManagePhotos={canManagePhotos}
                         onChangePassword={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }}
+                        onGeneratePasswordLink={() => handleGeneratePasswordLink(user)}
                         onChangeRole={() => {
                           const currentVal = user.custom_role_id || user.role;
                           setChangeRole({ userId: user.id, email: user.email, currentRole: user.role, newRole: currentVal });
@@ -1242,6 +1283,49 @@ const UserManagement = () => {
           </>
         )}
       </div>
+
+      {/* ══ Modal — Link de redefinição de senha gerado ══ */}
+      {pwdLink && (
+        <Modal title="Link de redefinição de senha" subtitle={pwdLink.email} onClose={() => setPwdLink(null)}>
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800/50">
+              <Clock className="h-4 w-4 text-teal-600 dark:text-teal-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-teal-700 dark:text-teal-300 leading-relaxed">
+                Envie este link ao colaborador. Ele <strong>expira em 5 minutos</strong> e só pode
+                ser usado uma vez. Quem abrir define a nova senha — sem precisar estar logado.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Link</label>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={pwdLink.url}
+                  onFocus={e => e.currentTarget.select()}
+                  className="flex-1 px-3 py-3 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 truncate"
+                />
+                <button
+                  onClick={copyPwdLink}
+                  className={`flex items-center gap-1.5 px-3.5 h-[44px] rounded-xl text-sm font-semibold transition-colors flex-shrink-0 ${
+                    linkCopied ? 'bg-emerald-600 text-white' : 'bg-teal-600 hover:bg-teal-700 text-white'
+                  }`}
+                >
+                  {linkCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {linkCopied ? 'Copiado' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setPwdLink(null)}
+              className="w-full py-3 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors min-h-[44px]"
+            >
+              Fechar
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* ══ Modal — Alterar Senha ══ */}
       {showChangePwd && (

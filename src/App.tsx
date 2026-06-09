@@ -85,6 +85,7 @@ import SupplierContacts    from './pages/SupplierContacts';
 import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages';
 import PublicSectorsPage   from './pages/PublicSectorsPage';
 import PublicStockCount    from './pages/PublicStockCount';
+import PublicPasswordReset from './pages/PublicPasswordReset';
 
 // ── Pages — Web Check-in (público) ───────────────────────────────────────────
 import WebCheckinLayout      from './pages/webcheckin/WebCheckinLayout';
@@ -331,6 +332,7 @@ function App() {
                   <Route path="/select-hotel"     element={<HotelSelection />} />
                   <Route path="/public/sectors"   element={<PublicSectorsPage />} />
                   <Route path="/stock-count/:token" element={<PublicStockCount />} />
+                  <Route path="/reset-password/:token" element={<PublicPasswordReset />} />
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
 
                   {/* ── Escala pública (link para líder de setor) ────────── */}
