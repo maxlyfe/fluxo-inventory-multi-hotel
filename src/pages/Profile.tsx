@@ -45,7 +45,10 @@ export default function Profile() {
   const [photoUrl, setPhotoUrl] = useState(user?.photo_url || '');
   
   // Link state
-  const [employee, setEmployee] = useState<EmployeeLink | null>(null);
+  const [employee, setEmployee]           = useState<EmployeeLink | null>(null);
+  const [matchEmployee, setMatchEmployee] = useState<EmployeeLink | null>(null); // cadastro com meu CPF, disponível para vincular
+  const [linking, setLinking]             = useState(false);
+  const [unlinking, setUnlinking]         = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -60,24 +63,60 @@ export default function Profile() {
   async function checkEmployeeLink() {
     if (!user?.id) return;
     try {
+      // 1. Vínculo atual (apenas por user_id) — NUNCA re-vincula sozinho
       const { data: byId } = await supabase.from('employees').select('*, hotels(name)').eq('user_id', user.id).maybeSingle();
       if (byId) {
         setEmployee(byId as EmployeeLink);
+        setMatchEmployee(null);
         if (!cpf && byId.cpf) setCpf(byId.cpf);
         return;
       }
-      // Se não tem user_id vinculado, tenta buscar pelo CPF (se visível/carregado)
-      if (user.cpf) {
-        const cleanCpf = user.cpf.replace(/\D/g, '');
-        if (cleanCpf.length === 11) {
-          const { data: byCpf } = await supabase.from('employees').select('*, hotels(name)').eq('cpf', cleanCpf).maybeSingle();
-          if (byCpf) {
-            setEmployee(byCpf as EmployeeLink);
-            if (!byCpf.user_id) await supabase.from('employees').update({ user_id: user.id }).eq('id', byCpf.id);
-          }
-        }
+      setEmployee(null);
+
+      // 2. Não vinculado: existe um cadastro com meu CPF disponível para vincular?
+      const cleanCpf = (cpf || user.cpf || '').replace(/\D/g, '');
+      if (cleanCpf.length === 11) {
+        const { data: byCpf } = await supabase
+          .from('employees')
+          .select('*, hotels(name), user_id')
+          .eq('cpf', cleanCpf)
+          .maybeSingle();
+        // Oferece vínculo só se o cadastro existe e não está preso a OUTRO usuário
+        setMatchEmployee(byCpf && (!byCpf.user_id || byCpf.user_id === user.id) ? (byCpf as EmployeeLink) : null);
+      } else {
+        setMatchEmployee(null);
       }
     } catch (err) { console.error(err); }
+  }
+
+  // Vincular explicitamente o cadastro encontrado por CPF
+  async function handleLink() {
+    if (!user?.id || !matchEmployee) return;
+    setLinking(true);
+    try {
+      const { error } = await supabase.from('employees').update({ user_id: user.id }).eq('id', matchEmployee.id);
+      if (error) throw error;
+      setEmployee(matchEmployee);
+      setMatchEmployee(null);
+      setMessage({ type: 'success', text: `Vinculado ao cadastro de ${matchEmployee.name}! 🎉` });
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e.message || 'Erro ao vincular.' });
+    } finally { setLinking(false); }
+  }
+
+  // Desvincular o usuário do cadastro (reversível — não re-vincula sozinho)
+  async function handleUnlink() {
+    if (!user?.id || !employee) return;
+    setUnlinking(true);
+    try {
+      const { error } = await supabase.from('employees').update({ user_id: null }).eq('id', employee.id);
+      if (error) throw error;
+      setMatchEmployee(employee); // permanece como opção de re-vincular
+      setEmployee(null);
+      setMessage({ type: 'info', text: 'Vínculo removido. Você pode vincular novamente quando quiser.' });
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e.message || 'Erro ao desvincular.' });
+    } finally { setUnlinking(false); }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -105,24 +144,10 @@ export default function Profile() {
       } else if (error) {
         throw error;
       } else {
-        // Salvou o CPF — tenta vincular automaticamente ao cadastro do DP
+        setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+        // Procura (sem vincular) um cadastro com este CPF para oferecer o vínculo
         if (!employee && cleanCpf.length === 11) {
-          const { data: byCpf } = await supabase
-            .from('employees')
-            .select('*, hotels(name)')
-            .eq('cpf', cleanCpf)
-            .maybeSingle();
-          if (byCpf) {
-            if (!byCpf.user_id) {
-              await supabase.from('employees').update({ user_id: user!.id }).eq('id', byCpf.id);
-            }
-            setEmployee(byCpf as EmployeeLink);
-            setMessage({ type: 'success', text: `Pronto! Você foi vinculado ao cadastro de ${byCpf.name}. 🎉` });
-          } else {
-            setMessage({ type: 'info', text: 'CPF salvo. Ainda não há um cadastro de colaborador com este CPF — peça ao RH/DP para cadastrá-lo e o vínculo será automático.' });
-          }
-        } else {
-          setMessage({ type: 'success', text: 'Perfil atualizado com sucesso!' });
+          await checkEmployeeLink();
         }
       }
 
@@ -219,14 +244,32 @@ export default function Profile() {
                 <div className="flex justify-between items-center text-xs"><span className="text-slate-500">Cargo:</span><span className="font-bold text-slate-700 dark:text-slate-300">{employee.role}</span></div>
                 <div className="flex justify-between items-center text-xs"><span className="text-slate-500">Setor:</span><span className="font-bold text-slate-700 dark:text-slate-300">{employee.sector}</span></div>
               </div>
-              <div className="mt-6 pt-4 border-t border-indigo-200/50 dark:border-indigo-800/50">
+              <div className="mt-6 pt-4 border-t border-indigo-200/50 dark:border-indigo-800/50 space-y-2">
                 <button onClick={() => navigate('/portal')} className="w-full py-3 bg-white dark:bg-slate-800 rounded-xl text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2">Ir para Meu Portal <ArrowRight className="w-3.5 h-3.5" /></button>
+                <button onClick={handleUnlink} disabled={unlinking} className="w-full py-3 rounded-xl text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-widest hover:bg-red-50 dark:hover:bg-red-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  {unlinking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Desvincular meu usuário
+                </button>
               </div>
+            </div>
+          ) : matchEmployee ? (
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-[2rem] p-6 border border-emerald-100 dark:border-emerald-900/40">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center"><Briefcase className="w-4 h-4 text-white" /></div>
+                <h4 className="font-black text-emerald-900 dark:text-emerald-300 text-xs uppercase tracking-widest">Cadastro encontrado</h4>
+              </div>
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{matchEmployee.name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {matchEmployee.hotels?.name}{matchEmployee.role ? ` · ${matchEmployee.role}` : ''}
+              </p>
+              <button onClick={handleLink} disabled={linking} className="mt-5 w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95">
+                {linking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Vincular ao meu cadastro
+              </button>
             </div>
           ) : (
             <div className="bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] p-6 border border-dashed border-slate-300 dark:border-slate-800 text-center">
               <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-3" />
               <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">Sem vínculo ativo</h4>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">Informe seu CPF e salve para localizarmos seu cadastro.</p>
             </div>
           )}
         </div>
