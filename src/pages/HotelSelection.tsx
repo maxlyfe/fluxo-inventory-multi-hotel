@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle, PlusCircle, X, LogIn } from 'lucide-react';
+import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle, PlusCircle, X, LogIn, EyeOff, Eye, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 
 /**
@@ -18,6 +19,7 @@ interface Hotel {
   address: string | null;
   image_url: string | null;
   description: string | null;
+  is_active?: boolean;
 }
 
 /**
@@ -35,6 +37,7 @@ const HotelSelection = () => {
   const navigate = useNavigate();
   const { setSelectedHotel } = useHotel();
   const { user } = useAuth();
+  const { isDev } = usePermissions();
   const { addNotification } = useNotification();
 
   const [hotels, setHotels] = useState<Hotel[]>([]);
@@ -43,6 +46,10 @@ const HotelSelection = () => {
 
   const [showAddHotelModal, setShowAddHotelModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [busyHotelId, setBusyHotelId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Hotel | null>(null);
+  const [deleteConfirmCode, setDeleteConfirmCode] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [newHotel, setNewHotel] = useState<NewHotelData>({
     name: '',
     code: '',
@@ -132,6 +139,51 @@ const HotelSelection = () => {
     }
   };
 
+  // Ocultar / reativar hotel (soft hide — preserva histórico)
+  const handleToggleActive = async (hotel: Hotel) => {
+    const newActive = hotel.is_active === false; // se estava oculto, reativa
+    setBusyHotelId(hotel.id);
+    try {
+      const { error: err } = await supabase
+        .from('hotels')
+        .update({ is_active: newActive })
+        .eq('id', hotel.id);
+      if (err) throw err;
+      addNotification(newActive ? `${hotel.name} reativado.` : `${hotel.name} ocultado. O histórico foi preservado.`, 'success');
+      fetchHotels();
+    } catch (err: any) {
+      addNotification('Erro ao atualizar hotel: ' + err.message, 'error');
+    } finally {
+      setBusyHotelId(null);
+    }
+  };
+
+  // Exclusão definitiva (confirmada digitando o código do hotel)
+  const handleDeleteHotel = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { error: err } = await supabase.from('hotels').delete().eq('id', deleteTarget.id);
+      if (err) throw err;
+      addNotification(`Hotel ${deleteTarget.name} excluído definitivamente.`, 'success');
+      setDeleteTarget(null);
+      setDeleteConfirmCode('');
+      fetchHotels();
+    } catch (err: any) {
+      addNotification(
+        'Não foi possível excluir: ' + (err.message?.includes('foreign key') || err.code === '23503'
+          ? 'há dados vinculados (funcionários, produtos, etc.). Use "Ocultar" em vez de excluir.'
+          : err.message),
+        'error',
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Usuários comuns só veem hotéis ativos; o dev vê todos (para gerenciar)
+  const visibleHotels = isDev ? hotels : hotels.filter(h => h.is_active !== false);
+
   // Renderização de estado de carregamento
   if (loading) {
     return (
@@ -176,52 +228,94 @@ const HotelSelection = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {hotels.map((hotel) => (
-            <button
+          {visibleHotels.map((hotel) => {
+            const hidden = hotel.is_active === false;
+            return (
+            <div
               key={hotel.id}
-              onClick={() => handleSelectHotel(hotel)}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+              className={`bg-white dark:bg-gray-800 rounded-xl shadow-lg transition-all duration-300 flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700 ${hidden ? 'opacity-60 grayscale' : 'hover:shadow-2xl hover:-translate-y-1'}`}
             >
-              <div className="relative">
-                <img
-                  className="h-48 w-full object-cover"
-                  src={hotel.image_url || `https://placehold.co/600x400/e2e8f0/a0aec0?text=${hotel.code}`}
-                  alt={`Fachada do ${hotel.name}`}
-                  onError={(e) => { (e.target as HTMLImageElement).src = `https://placehold.co/600x400/e2e8f0/a0aec0?text=${hotel.code}`; }}
-                />
-                <div className="absolute top-0 right-0 m-3">
-                  <span className="px-3 py-1 bg-black bg-opacity-50 text-white text-sm font-medium rounded-md backdrop-blur-sm">
-                    {hotel.code}
-                  </span>
-                </div>
-              </div>
-              <div className="p-6 flex flex-col flex-grow">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  {hotel.name}
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4 flex-grow overflow-hidden">
-                  {hotel.description || 'Descrição não disponível.'}
-                </p>
-                <div className="flex items-start space-x-2 text-gray-500 dark:text-gray-400 text-sm mb-4">
-                  <MapPin className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                  <span className="overflow-hidden overflow-ellipsis">{hotel.address || 'Endereço não informado.'}</span>
-                </div>
-                <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center justify-end text-blue-600 dark:text-blue-400">
-                        <span className="font-medium text-sm">Acessar Sistema</span>
-                        <ArrowRight className="ml-2 h-4 w-4" />
+              {/* Área clicável (selecionar hotel) */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => handleSelectHotel(hotel)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectHotel(hotel); } }}
+                className="flex flex-col flex-grow text-left cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+              >
+                <div className="relative">
+                  <img
+                    className="h-48 w-full object-cover"
+                    src={hotel.image_url || `https://placehold.co/600x400/e2e8f0/a0aec0?text=${hotel.code}`}
+                    alt={`Fachada do ${hotel.name}`}
+                    onError={(e) => { (e.target as HTMLImageElement).src = `https://placehold.co/600x400/e2e8f0/a0aec0?text=${hotel.code}`; }}
+                  />
+                  <div className="absolute top-0 right-0 m-3">
+                    <span className="px-3 py-1 bg-black bg-opacity-50 text-white text-sm font-medium rounded-md backdrop-blur-sm">
+                      {hotel.code}
+                    </span>
+                  </div>
+                  {hidden && (
+                    <div className="absolute top-0 left-0 m-3">
+                      <span className="px-3 py-1 bg-amber-500 text-white text-xs font-bold rounded-md flex items-center gap-1 shadow">
+                        <EyeOff className="h-3 w-3" /> OCULTO
+                      </span>
                     </div>
+                  )}
+                </div>
+                <div className="p-6 flex flex-col flex-grow">
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
+                    {hotel.name}
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-400 text-sm mb-4 flex-grow overflow-hidden">
+                    {hotel.description || 'Descrição não disponível.'}
+                  </p>
+                  <div className="flex items-start space-x-2 text-gray-500 dark:text-gray-400 text-sm mb-4">
+                    <MapPin className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                    <span className="overflow-hidden overflow-ellipsis">{hotel.address || 'Endereço não informado.'}</span>
+                  </div>
+                  <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center justify-end text-blue-600 dark:text-blue-400">
+                          <span className="font-medium text-sm">Acessar Sistema</span>
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                      </div>
+                  </div>
                 </div>
               </div>
-            </button>
-          ))}
+
+              {/* Ações do dev */}
+              {isDev && (
+                <div className="flex border-t border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => handleToggleActive(hotel)}
+                    disabled={busyHotelId === hotel.id}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold transition-colors disabled:opacity-50 ${
+                      hidden ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20' : 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20'
+                    }`}
+                  >
+                    {busyHotelId === hotel.id
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                    {hidden ? 'Reativar' : 'Ocultar'}
+                  </button>
+                  <button
+                    onClick={() => { setDeleteTarget(hotel); setDeleteConfirmCode(''); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 border-l border-gray-200 dark:border-gray-700 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Excluir
+                  </button>
+                </div>
+              )}
+            </div>
+            );
+          })}
         </div>
       </div>
 
       {/* --- ALTERAÇÃO: Botão de Adicionar Hotel movido e reestilizado --- */}
       {/* O botão agora é um Floating Action Button (FAB), posicionado no canto inferior direito. */}
       {/* Ele é mais sutil e segue um padrão de design moderno para ações de adição. */}
-      {user?.role === 'admin' && (
+      {isDev && (
         <button
           onClick={() => setShowAddHotelModal(true)}
           className="fixed bottom-6 right-6 sm:bottom-8 sm:right-8 flex items-center justify-center w-14 h-14 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all duration-300 transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
@@ -230,6 +324,52 @@ const HotelSelection = () => {
         >
           <PlusCircle className="h-7 w-7" />
         </button>
+      )}
+
+      {/* Modal — confirmação de exclusão definitiva */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">Excluir {deleteTarget.name}?</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                  Esta ação é <strong>definitiva e irreversível</strong>. Todo o histórico vinculado pode ser perdido.
+                  Se quer apenas tirar o acesso, use <strong>Ocultar</strong>.
+                </p>
+              </div>
+            </div>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+              Digite o código <span className="font-mono font-bold text-gray-700 dark:text-gray-200">{deleteTarget.code}</span> para confirmar
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmCode}
+              onChange={(e) => setDeleteConfirmCode(e.target.value)}
+              placeholder={deleteTarget.code}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500 mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteConfirmCode(''); }}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteHotel}
+                disabled={deleting || deleteConfirmCode.trim().toUpperCase() !== deleteTarget.code.toUpperCase()}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Excluir definitivamente
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* O modal de adição de hotel permanece o mesmo */}
