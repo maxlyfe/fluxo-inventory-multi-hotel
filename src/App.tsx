@@ -134,6 +134,7 @@ import MainLayout   from './components/MainLayout';
 import Toast        from './components/ui/Toast';
 import AppUpdateModal from './components/AppUpdateModal';
 import CpfLinkPrompt  from './components/CpfLinkPrompt';
+import NeedsNameModal from './components/NeedsNameModal';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import Chatbot      from './components/Chatbot';
 
@@ -367,6 +368,7 @@ function App() {
 
                 <OAuthCallbackHandler />
                 <PushNotificationSetup />
+                <NeedsNameModal />
                 <CpfLinkPrompt />
                 <Toast />
                 <AppUpdateModal />

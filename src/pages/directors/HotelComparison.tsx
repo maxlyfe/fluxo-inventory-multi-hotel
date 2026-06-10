@@ -11,6 +11,7 @@ import {
   PolarAngleAxis, PolarRadiusAxis, Legend,
 } from 'recharts';
 import { supabase } from '../../lib/supabase';
+import { useGroup } from '../../context/GroupContext';
 
 interface Hotel { id: string; name: string; code: string; }
 
@@ -25,6 +26,7 @@ interface HotelMetrics {
 }
 
 export default function HotelComparison() {
+  const { currentGroup } = useGroup();
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [metrics, setMetrics] = useState<HotelMetrics[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -32,13 +34,15 @@ export default function HotelComparison() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('hotels').select('id, name, code').order('name');
+      if (!currentGroup?.id) { setHotels([]); return; }
+      const { data } = await supabase.from('hotels').select('id, name, code')
+        .eq('group_id', currentGroup.id).order('name');
       if (data) {
         setHotels(data);
         setSelected(new Set(data.map(h => h.id)));
       }
     })();
-  }, []);
+  }, [currentGroup?.id]);
 
   useEffect(() => {
     if (!hotels.length) return;

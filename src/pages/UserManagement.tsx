@@ -14,6 +14,7 @@ import {
   Link2, Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNavigate } from 'react-router-dom';
 
@@ -161,8 +162,10 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
     }));
 }
 
-async function getHotels(): Promise<Hotel[]> {
-  const { data, error } = await supabase.from('hotels').select('id, name').order('name');
+async function getHotels(groupId?: string | null): Promise<Hotel[]> {
+  let q = supabase.from('hotels').select('id, name').order('name');
+  if (groupId) q = q.eq('group_id', groupId);
+  const { data, error } = await q;
   if (error) throw error;
   return data || [];
 }
@@ -528,6 +531,7 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
 
 const UserManagement = () => {
   const { user: adminUser, session, forceSignOut, refreshProfile } = useAuth();
+  const { currentGroup } = useGroup();
   const { isAdmin, isDev, can } = usePermissions();
   const navigate = useNavigate();
 
@@ -615,7 +619,6 @@ const UserManagement = () => {
     fetchUsers();
     fetchCustomRoles();
     getNotificationTypes().then(setNotifTypes).catch(() => showToast('error', 'Erro ao carregar tipos de notificação.'));
-    getHotels().then(setHotels).catch(() => showToast('error', 'Erro ao carregar hotéis.'));
     getSectors().then(setSectors).catch(() => showToast('error', 'Erro ao carregar setores.'));
     // Dev pode escolher o grupo ao criar usuário
     if (isDev) {
@@ -623,6 +626,11 @@ const UserManagement = () => {
         .then(({ data }) => setGroupsList(data || []));
     }
   }, [adminUser]);
+
+  // Hotéis do grupo ATUAL (para o dropdown de notificações) — escopado por grupo
+  useEffect(() => {
+    getHotels(currentGroup?.id).then(setHotels).catch(() => showToast('error', 'Erro ao carregar hotéis.'));
+  }, [currentGroup?.id]);
 
   // ---------------------------------------------------------------------------
   // Fetch data

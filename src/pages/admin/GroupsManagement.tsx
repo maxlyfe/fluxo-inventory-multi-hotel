@@ -80,12 +80,13 @@ export default function GroupsManagement() {
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), slug: (form.slug.trim() || slugify(form.name)) };
       if (editing) {
-        const { error } = await supabase.from('groups').update(payload).eq('id', editing.id);
+        // Slug imutável após criação — só atualiza o nome
+        const { error } = await supabase.from('groups').update({ name: form.name.trim() }).eq('id', editing.id);
         if (error) throw error;
         addNotification('Grupo atualizado.', 'success');
       } else {
+        const payload = { name: form.name.trim(), slug: (form.slug.trim() || slugify(form.name)) };
         const { error } = await supabase.from('groups').insert(payload);
         if (error) throw error;
         addNotification('Grupo criado.', 'success');
@@ -267,8 +268,13 @@ export default function GroupsManagement() {
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Slug (usado no link de acesso)</label>
               <input type="text" value={form.slug}
                 onChange={e => setForm(f => ({ ...f, slug: slugify(e.target.value) }))}
-                className="w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500/40" placeholder="acme" />
+                disabled={!!editing}
+                className={`w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500/40 ${editing ? 'opacity-60 cursor-not-allowed' : ''}`}
+                placeholder="acme" />
               <p className="text-[11px] text-slate-400 mt-1">lyfehoteles.com.br/grupo/<span className="font-mono">{form.slug || 'slug'}</span></p>
+              {editing && (
+                <p className="text-[11px] text-amber-500 mt-1">O slug não pode ser alterado após a criação (os links e logins do grupo dependem dele).</p>
+              )}
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">Cancelar</button>

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
+import { useGroup } from '../../context/GroupContext';
 
 /* ------------------------------------------------------------------ */
 /*  KPI definitions                                                    */
@@ -34,6 +35,7 @@ interface TargetRow {
 
 export default function KPITargets() {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
 
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [targetHotel, setTargetHotel] = useState<string | null>(null); // null = rede
@@ -45,13 +47,15 @@ export default function KPITargets() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('hotels').select('id, name, code').order('name');
+      if (!currentGroup?.id) { setHotels([]); return; }
+      const { data } = await supabase.from('hotels').select('id, name, code')
+        .eq('group_id', currentGroup.id).order('name');
       if (data) {
         setHotels(data);
         if (selectedHotel) setTargetHotel(selectedHotel.id);
       }
     })();
-  }, [selectedHotel]);
+  }, [selectedHotel, currentGroup?.id]);
 
   useEffect(() => {
     loadTargets();

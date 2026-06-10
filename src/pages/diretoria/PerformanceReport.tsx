@@ -14,6 +14,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { erbonService } from '../../lib/erbonService';
 import { useHotel } from '../../context/HotelContext';
+import { useGroup } from '../../context/GroupContext';
 import { useTheme } from '../../context/ThemeContext';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
@@ -185,6 +186,7 @@ function CustomTooltip({ active, payload, label, formatter, isDark }: any) {
 
 export default function PerformanceReport() {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
@@ -201,11 +203,12 @@ export default function PerformanceReport() {
   const [activeCell, setActiveCell] = useState<{ periodId: string; metricKey: string } | null>(null);
 
   useEffect(() => {
-    supabase.from('hotels').select('id, name, code').order('name').then(({ data }) => {
+    if (!currentGroup?.id) { setHotels([]); return; }
+    supabase.from('hotels').select('id, name, code').eq('group_id', currentGroup.id).order('name').then(({ data }) => {
       setHotels(data ?? []);
       if (!selectedHotelId && data?.length) setSelectedHotelId(data[0].id);
     });
-  }, []);
+  }, [currentGroup?.id]);
 
   function addPeriod() {
     if (periods.length >= 5) return;

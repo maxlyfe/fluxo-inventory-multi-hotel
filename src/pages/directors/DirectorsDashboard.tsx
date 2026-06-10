@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
+import { useGroup } from '../../context/GroupContext';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -42,6 +43,7 @@ interface MonthlyTurnover {
 /* ------------------------------------------------------------------ */
 export default function DirectorsDashboard() {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
 
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [kpis, setKpis] = useState<HotelKPI[]>([]);
@@ -52,10 +54,12 @@ export default function DirectorsDashboard() {
   /* ---- Load all hotels ---- */
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('hotels').select('id, name, code').order('name');
+      if (!currentGroup?.id) { setHotels([]); return; }
+      const { data } = await supabase.from('hotels').select('id, name, code')
+        .eq('group_id', currentGroup.id).order('name');
       if (data) setHotels(data);
     })();
-  }, []);
+  }, [currentGroup?.id]);
 
   /* ---- Load KPIs ---- */
   useEffect(() => {
