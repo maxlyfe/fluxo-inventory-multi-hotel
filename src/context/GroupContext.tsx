@@ -13,6 +13,8 @@ export interface CurrentGroup { id: string; name: string; slug: string | null; }
 interface GroupContextType {
   currentGroup: CurrentGroup | null;
   setCurrentGroup: (g: CurrentGroup | null) => void;
+  /** Slug presente na URL (/grupo/<slug>/...), ou null. */
+  urlSlug: string | null;
 }
 
 const STORAGE_KEY = 'fluxo_current_group';
@@ -24,7 +26,7 @@ export const useGroup = () => {
   return ctx;
 };
 
-export function GroupProvider({ children }: { children: React.ReactNode }) {
+export function GroupProvider({ children, slug = null }: { children: React.ReactNode; slug?: string | null }) {
   const { user } = useAuth();
   const [currentGroup, setCurrentGroupState] = useState<CurrentGroup | null>(() => {
     try {
@@ -41,20 +43,30 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
     } catch { /* noop */ }
   }, []);
 
-  // Fallback: se não há grupo definido mas o usuário tem group_id, resolve o
-  // nome do próprio grupo (não persiste — é só o padrão da sessão).
+  // 1) Se há slug na URL, ele é a FONTE AUTORITATIVA do grupo atual.
   useEffect(() => {
-    if (currentGroup || !user?.group_id) return;
+    if (!slug) return;
+    let active = true;
+    supabase.rpc('get_group_by_slug', { p_slug: slug }).then(({ data }) => {
+      const g = Array.isArray(data) ? data[0] : data;
+      if (active && g) setCurrentGroup({ id: g.id, name: g.name, slug: g.slug });
+    });
+    return () => { active = false; };
+  }, [slug, setCurrentGroup]);
+
+  // 2) Fallback: sem slug na URL e sem grupo definido, usa o grupo do usuário.
+  useEffect(() => {
+    if (slug || currentGroup || !user?.group_id) return;
     let active = true;
     supabase.from('groups').select('id, name, slug').eq('id', user.group_id).maybeSingle()
       .then(({ data }) => {
         if (active && data) setCurrentGroupState({ id: data.id, name: data.name, slug: data.slug });
       });
     return () => { active = false; };
-  }, [user?.group_id, currentGroup]);
+  }, [slug, user?.group_id, currentGroup]);
 
   return (
-    <GroupContext.Provider value={{ currentGroup, setCurrentGroup }}>
+    <GroupContext.Provider value={{ currentGroup, setCurrentGroup, urlSlug: slug }}>
       {children}
     </GroupContext.Provider>
   );

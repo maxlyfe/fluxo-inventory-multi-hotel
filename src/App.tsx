@@ -13,7 +13,7 @@ import ManagementPanel       from './pages/ManagementPanel';
 import Inventory             from './pages/Inventory';
 import TransferHistory       from './pages/TransferHistory';
 import ShoppingList          from './pages/ShoppingList';
-import Login                 from './pages/Login';
+// Login.tsx (antigo /login solto) aposentado — entrada agora é por /grupo/<slug>/login
 import UserManagement        from './pages/UserManagement';
 import GovernanceStock      from './pages/Governance'; // Antigo Governance
 import GovernanceRack       from './pages/governance/GovernanceRack';
@@ -141,7 +141,7 @@ import Chatbot      from './components/Chatbot';
 import { ThemeProvider }        from './context/ThemeContext';
 import { AuthProvider }         from './context/AuthContext';
 import { HotelProvider }        from './context/HotelContext';
-import { GroupProvider }        from './context/GroupContext';
+import { GroupProvider, useGroup } from './context/GroupContext';
 import { NotificationProvider } from './context/NotificationContext';
 
 // ── Auth hook ─────────────────────────────────────────────────────────────────
@@ -278,18 +278,57 @@ function PushNotificationSetup() {
 // elimina o 403 que ocorria quando um não-admin disparava push para terceiros.
 
 // ---------------------------------------------------------------------------
-// HomeGuard — para "/" redireciona não-autenticados para /select-hotel,
-// evitando o loop Home → select-hotel → Home
+// Detecção do grupo na URL (/grupo/<slug>/...) — define o basename do router.
+// Calculado uma vez no carregamento da página.
+// ---------------------------------------------------------------------------
+const GROUP_MATCH = typeof window !== 'undefined'
+  ? window.location.pathname.match(/^\/grupo\/([^/]+)/)
+  : null;
+const GROUP_SLUG: string | null = GROUP_MATCH ? GROUP_MATCH[1] : null;
+const ROUTER_BASENAME: string | undefined = GROUP_SLUG ? `/grupo/${GROUP_SLUG}` : undefined;
+
+// ---------------------------------------------------------------------------
+// LoginRoute — em modo grupo (/grupo/<slug>/login) mostra o login do grupo;
+// fora de grupo, o /login "solto" deixou de existir → Landing.
+// ---------------------------------------------------------------------------
+function LoginRoute() {
+  if (GROUP_SLUG) return <GroupLogin />;
+  return <Navigate to="/" replace />;
+}
+
+// ---------------------------------------------------------------------------
+// HomeGuard — raiz "/":
+//   • anônimo COM grupo na URL → login do grupo
+//   • anônimo SEM grupo        → Landing (marketing)
+//   • autenticado SEM prefixo  → migra para /grupo/<slug-do-usuário>/
+//   • autenticado              → Home
 // ---------------------------------------------------------------------------
 function HomeGuard() {
   const { user, loading } = useAuth();
+  const { currentGroup } = useGroup();
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
     </div>
   );
-  // Visitante anônimo na raiz → landing de marketing (sem dados de clientes)
-  if (!user) return <Landing />;
+
+  if (!user) {
+    // Anônimo dentro de /grupo/<slug> → manda para o login daquele grupo
+    if (GROUP_SLUG) return <Navigate to="/login" replace />;
+    // Anônimo na raiz → landing de marketing (sem dados de clientes)
+    return <Landing />;
+  }
+
+  // Autenticado sem prefixo de grupo na URL → migra para a rota prefixada do grupo
+  if (!GROUP_SLUG && currentGroup?.slug) {
+    window.location.replace(`/grupo/${currentGroup.slug}/`);
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
+      </div>
+    );
+  }
   return <Home />;
 }
 
@@ -321,9 +360,9 @@ function App() {
     <AuthProvider>
       <ThemeProvider>
         <NotificationProvider>
-          <BrowserRouter>
+          <BrowserRouter basename={ROUTER_BASENAME}>
             <HotelProvider>
-            <GroupProvider>
+            <GroupProvider slug={GROUP_SLUG}>
               <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
 
                 <OAuthCallbackHandler />
@@ -334,14 +373,13 @@ function App() {
 
                 <Routes>
                   {/* ── Rotas públicas ────────────────────────────────────── */}
-                  <Route path="/login"            element={<Login />} />
+                  <Route path="/login"            element={<LoginRoute />} />
                   <Route path="/select-hotel"     element={<HotelSelection />} />
                   <Route path="/public/sectors"   element={<PublicSectorsPage />} />
                   <Route path="/stock-count/:token" element={<PublicStockCount />} />
                   <Route path="/reset-password/:token" element={<PublicPasswordReset />} />
-                  {/* Login escopado por grupo (link privado do cliente) */}
-                  <Route path="/grupo/:slug" element={<GroupLogin />} />
-                  <Route path="/grupo/:slug/login" element={<GroupLogin />} />
+                  {/* Login por grupo: /grupo/<slug>(/login) é tratado pelo basename do router
+                      → cai em "/" (HomeGuard) ou "/login" (LoginRoute → GroupLogin). */}
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
 
                   {/* ── Escala pública (link para líder de setor) ────────── */}

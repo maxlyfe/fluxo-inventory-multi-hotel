@@ -3,7 +3,7 @@
 // Resolve o grupo pelo slug e valida que a conta logada pertence a ele.
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -23,11 +23,11 @@ const GoogleIcon = () => (
 interface GroupInfo { id: string; name: string; slug: string; }
 
 export default function GroupLogin() {
-  const { slug = '' } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { user, login, loginWithGoogle, logout } = useAuth();
-  const { setCurrentGroup } = useGroup();
+  const { setCurrentGroup, urlSlug } = useGroup();
   const { isDev } = usePermissions();
+  const slug = urlSlug ?? '';
 
   const [group, setGroup]       = useState<GroupInfo | null>(null);
   const [resolving, setResolving] = useState(true);
@@ -101,7 +101,7 @@ export default function GroupLogin() {
     setError('');
     setGoogleLoading(true);
     setPendingVerify(true);
-    const result = await loginWithGoogle(`/grupo/${slug}`);
+    const result = await loginWithGoogle(`/grupo/${slug}/login`);
     if (!result.success) {
       setError(result.message || 'Erro ao entrar com Google.');
       setGoogleLoading(false);
