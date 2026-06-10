@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { Building2, MapPin, ArrowRight, Loader2, AlertTriangle, PlusCircle, X, LogIn, EyeOff, Eye, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -215,6 +215,9 @@ const HotelSelection = () => {
   const visibleHotels = hotels
     .filter(h => !groupId || h.group_id === groupId)
     .filter(h => isDev ? true : h.is_active !== false);
+
+  // Sem login → landing de marketing (anônimo não vê unidades de ninguém)
+  if (!user) return <Navigate to="/" replace />;
 
   // Renderização de estado de carregamento
   if (loading) {

@@ -88,6 +88,7 @@ import PublicSectorsPage   from './pages/PublicSectorsPage';
 import PublicStockCount    from './pages/PublicStockCount';
 import PublicPasswordReset from './pages/PublicPasswordReset';
 import GroupLogin          from './pages/GroupLogin';
+import Landing             from './pages/Landing';
 
 // ── Pages — Web Check-in (público) ───────────────────────────────────────────
 import WebCheckinLayout      from './pages/webcheckin/WebCheckinLayout';
@@ -287,7 +288,8 @@ function HomeGuard() {
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
     </div>
   );
-  if (!user) return <Navigate to="/select-hotel" replace />;
+  // Visitante anônimo na raiz → landing de marketing (sem dados de clientes)
+  if (!user) return <Landing />;
   return <Home />;
 }
 
