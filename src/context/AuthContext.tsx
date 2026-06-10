@@ -10,6 +10,7 @@ interface AppUser {
   cpf?: string;
   photo_url?: string;
   cpf_prompt_dismissed?: boolean;
+  group_id?: string;
   custom_role_id?: string;
   custom_role?: {
     id:          string;
@@ -26,7 +27,7 @@ interface AuthContextType {
   isCompatibilityMode: boolean;
   refreshProfile: (forceFullCheck?: boolean) => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
-  loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
+  loginWithGoogle: (redirectPath?: string) => Promise<{ success: boolean; message?: string }>;
   saveName: (fullName: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<{ success: boolean; message?: string }>;
   session:       Session | null;
@@ -67,7 +68,7 @@ async function fetchProfile(userId: string, forceCheck: boolean = false): Promis
 
     const { data, error } = await supabase
       .from('profiles')
-      .select(`role, full_name, photo_url, cpf, cpf_prompt_dismissed, custom_role_id, custom_roles(id, name, permissions, color)`)
+      .select(`role, full_name, photo_url, cpf, cpf_prompt_dismissed, group_id, custom_role_id, custom_roles(id, name, permissions, color)`)
       .eq('id', userId)
       .maybeSingle();
 
@@ -92,6 +93,7 @@ async function fetchProfile(userId: string, forceCheck: boolean = false): Promis
         photo_url:      data.photo_url      || undefined,
         cpf:            data.cpf            || undefined,
         cpf_prompt_dismissed: (data as any).cpf_prompt_dismissed || false,
+        group_id:       (data as any).group_id || undefined,
         custom_role_id: data.custom_role_id || undefined,
         custom_role:    mapCustomRole(cr),
       }
@@ -180,7 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (redirectPath?: string) => {
     try {
       // Detecta se está rodando em plataforma nativa (APK/iOS) — nunca true no browser
       const { Capacitor } = await import('@capacitor/core');
@@ -206,11 +208,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.url) await Browser.open({ url: data.url });
         return { success: true };
       } else {
-        // Na web: fluxo normal, redireciona no mesmo tab
+        // Na web: fluxo normal, redireciona no mesmo tab.
+        // redirectPath permite voltar à rota do grupo (ex.: /grupo/<slug>).
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-            redirectTo: `${window.location.origin}/`,
+            redirectTo: `${window.location.origin}${redirectPath || '/'}`,
             queryParams: { prompt: 'select_account' },
           },
         });

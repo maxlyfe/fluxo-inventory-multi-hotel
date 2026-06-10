@@ -87,6 +87,7 @@ import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages'
 import PublicSectorsPage   from './pages/PublicSectorsPage';
 import PublicStockCount    from './pages/PublicStockCount';
 import PublicPasswordReset from './pages/PublicPasswordReset';
+import GroupLogin          from './pages/GroupLogin';
 
 // ── Pages — Web Check-in (público) ───────────────────────────────────────────
 import WebCheckinLayout      from './pages/webcheckin/WebCheckinLayout';
@@ -334,6 +335,9 @@ function App() {
                   <Route path="/public/sectors"   element={<PublicSectorsPage />} />
                   <Route path="/stock-count/:token" element={<PublicStockCount />} />
                   <Route path="/reset-password/:token" element={<PublicPasswordReset />} />
+                  {/* Login escopado por grupo (link privado do cliente) */}
+                  <Route path="/grupo/:slug" element={<GroupLogin />} />
+                  <Route path="/grupo/:slug/login" element={<GroupLogin />} />
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
 
                   {/* ── Escala pública (link para líder de setor) ────────── */}
