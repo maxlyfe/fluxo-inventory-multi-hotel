@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useGroup } from '../context/GroupContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { supabase } from '../lib/supabase';
 import LoginBackdrop from '../components/LoginBackdrop';
 import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2 } from 'lucide-react';
@@ -26,6 +27,7 @@ export default function GroupLogin() {
   const navigate = useNavigate();
   const { user, login, loginWithGoogle, logout } = useAuth();
   const { setCurrentGroup } = useGroup();
+  const { isDev } = usePermissions();
 
   const [group, setGroup]       = useState<GroupInfo | null>(null);
   const [resolving, setResolving] = useState(true);
@@ -58,12 +60,14 @@ export default function GroupLogin() {
   // Só entra quem pertence ao grupo da URL. Sem bypass de dev.
   useEffect(() => {
     if (!user || !group) return;
-    if (user.group_id === group.id) {
+    // Dev (dono do SaaS) acessa qualquer grupo; demais SÓ o próprio grupo.
+    const allowed = isDev || user.group_id === group.id;
+    if (allowed) {
       setCurrentGroup(group);                 // grupo verificado → escopa a sessão
       navigate('/', { replace: true });
       return;
     }
-    // Conta de OUTRO grupo nesta porta — bloqueia
+    // Conta de OUTRO grupo nesta porta — bloqueia (nunca entra no app)
     setError('Esta conta não pertence a este grupo.');
     if (pendingVerify) {
       setPendingVerify(false);
@@ -71,7 +75,7 @@ export default function GroupLogin() {
     } else {
       setBlocked(true);                        // sessão pré-existente de outro grupo
     }
-  }, [user, group, pendingVerify, navigate, logout, setCurrentGroup]);
+  }, [user, group, isDev, pendingVerify, navigate, logout, setCurrentGroup]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
