@@ -45,8 +45,12 @@ export default function Landing() {
   };
 
   return (
-    <div className="relative min-h-[100dvh] text-white overflow-x-hidden">
-      <LoginBackdrop />
+    <div className="relative min-h-[100dvh] text-white overflow-x-hidden" style={{ background: '#070d18' }}>
+      {/* Fundo animado FIXO atrás de tudo, escurecido para não atrapalhar a leitura */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="opacity-50"><LoginBackdrop /></div>
+        <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(6,12,24,0.45) 0%, rgba(6,12,24,0.85) 100%)' }} />
+      </div>
 
       {/* ── Top bar ───────────────────────────────────────────────── */}
       <header className="relative z-10 flex items-center justify-between px-5 sm:px-8 py-5 max-w-7xl mx-auto">

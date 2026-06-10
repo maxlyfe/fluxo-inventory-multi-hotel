@@ -12,6 +12,9 @@ const MainLayout: React.FC = () => {
   // Ativar notificações push para o usuário logado
   usePushNotifications({ userId: user?.id });
 
+  // Sem usuário (ex.: landing pública em "/") → sem Navbar/Sidebar nem offset
+  if (!user) return <Outlet />;
+
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 overflow-x-hidden">
       <Sidebar isMobileOpen={isMobileMenuOpen} setIsMobileOpen={setIsMobileMenuOpen} />
