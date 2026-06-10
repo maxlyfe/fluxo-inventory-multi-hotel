@@ -6,7 +6,6 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useGroup } from '../context/GroupContext';
-import { usePermissions } from '../hooks/usePermissions';
 import { supabase } from '../lib/supabase';
 import LoginBackdrop from '../components/LoginBackdrop';
 import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2 } from 'lucide-react';
@@ -27,7 +26,6 @@ export default function GroupLogin() {
   const navigate = useNavigate();
   const { user, login, loginWithGoogle, logout } = useAuth();
   const { setCurrentGroup } = useGroup();
-  const { isDev } = usePermissions();
 
   const [group, setGroup]       = useState<GroupInfo | null>(null);
   const [resolving, setResolving] = useState(true);
@@ -38,6 +36,7 @@ export default function GroupLogin() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError]       = useState('');
   const [pendingVerify, setPendingVerify] = useState(false);
+  const [blocked, setBlocked]   = useState(false); // sessão de outro grupo
 
   // Resolve o grupo pelo slug
   useEffect(() => {
@@ -49,31 +48,30 @@ export default function GroupLogin() {
       const g = Array.isArray(data) ? data[0] : data;
       const resolved = g ? { id: g.id, name: g.name, slug: g.slug } : null;
       setGroup(resolved);
-      // Define o grupo atual da sessão (filtra hotéis e mostra o nome em todo o app)
-      if (resolved) setCurrentGroup(resolved);
+      // NÃO define o grupo atual aqui — só após validar que a conta pertence a ele.
       setResolving(false);
     })();
     return () => { active = false; };
   }, [slug]);
 
-  // Validação de grupo após o login (e ao chegar já logado)
+  // Validação ESTRITA de grupo após o login (e ao chegar já logado).
+  // Só entra quem pertence ao grupo da URL. Sem bypass de dev.
   useEffect(() => {
     if (!user || !group) return;
-    const allowed = isDev || user.group_id === group.id;
-    if (allowed) {
+    if (user.group_id === group.id) {
+      setCurrentGroup(group);                 // grupo verificado → escopa a sessão
       navigate('/', { replace: true });
       return;
     }
+    // Conta de OUTRO grupo nesta porta — bloqueia
+    setError('Esta conta não pertence a este grupo.');
     if (pendingVerify) {
-      // Tentou logar com uma conta de OUTRO grupo nesta porta
-      setError('Esta conta não pertence a este grupo.');
       setPendingVerify(false);
-      logout();
+      logout();                               // tentativa de login → encerra a sessão
     } else {
-      // Sessão pré-existente de outro grupo → manda para o próprio sistema
-      navigate('/', { replace: true });
+      setBlocked(true);                        // sessão pré-existente de outro grupo
     }
-  }, [user, group, isDev, pendingVerify, navigate, logout]);
+  }, [user, group, pendingVerify, navigate, logout, setCurrentGroup]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,6 +146,19 @@ export default function GroupLogin() {
                 <p className="text-xs text-white/30 mt-1 tracking-widest uppercase">Acesso do grupo</p>
               </div>
 
+              {blocked ? (
+                <div className="px-8 pb-8 space-y-4">
+                  <div className="flex items-start gap-2 text-amber-300 text-sm px-3 py-3 rounded-xl" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                    <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <span>Você está logado em <b>outro grupo</b>. Esta conta não tem acesso a <b>{group.name}</b>.</span>
+                  </div>
+                  <button onClick={async () => { await logout(); setBlocked(false); setError(''); }}
+                    className="w-full py-3.5 rounded-2xl text-sm font-bold text-white"
+                    style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.2) 0%, rgba(59,130,246,0.2) 100%)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                    Sair e entrar com outra conta
+                  </button>
+                </div>
+              ) : (
               <div className="px-8 pb-8 space-y-3.5">
                 {/* Google */}
                 <button onClick={handleGoogle} disabled={googleLoading || loading}
@@ -194,6 +205,7 @@ export default function GroupLogin() {
                   </button>
                 </form>
               </div>
+              )}
 
               <div className="h-px w-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.3), rgba(245,158,11,0.3), transparent)' }} />
             </>
