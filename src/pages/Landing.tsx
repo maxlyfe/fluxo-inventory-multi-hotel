@@ -4,7 +4,6 @@
 // privado do grupo (/grupo/<slug>).
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import LoginBackdrop from '../components/LoginBackdrop';
 import {
   Boxes, Users, Wrench, ShoppingCart, BedDouble, CalendarDays, BarChart3,
@@ -31,7 +30,6 @@ const HIGHLIGHTS = [
 ];
 
 export default function Landing() {
-  const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
   const [showAccess, setShowAccess] = useState(false);
   const [slug, setSlug] = useState('');
@@ -41,7 +39,8 @@ export default function Landing() {
   const goToGroup = (e: React.FormEvent) => {
     e.preventDefault();
     const s = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    if (s) navigate(`/grupo/${s}`);
+    // Reload de página (não SPA): cruza o basename → /grupo/<slug> é recalculado
+    if (s) window.location.assign(`/grupo/${s}`);
   };
 
   return (
