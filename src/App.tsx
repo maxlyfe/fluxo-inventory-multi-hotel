@@ -140,6 +140,7 @@ import Chatbot      from './components/Chatbot';
 import { ThemeProvider }        from './context/ThemeContext';
 import { AuthProvider }         from './context/AuthContext';
 import { HotelProvider }        from './context/HotelContext';
+import { GroupProvider }        from './context/GroupContext';
 import { NotificationProvider } from './context/NotificationContext';
 
 // ── Auth hook ─────────────────────────────────────────────────────────────────
@@ -320,6 +321,7 @@ function App() {
         <NotificationProvider>
           <BrowserRouter>
             <HotelProvider>
+            <GroupProvider>
               <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
 
                 <OAuthCallbackHandler />
@@ -836,6 +838,7 @@ function App() {
 
                 {/* <Chatbot /> */}
               </div>
+            </GroupProvider>
             </HotelProvider>
           </BrowserRouter>
         </NotificationProvider>

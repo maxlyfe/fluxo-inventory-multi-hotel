@@ -5,8 +5,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { supabase } from '../lib/supabase';
+import LoginBackdrop from '../components/LoginBackdrop';
 import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2 } from 'lucide-react';
 
 const GoogleIcon = () => (
@@ -24,6 +26,7 @@ export default function GroupLogin() {
   const { slug = '' } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { user, login, loginWithGoogle, logout } = useAuth();
+  const { setCurrentGroup } = useGroup();
   const { isDev } = usePermissions();
 
   const [group, setGroup]       = useState<GroupInfo | null>(null);
@@ -44,7 +47,10 @@ export default function GroupLogin() {
       const { data } = await supabase.rpc('get_group_by_slug', { p_slug: slug });
       if (!active) return;
       const g = Array.isArray(data) ? data[0] : data;
-      setGroup(g ? { id: g.id, name: g.name, slug: g.slug } : null);
+      const resolved = g ? { id: g.id, name: g.name, slug: g.slug } : null;
+      setGroup(resolved);
+      // Define o grupo atual da sessão (filtra hotéis e mostra o nome em todo o app)
+      if (resolved) setCurrentGroup(resolved);
       setResolving(false);
     })();
     return () => { active = false; };
@@ -108,8 +114,8 @@ export default function GroupLogin() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, #060c18 0%, #0a1628 30%, #0d1f3c 60%, #071220 100%)' }}>
+    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden">
+      <LoginBackdrop />
       <div className="relative z-10 w-full max-w-sm">
         <div className="relative rounded-3xl overflow-hidden" style={{
           background: 'rgba(255,255,255,0.035)', backdropFilter: 'blur(32px)',

@@ -12,6 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import { NAV_GROUPS, CONTACT_ITEM_HREF } from "../lib/navigationConfig";
 import { useHotel } from "../context/HotelContext";
+import { useGroup } from "../context/GroupContext";
 import { useTheme } from "../context/ThemeContext";
 
 import {
@@ -48,6 +49,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   const { user, logout: authLogout } = useAuth();
   const { can, isAdmin, isDev, canAccessContacts } = usePermissions();
   const { selectedHotel, setSelectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
   const location  = useLocation();
@@ -71,10 +73,17 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   useEffect(() => {
     // Não lista hotéis ocultos (is_active=false). O RLS também protege no
     // servidor; este filtro garante resultado imediato no cliente.
-    supabase.from('hotels').select('id, name, is_active').order('name').then(({ data }) => {
-      if (data) setAllHotels(data.filter((h: any) => h.is_active !== false).map((h: any) => ({ id: h.id, name: h.name })));
+    supabase.from('hotels').select('id, name, is_active, group_id').order('name').then(({ data }) => {
+      if (!data) return;
+      const gid = currentGroup?.id;
+      setAllHotels(
+        data
+          .filter((h: any) => h.is_active !== false)
+          .filter((h: any) => !gid || h.group_id === gid) // só hotéis do grupo atual
+          .map((h: any) => ({ id: h.id, name: h.name })),
+      );
     });
-  }, []);
+  }, [currentGroup?.id]);
 
   const handleSignOut = async () => {
     const { success } = await authLogout();

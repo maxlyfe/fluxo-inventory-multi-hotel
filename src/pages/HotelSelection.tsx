@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useAuth } from '../context/AuthContext';
+import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 
@@ -20,6 +21,7 @@ interface Hotel {
   image_url: string | null;
   description: string | null;
   is_active?: boolean;
+  group_id?: string | null;
 }
 
 /**
@@ -40,6 +42,7 @@ const HotelSelection = () => {
   const navigate = useNavigate();
   const { setSelectedHotel } = useHotel();
   const { user } = useAuth();
+  const { currentGroup } = useGroup();
   const { isDev } = usePermissions();
   const { addNotification } = useNotification();
 
@@ -206,7 +209,12 @@ const HotelSelection = () => {
   };
 
   // Usuários comuns só veem hotéis ativos; o dev vê todos (para gerenciar)
-  const visibleHotels = isDev ? hotels : hotels.filter(h => h.is_active !== false);
+  // Filtra pelo GRUPO ATUAL (inclusive para o dev — evita misturar hotéis de
+  // grupos diferentes). Mantém a regra de ocultos (dev vê ocultos do grupo).
+  const groupId = currentGroup?.id;
+  const visibleHotels = hotels
+    .filter(h => !groupId || h.group_id === groupId)
+    .filter(h => isDev ? true : h.is_active !== false);
 
   // Renderização de estado de carregamento
   if (loading) {
@@ -236,7 +244,7 @@ const HotelSelection = () => {
         <div className="text-center mb-8 sm:mb-12">
           <Building2 className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-400" />
           <h1 className="mt-4 text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-            Meridiana Hoteles
+            {currentGroup?.name || 'LyFe Hoteles'}
           </h1>
           <p className="mt-2 text-lg text-gray-600 dark:text-gray-400">
             Selecione a unidade para continuar
