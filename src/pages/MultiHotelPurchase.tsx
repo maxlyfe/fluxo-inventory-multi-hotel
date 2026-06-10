@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useGroup } from '../context/GroupContext';
 import { useNotification } from '../context/NotificationContext';
 import {
   ArrowLeft, Search, Filter, Building2, ShoppingCart,
@@ -97,6 +98,7 @@ const unitOptions = [
 const MultiHotelPurchase = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { currentGroup } = useGroup();
   const { addNotification } = useNotification();
 
   // ── State: Hotels ──
@@ -136,9 +138,12 @@ const MultiHotelPurchase = () => {
   useEffect(() => {
     const fetchHotels = async () => {
       try {
+        if (!currentGroup?.id) { setAllHotels([]); return; }
+        // Só hotéis do MESMO grupo (compra multi-hotel nunca cruza grupos)
         const { data, error } = await supabase
           .from('hotels')
           .select('id, name, code, image_url, fantasy_name')
+          .eq('group_id', currentGroup.id)
           .order('name');
 
         if (error) throw error;
@@ -150,7 +155,7 @@ const MultiHotelPurchase = () => {
       }
     };
     fetchHotels();
-  }, []);
+  }, [currentGroup?.id]);
 
   // ── Fetch budget history ──
   const fetchHistory = useCallback(async () => {

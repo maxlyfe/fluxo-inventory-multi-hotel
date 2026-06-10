@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, RefreshCw, Loader2, Search, Package, ChevronLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
+import { useGroup } from '../context/GroupContext';
 import { useNotification } from '../context/NotificationContext';
 
 // Interface para Hotel
@@ -30,6 +31,7 @@ const SyncProductsModal: React.FC<SyncProductsModalProps> = ({
   onSuccess
 }) => {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { addNotification } = useNotification();
 
   const [step, setStep] = useState<'selectHotel' | 'selectProducts'>('selectHotel');
@@ -45,16 +47,18 @@ const SyncProductsModal: React.FC<SyncProductsModalProps> = ({
 
   useEffect(() => {
     const fetchHotels = async () => {
-      if (!selectedHotel) return;
+      if (!selectedHotel || !currentGroup?.id) { setHotels([]); return; }
+      // Só hotéis do MESMO grupo
       const { data } = await supabase
         .from('hotels')
         .select('id, name')
+        .eq('group_id', currentGroup.id)
         .neq('id', selectedHotel.id)
         .order('name');
       setHotels(data || []);
     };
     fetchHotels();
-  }, [selectedHotel]);
+  }, [selectedHotel, currentGroup?.id]);
 
   const handleFindProducts = async () => {
     if (!sourceHotelId || !selectedHotel?.id) return;

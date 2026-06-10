@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import { useHotel } from '../context/HotelContext';
+import { useGroup } from '../context/GroupContext';
 import {
   Loader2, Search, X, Package, Trash2, ArrowRight,
   ArrowLeftRight, ChevronDown, DollarSign, Plus, Minus,
@@ -56,6 +57,7 @@ const NewHotelTransferModal: React.FC<NewHotelTransferModalProps> = ({
   const { addNotification } = useNotification();
   const { user }            = useAuth();
   const { selectedHotel }   = useHotel();
+  const { currentGroup }    = useGroup();
 
   const [hotels,             setHotels]             = useState<Hotel[]>([]);
   const [destinationHotelId, setDestinationHotelId] = useState('');
@@ -68,17 +70,19 @@ const NewHotelTransferModal: React.FC<NewHotelTransferModalProps> = ({
   // ── Load hotels ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isOpen && selectedHotel) {
-      supabase.from('hotels').select('id, name').neq('id', selectedHotel.id)
-        .then(({ data, error }) => {
-          if (error) addNotification('Erro ao buscar hotéis.', 'error');
-          else setHotels(data || []);
-        });
+      // Só hotéis do MESMO grupo — nunca interconectar grupos diferentes (vale p/ dev tb)
+      let q = supabase.from('hotels').select('id, name').eq('is_active', true).neq('id', selectedHotel.id);
+      if (currentGroup?.id) q = q.eq('group_id', currentGroup.id);
+      q.then(({ data, error }) => {
+        if (error) addNotification('Erro ao buscar hotéis.', 'error');
+        else setHotels(currentGroup?.id ? (data || []) : []); // sem grupo definido → nenhum destino
+      });
     }
     if (!isOpen) {
       setDestinationHotelId(''); setItemsToTransfer([]);
       setSearchTerm(''); setImgErrors({}); setSearchOpen(false);
     }
-  }, [isOpen, selectedHotel, addNotification]);
+  }, [isOpen, selectedHotel, addNotification, currentGroup?.id]);
 
   // ── Filtered products para o dropdown ──────────────────────────────────────
   const filteredProducts = useMemo(() => {

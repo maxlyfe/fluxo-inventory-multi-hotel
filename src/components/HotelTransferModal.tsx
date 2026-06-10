@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
+import { useGroup } from '../context/GroupContext';
 import { useNotification } from '../context/NotificationContext';
 
 interface Hotel {
@@ -35,6 +36,7 @@ const HotelTransferModal: React.FC<HotelTransferModalProps> = ({
   products
 }) => {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { addNotification } = useNotification();
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,17 +51,21 @@ const HotelTransferModal: React.FC<HotelTransferModalProps> = ({
 
   useEffect(() => {
     const fetchHotels = async () => {
+      // Só hotéis do MESMO grupo (nunca interconectar grupos diferentes)
+      if (!currentGroup?.id) { setHotels([]); return; }
       const { data } = await supabase
         .from('hotels')
         .select('id, name')
+        .eq('is_active', true)
+        .eq('group_id', currentGroup.id)
         .neq('id', selectedHotel?.id)
         .order('name');
-      
+
       setHotels(data || []);
     };
 
     fetchHotels();
-  }, [selectedHotel]);
+  }, [selectedHotel, currentGroup?.id]);
 
   // Função para atualizar o saldo financeiro quando produtos são transferidos
   const updateFinancialBalance = async (productId: string, quantity: number, unitValue: number) => {

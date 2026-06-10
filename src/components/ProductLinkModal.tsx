@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
+import { useGroup } from '../context/GroupContext';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
 import {
@@ -81,6 +82,7 @@ const formatValue = (v: any) => {
 
 const ProductLinkModal: React.FC<Props> = ({ currentProduct, onClose, onLinked }) => {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { user }          = useAuth();
   const { addNotification } = useNotification();
 
@@ -115,11 +117,13 @@ const ProductLinkModal: React.FC<Props> = ({ currentProduct, onClose, onLinked }
 
   // ── Carregar hotéis disponíveis ────────────────────────────────────────────
   useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name')
+    // Só hotéis do MESMO grupo — nunca vincular produtos entre grupos diferentes
+    if (!currentGroup?.id) { setHotels([]); return; }
+    supabase.from('hotels').select('id, name').eq('group_id', currentGroup.id).order('name')
       .then(({ data }) => {
         setHotels((data || []).filter(h => h.id !== selectedHotel?.id));
       });
-  }, [selectedHotel]);
+  }, [selectedHotel, currentGroup?.id]);
 
   // ── Checar vínculo existente ao selecionar produto alvo ───────────────────
   const checkExistingLink = useCallback(async (targetId: string) => {
