@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useHotel } from '../context/HotelContext';
+import { usePermissions } from '../hooks/usePermissions';
 import QRCode from 'qrcode';
 import {
   Settings, Plus, Search, Filter, Download, QrCode,
@@ -84,10 +85,14 @@ const warrantyStatus = (eq: Equipment): 'active' | 'expiring' | 'expired' | 'non
 export default function MaintenanceEquipment() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
+  const { can } = usePermissions();
   const navigate  = useNavigate();
 
-  const isManager = ['admin', 'management'].includes(user?.role || '');
-  const canChangeHotel = ['admin', 'management'].includes(user?.role || '');
+  // Quem pode CADASTRAR/EDITAR equipamentos — configurável por perfil em /admin/roles
+  // (dev e admin têm bypass total via usePermissions).
+  const isManager = can('maintenance_equipment_manage');
+  // Quem pode alternar/filtrar entre hotéis — quem tem acesso ao módulo de manutenção.
+  const canChangeHotel = can('maintenance');
 
   // hotel_id inicial = hotel selecionado no contexto (ou vazio se admin sem seleção)
   const defaultHotelId = selectedHotel?.id || '';

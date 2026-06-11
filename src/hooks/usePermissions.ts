@@ -30,6 +30,7 @@ export const MODULES: Module[] = [
   { key: 'management',           label: 'Gerência',             description: 'Relatórios e análises de gestão',          group: 'Área Administrativa', icon: 'BarChart2'     },
   { key: 'personnel_department', label: 'Depart. Pessoal',      description: 'Colaboradores, escalas, contratos, DP',    group: 'Área Administrativa', icon: 'Users'         },
   { key: 'maintenance',          label: 'Manutenções',          description: 'Tickets, equipamentos, QR codes',           group: 'Área Administrativa', icon: 'Wrench'        },
+  { key: 'maintenance_equipment_manage', label: 'Cadastrar Equipamentos', description: 'Criar e editar equipamentos de manutenção', group: 'Área Administrativa', icon: 'Wrench'        },
   { key: 'reservations',         label: 'Reservas',             description: 'Busca de reservas e disponibilidade',      group: 'Área Administrativa', icon: 'CalendarCheck' },
   { key: 'reception',            label: 'Recepção',             description: 'Rack de UHs, check-in/out, in-house',     group: 'Área Administrativa', icon: 'Hotel'         },
   { key: 'governance',           label: 'Governança',           description: 'Vistoria, limpeza e liberação de UHs',      group: 'Área Administrativa', icon: 'Sparkles'      },
