@@ -1,14 +1,14 @@
 // src/pages/PublicSectorRequest.tsx
 // Página pública de requisição por setor via link temporário (sem login).
-// Layout "Mercado Livre Style" com persistência e Real-time total.
+// Layout "Mercado Livre Style" com persistência, Real-time e lógica de UPSERT.
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Package, Search, Loader2, ShieldAlert, ArrowRight, Plus,
   CheckCircle2, X, ShoppingCart, Clock, ImageIcon,
-  Check, History, Trash2, LayoutGrid, AlertCircle
+  Check, History, LayoutGrid, AlertCircle, Edit2
 } from 'lucide-react';
 import { searchMatch } from '../utils/search';
 
@@ -58,7 +58,6 @@ export default function PublicSectorRequest() {
   useEffect(() => {
     if (!token) { setStep('invalid'); return; }
     
-    // Gerar ou recuperar ID único do navegador
     let rid = localStorage.getItem('req_link_requester_id');
     if (!rid) { rid = crypto.randomUUID(); localStorage.setItem('req_link_requester_id', rid); }
     setReqId(rid);
@@ -107,8 +106,7 @@ export default function PublicSectorRequest() {
         schema: 'public', 
         table: 'requisitions',
         filter: `notes=like.PUB:${requesterId}:%`
-      }, (payload) => {
-        // Quando algo muda (entrega, rejeição, novo pedido em outro aba), recarrega
+      }, () => {
         loadMyRequests(token, requesterId);
       })
       .subscribe();
@@ -131,6 +129,15 @@ export default function PublicSectorRequest() {
     return list;
   }, [products, search, category]);
 
+  // Mapeamento de produtos já no carrinho (pendentes)
+  const cartMap = useMemo(() => {
+    const map = new Map<string, Requisition>();
+    requisitions.filter(r => r.status === 'pending').forEach(r => {
+      if (r.product_id) map.set(r.product_id, r);
+    });
+    return map;
+  }, [requisitions]);
+
   const startName = () => {
     if (name.trim().length < 2) return;
     localStorage.setItem(`req_link_name:${token}`, name.trim());
@@ -138,7 +145,23 @@ export default function PublicSectorRequest() {
     loadMyRequests(token, requesterId);
   };
 
-  // ── Enviar Pedido (Direto para o Banco) ──────────────────────────────────
+  // ── Abrir Modal (Novo ou Edição) ────────────────────────────────────────
+  const openProductModal = (p: Product) => {
+    const existing = cartMap.get(p.id);
+    setQtyProduct(p);
+    setModalMode('add');
+    setModalQty(existing ? String(existing.quantity) : '1');
+    setModalError('');
+  };
+
+  const openCustomModal = () => {
+    setModalMode('custom');
+    setCustomName('');
+    setModalQty('1');
+    setModalError('');
+  };
+
+  // ── Enviar Pedido (UPSERT Automático no Banco) ──────────────────────────
   const submitToDatabase = async () => {
     const q = parseFloat(modalQty.replace(',', '.'));
     if (isNaN(q) || q <= 0) { setModalError('Quantidade inválida.'); return; }
@@ -167,11 +190,10 @@ export default function PublicSectorRequest() {
       setModalQty('1');
       setCustomName('');
       
-      // Carregar imediatamente (Real-time também pegará, mas aqui é mais rápido)
+      // Carregar imediatamente
       loadMyRequests(token, requesterId);
       
-      // Opcional: abrir o carrinho para mostrar que "entrou"
-      setShowCart(true);
+      // NÃO redireciona para o carrinho, apenas fecha o modal e mantém na lista
     } catch (e: any) {
       setModalError(e.message || 'Erro ao enviar pedido.');
     } finally {
@@ -192,8 +214,8 @@ export default function PublicSectorRequest() {
       <div className="w-20 h-20 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6 text-red-500">
         <ShieldAlert className="w-10 h-10" />
       </div>
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Link expirado</h1>
-      <p className="text-gray-600 dark:text-gray-400 max-w-xs">Este link de requisição não é mais válido. Por favor, solicite um novo link ao responsável.</p>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Link indisponível</h1>
+      <p className="text-gray-600 dark:text-gray-400 max-w-xs">Este link de requisição não existe ou expirou.</p>
     </div>
   );
 
@@ -305,18 +327,13 @@ export default function PublicSectorRequest() {
                             <span className="text-sm font-black text-blue-600">Qtd: {req.quantity}</span>
                             <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
                             <span className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1">
-                              <Clock size={10} /> Aguardando Almoxarifado
+                              <Clock size={10} /> Aguardando
                             </span>
                           </div>
                         </div>
                       </div>
                     </div>
                   ))}
-                  <div className="p-6 bg-blue-50 dark:bg-blue-900/10 rounded-[2rem] border border-blue-100 dark:border-blue-800/50">
-                     <p className="text-xs text-blue-700 dark:text-blue-300 font-bold text-center leading-relaxed">
-                       Os pedidos acima já aparecem no painel do Almoxarifado em tempo real. Você será avisado aqui quando forem entregues.
-                     </p>
-                  </div>
                 </div>
               )}
             </section>
@@ -332,7 +349,6 @@ export default function PublicSectorRequest() {
                     <div key={s.id} className="bg-white dark:bg-gray-800 rounded-2xl p-4 flex justify-between items-center text-sm border border-gray-100 dark:border-gray-700 shadow-sm">
                       <div className="min-w-0">
                         <p className="text-gray-900 dark:text-white font-bold truncate">{s.quantity}× {s.item_name}</p>
-                        <p className="text-[10px] text-gray-500 mt-0.5">{new Date(s.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                       </div>
                       <div className={`flex items-center gap-1.5 font-black text-[10px] uppercase px-3 py-1.5 rounded-full ${s.status === 'delivered' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20' : 'text-red-600 bg-red-50 dark:bg-red-900/20'}`}>
                         {s.status === 'delivered' ? <CheckCircle2 size={12} /> : <X size={12} />}
@@ -353,27 +369,49 @@ export default function PublicSectorRequest() {
                 <p className="text-lg font-bold">Nenhum produto disponível.</p>
               </div>
             ) : (
-              filtered.map(p => (
-                <div key={p.id} className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-sm hover:shadow-xl hover:-translate-y-1 border border-gray-100 dark:border-gray-700 p-4 flex flex-col transition-all group relative">
-                  <div className="absolute top-4 left-4 z-10 px-2.5 py-1 rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm border border-gray-100 dark:border-gray-700">
-                    <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{p.category || 'Geral'}</p>
-                  </div>
-                  <div className="aspect-square rounded-2xl bg-gray-50 dark:bg-gray-900 flex items-center justify-center mb-4 overflow-hidden border border-gray-100 dark:border-gray-800">
-                    {p.image_url && !imgErr[p.id] ? (
-                      <img src={p.image_url} alt={p.name} className="w-full h-full object-contain p-2 group-hover:scale-110 transition-transform duration-500" onError={() => setImgErr(prev => ({ ...prev, [p.id]: true }))} />
-                    ) : (
-                      <Package className="w-12 h-12 text-gray-200 dark:text-gray-700" />
+              filtered.map(p => {
+                const existing = cartMap.get(p.id);
+                return (
+                  <div 
+                    key={p.id} 
+                    onClick={() => openProductModal(p)}
+                    className={`bg-white dark:bg-gray-800 rounded-[2rem] shadow-sm hover:shadow-xl hover:-translate-y-1 border-2 p-4 flex flex-col transition-all group relative cursor-pointer ${existing ? 'border-blue-500 bg-blue-50/30 dark:bg-blue-900/10' : 'border-transparent dark:border-gray-700'}`}
+                  >
+                    {/* Badge Categoria */}
+                    <div className="absolute top-4 left-4 z-10 px-2.5 py-1 rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm border border-gray-100 dark:border-gray-700">
+                      <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{p.category || 'Geral'}</p>
+                    </div>
+
+                    {/* Badge "Já no Carrinho" */}
+                    {existing && (
+                      <div className="absolute top-4 right-4 z-10 px-2 py-1 rounded-full bg-blue-600 text-white shadow-lg animate-in zoom-in-50">
+                        <p className="text-[9px] font-black uppercase flex items-center gap-1"><ShoppingCart size={10} /> {existing.quantity}</p>
+                      </div>
                     )}
+
+                    {/* Imagem */}
+                    <div className="aspect-square rounded-2xl bg-gray-50 dark:bg-gray-900 flex items-center justify-center mb-4 overflow-hidden border border-gray-100 dark:border-gray-800">
+                      {p.image_url && !imgErr[p.id] ? (
+                        <img src={p.image_url} alt={p.name} className="w-full h-full object-contain p-2 group-hover:scale-110 transition-transform duration-500" onError={() => setImgErr(prev => ({ ...prev, [p.id]: true }))} />
+                      ) : (
+                        <Package className="w-12 h-12 text-gray-200 dark:text-gray-700" />
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 mb-4 px-1 text-center">
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2 min-h-[40px] tracking-tight">{p.name}</h3>
+                    </div>
+
+                    {/* Botão */}
+                    <button 
+                      className={`w-full py-3 active:scale-95 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg ${existing ? 'bg-amber-500 text-white shadow-amber-500/20' : 'bg-blue-600 text-white shadow-blue-500/20'}`}
+                    >
+                      {existing ? <><Edit2 className="w-4 h-4" strokeWidth={3} /> Alterar</> : <><Plus className="w-4 h-4" strokeWidth={3} /> Pedir</>}
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0 mb-4 px-1">
-                    <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2 min-h-[40px] tracking-tight">{p.name}</h3>
-                  </div>
-                  <button onClick={() => { setQtyProduct(p); setModalMode('add'); setModalQty('1'); setModalError(''); }}
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">
-                    <Plus className="w-4 h-4" strokeWidth={3} /> Pedir
-                  </button>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -381,7 +419,7 @@ export default function PublicSectorRequest() {
 
       {/* FAB Mobile - Item Personalizado */}
       {!showCart && (
-        <button onClick={() => { setModalMode('custom'); setCustomName(''); setModalQty('1'); setModalError(''); }}
+        <button onClick={openCustomModal}
           className="fixed bottom-8 right-8 w-16 h-16 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white rounded-[1.75rem] shadow-2xl shadow-indigo-500/40 flex items-center justify-center z-40 active:scale-90 hover:rotate-6 transition-all border-4 border-white dark:border-gray-900">
           <Plus className="w-8 h-8" strokeWidth={2.5} />
         </button>
@@ -393,9 +431,11 @@ export default function PublicSectorRequest() {
           <div className="w-full sm:max-w-md bg-white dark:bg-gray-800 rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-20 duration-500 border border-gray-100 dark:border-gray-700">
             <div className="px-8 pt-8 pb-6 border-b border-gray-100 dark:border-gray-700 flex items-start justify-between">
               <div>
-                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-2">Confirmar Pedido</p>
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-2">
+                  {modalMode === 'add' ? (cartMap.has(qtyProduct!.id) ? 'Alterar Quantidade' : 'Confirmar Pedido') : 'Item Especial'}
+                </p>
                 <h3 className="text-xl font-black text-gray-900 dark:text-white tracking-tight leading-tight">
-                  {modalMode === 'add' ? qtyProduct?.name : 'Item Especial'}
+                  {modalMode === 'add' ? qtyProduct?.name : 'O que você precisa?'}
                 </h3>
               </div>
               <button onClick={() => { setQtyProduct(null); setModalMode('add'); }} className="p-2.5 bg-gray-100 dark:bg-gray-700 rounded-2xl text-gray-500 hover:text-gray-900 dark:hover:text-white">
@@ -425,8 +465,9 @@ export default function PublicSectorRequest() {
 
               <div className="flex gap-4 pt-2">
                 <button onClick={() => { setQtyProduct(null); setModalMode('add'); }} className="flex-1 py-5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-black rounded-2xl uppercase tracking-widest text-xs">Cancelar</button>
-                <button onClick={submitToDatabase} disabled={submitting} className="flex-[2] py-5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black rounded-2xl shadow-xl shadow-blue-500/30 uppercase tracking-[0.1em] text-xs transition-all flex items-center justify-center gap-2">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Enviar Agora
+                <button onClick={submitToDatabase} disabled={submitting} className={`flex-[2] py-5 active:scale-95 text-white font-black rounded-2xl shadow-xl uppercase tracking-[0.1em] text-xs transition-all flex items-center justify-center gap-2 ${modalMode === 'add' && cartMap.has(qtyProduct!.id) ? 'bg-amber-500 shadow-amber-500/30' : 'bg-blue-600 shadow-blue-500/30'}`}>
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (modalMode === 'add' && cartMap.has(qtyProduct!.id) ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />)} 
+                  {modalMode === 'add' && cartMap.has(qtyProduct!.id) ? 'Atualizar Pedido' : 'Enviar Agora'}
                 </button>
               </div>
             </div>
