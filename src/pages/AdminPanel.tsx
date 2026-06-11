@@ -48,6 +48,7 @@ export interface Request {
   substituted_product_id?: string;
   is_custom?: boolean;
   created_by?: string | null;
+  notes?: string;
   requester?: { full_name: string | null } | null;
   products?: {
     id: string;
