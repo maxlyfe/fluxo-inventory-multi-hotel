@@ -27,21 +27,26 @@ Deno.serve(async (req: Request) => {
     const { data: { user: caller }, error: userError } = await supabaseUser.auth.getUser();
     if (userError || !caller) return json({ error: 'Token inválido ou expirado.' }, 401);
 
-    // Perfil do chamador (role + grupo) — usado para autorização e herança de grupo
-    const { data: profile, error: profileError } = await supabaseUser
-      .from('profiles').select('role, group_id').eq('id', caller.id).maybeSingle();
-
-    const isAuthorized = profile?.role === 'admin' || profile?.role === 'dev';
-    if (profileError || !isAuthorized)
-      return json({ error: 'Acesso negado. Apenas administradores ou desenvolvedores.' }, 403);
-
-    const callerIsDev   = profile?.role === 'dev';
-    const callerGroupId = profile?.group_id ?? null;
-
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+
+    // Perfil do chamador (role + grupo)
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles').select('role, group_id').eq('id', caller.id).maybeSingle();
+    if (profileError) return json({ error: 'Erro ao validar chamador.' }, 500);
+
+    // Autorização por HIERARQUIA: dev (nível 0) ou qualquer nível com poder de
+    // gestão (< 9999). Suporta cargos customizados (Diretor, Gerente, etc.).
+    const { data: callerLevelData, error: lvlErr } = await supabaseAdmin
+      .rpc('user_hierarchy_level', { uid: caller.id });
+    const callerLevel: number = lvlErr || callerLevelData == null ? 9999 : Number(callerLevelData);
+    const callerIsDev = callerLevel === 0;
+    if (callerLevel >= 9999)
+      return json({ error: 'Acesso negado. Seu perfil não tem poder de gestão de usuários.' }, 403);
+
+    const callerGroupId = profile?.group_id ?? null;
 
     const body = await req.json();
     const { action, target_user_id } = body;
@@ -53,9 +58,33 @@ Deno.serve(async (req: Request) => {
       if (!target_user_id) return json({ error: 'Campo obrigatório: target_user_id.' }, 400);
       if (target_user_id === caller.id)
         return json({ error: 'Não pode aplicar esta ação na própria conta.' }, 400);
+
+      // HARDENING: o alvo precisa ser gerenciável pelo chamador
+      // (mesmo grupo + hierarquia superior; dev gerencia todos).
+      const { data: canManage } = await supabaseAdmin
+        .rpc('can_manage_user', { actor: caller.id, target: target_user_id });
+      if (!canManage)
+        return json({ error: 'Sem permissão: o usuário alvo não pertence ao seu grupo ou tem nível igual/superior ao seu.' }, 403);
     }
 
     const validSystemRoles = ['admin', 'dev', 'guest', 'inventory', 'management', 'sup-governanca'];
+
+    // Valida que o chamador pode atribuir este perfil/role (hierarquia):
+    //   • custom_role: nível do perfil deve ser MAIOR que o do chamador
+    //   • role 'dev': só dev · role 'admin': só nível <= 1
+    async function assertCanAssign(customRoleId: string | null | undefined, systemRole: string | null | undefined): Promise<string | null> {
+      if (callerIsDev) return null;
+      if (systemRole === 'dev') return 'Apenas o dev pode conceder o papel dev.';
+      if (systemRole === 'admin' && callerLevel > 1) return 'Apenas nível 1 (ou dev) pode conceder papel admin.';
+      if (customRoleId) {
+        const { data: r } = await supabaseAdmin
+          .from('custom_roles').select('hierarchy_level').eq('id', customRoleId).maybeSingle();
+        const lvl = r?.hierarchy_level ?? 9999;
+        if (lvl <= callerLevel)
+          return 'Você não pode atribuir um perfil de nível igual ou superior ao seu.';
+      }
+      return null;
+    }
 
     switch (action) {
 
@@ -64,6 +93,9 @@ Deno.serve(async (req: Request) => {
         if (!email || !password) return json({ error: 'Campos obrigatórios: email, password.' }, 400);
         if (password.length < 6) return json({ error: 'Senha deve ter pelo menos 6 caracteres.' }, 400);
         const safeRole = validSystemRoles.includes(role) ? role : 'guest';
+
+        const assignErr = await assertCanAssign(custom_role_id, safeRole);
+        if (assignErr) return json({ error: assignErr }, 403);
 
         // Grupo do novo usuário: dev pode escolher (body.group_id); senão herda o do admin.
         const newGroupId = (callerIsDev && body.group_id) ? body.group_id : callerGroupId;
@@ -97,6 +129,9 @@ Deno.serve(async (req: Request) => {
         const { new_role, custom_role_id } = body;
         if (!new_role || !validSystemRoles.includes(new_role))
           return json({ error: `Role inválido. Permitidos: ${validSystemRoles.join(', ')}.` }, 400);
+
+        const assignErr = await assertCanAssign(custom_role_id, new_role);
+        if (assignErr) return json({ error: assignErr }, 403);
         const { error: profileErr } = await supabaseAdmin.from('profiles').upsert({
           id: target_user_id, role: new_role,
           custom_role_id: custom_role_id ?? null,

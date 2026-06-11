@@ -108,6 +108,7 @@ interface UserWithRole {
     name:        string;
     permissions: string[];
     color:       string;
+    hierarchy_level?: number | null;
   } | null;
 }
 
@@ -197,5 +198,17 @@ export function usePermissions() {
   const roleName  = isDev ? 'Dev' : isAdmin ? 'Admin' : (user?.custom_role?.name ?? 'Sem perfil');
   const roleColor = isDev ? '#8b5cf6' : isAdmin ? '#ef4444' : (user?.custom_role?.color ?? '#94a3b8');
 
-  return { can, canAny, canAll, isAdmin, isDev, roleName, roleColor, allowedContactCategories, canAccessContacts };
+  /**
+   * Nível de hierarquia efetivo (espelha user_hierarchy_level do banco):
+   * dev = 0 · custom_role.hierarchy_level · admin legado sem custom_role = 1 ·
+   * sem nível = 9999 (sem poder de gestão). 1 é o mais alto dentro do grupo.
+   */
+  const hierarchyLevel = useMemo(() => {
+    if (isDev) return 0;
+    if (user?.custom_role) return user.custom_role.hierarchy_level ?? 9999;
+    if (user?.role === 'admin') return 1; // admin legado
+    return 9999;
+  }, [isDev, user?.custom_role, user?.role]);
+
+  return { can, canAny, canAll, isAdmin, isDev, roleName, roleColor, hierarchyLevel, allowedContactCategories, canAccessContacts };
 }

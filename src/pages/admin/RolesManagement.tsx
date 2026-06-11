@@ -22,6 +22,7 @@ interface CustomRole {
   permissions: string[];
   color:       string;
   is_system:   boolean;
+  hierarchy_level: number | null; // 1 = mais alto do grupo; null = sem poder de gestão
   created_at:  string;
   _user_count?: number;
 }
@@ -94,6 +95,7 @@ export default function RolesManagement() {
   const [formDesc, setFormDesc]         = useState('');
   const [formColor, setFormColor]       = useState('#6366f1');
   const [formPerms, setFormPerms]       = useState<string[]>([]);
+  const [formLevel, setFormLevel]       = useState<string>(''); // '' = sem poder de gestão
   const [formError, setFormError]       = useState('');
   const [saving, setSaving]             = useState(false);
 
@@ -172,6 +174,7 @@ export default function RolesManagement() {
   const openNew = () => {
     setEditId(null);
     setFormName(''); setFormDesc(''); setFormColor('#6366f1'); setFormPerms([]);
+    setFormLevel('');
     setFormError('');
     setShowForm(true);
   };
@@ -182,6 +185,7 @@ export default function RolesManagement() {
     setFormDesc(role.description || '');
     setFormColor(role.color);
     setFormPerms([...role.permissions]);
+    setFormLevel(role.hierarchy_level != null ? String(role.hierarchy_level) : '');
     setFormError('');
     setShowForm(true);
   };
@@ -224,6 +228,13 @@ export default function RolesManagement() {
        // Se for o próprio Admin editando seu perfil (se permitido), ele não pode adicionar o que não vê
     }
 
+    // Nível de hierarquia: '' = null (sem poder de gestão); inteiro >= 1
+    const parsedLevel = formLevel.trim() === '' ? null : parseInt(formLevel, 10);
+    if (parsedLevel !== null && (isNaN(parsedLevel) || parsedLevel < 1)) {
+      setFormError('Nível de hierarquia deve ser um número inteiro a partir de 1 (1 = mais alto).');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -231,6 +242,7 @@ export default function RolesManagement() {
         description: formDesc.trim() || null,
         color:       formColor,
         permissions: finalPerms,
+        hierarchy_level: parsedLevel,
       };
 
       if (editId) {
@@ -455,6 +467,12 @@ export default function RolesManagement() {
                       {role.is_system && (
                         <span className="text-[11px] font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded-md">SISTEMA</span>
                       )}
+                      {role.hierarchy_level != null && (
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300 rounded-md"
+                          title="Nível de hierarquia — gerencia usuários e perfis de nível maior">
+                          NÍVEL {role.hierarchy_level}
+                        </span>
+                      )}
                     </div>
                     {role.description && (
                       <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{role.description}</p>
@@ -625,6 +643,23 @@ export default function RolesManagement() {
                 <label className={labelCls}>Descrição</label>
                 <input value={formDesc} onChange={e => setFormDesc(e.target.value)}
                   placeholder="Breve descrição do perfil..." className={inputCls} />
+              </div>
+
+              {/* Nível de hierarquia */}
+              <div>
+                <label className={labelCls}>Nível de hierarquia (gestão de usuários e perfis)</label>
+                <input
+                  type="text" inputMode="numeric" value={formLevel}
+                  onChange={e => setFormLevel(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="Vazio = sem poder de gestão"
+                  className={inputCls}
+                />
+                <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  <strong>1</strong> = mais alto do grupo (ex: Diretor) · 2, 3… descem a hierarquia ·
+                  vários perfis podem ter o mesmo nível. Um perfil só gerencia usuários e
+                  perfis de nível <strong>maior</strong> que o seu. Vazio = não gerencia ninguém.
+                  (Dev = nível 0, acesso total.)
+                </p>
               </div>
 
               {/* Permissões */}

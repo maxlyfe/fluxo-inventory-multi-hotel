@@ -17,6 +17,7 @@ interface AppUser {
     name:        string;
     permissions: string[];
     color:       string;
+    hierarchy_level?: number | null;
   } | null;
 }
 
@@ -43,6 +44,7 @@ function mapCustomRole(cr: any) {
     name:        cr.name as string,
     permissions: Array.isArray(cr.permissions) ? (cr.permissions as string[]) : [],
     color:       (cr.color as string) || '#94a3b8',
+    hierarchy_level: (cr.hierarchy_level ?? null) as number | null,
   };
 }
 
@@ -52,7 +54,7 @@ let GLOBAL_COMPATIBILITY_MODE = false;
 async function fetchProfile(userId: string, forceCheck: boolean = false): Promise<{ profile: Partial<AppUser>, isCompat: boolean }> {
   try {
     if (GLOBAL_COMPATIBILITY_MODE && !forceCheck) {
-      const { data } = await supabase.from('profiles').select('role, full_name, custom_role_id, custom_roles(id, name, permissions, color)').eq('id', userId).maybeSingle();
+      const { data } = await supabase.from('profiles').select('role, full_name, custom_role_id, custom_roles(id, name, permissions, color, hierarchy_level)').eq('id', userId).maybeSingle();
       if (!data) return { profile: {}, isCompat: true };
       const cr = (data as any).custom_roles;
       return {
@@ -68,7 +70,7 @@ async function fetchProfile(userId: string, forceCheck: boolean = false): Promis
 
     const { data, error } = await supabase
       .from('profiles')
-      .select(`role, full_name, photo_url, cpf, cpf_prompt_dismissed, group_id, custom_role_id, custom_roles(id, name, permissions, color)`)
+      .select(`role, full_name, photo_url, cpf, cpf_prompt_dismissed, group_id, custom_role_id, custom_roles(id, name, permissions, color, hierarchy_level)`)
       .eq('id', userId)
       .maybeSingle();
 

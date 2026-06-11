@@ -39,6 +39,7 @@ interface CustomRole {
   name: string;
   color: string;
   is_system: boolean;
+  hierarchy_level: number | null;
 }
 
 interface NotificationType {
@@ -532,7 +533,7 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
 const UserManagement = () => {
   const { user: adminUser, session, forceSignOut, refreshProfile } = useAuth();
   const { currentGroup } = useGroup();
-  const { isAdmin, isDev, can } = usePermissions();
+  const { isAdmin, isDev, can, hierarchyLevel } = usePermissions();
   const navigate = useNavigate();
 
   const [users, setUsers]     = useState<User[]>([]);
@@ -638,7 +639,7 @@ const UserManagement = () => {
 
   const fetchCustomRoles = async () => {
     try {
-      const { data, error } = await supabase.from('custom_roles').select('id, name, color, is_system').order('name');
+      const { data, error } = await supabase.from('custom_roles').select('id, name, color, is_system, hierarchy_level').order('name');
       if (error) throw error;
       setCustomRoles(data || []);
     } catch (err: any) {
@@ -780,6 +781,10 @@ const UserManagement = () => {
   };
 
   const canManagePhotos = isDev || isAdmin || can('diretoria');
+
+  // Hierarquia: só posso atribuir perfis de nível MAIOR que o meu (dev = todos).
+  // O banco também valida (trigger + edge function) — aqui é só UX.
+  const assignableRoles = customRoles.filter(r => isDev || (r.hierarchy_level ?? 9999) > hierarchyLevel);
 
   // Gera um link temporário (5 min) de redefinição de senha para o usuário
   const handleGeneratePasswordLink = async (u: User) => {
@@ -1107,7 +1112,7 @@ const UserManagement = () => {
               <FormField label="Função" required>
                 <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className={inputCls}>
                   <option value="">Selecionar perfil...</option>
-                  {customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  {assignableRoles.map(r => <option key={r.id} value={r.id}>{r.name}{r.hierarchy_level != null ? ` (nivel ${r.hierarchy_level})` : ""}</option>)}
                 </select>
               </FormField>
               {isDev && (
@@ -1492,7 +1497,7 @@ const UserManagement = () => {
             <FormField label="Nova Função" required>
               <select value={changeRole.newRole} onChange={e => setChangeRole({ ...changeRole, newRole: e.target.value })} className={inputCls} required>
                 <option value="">Selecionar perfil...</option>
-                {customRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                {assignableRoles.map(r => <option key={r.id} value={r.id}>{r.name}{r.hierarchy_level != null ? ` (nivel ${r.hierarchy_level})` : ""}</option>)}
               </select>
             </FormField>
             <ModalActions onCancel={() => setShowChangeRole(false)} submitLabel="Salvar função" submitting={changingRole} submitColor="bg-amber-500 hover:bg-amber-600" />
