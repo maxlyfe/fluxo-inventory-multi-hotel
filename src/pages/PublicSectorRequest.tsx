@@ -1,14 +1,14 @@
 // src/pages/PublicSectorRequest.tsx
 // Página pública de requisição por setor via link temporário (sem login).
-// Layout "Mercado Livre Style" com persistência, Real-time e lógica de UPSERT.
+// Layout "Mercado Livre Style" com CARRINHO COMPARTILHADO e Real-time total.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
-  Package, Search, Loader2, ShieldAlert, ArrowRight, Plus,
-  CheckCircle2, X, ShoppingCart, Clock, ImageIcon,
-  Check, History, LayoutGrid, AlertCircle, Edit2
+  Package, Search, Loader2, ShieldAlert, Plus,
+  CheckCircle2, X, ShoppingCart, Clock,
+  History, LayoutGrid, AlertCircle, Edit2, User
 } from 'lucide-react';
 import { searchMatch } from '../utils/search';
 
@@ -23,6 +23,8 @@ interface Requisition {
   created_at: string;
   product_id?: string;
   image_url?: string;
+  requester_name?: string; // Nome de quem pediu (compartilhado)
+  is_mine?: boolean;       // Se fui eu quem pediu (pode editar)
 }
 
 type Step = 'validating' | 'invalid' | 'name' | 'shop';
@@ -40,7 +42,7 @@ export default function PublicSectorRequest() {
   const [category, setCategory] = useState<string>('');
   const [loading, setLoading]   = useState(true);
 
-  // Requisições Persistentes (Banco de Dados)
+  // Requisições Persistentes do Setor (Compartilhado)
   const [requisitions, setReqs] = useState<Requisition[]>([]);
   const [showCart, setShowCart] = useState(false);
 
@@ -54,7 +56,7 @@ export default function PublicSectorRequest() {
   const [submitting, setSubmitting] = useState(false);
   const [imgErr, setImgErr]         = useState<Record<string, boolean>>({});
 
-  // ── Inicialização: Validar Token e Recuperar Identidade ──────────────────
+  // ── Inicialização ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) { setStep('invalid'); return; }
     
@@ -76,7 +78,7 @@ export default function PublicSectorRequest() {
         if (savedName) { 
           setName(savedName); 
           setStep('shop');
-          loadMyRequests(token, rid);
+          loadSectorRequests(token, rid);
         } else {
           setStep('name');
         }
@@ -84,8 +86,8 @@ export default function PublicSectorRequest() {
     })();
   }, [token]);
 
-  // ── Carregar Pedidos do Banco ───────────────────────────────────────────
-  const loadMyRequests = async (tkn: string, rid: string) => {
+  // ── Carregar Pedidos do Setor ───────────────────────────────────────────
+  const loadSectorRequests = async (tkn: string, rid: string) => {
     try {
       const { data, error } = await supabase.rpc('get_my_pending_requests', { 
         p_token: tkn, 
@@ -99,15 +101,16 @@ export default function PublicSectorRequest() {
   useEffect(() => {
     if (step !== 'shop' || !info?.sector_id || !requesterId) return;
 
+    // Escuta mudanças de QUALQUER pedido deste setor
     const channel = supabase
-      .channel(`public_reqs_${token}`)
+      .channel(`sector_reqs_${token}`)
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
         table: 'requisitions',
-        filter: `notes=like.PUB:${requesterId}:%`
+        filter: `sector_id=eq.${info.sector_id}`
       }, () => {
-        loadMyRequests(token, requesterId);
+        loadSectorRequests(token, requesterId);
       })
       .subscribe();
 
@@ -129,7 +132,7 @@ export default function PublicSectorRequest() {
     return list;
   }, [products, search, category]);
 
-  // Mapeamento de produtos já no carrinho (pendentes)
+  // Itens pendentes no setor (compartilhado)
   const cartMap = useMemo(() => {
     const map = new Map<string, Requisition>();
     requisitions.filter(r => r.status === 'pending').forEach(r => {
@@ -142,10 +145,9 @@ export default function PublicSectorRequest() {
     if (name.trim().length < 2) return;
     localStorage.setItem(`req_link_name:${token}`, name.trim());
     setStep('shop');
-    loadMyRequests(token, requesterId);
+    loadSectorRequests(token, requesterId);
   };
 
-  // ── Abrir Modal (Novo ou Edição) ────────────────────────────────────────
   const openProductModal = (p: Product) => {
     const existing = cartMap.get(p.id);
     setQtyProduct(p);
@@ -154,14 +156,6 @@ export default function PublicSectorRequest() {
     setModalError('');
   };
 
-  const openCustomModal = () => {
-    setModalMode('custom');
-    setCustomName('');
-    setModalQty('1');
-    setModalError('');
-  };
-
-  // ── Enviar Pedido (UPSERT Automático no Banco) ──────────────────────────
   const submitToDatabase = async () => {
     const q = parseFloat(modalQty.replace(',', '.'));
     if (isNaN(q) || q <= 0) { setModalError('Quantidade inválida.'); return; }
@@ -184,16 +178,11 @@ export default function PublicSectorRequest() {
       });
       if (err) throw err;
 
-      // Reset Modal
       setQtyProduct(null);
       setModalMode('add');
       setModalQty('1');
       setCustomName('');
-      
-      // Carregar imediatamente
-      loadMyRequests(token, requesterId);
-      
-      // NÃO redireciona para o carrinho, apenas fecha o modal e mantém na lista
+      loadSectorRequests(token, requesterId);
     } catch (e: any) {
       setModalError(e.message || 'Erro ao enviar pedido.');
     } finally {
@@ -201,7 +190,6 @@ export default function PublicSectorRequest() {
     }
   };
 
-  // ── Telas de estado ───────────────────────────────────────────────────────
   if (step === 'validating') return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center gap-3">
       <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -249,7 +237,6 @@ export default function PublicSectorRequest() {
     </div>
   );
 
-  // ── step === 'shop' ───────────────────────────────────────────────────────
   const pendingReqs = requisitions.filter(r => r.status === 'pending');
   const historyReqs = requisitions.filter(r => r.status !== 'pending');
 
@@ -300,12 +287,11 @@ export default function PublicSectorRequest() {
 
       <main className="container mx-auto px-4 py-8">
         {showCart ? (
-          /* ── VIEW PEDIDOS EM TEMPO REAL ───────────────────────────────── */
           <div className="max-w-2xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-6 duration-500">
             <section>
               <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-3 tracking-tight">
                 <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl"><ShoppingCart className="w-6 h-6 text-blue-600" /></div>
-                Pedidos Ativos
+                Carrinho do Setor
               </h2>
               {pendingReqs.length === 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-700">
@@ -326,11 +312,14 @@ export default function PublicSectorRequest() {
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-sm font-black text-blue-600">Qtd: {req.quantity}</span>
                             <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                            <span className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1">
-                              <Clock size={10} /> Aguardando
+                            <span className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1">
+                              <User size={10} /> {req.requester_name}
                             </span>
                           </div>
                         </div>
+                      </div>
+                      <div className="flex items-center text-amber-500 shrink-0">
+                        <Clock className="w-5 h-5 animate-pulse" />
                       </div>
                     </div>
                   ))}
@@ -342,13 +331,14 @@ export default function PublicSectorRequest() {
               <section className="pt-8 border-t border-gray-200 dark:border-gray-800">
                 <h2 className="text-xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-3 tracking-tight opacity-70">
                   <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-xl"><History className="w-5 h-5 text-gray-500" /></div>
-                  Pedidos Finalizados
+                  Movimentações Recentes
                 </h2>
                 <div className="space-y-3 opacity-60">
                   {historyReqs.map(s => (
                     <div key={s.id} className="bg-white dark:bg-gray-800 rounded-2xl p-4 flex justify-between items-center text-sm border border-gray-100 dark:border-gray-700 shadow-sm">
                       <div className="min-w-0">
                         <p className="text-gray-900 dark:text-white font-bold truncate">{s.quantity}× {s.item_name}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">{s.requester_name} · {new Date(s.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                       </div>
                       <div className={`flex items-center gap-1.5 font-black text-[10px] uppercase px-3 py-1.5 rounded-full ${s.status === 'delivered' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20' : 'text-red-600 bg-red-50 dark:bg-red-900/20'}`}>
                         {s.status === 'delivered' ? <CheckCircle2 size={12} /> : <X size={12} />}
@@ -361,7 +351,6 @@ export default function PublicSectorRequest() {
             )}
           </div>
         ) : (
-          /* ── GRADE DE PRODUTOS ── */
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
             {filtered.length === 0 ? (
               <div className="col-span-full py-32 text-center text-gray-400">
@@ -377,19 +366,16 @@ export default function PublicSectorRequest() {
                     onClick={() => openProductModal(p)}
                     className={`bg-white dark:bg-gray-800 rounded-[2rem] shadow-sm hover:shadow-xl hover:-translate-y-1 border-2 p-4 flex flex-col transition-all group relative cursor-pointer ${existing ? 'border-blue-500 bg-blue-50/30 dark:bg-blue-900/10' : 'border-transparent dark:border-gray-700'}`}
                   >
-                    {/* Badge Categoria */}
                     <div className="absolute top-4 left-4 z-10 px-2.5 py-1 rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm border border-gray-100 dark:border-gray-700">
                       <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{p.category || 'Geral'}</p>
                     </div>
 
-                    {/* Badge "Já no Carrinho" */}
                     {existing && (
                       <div className="absolute top-4 right-4 z-10 px-2 py-1 rounded-full bg-blue-600 text-white shadow-lg animate-in zoom-in-50">
                         <p className="text-[9px] font-black uppercase flex items-center gap-1"><ShoppingCart size={10} /> {existing.quantity}</p>
                       </div>
                     )}
 
-                    {/* Imagem */}
                     <div className="aspect-square rounded-2xl bg-gray-50 dark:bg-gray-900 flex items-center justify-center mb-4 overflow-hidden border border-gray-100 dark:border-gray-800">
                       {p.image_url && !imgErr[p.id] ? (
                         <img src={p.image_url} alt={p.name} className="w-full h-full object-contain p-2 group-hover:scale-110 transition-transform duration-500" onError={() => setImgErr(prev => ({ ...prev, [p.id]: true }))} />
@@ -398,12 +384,10 @@ export default function PublicSectorRequest() {
                       )}
                     </div>
 
-                    {/* Info */}
                     <div className="flex-1 min-w-0 mb-4 px-1 text-center">
                       <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2 min-h-[40px] tracking-tight">{p.name}</h3>
                     </div>
 
-                    {/* Botão */}
                     <button 
                       className={`w-full py-3 active:scale-95 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg ${existing ? 'bg-amber-500 text-white shadow-amber-500/20' : 'bg-blue-600 text-white shadow-blue-500/20'}`}
                     >
@@ -417,15 +401,13 @@ export default function PublicSectorRequest() {
         )}
       </main>
 
-      {/* FAB Mobile - Item Personalizado */}
       {!showCart && (
-        <button onClick={openCustomModal}
+        <button onClick={() => { setModalMode('custom'); setCustomName(''); setModalQty('1'); setModalError(''); }}
           className="fixed bottom-8 right-8 w-16 h-16 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white rounded-[1.75rem] shadow-2xl shadow-indigo-500/40 flex items-center justify-center z-40 active:scale-90 hover:rotate-6 transition-all border-4 border-white dark:border-gray-900">
           <Plus className="w-8 h-8" strokeWidth={2.5} />
         </button>
       )}
 
-      {/* Modal de Quantidade e Envio Direto */}
       {(qtyProduct || modalMode === 'custom') && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/80 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-300">
           <div className="w-full sm:max-w-md bg-white dark:bg-gray-800 rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-20 duration-500 border border-gray-100 dark:border-gray-700">

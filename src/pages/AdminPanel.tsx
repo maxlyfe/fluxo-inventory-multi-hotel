@@ -69,25 +69,38 @@ export interface Request {
 
 
 // ---------------------------------------------------------------------------
-// Enriquece lista de requisições com full_name do solicitante (sem join)
+// Enriquece lista de requisições com full_name do solicitante
 // ---------------------------------------------------------------------------
 async function enrichWithRequesterNames(rows: Request[]): Promise<Request[]> {
   const ids = [...new Set(rows.map(r => r.created_by).filter(Boolean))] as string[];
-  if (!ids.length) return rows;
-  try {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', ids);
-    const map: Record<string, string | null> = {};
-    (data || []).forEach(p => { map[p.id] = p.full_name; });
-    return rows.map(r => ({
-      ...r,
-      requester: r.created_by ? { full_name: map[r.created_by] ?? null } : null,
-    }));
-  } catch {
-    return rows;
+  
+  const profileNames: Record<string, string | null> = {};
+  if (ids.length > 0) {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', ids);
+      (data || []).forEach(p => { profileNames[p.id] = p.full_name; });
+    } catch {
+      // Ignora erro, usa fallback abaixo
+    }
   }
+
+  return rows.map(r => {
+    let name: string | null = null;
+    if (r.created_by) {
+      name = profileNames[r.created_by] || 'Usuário';
+    } else if (r.notes?.startsWith('PUB:')) {
+      const parts = r.notes.split(':');
+      if (parts.length >= 3) name = parts.slice(2).join(':');
+    }
+
+    return {
+      ...r,
+      requester: { full_name: name || 'Colaborador' },
+    };
+  });
 }
 
 const AdminPanel = () => {
