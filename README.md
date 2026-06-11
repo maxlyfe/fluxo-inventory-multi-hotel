@@ -1,4 +1,4 @@
-# LyFe Hoteles (Fluxo) — Gestão Hoteleira Multi-Tenant
+# LyFe Hoteles — Gestão Hoteleira Multi-Tenant
 
 Ecossistema SaaS completo de gestão operacional para **grupos hoteleiros**: da cozinha à diretoria, em uma única plataforma — web e Android.
 
