@@ -1,130 +1,104 @@
-Fluxo Inventory - Multi Hotel
-Um sistema de gestão de inventário e compras (ERP) completo, projetado para otimizar as operações de uma rede de hotéis.
+# LyFe Hoteles (Fluxo) — Gestão Hoteleira Multi-Tenant
 
-📖 Sobre o Projeto
-O Fluxo Inventory é uma aplicação web moderna e robusta, construída para centralizar e simplificar o controle de inventário, o ciclo de compras e a análise de dados operacionais em múltiplas unidades hoteleiras. A plataforma oferece ferramentas poderosas para administradores, gerentes de estoque e funcionários de setor, garantindo um fluxo de trabalho coeso, desde a requisição de um item até a sua compra e reconciliação financeira.
+Ecossistema SaaS completo de gestão operacional para **grupos hoteleiros**: da cozinha à diretoria, em uma única plataforma — web e Android.
 
-O sistema foi projetado com uma arquitetura escalável e segura, utilizando tecnologias de ponta para fornecer uma experiência de usuário rápida, interativa e em tempo real.
+> 🌐 Produção: [lyfehoteles.com.br](https://lyfehoteles.com.br)
 
-✨ Funcionalidades Principais:
-Este sistema é rico em funcionalidades específicas para o domínio da hotelaria:
+---
 
-🏨 Arquitetura Multi-Hotel: Gerencie múltiplas unidades hoteleiras a partir de uma única interface, com a capacidade de transferir estoque e sincronizar catálogos de produtos entre elas.
+## 📖 Sobre o Projeto
 
-📦 Controle de Inventário Avançado:
+O LyFe Hoteles centraliza toda a operação de uma rede de hotéis: estoque, compras, pessoas, manutenção, recepção/PMS, ponto de venda, eventos e indicadores de diretoria. O sistema é **multi-tenant**: cada cliente é um *grupo hoteleiro* isolado, com seus próprios hotéis e usuários, acessado por um link privado (`/grupo/<slug>`). Um painel exclusivo do desenvolvedor permite criar grupos, vender/adicionar unidades e gerenciar o ciclo de vida de cada cliente.
 
-Gestão completa do ciclo de vida dos produtos, com estoque mínimo/máximo, preços e visibilidade por setor.
+## 🏢 Arquitetura Multi-Tenant (Grupos)
 
-Porcionamento: Um fluxo de trabalho detalhado para processar itens comprados em grande escala e transformá-los em porções (ex: uma peça de carne em bifes), controlando o rendimento e as perdas.
+- **Grupos hoteleiros isolados** — cada cliente tem seus hotéis e usuários; um grupo nunca vê (nem interconecta com) outro.
+- **Login por grupo** — `lyfehoteles.com.br/grupo/<slug>/login` (e-mail/senha ou Google); a conta é validada contra o grupo da URL.
+- **Acesso por hotel** — dentro do grupo, cada usuário recebe acesso a hotéis individualmente; admins do grupo veem todas as unidades ativas.
+- **Roteamento prefixado** — toda a navegação vive sob `/grupo/<slug>/...` via basename dinâmico do React Router.
+- **Landing pública** — a raiz do domínio é uma página de marketing; nenhum dado de cliente é exposto a visitantes.
+- **Painel do dev** (`/lyfe-dev`) — CRUD de grupos, atribuição de unidades, ocultar/reativar (preserva histórico) e exclusão com confirmação.
 
-Balanço de Estoque: Ferramenta interativa para contagem física do estoque local de cada setor, com cálculo automático de consumo e discrepâncias.
+## ✨ Módulos Principais
 
-Importação de inventário em massa a partir de planilhas Excel, com validação de dados.
+| Módulo | Destaques |
+|---|---|
+| 📦 **Estoque & Inventário** | Contagem física **offline-first** (autosave local + sincronização ao voltar a internet), rascunhos acumulativos, contagem delegada por link, porcionamento, importação Excel, transferências entre hotéis do grupo com valor |
+| 🛒 **Compras & Orçamentos** | Listas automáticas, cotação pública para fornecedores, aprovação/autorização, compra multi-hotel, integração WhatsApp |
+| 👥 **Departamento Pessoal** | Funcionários, escalas (com edição pública por link), NR-1, exames, aniversariantes, contratos de experiência com alertas automáticos |
+| 🧑‍💼 **RH** | Vagas com candidatura pública, candidatos, analytics |
+| 🔧 **Manutenção** | Chamados por QR Code (acesso anônimo), equipamentos, checklists integrados à governança |
+| 🛏️ **Recepção & PMS** | Integração Erbon (reservas, rack, in-house, receita), web check-in para hóspedes (totem/celular, multilíngue) com FNRH assinada |
+| 💳 **PDV & Financeiro** | Vendas, consumos, livro-razão integrado às movimentações de estoque |
+| 📅 **Eventos & Agenda** | Calendário corporativo com convites (aceitar/recusar), audiência por rede/hotel/setor/pessoa e lembretes automáticos (criação, 24h, manhã, ~1h antes) |
+| 📊 **Diretoria & BI** | KPIs com metas mensais, comparativo entre unidades, relatórios de performance |
+| 🔔 **Notificações** | Sino in-app + **push nativo** (chega com o app fechado), preferências por tipo/hotel/setor, crons diários (aniversários, contratos) |
 
-🛒 Ciclo de Compras Completo:
+## 🚀 Stack
 
-Geração de listas de compras automáticas com base nos níveis de estoque.
+**Frontend** — React 18 · TypeScript · Vite · Tailwind CSS · React Router · Recharts · Lucide
 
-Criação de orçamentos físicos (planilhas editáveis) e orçamentos online (com links de produtos e cálculo de frete).
+**Backend (BaaS)** — Supabase: PostgreSQL (RLS), Auth (e-mail + Google OAuth/PKCE), Edge Functions (Deno), Realtime, Storage · pg_cron + pg_net para automações
 
-Cotação Dinâmica: Geração de links públicos para que fornecedores externos submetam seus preços, com uma tela de análise comparativa para facilitar a tomada de decisão.
+**Mobile** — Capacitor (Android): 2 APKs (`LyFe Hoteles` e `LyFe Web Check-in`), push via FCM nativo, auto-update por manifest
 
-Fluxo de aprovação de orçamentos e registro de entrada de notas fiscais.
+**Integrações** — Erbon PMS · WhatsApp (Meta Cloud API) · Firebase Cloud Messaging · Google Generative AI
 
-🏢 Gestão por Setores:
+## 🔐 Segurança
 
-Controle de estoque local para cada setor (Cozinha, Governança, etc.).
+- Row-Level Security no Postgres controla a visibilidade de hotéis por grupo e por concessão individual de acesso.
+- Gestão de unidades (criar/ocultar/excluir hotéis e grupos) restrita ao perfil de desenvolvedor, com proteção por trigger no banco.
+- Edge Functions com service role sempre validam o chamador (JWT) antes de agir; segredos só em variáveis de ambiente/secrets.
+- Links sensíveis (redefinição de senha) expiram em 5 minutos e são de uso único.
+- RBAC granular por módulos via perfis customizáveis (`custom_roles`), gerenciados pela UI.
 
-Sistema de requisições para que os setores solicitem itens ao almoxarifado central.
+## 🛠️ Executando Localmente
 
-📊 Central de Relatórios Interativa:
+**Pré-requisitos:** Node.js 18+, conta Supabase.
 
-Painel de gestão com gráficos de consumo, gastos e evolução de preços.
-
-Relatórios detalhados para Lavanderia, Contas de Consumo (água/luz) e Custo por Hóspede.
-
-Reconciliação Semanal de Estoque: Um relatório completo que detalha toda a movimentação de cada item (estoque inicial, compras, transferências, consumo, perdas, estoque final).
-
-💰 Controle Financeiro Integrado: Cada movimentação de estoque com valor monetário (como transferências entre hotéis ou pagamentos) gera transações de débito e crédito no balanço financeiro da unidade, criando um livro-razão integrado.
-
-🔐 Segurança e Acesso por Cargos (RBAC): O sistema possui um controle de acesso granular. Cada usuário tem um cargo (admin, inventory, management, etc.) que define exatamente quais telas e funcionalidades ele pode acessar.
-
-🔔 Notificações em Tempo Real: Um sistema de notificações (no aplicativo e via push) alerta os usuários sobre eventos importantes (novas requisições, aprovações, etc.) com base em suas preferências personalizadas.
-
-🚀 Tecnologias Utilizadas
-O projeto foi construído com uma stack de tecnologias moderna e performática.
-
-Frontend
-Framework: React com TypeScript.
-
-Build Tool: Vite.
-
-Estilização: Tailwind CSS com um sistema de design customizado.
-
-Roteamento: React Router.
-
-Gráficos: Recharts.
-
-Ícones: Lucide React.
-
-Backend & Banco de Dados (BaaS)
-Plataforma: Supabase.
-
-Banco de Dados: PostgreSQL.
-
-Autenticação: Supabase Auth.
-
-Funções Serverless: Supabase Edge Functions (Deno).
-
-Notificações Push: Firebase Cloud Messaging (FCM).
-
-🛠️ Como Executar o Projeto Localmente
-Siga os passos abaixo para configurar e executar o ambiente de desenvolvimento.
-
-Pré-requisitos
-Node.js (versão 18 ou superior)
-
-Yarn (gerenciador de pacotes)
-
-Uma conta no Supabase para configurar o backend.
-
-Instalação
-Clone o repositório:
-
-Bash
-
+```bash
 git clone https://github.com/maxlyfe/fluxo-inventory-multi-hotel.git
 cd fluxo-inventory-multi-hotel
-Instale as dependências:
+npm install
+```
 
-Bash
+Crie um `.env` com as chaves do seu projeto Supabase:
 
-yarn install
-Configure as Variáveis de Ambiente:
+```env
+VITE_SUPABASE_URL=https://<seu-projeto>.supabase.co
+VITE_SUPABASE_ANON_KEY=<chave-anon>
+# Firebase (push notifications)
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_VAPID_KEY=...
+```
 
-Crie uma cópia do arquivo .env.example e renomeie para .env.
+### Comandos
 
-Preencha as variáveis com as chaves do seu projeto Supabase:
+```bash
+npm run dev        # Servidor de desenvolvimento (Vite)
+npm run build      # Build de produção (tsc + vite) — é o que o CI/Netlify roda
+npm run lint       # ESLint
+npm run test       # Vitest
+npx tsc --noEmit   # Type-check
+npm run build:apk  # Build do APK Android (LyFe Hoteles)
+```
 
-Fragmento de código
+### Backend (Supabase)
 
-VITE_SUPABASE_URL=https://<seu-projeto-id>.supabase.co
-VITE_SUPABASE_ANON_KEY=<sua-chave-anon-publica>
-Execute o servidor de desenvolvimento:
+1. **Migrações** — aplique os arquivos de `supabase/migrations/` (em ordem) no SQL Editor.
+2. **Edge Functions** — deploy das funções em `supabase/functions/` (`admin-user-actions`, `send-fcm-notification`, `password-reset` com `--no-verify-jwt`, `daily-notifications`, `event-reminders`, etc.).
+3. **Crons** — agende `daily-notifications` (diário) e `event-reminders` (horário) com os scripts de `docs/sql-scripts/` (a service role key é colada no SQL Editor — nunca commitada).
+4. **Auth** — em *URL Configuration*, cadastre `https://<seu-dominio>/**` e o deep link do APK.
 
-Bash
+## 📱 Android
 
-yarn dev
-A aplicação estará disponível em http://localhost:5173.
+O APK é um wrapper Capacitor que carrega o site em produção — mudanças de UI/lógica web **não exigem rebuild**. Rebuild apenas para nova versão, plugins nativos ou config do Capacitor (`npm run build:apk`; release: bump em `android/app/build.gradle` + `public/update-manifest.json`).
 
-Configuração do Backend (Supabase)
-O frontend depende de uma estrutura de banco de dados e funções no Supabase para funcionar corretamente.
+## 📄 Licença
 
-Esquema do Banco de Dados: Aplique o esquema SQL fornecido no arquivo supabase/schema.sql ao seu banco de dados Supabase para criar todas as tabelas, funções (RPC) e políticas de segurança.
-
-Funções Serverless (Edge Functions): Faça o deploy das funções localizadas no diretório supabase/functions/ para o seu projeto Supabase. O guia supabase_edge_function_deployment_guide.md contém instruções detalhadas.
-
-Configuração Inicial: Utilize o script sync_users_to_auth.js para popular o banco com os usuários iniciais, se necessário.
-
-📄 Licença
 Este projeto está sob a licença MIT.
