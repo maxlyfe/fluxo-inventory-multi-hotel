@@ -5,7 +5,7 @@ import {
   Package, ArrowLeft, Plus, Search, Grid, List, AlertTriangle,
   ShoppingCart, X, Check, Clock, ChevronDown, ChevronUp, ImageIcon,
   ArrowLeftRight,
-  Zap, Loader2,
+  Zap, Loader2, Link2,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { startOfWeek, endOfWeek, format, parseISO } from 'date-fns';
@@ -16,6 +16,7 @@ import RequestItem from '../components/RequestItem';
 import Modal from '../components/Modal';
 import { notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
 import DirectDeliveryModal from '../components/DirectDeliveryModal';
+import RequestLinkModal from '../components/RequestLinkModal';
 import { searchMatch } from '../utils/search';
 import { generateRequisitionPreview, commitRequisitions, type RequisitionPreviewItem } from '../lib/autoRequisitionService';
 
@@ -117,6 +118,7 @@ const AdminPanel = () => {
   const [rejectReasonInput, setRejectReasonInput] = useState('');
 
   const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
+  const [showRequestLinkModal, setShowRequestLinkModal] = useState(false);
   const [allSectors, setAllSectors] = useState<{id: string, name: string}[]>([]);
   const [productStocks, setProductStocks] = useState<Record<string, number>>({});
 
@@ -947,6 +949,14 @@ const AdminPanel = () => {
             <Package className="w-4 h-4" />
             <span className="hidden sm:inline">Entrega Direta</span>
           </button>
+          <button
+            onClick={() => setShowRequestLinkModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-xl shadow-sm hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500/40 font-medium text-sm"
+            title="Gerar links públicos de requisição por setor"
+          >
+            <Link2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Link de Requisição</span>
+          </button>
         </div>
       </div>
 
@@ -1325,6 +1335,13 @@ const AdminPanel = () => {
           onConfirm={handleConfirmDirectDelivery}
         />
       )}
+
+      {/* ── Links públicos de requisição por setor ── */}
+      <RequestLinkModal
+        isOpen={showRequestLinkModal}
+        onClose={() => setShowRequestLinkModal(false)}
+      />
+
 
       {/* ── Auto Requisições Modal ── */}
       <Modal isOpen={showAutoReqModal} onClose={() => setShowAutoReqModal(false)} title="Auto Requisições">

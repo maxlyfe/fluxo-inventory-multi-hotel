@@ -87,6 +87,7 @@ import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages'
 import PublicSectorsPage   from './pages/PublicSectorsPage';
 import PublicStockCount    from './pages/PublicStockCount';
 import PublicPasswordReset from './pages/PublicPasswordReset';
+import PublicSectorRequest from './pages/PublicSectorRequest';
 import GroupLogin          from './pages/GroupLogin';
 import Landing             from './pages/Landing';
 
@@ -380,6 +381,8 @@ function App() {
                   <Route path="/public/sectors"   element={<PublicSectorsPage />} />
                   <Route path="/stock-count/:token" element={<PublicStockCount />} />
                   <Route path="/reset-password/:token" element={<PublicPasswordReset />} />
+                  {/* Requisição pública por link temporário (colaborador sem login) */}
+                  <Route path="/request/:token" element={<PublicSectorRequest />} />
                   {/* Login por grupo: /grupo/<slug>(/login) é tratado pelo basename do router
                       → cai em "/" (HomeGuard) ou "/login" (LoginRoute → GroupLogin). */}
                   <Route path="/quote/:budgetId" element={<PublicQuotePage />} />
