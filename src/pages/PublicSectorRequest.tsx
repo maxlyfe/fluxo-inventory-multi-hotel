@@ -1,20 +1,35 @@
 // src/pages/PublicSectorRequest.tsx
 // Página pública de requisição por setor via link temporário (sem login).
-// Rota: /request/:token — colaborador informa o nome e faz pedidos de material.
+// Redesenhada para o layout "Mercado Livre" (grid de cards) a pedido do usuário.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Package, Search, Loader2, ShieldAlert, ArrowRight, Plus,
-  CheckCircle2, X, ShoppingCart, Clock,
+  CheckCircle2, X, ShoppingCart, Clock, ImageIcon,
+  Check, History, ArrowLeft, Trash2, LayoutGrid, List
 } from 'lucide-react';
+import { searchMatch } from '../utils/search';
 
 interface LinkInfo { hotel_id: string; hotel_name: string; sector_id: string; sector_name: string; expires_at: string; }
 interface Product { id: string; name: string; category: string | null; image_url: string | null; }
-interface SentItem { name: string; qty: number; at: string; }
 
-type Step = 'validating' | 'invalid' | 'name' | 'cart';
+// Item no carrinho local antes de enviar
+interface CartItem {
+  id: string; // temp id for key
+  productId: string | null;
+  name: string;
+  quantity: number;
+}
+
+interface SentItem {
+  name: string;
+  qty: number;
+  at: string;
+}
+
+type Step = 'validating' | 'invalid' | 'name' | 'shop';
 
 export default function PublicSectorRequest() {
   const { token = '' } = useParams<{ token: string }>();
@@ -25,18 +40,23 @@ export default function PublicSectorRequest() {
   const [name, setName]         = useState('');
   const [search, setSearch]     = useState('');
   const [category, setCategory] = useState<string>('');
+  const [loading, setLoading]   = useState(true);
+
+  // Carrinho e Histórico da sessão
+  const [cart, setCart]         = useState<CartItem[]>([]);
   const [sent, setSent]         = useState<SentItem[]>([]);
-  const [imgErr, setImgErr]     = useState<Record<string, boolean>>({});
+  const [showCart, setShowCart] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // Modal de quantidade
   const [qtyProduct, setQtyProduct] = useState<Product | null>(null);
-  const [qty, setQty]               = useState('1');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError]           = useState('');
-
-  // Item avulso (não catalogado)
+  const [modalMode, setModalMode]   = useState<'add' | 'custom'>('add');
+  const [modalQty, setModalQty]     = useState('1');
+  const [modalError, setModalError] = useState('');
   const [customName, setCustomName] = useState('');
-  const [showCustom, setShowCustom] = useState(false);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [imgErr, setImgErr]         = useState<Record<string, boolean>>({});
 
   // ── Validar token + carregar produtos ────────────────────────────────────
   useEffect(() => {
@@ -51,11 +71,11 @@ export default function PublicSectorRequest() {
         const { data: prods } = await supabase.rpc('get_products_for_request_link', { p_token: token });
         setProducts((prods as Product[]) || []);
 
-        // Nome salvo anteriormente neste aparelho → pula direto pro carrinho
+        // Recuperar nome do colaborador salvo
         const savedName = localStorage.getItem(`req_link_name:${token}`);
-        if (savedName) { setName(savedName); setStep('cart'); }
+        if (savedName) { setName(savedName); setStep('shop'); }
         else setStep('name');
-      } catch { setStep('invalid'); }
+      } catch { setStep('invalid'); } finally { setLoading(false); }
     })();
   }, [token]);
 
@@ -67,8 +87,7 @@ export default function PublicSectorRequest() {
   const filtered = useMemo(() => {
     let list = products;
     if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(p => p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q));
+      list = list.filter(p => searchMatch(search, p.name) || searchMatch(search, p.category || ''));
     } else if (category) {
       list = list.filter(p => (p.category || 'Sem Categoria') === category);
     }
@@ -78,221 +97,374 @@ export default function PublicSectorRequest() {
   const startName = () => {
     if (name.trim().length < 2) return;
     localStorage.setItem(`req_link_name:${token}`, name.trim());
-    setStep('cart');
+    setStep('shop');
   };
 
-  // ── Enviar pedido (produto ou item avulso) ────────────────────────────────
-  const submit = async (productId: string | null, itemName: string) => {
-    const q = parseFloat(qty.replace(',', '.'));
-    if (isNaN(q) || q <= 0) { setError('Quantidade inválida.'); return; }
+  // ── Ações do Carrinho ────────────────────────────────────────────────────
+  const openAddModal = (p: Product) => {
+    setQtyProduct(p);
+    setModalMode('add');
+    setModalQty('1');
+    setModalError('');
+  };
+
+  const openCustomModal = () => {
+    setModalMode('custom');
+    setCustomName('');
+    setModalQty('1');
+    setModalError('');
+  };
+
+  const addToCart = () => {
+    const q = parseFloat(modalQty.replace(',', '.'));
+    if (isNaN(q) || q <= 0) { setModalError('Quantidade inválida.'); return; }
+
+    const itemName = modalMode === 'add' ? qtyProduct!.name : customName.trim();
+    if (modalMode === 'custom' && itemName.length < 2) {
+      setModalError('Informe o nome do item.');
+      return;
+    }
+
+    const newItem: CartItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      productId: modalMode === 'add' ? qtyProduct!.id : null,
+      name: itemName,
+      quantity: q,
+    };
+
+    setCart(prev => [...prev, newItem]);
+    setQtyProduct(null);
+    setModalMode('add');
+    
+    // Feedback visual opcional ou abrir carrinho
+    // setShowCart(true); 
+  };
+
+  const removeFromCart = (id: string) => {
+    setCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  const finalizeOrder = async () => {
+    if (cart.length === 0) return;
     setSubmitting(true);
-    setError('');
     try {
-      const { error: err } = await supabase.rpc('submit_request_via_link', {
-        p_token: token,
-        p_requester_name: name.trim(),
-        p_product_id: productId,
-        p_item_name: itemName,
-        p_quantity: q,
-      });
-      if (err) throw err;
-      setSent(prev => [{ name: itemName, qty: q, at: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }, ...prev]);
-      setQtyProduct(null); setQty('1'); setShowCustom(false); setCustomName('');
+      for (const item of cart) {
+        const { error: err } = await supabase.rpc('submit_request_via_link', {
+          p_token: token,
+          p_requester_name: name.trim(),
+          p_product_id: item.productId,
+          p_item_name: item.name,
+          p_quantity: item.quantity,
+        });
+        if (err) throw err;
+      }
+      
+      const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const newSent: SentItem[] = cart.map(item => ({ name: item.name, qty: item.quantity, at: now }));
+      setSent(prev => [...newSent, ...prev]);
+      setCart([]);
+      setShowCart(false);
+      alert('Pedido enviado com sucesso!');
     } catch (e: any) {
-      setError(e.message?.includes('expirado') ? 'Este link expirou. Peça um novo ao responsável.' : (e.message || 'Erro ao enviar pedido.'));
+      alert(e.message || 'Erro ao enviar pedido.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const expiresBR = info ? new Date(info.expires_at).toLocaleDateString('pt-BR') : '';
-
   // ── Telas de estado ───────────────────────────────────────────────────────
   if (step === 'validating') return (
-    <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center gap-3 text-slate-400">
-      <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
-      <p className="text-sm">Verificando link…</p>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center gap-3">
+      <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <p className="text-gray-500 dark:text-gray-400 font-medium">Verificando link...</p>
     </div>
   );
 
   if (step === 'invalid') return (
-    <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center gap-3 p-6 text-center">
-      <div className="w-14 h-14 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center">
-        <ShieldAlert className="w-7 h-7 text-red-400" />
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-20 h-20 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6">
+        <ShieldAlert className="w-10 h-10 text-red-500" />
       </div>
-      <h1 className="text-lg font-bold text-white">Link indisponível</h1>
-      <p className="text-sm text-slate-400 max-w-xs">Este link de requisição não existe ou expirou. Peça um novo ao responsável do hotel.</p>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Link indisponível</h1>
+      <p className="text-gray-600 dark:text-gray-400 max-w-xs">Este link de requisição não existe, expirou ou foi desativado.</p>
     </div>
   );
 
   if (step === 'name') return (
-    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-slate-900 rounded-3xl border border-slate-700/60 overflow-hidden shadow-2xl">
-        <div className="px-6 pt-7 pb-5 bg-gradient-to-br from-teal-600 to-cyan-700 text-white">
-          <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center mb-3">
-            <ShoppingCart className="w-6 h-6" />
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700">
+        <div className="p-10 bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-center">
+          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-6 backdrop-blur-sm">
+            <ShoppingCart className="w-8 h-8" />
           </div>
-          <h1 className="text-lg font-bold leading-tight">Requisição de Material</h1>
-          <p className="text-sm text-white/80 mt-1">{info?.hotel_name} · {info?.sector_name}</p>
+          <h1 className="text-2xl font-black tracking-tight mb-1">Requisição de Material</h1>
+          <p className="text-blue-100 font-medium">{info?.hotel_name} · {info?.sector_name}</p>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="p-8 space-y-6">
           <div>
-            <label className="block text-xs font-bold text-teal-400/90 uppercase tracking-widest mb-1.5">Seu nome *</label>
+            <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Quem está solicitando? *</label>
             <input
               type="text" value={name} autoFocus
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && startName()}
               placeholder="Digite seu nome completo"
-              className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+              className="w-full px-5 py-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-lg font-medium focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
             />
-            <p className="text-[11px] text-slate-500 mt-1.5">Será registrado quem fez cada pedido.</p>
           </div>
           <button onClick={startName} disabled={name.trim().length < 2}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-500 text-white text-sm font-bold disabled:opacity-40 transition-colors">
-            Começar <ArrowRight className="w-4 h-4" />
+            className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold text-lg shadow-lg shadow-blue-500/30 disabled:opacity-40 transition-all">
+            Continuar para Loja
           </button>
-          <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1">
-            <Clock className="w-3 h-3" /> Link válido até {expiresBR}
-          </p>
         </div>
       </div>
     </div>
   );
 
-  // ── step === 'cart' ───────────────────────────────────────────────────────
+  // ── step === 'shop' ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
-      {/* Header */}
-      <div className="sticky top-0 z-20 bg-teal-700/95 backdrop-blur px-4 py-3">
-        <div className="flex items-center justify-between gap-2">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-24">
+      {/* Header Estilo App */}
+      <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 px-4 py-4">
+        <div className="container mx-auto flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-sm font-bold text-white leading-tight truncate">{info?.sector_name}</p>
-            <p className="text-[11px] text-white/70 truncate">{info?.hotel_name} · {name}</p>
+            <h1 className="font-black text-gray-900 dark:text-white truncate text-lg tracking-tight">{info?.sector_name}</h1>
+            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">{info?.hotel_name} · {name}</p>
           </div>
-          {sent.length > 0 && (
-            <span className="shrink-0 text-xs font-bold text-white bg-white/20 px-2.5 py-1 rounded-full">
-              {sent.length} enviado{sent.length !== 1 ? 's' : ''}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowCart(!showCart)}
+              className={`relative p-3 rounded-2xl transition-all shadow-lg ${showCart ? 'bg-gray-900 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'} active:scale-90`}
+            >
+              {showCart ? <LayoutGrid className="w-6 h-6" /> : <ShoppingCart className="w-6 h-6" />}
+              {cart.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black rounded-full w-6 h-6 flex items-center justify-center ring-4 ring-white dark:ring-gray-800 animate-bounce">
+                  {cart.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Busca + categorias */}
-      <div className="sticky top-[52px] z-10 bg-slate-950/95 backdrop-blur px-4 pt-3 pb-2 space-y-2 border-b border-slate-800">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar produto…"
-            className="w-full h-10 pl-9 pr-9 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/40" />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-slate-500"><X className="w-3.5 h-3.5" /></button>
-          )}
+      {/* Filtros e Busca */}
+      {!showCart && (
+        <div className="sticky top-[73px] z-20 bg-gray-50/90 dark:bg-gray-900/90 backdrop-blur-sm px-4 py-4 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="container mx-auto space-y-4">
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+              <input
+                type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar produtos (Mercado Livre Style)..."
+                className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-medium shadow-inner focus:ring-4 focus:ring-blue-500/10 transition-all outline-none"
+              />
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              <button
+                onClick={() => setCategory('')}
+                className={`shrink-0 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!category ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'}`}
+              >
+                Todos
+              </button>
+              {categories.map(c => (
+                <button
+                  key={c} onClick={() => setCategory(c)}
+                  className={`shrink-0 px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${category === c ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'}`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        {!search && categories.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-            <button onClick={() => setCategory('')}
-              className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold ${!category ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>Todos</button>
-            {categories.map(c => (
-              <button key={c} onClick={() => setCategory(c)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold ${category === c ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{c}</button>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
-      {/* Lista de produtos */}
-      <div className="flex-1 px-4 py-3 space-y-2 pb-28">
-        {/* Enviados (resumo) */}
-        {sent.length > 0 && (
-          <div className="rounded-2xl border border-emerald-800/50 bg-emerald-900/15 p-3 space-y-1.5 mb-2">
-            <p className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Pedidos enviados
-            </p>
-            {sent.slice(0, 5).map((s, i) => (
-              <p key={i} className="text-xs text-emerald-200/80">{s.qty}× {s.name} <span className="text-emerald-500/60">· {s.at}</span></p>
-            ))}
-            {sent.length > 5 && <p className="text-[11px] text-emerald-500/60">+{sent.length - 5} anteriores</p>}
-          </div>
-        )}
+      <main className="container mx-auto px-4 py-8">
+        {showCart ? (
+          /* ── VIEW CARRINHO ──────────────────────────────────────────────── */
+          <div className="max-w-2xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-6 duration-500">
+            {/* Itens Pendentes no Carrinho */}
+            <section>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-3 tracking-tight">
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl"><ShoppingCart className="w-6 h-6 text-blue-600" /></div>
+                  Meu Carrinho
+                </h2>
+                <button onClick={() => setShowCart(false)} className="text-sm font-black text-blue-600 uppercase tracking-wider hover:underline flex items-center gap-1">
+                  <Plus className="w-4 h-4" /> Adicionar mais
+                </button>
+              </div>
+              
+              {cart.length === 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-700">
+                  <Package className="w-16 h-16 text-gray-200 dark:text-gray-700 mx-auto mb-4" />
+                  <p className="text-gray-500 font-bold text-lg">Seu carrinho está vazio.</p>
+                  <button onClick={() => setShowCart(false)} className="mt-4 text-blue-600 font-black uppercase text-sm">Voltar às compras</button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {cart.map(item => (
+                    <div key={item.id} className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between gap-4 group">
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-white text-lg tracking-tight truncate">{item.name}</p>
+                        <p className="text-sm font-bold text-blue-600 mt-0.5">Qtd: {item.quantity}</p>
+                      </div>
+                      <button onClick={() => removeFromCart(item.id)} className="w-12 h-12 flex items-center justify-center text-red-500 bg-red-50 dark:bg-red-900/20 rounded-2xl opacity-80 hover:opacity-100 transition-opacity">
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  <div className="pt-6">
+                    <button
+                      onClick={finalizeOrder}
+                      disabled={submitting}
+                      className="w-full py-5 rounded-3xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-black text-xl shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-3 transition-all disabled:opacity-50"
+                    >
+                      {submitting ? <Loader2 className="w-7 h-7 animate-spin" /> : <CheckCircle2 className="w-7 h-7" />}
+                      Finalizar e Enviar
+                    </button>
+                    <p className="text-center text-xs text-gray-400 mt-4 font-medium italic">
+                      Seus pedidos serão enviados para o setor de compras/almoxarifado.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
 
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
-            <Package className="w-10 h-10 opacity-30" />
-            <p className="text-sm">{search ? 'Nenhum produto encontrado.' : 'Nenhum produto disponível.'}</p>
+            {/* Histórico da Sessão */}
+            {sent.length > 0 && (
+              <section className="pt-8 border-t border-gray-200 dark:border-gray-800">
+                <h2 className="text-xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-3 tracking-tight opacity-70">
+                  <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-xl"><History className="w-5 h-5 text-gray-500" /></div>
+                  Pedidos já Enviados
+                </h2>
+                <div className="space-y-3 opacity-60">
+                  {sent.map((s, i) => (
+                    <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-4 flex justify-between items-center text-sm border border-gray-100 dark:border-gray-700 shadow-sm">
+                      <p className="text-gray-700 dark:text-gray-300 font-bold">{s.qty}× {s.name}</p>
+                      <div className="flex items-center gap-1.5 text-emerald-600 font-black text-[10px] uppercase">
+                        <Check size={12} strokeWidth={3} /> Enviado às {s.at}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         ) : (
-          filtered.map(p => (
-            <button key={p.id} onClick={() => { setQtyProduct(p); setQty('1'); setError(''); }}
-              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-teal-700 active:scale-[.99] transition-all text-left">
-              <div className="w-11 h-11 shrink-0 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center overflow-hidden">
-                {p.image_url && !imgErr[p.id]
-                  ? <img src={p.image_url} alt="" className="w-full h-full object-contain" loading="lazy"
-                      onError={() => setImgErr(prev => ({ ...prev, [p.id]: true }))} />
-                  : <Package className="w-5 h-5 text-slate-600" />}
+          /* ── GRADE DE PRODUTOS (MERCADO LIVRE STYLE) ───────────────────── */
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
+            {filtered.length === 0 ? (
+              <div className="col-span-full py-32 text-center text-gray-400">
+                <Package className="w-20 h-20 mx-auto mb-4 opacity-10" />
+                <p className="text-lg font-bold">Nenhum produto disponível.</p>
+                <p className="text-sm mt-1">Tente buscar por outro nome ou categoria.</p>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{p.name}</p>
-                <p className="text-[11px] text-slate-500">{p.category || 'Sem categoria'}</p>
-              </div>
-              <span className="shrink-0 w-9 h-9 rounded-xl bg-teal-600/20 border border-teal-700/50 flex items-center justify-center">
-                <Plus className="w-4 h-4 text-teal-400" />
-              </span>
-            </button>
-          ))
+            ) : (
+              filtered.map(p => (
+                <div
+                  key={p.id}
+                  className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-sm hover:shadow-xl hover:-translate-y-1 border border-gray-100 dark:border-gray-700 p-4 flex flex-col transition-all group relative overflow-hidden"
+                >
+                  {/* Badge Categoria */}
+                  <div className="absolute top-4 left-4 z-10 px-2.5 py-1 rounded-full bg-white/90 dark:bg-gray-900/90 backdrop-blur shadow-sm border border-gray-100 dark:border-gray-700">
+                    <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{p.category || 'Geral'}</p>
+                  </div>
+
+                  {/* Imagem */}
+                  <div className="aspect-square rounded-2xl bg-gray-50 dark:bg-gray-900 flex items-center justify-center mb-4 overflow-hidden border border-gray-100 dark:border-gray-800 group-hover:border-blue-500/20 transition-colors">
+                    {p.image_url && !imgErr[p.id] ? (
+                      <img 
+                        src={p.image_url} alt={p.name} 
+                        className="w-full h-full object-contain p-2 group-hover:scale-110 transition-transform duration-500" 
+                        onError={() => setImgErr(prev => ({ ...prev, [p.id]: true }))}
+                      />
+                    ) : (
+                      <Package className="w-12 h-12 text-gray-200 dark:text-gray-700" />
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 mb-4 px-1">
+                    <h3 className="text-sm font-bold text-gray-900 dark:text-white leading-tight line-clamp-2 min-h-[40px] tracking-tight">{p.name}</h3>
+                  </div>
+
+                  {/* Botão */}
+                  <button
+                    onClick={() => openAddModal(p)}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
+                  >
+                    <Plus className="w-4 h-4" strokeWidth={3} /> Pedir
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         )}
-      </div>
+      </main>
 
-      {/* Botão item avulso */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 bg-slate-950/95 backdrop-blur border-t border-slate-800"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
-        <button onClick={() => { setShowCustom(true); setCustomName(''); setQty('1'); setError(''); }}
-          className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-700 text-slate-400 text-sm font-semibold hover:border-teal-700 hover:text-teal-400 transition-colors">
-          + Pedir item que não está na lista
+      {/* FAB Mobile - Item Personalizado */}
+      {!showCart && (
+        <button
+          onClick={openCustomModal}
+          className="fixed bottom-8 right-8 w-16 h-16 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white rounded-[1.75rem] shadow-2xl shadow-indigo-500/40 flex items-center justify-center z-40 active:scale-90 hover:rotate-6 transition-all border-4 border-white dark:border-gray-900"
+          title="Pedir item não listado"
+        >
+          <Plus className="w-8 h-8" strokeWidth={2.5} />
         </button>
-      </div>
+      )}
 
-      {/* Modal de quantidade (produto ou avulso) */}
-      {(qtyProduct || showCustom) && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
-          <div className="w-full sm:max-w-sm bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-700 overflow-hidden">
-            <div className="px-5 pt-5 pb-4 border-b border-slate-800">
-              <p className="text-[11px] font-bold text-teal-400 uppercase tracking-wider mb-1">
-                {showCustom ? 'Item avulso' : 'Pedir material'}
-              </p>
-              {showCustom ? (
-                <input
-                  type="text" value={customName} autoFocus
-                  onChange={e => setCustomName(e.target.value)}
-                  placeholder="Nome do item (ex: Pilha AA)"
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-600 text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50"
-                />
-              ) : (
-                <h3 className="text-base font-bold text-white leading-tight">{qtyProduct?.name}</h3>
-              )}
-            </div>
-            <div className="p-5 space-y-4" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
+      {/* Modal de Quantidade (Add / Custom) */}
+      {(qtyProduct || modalMode === 'custom') && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/80 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-300">
+          <div className="w-full sm:max-w-md bg-white dark:bg-gray-800 rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-20 duration-500 border border-gray-100 dark:border-gray-700">
+            {/* Header Modal */}
+            <div className="px-8 pt-8 pb-6 border-b border-gray-100 dark:border-gray-700 flex items-start justify-between">
               <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Quantidade</label>
-                <input
-                  type="text" inputMode="decimal" value={qty}
-                  onChange={e => setQty(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && (showCustom ? submit(null, customName.trim()) : submit(qtyProduct!.id, qtyProduct!.name))}
-                  autoFocus={!showCustom}
-                  className="w-full text-center text-3xl font-bold py-4 rounded-2xl bg-slate-800 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-teal-500/50"
-                />
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-2">
+                  {modalMode === 'add' ? 'Adicionar ao Carrinho' : 'Item Especial'}
+                </p>
+                <h3 className="text-xl font-black text-gray-900 dark:text-white tracking-tight leading-tight">
+                  {modalMode === 'add' ? qtyProduct?.name : 'O que você precisa hoje?'}
+                </h3>
               </div>
-              {error && <p className="text-xs text-red-400 text-center font-semibold">{error}</p>}
-              <div className="flex gap-3">
-                <button onClick={() => { setQtyProduct(null); setShowCustom(false); setError(''); }}
-                  className="flex-1 min-h-[50px] rounded-xl border border-slate-600 text-slate-300 font-semibold text-sm">
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => showCustom ? submit(null, customName.trim()) : submit(qtyProduct!.id, qtyProduct!.name)}
-                  disabled={submitting || (showCustom && customName.trim().length < 2)}
-                  className="flex-[2] min-h-[50px] rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Enviar pedido
-                </button>
+              <button onClick={() => { setQtyProduct(null); setModalMode('add'); }} className="p-2.5 bg-gray-100 dark:bg-gray-700 rounded-2xl text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom) + 1rem)' }}>
+              {modalMode === 'custom' && (
+                <div className="animate-in zoom-in-95 duration-200">
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 ml-1">Nome do Item *</label>
+                  <input
+                    type="text" value={customName} autoFocus
+                    onChange={e => setCustomName(e.target.value)}
+                    placeholder="Ex: 50 Pilhas AA, Rolo de fita..."
+                    className="w-full px-5 py-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white font-bold focus:ring-4 focus:ring-blue-500/10 outline-none transition-all"
+                  />
+                </div>
+              )}
+              
+              <div className="animate-in zoom-in-95 duration-300">
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 ml-1 text-center">Quantidade Desejada</label>
+                <div className="relative group">
+                   <input
+                    type="text" inputMode="decimal" value={modalQty}
+                    onChange={e => setModalQty(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addToCart()}
+                    autoFocus={modalMode === 'add'}
+                    className="w-full text-center text-5xl font-black py-8 rounded-[2rem] bg-gray-50 dark:bg-gray-900 border-2 border-transparent focus:border-blue-500 text-gray-900 dark:text-white outline-none transition-all shadow-inner"
+                  />
+                  <div className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-300 dark:text-gray-700 font-black text-lg pointer-events-none">un</div>
+                </div>
+              </div>
+
+              {modalError && <p className="text-sm text-red-500 font-black text-center animate-bounce">{modalError}</p>}
+
+              <div className="flex gap-4 pt-2">
+                <button onClick={() => { setQtyProduct(null); setModalMode('add'); }} className="flex-1 py-5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-black rounded-2xl uppercase tracking-widest text-xs transition-colors">Cancelar</button>
+                <button onClick={addToCart} className="flex-[2] py-5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black rounded-2xl shadow-xl shadow-blue-500/30 uppercase tracking-[0.1em] text-xs transition-all">Confirmar</button>
               </div>
             </div>
           </div>
