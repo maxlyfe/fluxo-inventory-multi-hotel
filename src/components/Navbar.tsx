@@ -8,6 +8,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Menu, Transition } from '@headlessui/react';
 import { supabase } from "../lib/supabase";
 import NotificationBell from "./NotificationBell";
+import SettingsModal from "./SettingsModal";
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import { NAV_GROUPS, CONTACT_ITEM_HREF } from "../lib/navigationConfig";
@@ -56,6 +57,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
 
   const [hotelDisplayName, setHotelDisplayName] = useState("");
   const [allHotels, setAllHotels] = useState<{ id: string; name: string }[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Expanded sections state — persisted in sessionStorage
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
@@ -482,10 +484,10 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
 
                       <Menu.Item>
                         {({ active }) => (
-                          <Link to="/settings"
-                            className={classNames(active ? "bg-gray-50 dark:bg-gray-700" : "", "flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200")}>
+                          <button type="button" onClick={() => setShowSettings(true)}
+                            className={classNames(active ? "bg-gray-50 dark:bg-gray-700" : "", "flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200")}>
                             <SettingsIcon className="h-4 w-4" />Configurações
-                          </Link>
+                          </button>
                         )}
                       </Menu.Item>
 
@@ -509,6 +511,8 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
           </div>
         </div>
       </div>
+
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </nav>
   );
 };
