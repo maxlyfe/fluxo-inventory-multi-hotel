@@ -10,7 +10,8 @@ import { usePermissions } from '../hooks/usePermissions';
 import { supabase } from '../lib/supabase';
 import LoginBackdrop from '../components/LoginBackdrop';
 import MobileAppModal from '../components/MobileAppModal';
-import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2, Smartphone } from 'lucide-react';
+import { useIsNative, setAppGroupSlug } from '../lib/appGroup';
+import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2, Smartphone, Settings } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
@@ -28,6 +29,7 @@ export default function GroupLogin() {
   const { user, login, loginWithGoogle, logout } = useAuth();
   const { setCurrentGroup, urlSlug } = useGroup();
   const { isDev } = usePermissions();
+  const isNative = useIsNative();
   const slug = urlSlug ?? '';
 
   const [group, setGroup]       = useState<GroupInfo | null>(null);
@@ -57,6 +59,17 @@ export default function GroupLogin() {
     })();
     return () => { active = false; };
   }, [slug]);
+
+  // No APK: memoriza o grupo configurado para abrir direto nele na próxima vez.
+  useEffect(() => {
+    if (isNative && group?.slug) setAppGroupSlug(group.slug);
+  }, [isNative, group?.slug]);
+
+  // APK: trocar de grupo → limpa a configuração e volta à tela de configuração.
+  const handleSwitchGroup = () => {
+    setAppGroupSlug(null);
+    window.location.assign('/');
+  };
 
   // Validação ESTRITA de grupo após o login (e ao chegar já logado).
   // Só entra quem pertence ao grupo da URL. Sem bypass de dev.
@@ -120,6 +133,15 @@ export default function GroupLogin() {
   return (
     <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden">
       <LoginBackdrop />
+
+      {/* APK: engrenagem para trocar o grupo configurado no aparelho */}
+      {isNative && (
+        <button onClick={handleSwitchGroup} title="Trocar de grupo"
+          className="absolute top-4 right-4 z-20 w-11 h-11 flex items-center justify-center rounded-full transition-all active:scale-90"
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}>
+          <Settings className="h-5 w-5" />
+        </button>
+      )}
       <div className="relative z-10 w-full max-w-sm">
         <div className="relative rounded-3xl overflow-hidden" style={{
           background: 'rgba(255,255,255,0.035)', backdropFilter: 'blur(32px)',

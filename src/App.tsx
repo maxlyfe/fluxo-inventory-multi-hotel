@@ -90,6 +90,8 @@ import PublicPasswordReset from './pages/PublicPasswordReset';
 import PublicSectorRequest from './pages/PublicSectorRequest';
 import GroupLogin          from './pages/GroupLogin';
 import Landing             from './pages/Landing';
+import AppGroupGate        from './components/AppGroupGate';
+import { useIsNative, getAppGroupSlug } from './lib/appGroup';
 
 // ── Pages — Web Check-in (público) ───────────────────────────────────────────
 import WebCheckinLayout      from './pages/webcheckin/WebCheckinLayout';
@@ -308,8 +310,9 @@ function LoginRoute() {
 function HomeGuard() {
   const { user, loading } = useAuth();
   const { currentGroup } = useGroup();
+  const isNative = useIsNative();
 
-  if (loading) return (
+  if (loading || (!user && !GROUP_SLUG && isNative === null)) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
     </div>
@@ -318,7 +321,23 @@ function HomeGuard() {
   if (!user) {
     // Anônimo dentro de /grupo/<slug> → manda para o login daquele grupo
     if (GROUP_SLUG) return <Navigate to="/login" replace />;
-    // Anônimo na raiz → landing de marketing (sem dados de clientes)
+
+    // APK do sistema (raiz, sem grupo na URL): mantém o grupo configurado.
+    // Com grupo salvo → abre o login dele; sem grupo → tela de configuração.
+    if (isNative) {
+      const saved = getAppGroupSlug();
+      if (saved) {
+        window.location.assign(`/grupo/${saved}/login`);
+        return (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
+          </div>
+        );
+      }
+      return <AppGroupGate />;
+    }
+
+    // Navegador anônimo na raiz → landing de marketing (sem dados de clientes)
     return <Landing />;
   }
 
