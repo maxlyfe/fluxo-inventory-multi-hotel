@@ -6,6 +6,38 @@
 import { supabase as anonClient } from '../../lib/supabase';
 import { erbonService, ErbonBooking, ErbonGuest, ErbonGuestPayload } from '../../lib/erbonService';
 
+// ── Grupo do app de Web Check-in (multi-tenant) ─────────────────────────────
+// O APK de check-in (com.lyfe.webcheckin) carrega /web-checkin sem grupo. Na
+// 1ª abertura o operador informa o slug do grupo; ele fica salvo e o app passa
+// a mostrar SÓ os hotéis daquele grupo.
+
+export interface WciGroup { id: string; name: string; slug: string; }
+
+const WCI_GROUP_KEY = 'wci_group';
+
+export function getStoredWciGroup(): WciGroup | null {
+  try {
+    const raw = localStorage.getItem(WCI_GROUP_KEY);
+    return raw ? (JSON.parse(raw) as WciGroup) : null;
+  } catch { return null; }
+}
+
+export function setStoredWciGroup(group: WciGroup | null): void {
+  try {
+    if (group) localStorage.setItem(WCI_GROUP_KEY, JSON.stringify(group));
+    else localStorage.removeItem(WCI_GROUP_KEY);
+  } catch { /* ignore */ }
+}
+
+/** Resolve um grupo ativo pelo slug (RPC pública get_group_by_slug). */
+export async function resolveWciGroupBySlug(slug: string): Promise<WciGroup | null> {
+  const clean = (slug || '').trim().toLowerCase();
+  if (!clean) return null;
+  const { data } = await anonClient.rpc('get_group_by_slug', { p_slug: clean });
+  const g = Array.isArray(data) ? data[0] : data;
+  return g ? { id: g.id, name: g.name, slug: g.slug } : null;
+}
+
 // ── Tipos ──────────────────────────────────────────────────────────────────
 
 export interface WebCheckinHotel {
@@ -77,16 +109,21 @@ function generateToken(length = 12): string {
 
 // ── Hotéis disponíveis ─────────────────────────────────────────────────────
 
-export async function fetchWebCheckinHotels(): Promise<WebCheckinHotel[]> {
-  const { data, error } = await anonClient
+export async function fetchWebCheckinHotels(groupId?: string | null): Promise<WebCheckinHotel[]> {
+  let query = anonClient
     .from('hotels')
     .select(`
       id, name, image_url, description, wci_code,
       wci_visible, wci_hotel_terms, wci_lgpd_terms,
       erbon_hotel_config(erbon_hotel_id, is_active)
     `)
-    .eq('wci_visible', true)
-    .order('name');
+    .eq('wci_visible', true);
+
+  // Multi-tenant: o app de check-in é configurado por grupo (slug). Mostra
+  // apenas os hotéis do grupo configurado.
+  if (groupId) query = query.eq('group_id', groupId);
+
+  const { data, error } = await query.order('name');
 
   if (error) throw error;
 

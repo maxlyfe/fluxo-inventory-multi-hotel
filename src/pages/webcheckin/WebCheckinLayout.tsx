@@ -4,7 +4,11 @@
 
 import React from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Globe, Sun, Moon } from 'lucide-react';
+import { Globe, Sun, Moon, Loader2, RefreshCw } from 'lucide-react';
+import WCIGroupGate from './WCIGroupGate';
+import {
+  getStoredWciGroup, setStoredWciGroup, resolveWciGroupBySlug, WciGroup,
+} from './webCheckinService';
 
 type Lang = 'pt' | 'en' | 'es';
 type Theme = 'dark' | 'light';
@@ -15,10 +19,13 @@ interface WebCheckinContextValue {
   theme: Theme;
   setTheme: (t: Theme) => void;
   t: (key: string) => string;
+  group: WciGroup | null;          // grupo configurado neste dispositivo
+  resetGroup: () => void;          // reconfigurar (trocar de grupo)
 }
 
 export const WebCheckinContext = React.createContext<WebCheckinContextValue>({
   lang: 'pt', setLang: () => {}, theme: 'dark', setTheme: () => {}, t: k => k,
+  group: null, resetGroup: () => {},
 });
 
 export function useWCI() { return React.useContext(WebCheckinContext); }
@@ -295,8 +302,72 @@ export default function WebCheckinLayout() {
   const setTheme = (t: Theme) => { setThemeState(t); localStorage.setItem('wci_theme', t); };
   const t = (key: string) => TRANSLATIONS[lang][key] ?? key;
 
+  // ── Grupo configurado (multi-tenant) ──────────────────────────────────────
+  const [group, setGroupState] = React.useState<WciGroup | null>(() => getStoredWciGroup());
+  const [resolvingGroup, setResolvingGroup] = React.useState(true);
+
+  const applyGroup = React.useCallback((g: WciGroup | null) => {
+    setGroupState(g);
+    setStoredWciGroup(g);
+  }, []);
+
+  const resetGroup = React.useCallback(() => {
+    applyGroup(null);
+    navigate('/web-checkin');
+  }, [applyGroup, navigate]);
+
+  React.useEffect(() => {
+    let active = true;
+    (async () => {
+      // 1) ?grupo=<slug> na URL tem prioridade (permite QR/link embutir o grupo)
+      const urlSlug = new URLSearchParams(window.location.search).get('grupo');
+      if (urlSlug) {
+        const g = await resolveWciGroupBySlug(urlSlug);
+        if (active && g) { applyGroup(g); setResolvingGroup(false); return; }
+      }
+      // 2) grupo salvo no dispositivo — revalida silenciosamente
+      const stored = getStoredWciGroup();
+      if (stored) {
+        const g = await resolveWciGroupBySlug(stored.slug).catch(() => stored);
+        if (active) applyGroup(g || null);
+      }
+      if (active) setResolvingGroup(false);
+    })();
+    return () => { active = false; };
+  }, [applyGroup]);
+
+  // Enquanto resolve o grupo salvo → carregando
+  if (resolvingGroup && !group) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backgroundImage: `url('/dark_marble.png')`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)' }} />
+        <Loader2 size={34} color="#4db8d4" style={{ position: 'relative', animation: 'wci-spin 0.8s linear infinite' }} />
+        <style>{`@keyframes wci-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // Sem grupo configurado → tela de configuração (gate)
+  if (!group) {
+    return (
+      <WebCheckinContext.Provider value={{ lang, setLang, theme, setTheme, t, group, resetGroup }}>
+        <div className="wci-root" style={{
+          minHeight: '100vh', backgroundImage: `url('/dark_marble.png')`,
+          backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed',
+          position: 'relative', color: '#fdfdfd',
+        }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', pointerEvents: 'none', zIndex: 0 }} />
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <WCIGroupGate onResolved={applyGroup} />
+          </div>
+        </div>
+      </WebCheckinContext.Provider>
+    );
+  }
+
   return (
-    <WebCheckinContext.Provider value={{ lang, setLang, theme, setTheme, t }}>
+    <WebCheckinContext.Provider value={{ lang, setLang, theme, setTheme, t, group, resetGroup }}>
       <div
         className="wci-root"
         style={{
@@ -333,13 +404,17 @@ export default function WebCheckinLayout() {
               title="Voltar à tela inicial"
             >
               <span style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', display: 'block' }}>
-                Meridiana
+                {group?.name || 'LyFe'}
               </span>
               <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.2em', textTransform: 'uppercase', display: 'block' }}>
-                Hoteles
+                Web Check-in
               </span>
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button onClick={resetGroup} title="Trocar de grupo"
+                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <RefreshCw size={14} />
+              </button>
               <Globe size={16} style={{ opacity: 0.7 }} />
               <select value={lang} onChange={e => setLang(e.target.value as Lang)}
                 style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', borderRadius: 8, padding: '4px 8px', fontSize: 13, cursor: 'pointer' }}>

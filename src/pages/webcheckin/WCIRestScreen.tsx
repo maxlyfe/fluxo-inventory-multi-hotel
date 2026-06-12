@@ -6,7 +6,7 @@ import { useWCI } from './WebCheckinLayout';
 
 export default function WCIRestScreen() {
   const navigate = useNavigate();
-  const { t } = useWCI();
+  const { t, group } = useWCI();
 
   // Toque/click em qualquer lugar → ir para seleção de hotel
   // Guard de 500 ms: evita que o mesmo clique que navegou até esta tela
@@ -45,10 +45,10 @@ export default function WCIRestScreen() {
           textShadow: '0 2px 20px rgba(0,133,174,0.6)',
           lineHeight: 1,
         }}>
-          Meridiana
+          {group?.name || 'LyFe'}
         </div>
         <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.3em', textTransform: 'uppercase', marginTop: '0.3rem' }}>
-          Hoteles
+          Web Check-in
         </div>
       </div>
 

@@ -9,7 +9,8 @@ import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { supabase } from '../lib/supabase';
 import LoginBackdrop from '../components/LoginBackdrop';
-import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2 } from 'lucide-react';
+import MobileAppModal from '../components/MobileAppModal';
+import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2, Smartphone } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
@@ -39,6 +40,7 @@ export default function GroupLogin() {
   const [error, setError]       = useState('');
   const [pendingVerify, setPendingVerify] = useState(false);
   const [blocked, setBlocked]   = useState(false); // sessão de outro grupo
+  const [showAppModal, setShowAppModal] = useState(false);
 
   // Resolve o grupo pelo slug
   useEffect(() => {
@@ -215,10 +217,20 @@ export default function GroupLogin() {
             </>
           )}
         </div>
-        <p className="text-center mt-5 text-[11px] tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.12)' }}>
+        {/* Download do aplicativo */}
+        <button onClick={() => setShowAppModal(true)}
+          className="mt-5 w-full flex items-center justify-center gap-2.5 py-3 rounded-2xl text-sm font-semibold transition-all group"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>
+          <Smartphone className="h-4 w-4 text-amber-400/80 group-hover:text-amber-400 transition-colors" />
+          <span>Baixar aplicativo (Android / iOS)</span>
+        </button>
+
+        <p className="text-center mt-4 text-[11px] tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.12)' }}>
           LyFe Hoteles · Acesso por grupo
         </p>
       </div>
+
+      <MobileAppModal isOpen={showAppModal} onClose={() => setShowAppModal(false)} />
     </div>
   );
 }

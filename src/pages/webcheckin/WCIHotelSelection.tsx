@@ -270,18 +270,18 @@ function HotelCard({
 
 export default function WCIHotelSelection() {
   const navigate = useNavigate();
-  const { t } = useWCI();
+  const { t, group } = useWCI();
   const [hotels, setHotels]       = useState<WebCheckinHotel[]>([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchWebCheckinHotels()
+    fetchWebCheckinHotels(group?.id)
       .then(setHotels)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [group?.id]);
 
   const handleSelect = (hotel: WebCheckinHotel) => {
     setSelectedId(hotel.id);
@@ -310,13 +310,13 @@ export default function WCIHotelSelection() {
               letterSpacing: '-0.02em', lineHeight: 1,
               textShadow: '0 2px 24px rgba(0,133,174,0.65)',
             }}>
-              Meridiana
+              {group?.name || 'LyFe'}
             </div>
             <div style={{
               fontSize: '0.68rem', color: 'rgba(255,255,255,0.38)',
               letterSpacing: '0.35em', textTransform: 'uppercase', marginTop: '0.2rem',
             }}>
-              Hoteles
+              Web Check-in
             </div>
           </button>
 
