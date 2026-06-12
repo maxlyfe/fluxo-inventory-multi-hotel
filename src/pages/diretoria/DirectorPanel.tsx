@@ -446,14 +446,18 @@ function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
 }) {
   const entries = sched?.entries || {};
 
+  // Conteúdo de uma célula de dia (altura controlada pelo wrapper de altura fixa).
   const cell = (empId: string, day: Date) => {
     const e = entries[`${empId}|${format(day, 'yyyy-MM-dd')}`];
     if (!e || e.entry_type === 'empty') return <span className="text-gray-300 dark:text-gray-600">·</span>;
     if (e.entry_type === 'shift' && e.shift_start && e.shift_end)
-      return <span className="text-[10px] font-semibold text-gray-700 dark:text-gray-200 leading-tight whitespace-nowrap">{e.shift_start.slice(0, 5)}<br />{e.shift_end.slice(0, 5)}</span>;
+      return <span className="text-[10px] font-semibold text-gray-700 dark:text-gray-200 leading-[1.15] whitespace-nowrap text-center">{e.shift_start.slice(0, 5)}<br />{e.shift_end.slice(0, 5)}</span>;
     const m = ENTRY_LABEL[e.entry_type];
     return <span className={`text-[10px] font-bold ${m?.cls || 'text-gray-500'}`}>{m?.label || e.entry_type}</span>;
   };
+
+  // Larguras em fração para alinhar nome + 7 dias.
+  const gridCols = `28% repeat(7, 1fr)`;
 
   return (
     <div className={`rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden ${isCurrent ? 'border-indigo-300 dark:border-indigo-700' : 'border-gray-100 dark:border-gray-700'}`}>
@@ -462,51 +466,53 @@ function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
         <h2 className="text-sm font-bold text-gray-900 dark:text-white truncate flex-1">{hotel.name}</h2>
         {isCurrent && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300">atual</span>}
       </div>
-      <div className="p-2 overflow-x-auto">
+      <div className="p-2">
         {sched && !sched.hasSchedule && <p className="text-[11px] text-amber-500 px-1 mb-1">Escala ainda não criada para esta semana.</p>}
-        <table className="w-full border-collapse text-center table-fixed">
-          <colgroup>
-            <col style={{ width: '28%' }} />
-            {days.map((_, i) => <col key={i} style={{ width: '10.28%' }} />)}
-          </colgroup>
-          <thead>
-            <tr style={{ height: HEAD_H }}>
-              <th className="text-left text-[10px] font-bold text-gray-400 uppercase px-1 align-middle">Colab.</th>
-              {days.map((d, i) => (
-                <th key={i} className="text-[10px] font-bold text-gray-400 uppercase px-0.5 align-middle leading-tight">
-                  {format(d, 'EEEEEE', { locale: ptBR })}<br /><span className="text-gray-300 dark:text-gray-600">{format(d, 'dd')}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {layout.map(({ sector, maxRows }) => {
-              const list = sched?.empsBySector[sector] || [];
-              return (
-                <React.Fragment key={sector}>
-                  <tr style={{ height: SECTOR_H }} className="bg-indigo-50/60 dark:bg-indigo-900/15">
-                    <td colSpan={1 + days.length} className="text-left text-[10px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-wider px-2 align-middle">{sector}</td>
-                  </tr>
-                  {Array.from({ length: maxRows }).map((_, r) => {
-                    const emp = list[r];
-                    return (
-                      <tr key={r} style={{ height: ROW_H }} className="border-b border-gray-100 dark:border-gray-700/50">
-                        <td className="text-left text-[11px] font-medium text-gray-700 dark:text-gray-200 px-1.5 align-middle truncate">
-                          {emp ? emp.name : <span className="text-gray-200 dark:text-gray-700">—</span>}
-                        </td>
-                        {days.map((d, i) => (
-                          <td key={i} className="px-0.5 align-middle border-l border-gray-50 dark:border-gray-700/30">
-                            {emp ? cell(emp.id, d) : ''}
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+
+        {/* Cabeçalho de dias — altura fixa */}
+        <div className="grid" style={{ gridTemplateColumns: gridCols, height: HEAD_H }}>
+          <div className="flex items-center text-[10px] font-bold text-gray-400 uppercase px-1">Colab.</div>
+          {days.map((d, i) => (
+            <div key={i} className="flex flex-col items-center justify-center text-[10px] font-bold text-gray-400 uppercase leading-tight">
+              <span>{format(d, 'EEEEEE', { locale: ptBR })}</span>
+              <span className="text-gray-300 dark:text-gray-600">{format(d, 'dd')}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Blocos de setor — todas as colunas usam o MESMO layout (alinhado) */}
+        {layout.map(({ sector, maxRows }) => {
+          const list = sched?.empsBySector[sector] || [];
+          return (
+            <div key={sector}>
+              {/* Cabeçalho do setor — altura fixa */}
+              <div className="flex items-center bg-indigo-50/60 dark:bg-indigo-900/15 text-[10px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-wider px-2"
+                style={{ height: SECTOR_H }}>
+                {sector}
+              </div>
+              {/* Linhas — cada célula com altura fixa + overflow hidden (sem drift) */}
+              {Array.from({ length: maxRows }).map((_, r) => {
+                const emp = list[r];
+                return (
+                  <div key={r} className="grid border-b border-gray-100 dark:border-gray-700/50"
+                    style={{ gridTemplateColumns: gridCols }}>
+                    <div className="flex items-center px-1.5 overflow-hidden" style={{ height: ROW_H }}>
+                      <span className="text-[11px] font-medium text-gray-700 dark:text-gray-200 truncate">
+                        {emp ? emp.name : <span className="text-gray-200 dark:text-gray-700">—</span>}
+                      </span>
+                    </div>
+                    {days.map((d, i) => (
+                      <div key={i} className="flex items-center justify-center overflow-hidden border-l border-gray-50 dark:border-gray-700/30"
+                        style={{ height: ROW_H }}>
+                        {emp ? cell(emp.id, d) : null}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
