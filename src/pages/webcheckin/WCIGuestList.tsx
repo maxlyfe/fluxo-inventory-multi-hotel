@@ -160,7 +160,7 @@ export default function WCIGuestList() {
   // URL params: wciCode = slug opaco do hotel, sessionToken = token da sessão
   const { hotelId: wciCode, bookingId: sessionToken } = useParams<{ hotelId: string; bookingId: string }>();
   const navigate = useNavigate();
-  const { t } = useWCI();
+  const { t, group } = useWCI();
 
   // IDs reais (resolvidos a partir dos tokens)
   const [realHotelId, setRealHotelId]     = useState<string | null>(null);
