@@ -75,7 +75,7 @@ export default function WCIGroupGate({ onResolved }: Props) {
             type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" autoFocus
             value={slug}
             onChange={e => { setSlug(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase()); setError(''); }}
-            placeholder="ex: meridiana"
+            placeholder="código do grupo"
             style={{
               width: '100%', boxSizing: 'border-box', padding: '0.9rem 1rem',
               borderRadius: 14, fontSize: '1rem', fontFamily: 'monospace',
