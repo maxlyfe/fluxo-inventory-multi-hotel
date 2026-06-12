@@ -321,11 +321,32 @@ export default function WebCheckinLayout() {
     (async () => {
       // 1) ?grupo=<slug> na URL tem prioridade (permite QR/link embutir o grupo)
       const urlSlug = new URLSearchParams(window.location.search).get('grupo');
-      if (urlSlug) {
-        const g = await resolveWciGroupBySlug(urlSlug);
-        if (active && g) { applyGroup(g); setResolvingGroup(false); return; }
+      
+      // 2) Detectar do pathname /grupo/<slug>/web-checkin (para QR code fixo por grupo)
+      // Nota: App.tsx define o basename, mas window.location.pathname contém a URL completa.
+      const pathnameMatch = window.location.pathname.match(/^\/grupo\/([^/]+)/);
+      const pathSlug = pathnameMatch ? pathnameMatch[1] : null;
+
+      const slugToResolve = urlSlug || pathSlug;
+
+      if (slugToResolve) {
+        const g = await resolveWciGroupBySlug(slugToResolve);
+        if (active && g) { 
+          applyGroup(g); 
+          
+          // Se veio pelo pathname prefix (/grupo/slug/...), redirecionamos para a URL limpa
+          // para preservar a privacidade do link e sair do basename do grupo.
+          if (pathSlug && !urlSlug) {
+            window.location.href = '/web-checkin';
+            return;
+          }
+          
+          setResolvingGroup(false); 
+          return; 
+        }
       }
-      // 2) grupo salvo no dispositivo — revalida silenciosamente
+
+      // 3) grupo salvo no dispositivo — revalida silenciosamente
       const stored = getStoredWciGroup();
       if (stored) {
         const g = await resolveWciGroupBySlug(stored.slug).catch(() => stored);
