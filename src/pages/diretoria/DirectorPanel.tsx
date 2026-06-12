@@ -206,11 +206,13 @@ export default function DirectorPanel() {
         <OverviewSection hotels={hotels} data={data} groupTotals={groupTotals} formatCurrency={formatCurrency} selectedId={selectedHotel?.id} />
       ) : orderedSelected.length === 0 ? (
         <div className="text-center py-16 text-gray-400"><Building2 className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>Selecione ao menos uma unidade acima.</p></div>
+      ) : section === 'escala' ? (
+        <EscalaComparison hotels={orderedSelected} week={week} colClass={colClass} selectedId={selectedHotel?.id} />
       ) : (
         <div className={`grid ${colClass} gap-4`}>
           {orderedSelected.map(h => (
             <UnitColumn key={h.id} hotel={h} section={section} data={data[h.id] || EMPTY}
-              week={week} formatCurrency={formatCurrency} isCurrent={h.id === selectedHotel?.id} />
+              formatCurrency={formatCurrency} isCurrent={h.id === selectedHotel?.id} />
           ))}
         </div>
       )}
@@ -220,8 +222,8 @@ export default function DirectorPanel() {
 
 // ── Coluna por unidade ────────────────────────────────────────────────────────
 
-function UnitColumn({ hotel, section, data, week, formatCurrency, isCurrent }: {
-  hotel: HotelRow; section: Section; data: LightData; week: Date;
+function UnitColumn({ hotel, section, data, formatCurrency, isCurrent }: {
+  hotel: HotelRow; section: Section; data: LightData;
   formatCurrency: (v: number) => string; isCurrent: boolean;
 }) {
   return (
@@ -236,7 +238,6 @@ function UnitColumn({ hotel, section, data, week, formatCurrency, isCurrent }: {
         {section === 'vagas'        && <Vagas data={data} />}
         {section === 'beneficios'   && <Beneficios data={data} />}
         {section === 'inventario'   && <Inventario data={data} formatCurrency={formatCurrency} />}
-        {section === 'escala'       && <EscalaGrid hotelId={hotel.id} week={week} />}
       </div>
     </div>
   );
@@ -355,13 +356,25 @@ const ENTRY_LABEL: Record<string, { label: string; cls: string }> = {
   transfer:  { label: 'Transf.', cls: 'text-cyan-600 dark:text-cyan-400' },
 };
 
-function EscalaGrid({ hotelId, week }: { hotelId: string; week: Date }) {
-  const [emps, setEmps]     = useState<SchedEmp[]>([]);
-  const [entries, setEntries] = useState<Record<string, SchedEntry>>({}); // key `${empId}|${yyyy-mm-dd}`
-  const [loading, setLoading] = useState(true);
-  const [hasSchedule, setHasSchedule] = useState(false);
+// Altura fixa de cada linha (garante o alinhamento dos blocos entre colunas).
+const ROW_H = 38;        // linha de colaborador
+const SECTOR_H = 26;     // cabeçalho de setor
+const HEAD_H = 34;       // cabeçalho dos dias
+
+interface HotelSched {
+  empsBySector: Record<string, SchedEmp[]>;
+  entries: Record<string, SchedEntry>;   // `${empId}|${yyyy-mm-dd}`
+  hasSchedule: boolean;
+}
+
+function EscalaComparison({ hotels, week, colClass, selectedId }: {
+  hotels: HotelRow[]; week: Date; colClass: string; selectedId?: string;
+}) {
+  const [perHotel, setPerHotel] = useState<Record<string, HotelSched>>({});
+  const [loading, setLoading]   = useState(true);
 
   const weekStr = format(week, 'yyyy-MM-dd');
+  const hotelIds = hotels.map(h => h.id).join(',');
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(week, i)), [week]);
 
   useEffect(() => {
@@ -369,77 +382,132 @@ function EscalaGrid({ hotelId, week }: { hotelId: string; week: Date }) {
     (async () => {
       setLoading(true);
       try {
-        const [{ data: empRows }, { data: sched }] = await Promise.all([
-          supabase.from('employees').select('id, name, sector').eq('hotel_id', hotelId).eq('status', 'active').order('sector').order('name'),
-          supabase.from('schedules').select('id').eq('hotel_id', hotelId).eq('week_start', weekStr).maybeSingle(),
-        ]);
+        const entries = await Promise.all(hotels.map(async (h) => {
+          const [{ data: empRows }, { data: sched }] = await Promise.all([
+            supabase.from('employees').select('id, name, sector').eq('hotel_id', h.id).eq('status', 'active').order('sector').order('name'),
+            supabase.from('schedules').select('id').eq('hotel_id', h.id).eq('week_start', weekStr).maybeSingle(),
+          ]);
+          const empsBySector: Record<string, SchedEmp[]> = {};
+          ((empRows || []) as SchedEmp[]).forEach(e => {
+            const s = e.sector || 'Sem setor';
+            (empsBySector[s] = empsBySector[s] || []).push(e);
+          });
+          let entryMap: Record<string, SchedEntry> = {};
+          let hasSchedule = false;
+          if (sched?.id) {
+            hasSchedule = true;
+            const { data: ent } = await supabase.from('schedule_entries')
+              .select('employee_id, day_date, entry_type, shift_start, shift_end').eq('schedule_id', sched.id);
+            (ent || []).forEach((e: any) => { entryMap[`${e.employee_id}|${String(e.day_date).slice(0, 10)}`] = e; });
+          }
+          return [h.id, { empsBySector, entries: entryMap, hasSchedule } as HotelSched] as const;
+        }));
         if (!active) return;
-        setEmps((empRows || []) as SchedEmp[]);
-        if (sched?.id) {
-          setHasSchedule(true);
-          const { data: ent } = await supabase.from('schedule_entries')
-            .select('employee_id, day_date, entry_type, shift_start, shift_end').eq('schedule_id', sched.id);
-          if (!active) return;
-          const map: Record<string, SchedEntry> = {};
-          (ent || []).forEach((e: any) => { map[`${e.employee_id}|${String(e.day_date).slice(0, 10)}`] = e; });
-          setEntries(map);
-        } else {
-          setHasSchedule(false);
-          setEntries({});
-        }
+        setPerHotel(Object.fromEntries(entries));
       } catch {
-        if (active) { setEmps([]); setEntries({}); }
+        if (active) setPerHotel({});
       } finally {
         if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
-  }, [hotelId, weekStr]);
+  }, [hotelIds, weekStr]);
 
-  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-indigo-400" /></div>;
-  if (emps.length === 0) return <Empty text="Sem colaboradores ativos." />;
+  // Layout COMPARTILHADO: união de setores + máximo de linhas por setor entre os
+  // hotéis. Cada coluna renderiza os mesmos setores com o mesmo nº de linhas
+  // (preenchendo vazias) → os blocos de setor ficam alinhados entre as unidades.
+  const layout = useMemo(() => {
+    const sectorMax = new Map<string, number>();
+    Object.values(perHotel).forEach(hs => {
+      Object.entries(hs.empsBySector).forEach(([sector, list]) => {
+        sectorMax.set(sector, Math.max(sectorMax.get(sector) || 0, list.length));
+      });
+    });
+    return [...sectorMax.entries()]
+      .map(([sector, maxRows]) => ({ sector, maxRows }))
+      .sort((a, b) => a.sector.localeCompare(b.sector, 'pt-BR'));
+  }, [perHotel]);
 
-  // Agrupa por setor
-  const bySector = new Map<string, SchedEmp[]>();
-  emps.forEach(e => { const a = bySector.get(e.sector) || []; a.push(e); bySector.set(e.sector, a); });
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>;
 
-  const renderCell = (empId: string, day: Date) => {
+  return (
+    <div className={`grid ${colClass} gap-4 items-start`}>
+      {hotels.map(h => (
+        <EscalaColumn key={h.id} hotel={h} isCurrent={h.id === selectedId}
+          sched={perHotel[h.id]} layout={layout} days={days} />
+      ))}
+    </div>
+  );
+}
+
+function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
+  hotel: HotelRow; isCurrent: boolean; sched?: HotelSched;
+  layout: { sector: string; maxRows: number }[]; days: Date[];
+}) {
+  const entries = sched?.entries || {};
+
+  const cell = (empId: string, day: Date) => {
     const e = entries[`${empId}|${format(day, 'yyyy-MM-dd')}`];
     if (!e || e.entry_type === 'empty') return <span className="text-gray-300 dark:text-gray-600">·</span>;
     if (e.entry_type === 'shift' && e.shift_start && e.shift_end)
-      return <span className="text-[10px] font-semibold text-gray-700 dark:text-gray-200 whitespace-nowrap">{e.shift_start.slice(0, 5)}<br />{e.shift_end.slice(0, 5)}</span>;
+      return <span className="text-[10px] font-semibold text-gray-700 dark:text-gray-200 leading-tight whitespace-nowrap">{e.shift_start.slice(0, 5)}<br />{e.shift_end.slice(0, 5)}</span>;
     const m = ENTRY_LABEL[e.entry_type];
     return <span className={`text-[10px] font-bold ${m?.cls || 'text-gray-500'}`}>{m?.label || e.entry_type}</span>;
   };
 
   return (
-    <div className="overflow-x-auto -mx-1">
-      {!hasSchedule && <p className="text-[11px] text-amber-500 mb-2">Escala ainda não criada para esta semana.</p>}
-      <table className="w-full border-collapse text-center">
-        <thead>
-          <tr>
-            <th className="text-left text-[10px] font-bold text-gray-400 uppercase px-1 py-1 sticky left-0 bg-white dark:bg-gray-800">Colab.</th>
-            {days.map((d, i) => (
-              <th key={i} className="text-[10px] font-bold text-gray-400 uppercase px-1 py-1 min-w-[40px]">
-                {format(d, 'EEEEEE', { locale: ptBR })}<br /><span className="text-gray-300 dark:text-gray-600">{format(d, 'dd')}</span>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {[...bySector.entries()].map(([sector, list]) => (
-            <React.Fragment key={sector}>
-              <tr><td colSpan={8} className="text-left text-[10px] font-black text-indigo-500 uppercase tracking-wider pt-2 pb-0.5 px-1">{sector}</td></tr>
-              {list.map(emp => (
-                <tr key={emp.id} className="border-t border-gray-50 dark:border-gray-700/40">
-                  <td className="text-left text-[11px] font-medium text-gray-700 dark:text-gray-200 px-1 py-1 sticky left-0 bg-white dark:bg-gray-800 truncate max-w-[110px]">{emp.name}</td>
-                  {days.map((d, i) => <td key={i} className="px-1 py-1 leading-tight">{renderCell(emp.id, d)}</td>)}
-                </tr>
+    <div className={`rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden ${isCurrent ? 'border-indigo-300 dark:border-indigo-700' : 'border-gray-100 dark:border-gray-700'}`}>
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
+        <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
+        <h2 className="text-sm font-bold text-gray-900 dark:text-white truncate flex-1">{hotel.name}</h2>
+        {isCurrent && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300">atual</span>}
+      </div>
+      <div className="p-2 overflow-x-auto">
+        {sched && !sched.hasSchedule && <p className="text-[11px] text-amber-500 px-1 mb-1">Escala ainda não criada para esta semana.</p>}
+        <table className="w-full border-collapse text-center table-fixed">
+          <colgroup>
+            <col style={{ width: '28%' }} />
+            {days.map((_, i) => <col key={i} style={{ width: '10.28%' }} />)}
+          </colgroup>
+          <thead>
+            <tr style={{ height: HEAD_H }}>
+              <th className="text-left text-[10px] font-bold text-gray-400 uppercase px-1 align-middle">Colab.</th>
+              {days.map((d, i) => (
+                <th key={i} className="text-[10px] font-bold text-gray-400 uppercase px-0.5 align-middle leading-tight">
+                  {format(d, 'EEEEEE', { locale: ptBR })}<br /><span className="text-gray-300 dark:text-gray-600">{format(d, 'dd')}</span>
+                </th>
               ))}
-            </React.Fragment>
-          ))}
-        </tbody>
-      </table>
+            </tr>
+          </thead>
+          <tbody>
+            {layout.map(({ sector, maxRows }) => {
+              const list = sched?.empsBySector[sector] || [];
+              return (
+                <React.Fragment key={sector}>
+                  <tr style={{ height: SECTOR_H }} className="bg-indigo-50/60 dark:bg-indigo-900/15">
+                    <td colSpan={1 + days.length} className="text-left text-[10px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-wider px-2 align-middle">{sector}</td>
+                  </tr>
+                  {Array.from({ length: maxRows }).map((_, r) => {
+                    const emp = list[r];
+                    return (
+                      <tr key={r} style={{ height: ROW_H }} className="border-b border-gray-100 dark:border-gray-700/50">
+                        <td className="text-left text-[11px] font-medium text-gray-700 dark:text-gray-200 px-1.5 align-middle truncate">
+                          {emp ? emp.name : <span className="text-gray-200 dark:text-gray-700">—</span>}
+                        </td>
+                        {days.map((d, i) => (
+                          <td key={i} className="px-0.5 align-middle border-l border-gray-50 dark:border-gray-700/30">
+                            {emp ? cell(emp.id, d) : ''}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
