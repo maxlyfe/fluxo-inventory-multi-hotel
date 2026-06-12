@@ -161,6 +161,10 @@ const Inventory = () => {
   const [barcodeFilterCode, setBarcodeFilterCode]       = useState('');
   const [showBarcodeScanner, setShowBarcodeScanner]     = useState(false);
   const [openActionsId, setOpenActionsId]               = useState<string | null>(null);
+  // Edição manual do preço médio (corrigir valores errados)
+  const [editingPriceId, setEditingPriceId]             = useState<string | null>(null);
+  const [priceDraft, setPriceDraft]                     = useState('');
+  const [savingPrice, setSavingPrice]                   = useState(false);
   const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
   const [allSectors, setAllSectors]                     = useState<{id: string, name: string}[]>([]);
   // Delegação de contagem
@@ -238,6 +242,36 @@ const Inventory = () => {
       setProducts(prev => prev.map(p => p.id === productId ? { ...p, is_starred: !isCurrentlyStarred } : p));
     } catch (err: any) {
       addNotification('error', 'Erro ao atualizar favorito: ' + err.message);
+    }
+  };
+
+  // Edição manual do preço médio (clique no valor → digita → salva)
+  const startEditPrice = (e: React.MouseEvent, product: Product) => {
+    e.stopPropagation();
+    setEditingPriceId(product.id);
+    setPriceDraft(product.average_price != null ? String(product.average_price).replace('.', ',') : '');
+  };
+  const cancelEditPrice = () => { setEditingPriceId(null); setPriceDraft(''); };
+  const saveEditPrice = async (product: Product) => {
+    const raw = priceDraft.trim();
+    const newPrice = raw === '' ? null : parseFloat(raw.replace(/\./g, '').replace(',', '.'));
+    if (newPrice != null && (isNaN(newPrice) || newPrice < 0)) {
+      addNotification('error', 'Preço inválido.');
+      return;
+    }
+    setSavingPrice(true);
+    try {
+      const { error } = await supabase.from('products')
+        .update({ average_price: newPrice, updated_at: new Date().toISOString() })
+        .eq('id', product.id);
+      if (error) throw error;
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, average_price: newPrice ?? undefined } : p));
+      addNotification('success', `Preço médio de "${product.name}" atualizado.`);
+      cancelEditPrice();
+    } catch (err: any) {
+      addNotification('error', 'Erro ao atualizar preço: ' + err.message);
+    } finally {
+      setSavingPrice(false);
     }
   };
 
@@ -629,21 +663,46 @@ const Inventory = () => {
           </div>
         </td>
 
-        {/* Preço médio (hidden em telas pequenas) */}
+        {/* Preço médio (hidden em telas pequenas) — editável: clique para corrigir */}
         <td className="px-3 py-3 hidden lg:table-cell">
-          {product.average_price != null ? (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                {product.average_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
+          {editingPriceId === product.id ? (
+            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">R$</span>
+                <input
+                  type="text" inputMode="decimal" autoFocus value={priceDraft}
+                  onChange={e => setPriceDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveEditPrice(product); if (e.key === 'Escape') cancelEditPrice(); }}
+                  placeholder="0,00"
+                  className="w-24 pl-7 pr-2 py-1 text-xs tabular-nums rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+              </div>
+              <button onClick={() => saveEditPrice(product)} disabled={savingPrice}
+                className="p-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white disabled:opacity-50" title="Salvar (Enter)">
+                <CheckIcon className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={cancelEditPrice} disabled={savingPrice}
+                className="p-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600" title="Cancelar (Esc)">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={e => startEditPrice(e, product)}
+              className="flex flex-col gap-0.5 text-left group/price rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+              title="Clique para corrigir o preço médio">
+              {product.average_price != null ? (
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 tabular-nums group-hover/price:text-blue-600 dark:group-hover/price:text-blue-400 transition-colors">
+                  {product.average_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              ) : (
+                <span className="text-[11px] text-slate-300 dark:text-slate-600 group-hover/price:text-blue-500 transition-colors">+ definir</span>
+              )}
               {product.last_purchase_date && (
                 <span className="text-[10px] text-slate-400 dark:text-slate-500">
                   {new Date(product.last_purchase_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
                 </span>
               )}
-            </div>
-          ) : (
-            <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
+            </button>
           )}
         </td>
 
