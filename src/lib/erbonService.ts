@@ -878,9 +878,22 @@ export const erbonService = {
   async fetchHallGuests(hotelId: string): Promise<ErbonGuest[]> {
     try {
       // Retorna apenas hóspedes in-house (que já fizeram check-in)
-      // Conforme solicitado, chegadas futuras não aparecem pois não têm direito a café 
+      // Conforme solicitado, chegadas futuras não aparecem pois não têm direito a café
       // e os dados de pensão (MAP/FAP) só são confiáveis após o check-in.
-      return await this.fetchInHouseGuests(hotelId);
+      const guests = await this.fetchInHouseGuests(hotelId);
+
+      // DEDUPE por hóspede: o endpoint /guest/inhouse devolve o MESMO hóspede em
+      // várias linhas (uma por diária/segmento da reserva). Nas telas de café
+      // (Salão/Cozinha) o consumo é 1 por pessoa, então colapsamos por idGuest.
+      // Para idGuest inválido (0/nulo), usa nome+UH+reserva como chave de fallback.
+      const seen = new Map<string, ErbonGuest>();
+      for (const g of guests) {
+        const key = (g.idGuest && g.idGuest > 0)
+          ? `id:${g.idGuest}`
+          : `c:${g.guestName || ''}|${g.roomDescription || ''}|${g.idBooking || ''}`;
+        if (!seen.has(key)) seen.set(key, g);
+      }
+      return Array.from(seen.values());
     } catch (err: any) {
       console.error('[Erbon] fetchHallGuests error:', err);
       return [];

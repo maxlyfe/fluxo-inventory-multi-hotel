@@ -71,9 +71,10 @@ const BreakfastHall: React.FC = () => {
   };
 
   // Filtrar hóspedes baseado no plano de refeição e na lógica de migração MAP
+  // (allGuests já vem deduplicado por hóspede de erbonService.fetchHallGuests)
   const guests = useMemo(() => {
     if (!allGuests) return [];
-    
+
     return allGuests.filter(g => {
       const type = getPensionType(g);
       
