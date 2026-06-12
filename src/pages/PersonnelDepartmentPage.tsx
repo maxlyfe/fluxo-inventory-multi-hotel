@@ -1,5 +1,6 @@
 // src/pages/PersonnelDepartmentPage.tsx
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { UsersRound, Users, CalendarDays, Gift, Cake, Package } from 'lucide-react';
 import DPEmployees from './dp/DPEmployees';
 import DPSchedule from './dp/DPSchedule';
@@ -21,7 +22,10 @@ const BENEFIT_TABS = [
 ];
 
 const PersonnelDepartmentPage: React.FC = () => {
-  const [mainTab,    setMainTab]    = useState<MainTab>('employees');
+  const [searchParams] = useSearchParams();
+  const initialTab = (['employees', 'schedule', 'benefits'] as MainTab[])
+    .includes(searchParams.get('tab') as MainTab) ? (searchParams.get('tab') as MainTab) : 'employees';
+  const [mainTab,    setMainTab]    = useState<MainTab>(initialTab);
   const [benefitTab, setBenefitTab] = useState<BenefitTab>('birthdays');
 
   return (
