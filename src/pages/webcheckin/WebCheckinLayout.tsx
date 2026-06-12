@@ -336,8 +336,10 @@ export default function WebCheckinLayout() {
           
           // Se veio pelo pathname prefix (/grupo/slug/...), redirecionamos para a URL limpa
           // para preservar a privacidade do link e sair do basename do grupo.
+          // Importante: Manter o restante do path para deep-links (hóspedes/acompanhantes)
           if (pathSlug && !urlSlug) {
-            window.location.href = '/web-checkin';
+            const cleanPath = window.location.pathname.replace(/^\/grupo\/[^/]+/, '');
+            window.location.href = cleanPath || '/web-checkin';
             return;
           }
           

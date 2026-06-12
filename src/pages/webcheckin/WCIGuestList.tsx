@@ -69,8 +69,15 @@ function AddCompanionModal({ wciCode, sessionToken, onFillHere, onClose }: {
   wciCode: string; sessionToken: string;
   onFillHere: () => void; onClose: () => void;
 }) {
+  const { group } = useWCI();
   const [showQR, setShowQR] = useState(false);
-  const companionUrl = `${window.location.origin}/web-checkin/${wciCode}/companion/${sessionToken}`;
+  
+  // Inclui o prefixo de grupo para que o celular resolva o grupo automaticamente no scan
+  const baseUrl = group?.slug 
+    ? `${window.location.origin}/grupo/${group.slug}/web-checkin`
+    : `${window.location.origin}/web-checkin`;
+    
+  const companionUrl = `${baseUrl}/${wciCode}/companion/${sessionToken}`;
 
   if (showQR) {
     return (
@@ -422,7 +429,10 @@ export default function WCIGuestList() {
       {/* QR Modal — URL usa tokens opacos, sem IDs reais */}
       {qrGuest && wciCode && sessionToken && (
         <QRModal
-          url={`${window.location.origin}/web-checkin/${wciCode}/companion/${sessionToken}/${qrGuest.id}`}
+          url={group?.slug 
+            ? `${window.location.origin}/grupo/${group.slug}/web-checkin/${wciCode}/companion/${sessionToken}/${qrGuest.id}`
+            : `${window.location.origin}/web-checkin/${wciCode}/companion/${sessionToken}/${qrGuest.id}`
+          }
           title={qrGuest.name}
           subtitle={
             qrGuest.fnrhCompleted
