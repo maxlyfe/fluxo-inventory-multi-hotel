@@ -52,7 +52,11 @@ export function usePushNotifications(options?: UsePushNotificationsOptions) {
         const token = await requestFirebaseNotificationPermission();
         if (!token || cancelled) return;
 
+        // Marca mobile vs desktop para a limpeza de tokens web-mobile quando o
+        // app nativo estiver presente (ver prune_mobile_web_tokens).
+        const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
         const deviceInfo = [
+          isMobileBrowser ? 'WebMobile' : 'WebDesktop',
           (navigator as any).userAgentData?.brands?.[0]?.brand || 'Browser',
           navigator.platform || 'Unknown',
         ].join('/');

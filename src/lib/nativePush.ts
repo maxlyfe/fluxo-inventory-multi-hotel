@@ -62,7 +62,17 @@ export async function registerNativePush(
           p_device_info: deviceInfo,
         });
         if (error) console.warn('[NativePush] Erro ao salvar token:', error.message);
-        else console.info('[NativePush] Token nativo registrado.');
+        else {
+          console.info('[NativePush] Token nativo registrado.');
+          // Remove tokens de push WEB-MOBILE deste usuário: o celular tem o app,
+          // então deve receber a notificação NATIVA (abre o app), não a do
+          // navegador (que abriria o site). Mantém tokens de desktop.
+          supabase.rpc('prune_mobile_web_tokens')
+            .then(({ data, error: pErr }) => {
+              if (pErr) console.warn('[NativePush] prune web tokens:', pErr.message);
+              else if (data) console.info(`[NativePush] ${data} token(s) web-mobile removido(s).`);
+            });
+        }
       } catch (e) {
         console.warn('[NativePush] Falha ao persistir token:', e);
       }
