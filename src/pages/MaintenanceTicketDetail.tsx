@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import {
   ArrowLeft, Wrench, MapPin, User, Clock, CheckCircle, AlertTriangle,
   Package, Camera, Send, Loader2, X, ChevronDown, Shield,
@@ -86,6 +87,7 @@ const inputCls = `w-full px-4 py-3 text-sm border border-gray-200 dark:border-gr
 export default function MaintenanceTicketDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { can, isDev, isAdmin } = usePermissions();
   const navigate  = useNavigate();
 
   const [ticket, setTicket]   = useState<Ticket | null>(null);
@@ -267,7 +269,9 @@ export default function MaintenanceTicketDetail() {
   const statusCfg  = STATUS_CONFIG[ticket.status] ?? STATUS_CONFIG.open;
   const priorityCfg = PRIORITY_CONFIG[ticket.priority] ?? PRIORITY_CONFIG.medium;
   const StatusIcon = statusCfg.icon;
-  const manager    = isManager(user?.role);
+  // Dev/admin têm bypass total; quem tem o módulo de manutenção também gerencia.
+  // Mantém os papéis legados (admin/management/sup-governanca) por compatibilidade.
+  const manager    = isDev || isAdmin || can('maintenance') || isManager(user?.role);
   const isAssignee = user?.id === ticket.assigned_to;
   const canAct     = manager || isAssignee;
   const isResolved = ['resolved','cancelled'].includes(ticket.status);
