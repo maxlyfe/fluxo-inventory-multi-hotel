@@ -1,7 +1,7 @@
 {
-  "latestVersion": "1.7.0",
+  "latestVersion": "1.8.0",
   "url": "/downloads/LyFe%20Hoteles.apk",
-  "notes": "Notificações push nativas: receba avisos no celular mesmo com o app fechado. Pop-up de permissão na primeira abertura.",
+  "notes": "Notificações agora abrem o aplicativo (e não o navegador) quando ele está instalado. Toques em links do sistema também abrem o app.",
   "minVersion": "1.0.0",
   "forceUpdate": false
 }

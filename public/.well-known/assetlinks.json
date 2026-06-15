@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.lyfe.fluxo",
+      "sha256_cert_fingerprints": [
+        "65:7E:8D:AA:93:4C:09:36:B6:B4:E6:12:BE:8D:2D:E0:18:67:DA:F2:9D:FE:AA:94:92:A8:03:0E:B0:95:81:F6"
+      ]
+    }
+  }
+]

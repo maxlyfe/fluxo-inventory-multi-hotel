@@ -29,6 +29,16 @@
                 <data android:scheme="com.lyfe.fluxo" />
             </intent-filter>
 
+            <!-- App Links: links https://lyfehoteles.com.br abrem o APP quando
+                 instalado (verificado via /.well-known/assetlinks.json); sem o
+                 app instalado, abrem normalmente no navegador. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="lyfehoteles.com.br" />
+            </intent-filter>
+
         </activity>
 
         <provider

@@ -192,7 +192,21 @@ function OAuthCallbackHandler() {
 
         // ── Deep-link: app recebe "com.lyfe.fluxo://login-callback?code=..." ──
         urlHandle = await CapApp.addListener('appUrlOpen', async ({ url }) => {
-          if (!url.includes('login-callback')) return;
+          // App Link (https://lyfehoteles.com.br/...) abriu o app → navega para
+          // o caminho dentro do WebView (ex.: tocar numa notificação web).
+          if (!url.includes('login-callback')) {
+            try {
+              const u = new URL(url);
+              if (u.hostname === 'lyfehoteles.com.br') {
+                const dest = u.pathname + u.search + u.hash;
+                const current = window.location.pathname + window.location.search + window.location.hash;
+                if (dest && dest !== '/' && dest !== current) {
+                  window.location.assign(dest);
+                }
+              }
+            } catch { /* ignore URLs malformadas */ }
+            return;
+          }
 
           await Browser.close().catch(() => { /* ignore */ });
 
