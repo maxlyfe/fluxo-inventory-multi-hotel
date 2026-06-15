@@ -6,12 +6,13 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useHotel } from '../context/HotelContext';
+import { useNotification } from '../context/NotificationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import QRCode from 'qrcode';
 import {
   Settings, Plus, Search, Filter, Download, QrCode,
   Wrench, X, Loader2, ChevronDown, Building2, AlertTriangle,
-  Shield, ArrowUpDown, CheckCircle, Package,
+  Shield, ArrowUpDown, CheckCircle, Package, Pencil, History, Save,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ export default function MaintenanceEquipment() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
   const { can } = usePermissions();
+  const { addNotification } = useNotification();
   const navigate  = useNavigate();
 
   // Quem pode CADASTRAR/EDITAR equipamentos — configurável por perfil em /admin/roles
@@ -108,6 +110,10 @@ export default function MaintenanceEquipment() {
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
   const [qrModal, setQrModal]     = useState<{ qrId: string; name: string; dataUrl: string } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);   // null = criando
+  const [statusMenuId, setStatusMenuId] = useState<string | null>(null);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [historyModal, setHistoryModal] = useState<{ eq: Equipment; rows: any[]; loading: boolean } | null>(null);
 
   // Form: hotel_id sempre inicializado com hotel selecionado no contexto
   const emptyForm = () => ({
@@ -189,7 +195,63 @@ export default function MaintenanceEquipment() {
   };
 
   // ---------------------------------------------------------------------------
-  // Save equipment
+  // Histórico
+  // ---------------------------------------------------------------------------
+  const logHistory = async (eq: { id: string; hotel_id: string }, change_type: string, old_status: string | null, new_status: string | null, note?: string) => {
+    await supabase.from('maintenance_equipment_history').insert({
+      equipment_id: eq.id, hotel_id: eq.hotel_id, change_type,
+      old_status, new_status, note: note || null,
+      changed_by: user?.id, changed_by_name: user?.full_name || user?.email?.split('@')[0] || 'Usuário',
+    });
+  };
+
+  const openHistory = async (eq: Equipment) => {
+    setHistoryModal({ eq, rows: [], loading: true });
+    const { data } = await supabase.from('maintenance_equipment_history')
+      .select('*').eq('equipment_id', eq.id).order('created_at', { ascending: false });
+    setHistoryModal({ eq, rows: data || [], loading: false });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Editar
+  // ---------------------------------------------------------------------------
+  const handleEditEquipment = (eq: Equipment) => {
+    setEditingId(eq.id);
+    setError('');
+    setForm({
+      name: eq.name, category: eq.category, brand: eq.brand || '', model: eq.model || '',
+      serial_number: eq.serial_number || '', purchase_date: eq.purchase_date || '',
+      warranty_months: eq.warranty_months != null ? String(eq.warranty_months) : '',
+      location_detail: eq.location_detail || '', status: eq.status,
+      hotel_id: eq.hotel_id, notes: eq.notes || '',
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const closeForm = () => { setShowForm(false); setEditingId(null); setForm(emptyForm()); setError(''); };
+
+  // Troca rápida de status (cria histórico)
+  const changeStatus = async (eq: Equipment, newStatus: string) => {
+    setStatusMenuId(null);
+    if (newStatus === eq.status) return;
+    setSavingStatus(true);
+    try {
+      const { error: upErr } = await supabase.from('maintenance_equipment')
+        .update({ status: newStatus }).eq('id', eq.id);
+      if (upErr) throw upErr;
+      await logHistory(eq, 'status', eq.status, newStatus);
+      setEquipment(prev => prev.map(e => e.id === eq.id ? { ...e, status: newStatus } : e));
+      addNotification?.('success', `Status de "${eq.name}" alterado para ${STATUS_CONFIG[newStatus]?.label || newStatus}.`);
+    } catch (err: any) {
+      addNotification?.('error', 'Erro ao alterar status: ' + err.message);
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Save equipment (criar OU editar)
   // ---------------------------------------------------------------------------
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,14 +275,27 @@ export default function MaintenanceEquipment() {
         location_detail: form.location_detail || null,
         status:          form.status,
         notes:           form.notes || null,
-        created_by:      user?.id,
       };
 
-      const { error: saveErr } = await supabase.from('maintenance_equipment').insert(payload);
-      if (saveErr) throw saveErr;
+      if (editingId) {
+        const original = equipment.find(e => e.id === editingId);
+        const { error: saveErr } = await supabase.from('maintenance_equipment').update(payload).eq('id', editingId);
+        if (saveErr) throw saveErr;
+        // Registra histórico: mudança de status (se houve) + edição geral
+        if (original && original.status !== form.status) {
+          await logHistory({ id: editingId, hotel_id: hotelToSave }, 'status', original.status, form.status);
+        }
+        await logHistory({ id: editingId, hotel_id: hotelToSave }, 'edit', null, null, 'Dados do equipamento editados');
+        addNotification?.('success', 'Equipamento atualizado.');
+      } else {
+        const { data: created, error: saveErr } = await supabase.from('maintenance_equipment')
+          .insert({ ...payload, created_by: user?.id }).select('id').single();
+        if (saveErr) throw saveErr;
+        if (created?.id) await logHistory({ id: created.id, hotel_id: hotelToSave }, 'created', null, form.status, 'Equipamento cadastrado');
+        addNotification?.('success', 'Equipamento cadastrado.');
+      }
 
-      setForm(emptyForm());
-      setShowForm(false);
+      closeForm();
       await fetchEquipment();
     } catch (err: any) {
       console.error('Erro ao salvar equipamento:', err);
@@ -269,7 +344,7 @@ export default function MaintenanceEquipment() {
             <span className="hidden sm:inline">Tickets</span>
           </button>
           {isManager && (
-            <button onClick={() => setShowForm(s => !s)}
+            <button onClick={() => { if (showForm && !editingId) { closeForm(); } else { setEditingId(null); setForm(emptyForm()); setError(''); setShowForm(true); } }}
               className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Novo Equipamento</span>
@@ -283,8 +358,8 @@ export default function MaintenanceEquipment() {
       {showForm && isManager && (
         <form onSubmit={handleSave} className="bg-white dark:bg-gray-800 rounded-3xl border border-orange-200 dark:border-orange-800/50 p-6 mb-6 shadow-sm">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-sm font-bold text-gray-900 dark:text-white">Novo Equipamento</h2>
-            <button type="button" onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <h2 className="text-sm font-bold text-gray-900 dark:text-white">{editingId ? 'Editar Equipamento' : 'Novo Equipamento'}</h2>
+            <button type="button" onClick={closeForm} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -355,14 +430,14 @@ export default function MaintenanceEquipment() {
             </div>
           )}
           <div className="flex gap-3 mt-5">
-            <button type="button" onClick={() => setShowForm(false)}
+            <button type="button" onClick={closeForm}
               className="flex-1 py-3 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 font-semibold rounded-2xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm">
               Cancelar
             </button>
             <button type="submit" disabled={saving}
               className="flex-1 flex items-center justify-center gap-2 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-semibold rounded-2xl transition-colors text-sm">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Cadastrar
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : (editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />)}
+              {editingId ? 'Salvar alterações' : 'Cadastrar'}
             </button>
           </div>
         </form>
@@ -422,7 +497,7 @@ export default function MaintenanceEquipment() {
           <Settings className="h-10 w-10 opacity-30" />
           <p className="text-sm">Nenhum equipamento encontrado.</p>
           {isManager && (
-            <button onClick={() => setShowForm(true)} className="text-sm text-orange-500 hover:underline">Cadastrar o primeiro</button>
+            <button onClick={() => { setEditingId(null); setForm(emptyForm()); setError(''); setShowForm(true); }} className="text-sm text-orange-500 hover:underline">Cadastrar o primeiro</button>
           )}
         </div>
       ) : (
@@ -435,13 +510,43 @@ export default function MaintenanceEquipment() {
               <div key={eq.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-all group">
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="flex-1 min-w-0">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${sCfg.bg} ${sCfg.color} mb-2`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />{sCfg.label}
-                    </span>
+                    {/* Status — clicável para alterar (gera histórico) */}
+                    <div className="relative inline-block mb-2">
+                      <button
+                        onClick={() => isManager && setStatusMenuId(statusMenuId === eq.id ? null : eq.id)}
+                        disabled={!isManager || savingStatus}
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${sCfg.bg} ${sCfg.color} ${isManager ? 'hover:ring-1 hover:ring-current cursor-pointer' : 'cursor-default'}`}
+                        title={isManager ? 'Clique para alterar o status' : undefined}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />{sCfg.label}
+                        {isManager && <ChevronDown className="h-3 w-3 opacity-60" />}
+                      </button>
+                      {statusMenuId === eq.id && (
+                        <div className="absolute z-20 top-full left-0 mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1">
+                          {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                            <button key={k} onClick={() => changeStatus(eq, k)}
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700/50 ${k === eq.status ? 'font-bold' : ''}`}>
+                              <span className={`w-2 h-2 rounded-full ${v.dot}`} />
+                              <span className="text-gray-700 dark:text-gray-200">{v.label}</span>
+                              {k === eq.status && <CheckCircle className="h-3.5 w-3.5 ml-auto text-emerald-500" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <h3 className="text-sm font-bold text-gray-900 dark:text-white truncate">{eq.name}</h3>
                     <p className="text-xs text-gray-400 mt-0.5">{eq.category}</p>
                   </div>
                   <div className="flex gap-1">
+                    {isManager && (
+                      <button onClick={() => handleEditEquipment(eq)} title="Editar equipamento"
+                        className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button onClick={() => openHistory(eq)} title="Histórico"
+                      className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all">
+                      <History className="h-4 w-4" />
+                    </button>
                     <button onClick={() => openQR(eq)} title="Gerar QR Code"
                       className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-all">
                       <QrCode className="h-4 w-4" />
@@ -474,6 +579,45 @@ export default function MaintenanceEquipment() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Histórico Modal */}
+      {historyModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setHistoryModal(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-md w-full shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2"><History className="h-4 w-4 text-violet-500" />Histórico</h2>
+              <button onClick={() => setHistoryModal(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 truncate">{historyModal.eq.name}</p>
+            {historyModal.loading ? (
+              <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>
+            ) : historyModal.rows.length === 0 ? (
+              <p className="text-sm text-gray-400 italic text-center py-8">Sem histórico registrado ainda.</p>
+            ) : (
+              <div className="overflow-y-auto space-y-2 pr-1">
+                {historyModal.rows.map(r => (
+                  <div key={r.id} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-100 dark:border-gray-700">
+                    <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${STATUS_CONFIG[r.new_status]?.dot || 'bg-gray-400'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-100">
+                        {r.change_type === 'status'
+                          ? <>Status: {STATUS_CONFIG[r.old_status]?.label || r.old_status || '—'} → <span className="text-emerald-600 dark:text-emerald-400">{STATUS_CONFIG[r.new_status]?.label || r.new_status}</span></>
+                          : r.change_type === 'created' ? 'Equipamento cadastrado'
+                          : 'Dados editados'}
+                      </p>
+                      {r.note && <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{r.note}</p>}
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {new Date(r.created_at).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {r.changed_by_name && ` · ${r.changed_by_name}`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
