@@ -26,6 +26,8 @@ interface Employee {
   work_schedule: string | null;
   default_shift_start: string | null;
   default_shift_end: string | null;
+  default_rest_start: string | null;
+  default_rest_end: string | null;
 }
 
 interface ScheduleEntry {
@@ -37,6 +39,8 @@ interface ScheduleEntry {
   entry_type: string;   // shift | folga | compensa | meia_dobra | curso | inss | ferias | falta | atestado | transfer | custom | empty
   shift_start: string | null;
   shift_end: string | null;
+  rest_start: string | null;   // descanso (almoço/jantar) — início
+  rest_end: string | null;     // descanso — fim
   custom_label: string | null;
   transfer_hotel_id: string | null;
   occurrence_type_id: string | null;
@@ -55,6 +59,9 @@ interface OccurrenceType {
   is_system: boolean;
   sort_order: number;
   entry_type_key: string | null; // mapeia ao comportamento especial (meia_dobra→time picker, transfer→hotel+time)
+  has_rest?: boolean;            // tipo tem descanso padrão?
+  rest_start?: string | null;    // descanso padrão — início
+  rest_end?: string | null;      // descanso padrão — fim
 }
 
 const OCCURRENCE_COLORS: Record<string, { bg: string; text: string; ring: string }> = {
@@ -156,9 +163,14 @@ function getPatternForWeek(
   return Array.from({ length: 8 }, (_, i) => !folgaDays.includes(i));
 }
 
-function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[], occTypes?: OccurrenceType[]): { line1: string; line2?: string } {
+function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[], occTypes?: OccurrenceType[]): { line1: string; line2?: string; rest?: string } {
   if (!entry || entry.entry_type === 'empty') return { line1: '------' };
   const t = entry.entry_type;
+
+  // Descanso (almoço/jantar) — linha extra quando definido
+  const rest = (entry.rest_start && entry.rest_end)
+    ? `desc ${entry.rest_start.slice(0, 5)}–${entry.rest_end.slice(0, 5)}`
+    : undefined;
 
   // Special rendering for types with unique UI (time picker, hotel selector)
   if (t === 'meia_dobra') {
@@ -166,17 +178,17 @@ function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[], occTypes?: Oc
     const label = ot?.name || 'MEIA DOBRA';
     const times = entry.shift_start && entry.shift_end
       ? `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` : '';
-    return { line1: label, line2: times ? `(${times})` : undefined };
+    return { line1: label, line2: times ? `(${times})` : undefined, rest };
   }
   if (t === 'transfer') {
     const hotelName = hotels.find(h => h.id === entry.transfer_hotel_id)?.name || 'Outra un.';
     const shortName = hotelName.split(' ')[0];
     const times = entry.shift_start && entry.shift_end
       ? `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` : '';
-    return { line1: shortName, line2: times || undefined };
+    return { line1: shortName, line2: times || undefined, rest };
   }
   if (t === 'shift' && entry.shift_start && entry.shift_end)
-    return { line1: `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` };
+    return { line1: `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}`, rest };
 
   // For occurrence-type-linked entries, use DB name (supports renamed types)
   if (entry.occurrence_type_id && occTypes) {
@@ -227,12 +239,14 @@ interface CellEditorProps {
   hotels: Hotel[];
   occurrenceTypes: OccurrenceType[];
   hotelId: string;
+  defaultRestStart?: string | null;   // descanso padrão do colaborador
+  defaultRestEnd?: string | null;
   onSave: (e: Partial<ScheduleEntry>) => Promise<void>;
   onClose: () => void;
   onOccurrenceTypesChanged: (types: OccurrenceType[]) => void;
 }
 
-function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, hotelId, onSave, onClose, onOccurrenceTypesChanged }: CellEditorProps) {
+function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, hotelId, defaultRestStart, defaultRestEnd, onSave, onClose, onOccurrenceTypesChanged }: CellEditorProps) {
   // ── Derive initial selection from entry ──
   const getInitialSelection = (): CellSelection => {
     if (!entry || entry.entry_type === 'empty') return { kind: 'empty' };
@@ -255,15 +269,33 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [saving, setSaving]      = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
+  // ── Descanso (almoço/jantar) ──
+  const [restEnabled, setRestEnabled] = useState(!!(entry?.rest_start && entry?.rest_end));
+  const [restStart, setRestStart]     = useState(entry?.rest_start?.slice(0, 5) || '');
+  const [restEnd, setRestEnd]         = useState(entry?.rest_end?.slice(0, 5) || '');
+  // Pré-preenche o descanso a partir de uma fonte (padrão do colaborador/tipo),
+  // sem sobrescrever o que o usuário já preencheu.
+  const applyDefaultRest = (s?: string | null, e?: string | null) => {
+    if (s && e && !restStart && !restEnd) {
+      setRestStart(s.slice(0, 5)); setRestEnd(e.slice(0, 5)); setRestEnabled(true);
+    }
+  };
+
   // ── Manage state ──
   const [newOccName, setNewOccName] = useState('');
   const [newOccCausesLoss, setNewOccCausesLoss] = useState(false);
   const [newOccThreshold, setNewOccThreshold] = useState(1);
+  const [newOccHasRest, setNewOccHasRest] = useState(false);
+  const [newOccRestStart, setNewOccRestStart] = useState('12:00');
+  const [newOccRestEnd, setNewOccRestEnd] = useState('13:00');
   const [creatingOcc, setCreatingOcc] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editCausesLoss, setEditCausesLoss] = useState(false);
   const [editThreshold, setEditThreshold] = useState(1);
+  const [editHasRest, setEditHasRest] = useState(false);
+  const [editRestStart, setEditRestStart] = useState('12:00');
+  const [editRestEnd, setEditRestEnd] = useState('13:00');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const ref = useRef<HTMLDivElement>(null);
@@ -295,6 +327,9 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       color: 'indigo',
       causes_basket_loss: newOccCausesLoss,
       loss_threshold: newOccCausesLoss ? newOccThreshold : 1,
+      has_rest: newOccHasRest,
+      rest_start: newOccHasRest ? newOccRestStart : null,
+      rest_end: newOccHasRest ? newOccRestEnd : null,
       is_system: false,
       sort_order: occurrenceTypes.length + 1,
       entry_type_key: null,
@@ -307,6 +342,9 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       setNewOccName('');
       setNewOccCausesLoss(false);
       setNewOccThreshold(1);
+      setNewOccHasRest(false);
+      setNewOccRestStart('12:00');
+      setNewOccRestEnd('13:00');
     }
     setCreatingOcc(false);
   };
@@ -316,6 +354,9 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     setEditName(ot.name);
     setEditCausesLoss(ot.causes_basket_loss);
     setEditThreshold(ot.loss_threshold);
+    setEditHasRest(!!ot.has_rest);
+    setEditRestStart(ot.rest_start?.slice(0, 5) || '12:00');
+    setEditRestEnd(ot.rest_end?.slice(0, 5) || '13:00');
   };
 
   const cancelEditing = () => { setEditingId(null); };
@@ -326,14 +367,20 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     const slug = editName.trim().toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const restPayload = {
+      has_rest: editHasRest,
+      rest_start: editHasRest ? editRestStart : null,
+      rest_end: editHasRest ? editRestEnd : null,
+    };
     await supabase.from('occurrence_types').update({
       name: editName.trim(),
       slug,
       causes_basket_loss: editCausesLoss,
       loss_threshold: editCausesLoss ? editThreshold : 1,
+      ...restPayload,
     }).eq('id', ot.id);
     const updated = occurrenceTypes.map(o =>
-      o.id === ot.id ? { ...o, name: editName.trim(), slug, causes_basket_loss: editCausesLoss, loss_threshold: editCausesLoss ? editThreshold : 1 } : o
+      o.id === ot.id ? { ...o, name: editName.trim(), slug, causes_basket_loss: editCausesLoss, loss_threshold: editCausesLoss ? editThreshold : 1, ...restPayload } : o
     );
     onOccurrenceTypesChanged(updated);
     // Update selection if we edited the selected type
@@ -374,11 +421,16 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
   const save = async () => {
     setSaving(true);
+    // Descanso: só persiste quando habilitado e com início+fim
+    const hasRest = restEnabled && !!restStart && !!restEnd;
+    const rs = hasRest ? restStart : null;
+    const re = hasRest ? restEnd : null;
     if (selection.kind === 'shift') {
       await onSave({
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: 'shift',
         shift_start: start || null, shift_end: end || null,
+        rest_start: rs, rest_end: re,
         custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
       });
     } else if (selection.kind === 'empty') {
@@ -386,6 +438,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: 'empty',
         shift_start: null, shift_end: null,
+        rest_start: null, rest_end: null,
         custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
       });
     } else {
@@ -398,6 +451,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         entry_type: entryType,
         shift_start: wantsTime ? (start || null) : null,
         shift_end: wantsTime ? (end || null) : null,
+        rest_start: wantsTime ? rs : null,
+        rest_end: wantsTime ? re : null,
         custom_label: !key ? ot.name : null,
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
         occurrence_type_id: ot.id,
@@ -426,7 +481,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         {/* ── Grid unificado: Turno + DB types + ------ ── */}
         <div className="grid grid-cols-2 gap-1">
           {/* Turno — fixo */}
-          <button onClick={() => setSelection({ kind: 'shift' })}
+          <button onClick={() => { setSelection({ kind: 'shift' }); applyDefaultRest(defaultRestStart, defaultRestEnd); }}
             className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
               selection.kind === 'shift'
                 ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 ring-2 ring-blue-400'
@@ -440,7 +495,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
             const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
             const isSelected = selection.kind === 'occurrence' && selection.ot.id === ot.id;
             return (
-              <button key={ot.id} onClick={() => setSelection({ kind: 'occurrence', ot })}
+              <button key={ot.id} onClick={() => { setSelection({ kind: 'occurrence', ot }); if (ot.has_rest) applyDefaultRest(ot.rest_start, ot.rest_end); }}
                 className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left truncate ${
                   isSelected
                     ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
@@ -470,6 +525,26 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
             <span className="text-xs text-gray-400">AS</span>
             <input type="time" value={end} onChange={e => setEnd(e.target.value)}
               className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+        )}
+
+        {/* ── Descanso (almoço/jantar) — só quando há horário de turno ── */}
+        {needsTimePicker && (
+          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-2 space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">
+              <input type="checkbox" checked={restEnabled} onChange={e => setRestEnabled(e.target.checked)}
+                className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-400" />
+              Descanso (almoço/jantar)
+            </label>
+            {restEnabled && (
+              <div className="flex gap-2 items-center">
+                <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <span className="text-xs text-gray-400">AS</span>
+                <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+            )}
           </div>
         )}
 
@@ -531,6 +606,23 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                                   onChange={e => setEditThreshold(Math.max(1, parseInt(e.target.value) || 1))}
                                   className="w-10 px-1 py-0.5 text-[11px] text-center border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
                                 <span className="text-[11px] text-gray-500">x</span>
+                              </div>
+                            )}
+                          </div>
+                          {/* Descanso padrão do tipo */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="checkbox" checked={editHasRest} onChange={e => setEditHasRest(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded border-gray-300 text-amber-500 focus:ring-amber-400" />
+                              <span className="text-[11px] text-gray-600 dark:text-gray-300">Tem descanso</span>
+                            </label>
+                            {editHasRest && (
+                              <div className="flex items-center gap-1">
+                                <input type="time" value={editRestStart} onChange={e => setEditRestStart(e.target.value)}
+                                  className="px-1 py-0.5 text-[11px] border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                                <span className="text-[11px] text-gray-500">às</span>
+                                <input type="time" value={editRestEnd} onChange={e => setEditRestEnd(e.target.value)}
+                                  className="px-1 py-0.5 text-[11px] border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
                               </div>
                             )}
                           </div>
@@ -609,6 +701,23 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                         <span className="text-[11px] text-gray-500">vez(es) no mês</span>
                       </div>
                     )}
+                    {/* Descanso padrão do tipo */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={newOccHasRest} onChange={e => setNewOccHasRest(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-amber-500 focus:ring-amber-400" />
+                        <span className="text-[11px] text-gray-600 dark:text-gray-300">Tem descanso</span>
+                      </label>
+                      {newOccHasRest && (
+                        <div className="flex items-center gap-1">
+                          <input type="time" value={newOccRestStart} onChange={e => setNewOccRestStart(e.target.value)}
+                            className="px-1 py-0.5 text-[11px] border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                          <span className="text-[11px] text-gray-500">às</span>
+                          <input type="time" value={newOccRestEnd} onChange={e => setNewOccRestEnd(e.target.value)}
+                            className="px-1 py-0.5 text-[11px] border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
+                        </div>
+                      )}
+                    </div>
                     <button onClick={handleCreateOccurrenceType} disabled={creatingOcc || !newOccName.trim()}
                       className="w-full flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-60 transition-colors">
                       {creatingOcc ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Criar tipo
@@ -652,6 +761,9 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
   const [schedule, setSchedule]     = useState(ws);
   const [shiftStart, setStart]      = useState(employee.default_shift_start?.slice(0, 5) || '07:00');
   const [shiftEnd, setEnd]          = useState(employee.default_shift_end?.slice(0, 5) || '15:00');
+  const [restEnabled, setRestEnabled] = useState(!!(employee.default_rest_start && employee.default_rest_end));
+  const [restStart, setRestStart]   = useState(employee.default_rest_start?.slice(0, 5) || '12:00');
+  const [restEnd, setRestEnd]       = useState(employee.default_rest_end?.slice(0, 5) || '13:00');
   const [folgaDays, setFolgaDays]   = useState<number[]>(
     ws === '12x36' ? [] : ws === '5x2' ? [0, 7] : ws === '4x2' ? [0, 6, 7] : [0]
   );
@@ -673,6 +785,7 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
 
   const handleFill = async () => {
     setSaving(true);
+    const useRest = restEnabled && !!restStart && !!restEnd;
     const toInsert: Partial<ScheduleEntry>[] = weekDays.map((day, i) => ({
       schedule_id: scheduleId,
       employee_id: employee.id,
@@ -681,9 +794,16 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
       entry_type:  preview[i] ? 'shift' : 'folga',
       shift_start: preview[i] ? shiftStart : null,
       shift_end:   preview[i] ? shiftEnd   : null,
+      rest_start:  preview[i] && useRest ? restStart : null,
+      rest_end:    preview[i] && useRest ? restEnd   : null,
       custom_label: null,
       transfer_hotel_id: null,
     }));
+    // Memoriza o descanso como padrão do colaborador (pré-preenche da próxima vez)
+    supabase.from('employees').update({
+      default_rest_start: useRest ? restStart : null,
+      default_rest_end:   useRest ? restEnd   : null,
+    }).eq('id', employee.id).then(() => { /* best-effort */ });
     await onFill(toInsert);
     setSaving(false);
     onClose();
@@ -742,6 +862,24 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
               <input type="time" value={shiftEnd} onChange={e => setEnd(e.target.value)}
                 className="flex-1 px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
+          </div>
+
+          {/* Descanso (almoço / jantar) */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 cursor-pointer">
+              <input type="checkbox" checked={restEnabled} onChange={e => setRestEnabled(e.target.checked)}
+                className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-400" />
+              Descanso (almoço / jantar)
+            </label>
+            {restEnabled && (
+              <div className="flex gap-3 items-center">
+                <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
+                  className="flex-1 px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                <span className="text-sm font-bold text-gray-400">AS</span>
+                <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
+                  className="flex-1 px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+            )}
           </div>
 
           {/* 12×36 Sunday */}
@@ -1032,7 +1170,7 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
 
                             // Meia dobra: nunca exibe horário na imagem (conformidade legal)
                             const imageText = t === 'meia_dobra'
-                              ? { line1: text.line1, line2: undefined }
+                              ? { line1: text.line1, line2: undefined, rest: undefined }
                               : text;
 
                             // Cell background colors for image — cores vibrantes e distintas
@@ -1081,6 +1219,9 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                                   <div style={{ lineHeight: 1.3 }}>{imageText.line1}</div>
                                   {imageText.line2 && (
                                     <div style={{ fontSize: 8, opacity: 0.75, lineHeight: 1.2 }}>{imageText.line2}</div>
+                                  )}
+                                  {imageText.rest && (
+                                    <div style={{ fontSize: 8, color: '#b45309', lineHeight: 1.2 }}>{imageText.rest}</div>
                                   )}
                                 </div>
                               </td>
@@ -1346,7 +1487,7 @@ export default function DPSchedule() {
 
       const { data: empData } = await supabase
         .from('employees')
-        .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end')
+        .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end, default_rest_start, default_rest_end')
         .eq('hotel_id', hotelId).eq('status', 'active').order('sector').order('name');
       setEmployees((empData || []) as Employee[]);
 
@@ -1382,7 +1523,7 @@ export default function DPSchedule() {
         const txEmpIds = [...new Set((txData as ScheduleEntry[]).map(e => e.employee_id))];
         const { data: txEmps } = await supabase
           .from('employees')
-          .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end')
+          .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end, default_rest_start, default_rest_end')
           .in('id', txEmpIds);
         setTransferredEmployees((txEmps || []) as Employee[]);
         setTransferEntries(txData as ScheduleEntry[]);
@@ -1588,6 +1729,8 @@ export default function DPSchedule() {
           dayDate={cellEditor.dayDate} sector={cellEditor.sector}
           scheduleId={schedule.id} hotels={hotels}
           occurrenceTypes={occurrenceTypes} hotelId={hotelId}
+          defaultRestStart={employees.find(e => e.id === cellEditor.empId)?.default_rest_start}
+          defaultRestEnd={employees.find(e => e.id === cellEditor.empId)?.default_rest_end}
           onSave={saveEntry} onClose={() => setCellEditor(null)}
           onOccurrenceTypesChanged={setOccurrenceTypes}
         />
@@ -1814,6 +1957,9 @@ export default function DPSchedule() {
                             </span>
                             {text.line2 && (
                               <span className="text-[9px] opacity-60 block leading-tight">{text.line2}</span>
+                            )}
+                            {text.rest && (
+                              <span className="text-[9px] text-amber-600 dark:text-amber-400 block leading-tight">{text.rest}</span>
                             )}
                           </td>
                         );

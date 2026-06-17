@@ -20,6 +20,8 @@ interface Employee {
   work_schedule: string | null;
   default_shift_start: string | null;
   default_shift_end: string | null;
+  default_rest_start: string | null;
+  default_rest_end: string | null;
 }
 
 interface ScheduleEntry {
@@ -31,6 +33,8 @@ interface ScheduleEntry {
   entry_type: string;
   shift_start: string | null;
   shift_end: string | null;
+  rest_start: string | null;
+  rest_end: string | null;
   custom_label: string | null;
   transfer_hotel_id: string | null;
   occurrence_type_id: string | null;
@@ -42,6 +46,7 @@ interface OccurrenceType {
   id: string; hotel_id: string; name: string; slug: string; color: string;
   causes_basket_loss: boolean; loss_threshold: number; is_system: boolean; sort_order: number;
   entry_type_key: string | null;
+  has_rest?: boolean; rest_start?: string | null; rest_end?: string | null;
 }
 
 interface ShareToken {
@@ -128,25 +133,28 @@ function getPatternForWeek(schedule: string, sundayIsWork: boolean, folgaDays: n
   return Array.from({ length: 8 }, (_, i) => !folgaDays.includes(i));
 }
 
-function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[], occTypes?: OccurrenceType[]): { line1: string; line2?: string } {
+function formatEntry(entry: ScheduleEntry | null, hotels: Hotel[], occTypes?: OccurrenceType[]): { line1: string; line2?: string; rest?: string } {
   if (!entry || entry.entry_type === 'empty') return { line1: '------' };
   const t = entry.entry_type;
+  const rest = (entry.rest_start && entry.rest_end)
+    ? `desc ${entry.rest_start.slice(0, 5)}–${entry.rest_end.slice(0, 5)}`
+    : undefined;
   if (t === 'meia_dobra') {
     const ot = occTypes?.find(o => o.id === entry.occurrence_type_id || o.entry_type_key === 'meia_dobra');
     const label = ot?.name || 'MEIA DOBRA';
     const times = entry.shift_start && entry.shift_end
       ? `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` : '';
-    return { line1: label, line2: times ? `(${times})` : undefined };
+    return { line1: label, line2: times ? `(${times})` : undefined, rest };
   }
   if (t === 'transfer') {
     const hotelName = hotels.find(h => h.id === entry.transfer_hotel_id)?.name || 'Outra un.';
     const shortName = hotelName.split(' ')[0];
     const times = entry.shift_start && entry.shift_end
       ? `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` : '';
-    return { line1: shortName, line2: times || undefined };
+    return { line1: shortName, line2: times || undefined, rest };
   }
   if (t === 'shift' && entry.shift_start && entry.shift_end)
-    return { line1: `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}` };
+    return { line1: `${entry.shift_start.slice(0, 5)} AS ${entry.shift_end.slice(0, 5)}`, rest };
   if (entry.occurrence_type_id && occTypes) {
     const ot = occTypes.find(o => o.id === entry.occurrence_type_id);
     if (ot) return { line1: ot.name };
@@ -186,11 +194,13 @@ interface CellEditorProps {
   employeeId: string; dayDate: string; sector: string; scheduleId: string;
   hotels: Hotel[];
   occurrenceTypes: OccurrenceType[];
+  defaultRestStart?: string | null;
+  defaultRestEnd?: string | null;
   onSave: (e: Partial<ScheduleEntry>) => Promise<void>;
   onClose: () => void;
 }
 
-function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, onSave, onClose }: CellEditorProps) {
+function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, defaultRestStart, defaultRestEnd, onSave, onClose }: CellEditorProps) {
   const getInitialSelection = (): CellSelection => {
     if (!entry || entry.entry_type === 'empty') return { kind: 'empty' };
     if (entry.entry_type === 'shift') return { kind: 'shift' };
@@ -208,6 +218,14 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
   const [saving, setSaving] = useState(false);
+  const [restEnabled, setRestEnabled] = useState(!!(entry?.rest_start && entry?.rest_end));
+  const [restStart, setRestStart]     = useState(entry?.rest_start?.slice(0, 5) || '');
+  const [restEnd, setRestEnd]         = useState(entry?.rest_end?.slice(0, 5) || '');
+  const applyDefaultRest = (s?: string | null, e?: string | null) => {
+    if (s && e && !restStart && !restEnd) {
+      setRestStart(s.slice(0, 5)); setRestEnd(e.slice(0, 5)); setRestEnabled(true);
+    }
+  };
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -223,11 +241,15 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
   const save = async () => {
     setSaving(true);
+    const hasRest = restEnabled && !!restStart && !!restEnd;
+    const rs = hasRest ? restStart : null;
+    const re = hasRest ? restEnd : null;
     if (selection.kind === 'shift') {
       await onSave({
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: 'shift',
         shift_start: start || null, shift_end: end || null,
+        rest_start: rs, rest_end: re,
         custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
       });
     } else if (selection.kind === 'empty') {
@@ -235,6 +257,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: 'empty',
         shift_start: null, shift_end: null,
+        rest_start: null, rest_end: null,
         custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
       });
     } else {
@@ -247,6 +270,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         entry_type: entryType,
         shift_start: wantsTime ? (start || null) : null,
         shift_end: wantsTime ? (end || null) : null,
+        rest_start: wantsTime ? rs : null,
+        rest_end: wantsTime ? re : null,
         custom_label: !key ? ot.name : null,
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
         occurrence_type_id: ot.id,
@@ -270,7 +295,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {/* Unified grid: Turno + DB types + ------ */}
         <div className="grid grid-cols-2 gap-1">
-          <button onClick={() => setSelection({ kind: 'shift' })}
+          <button onClick={() => { setSelection({ kind: 'shift' }); applyDefaultRest(defaultRestStart, defaultRestEnd); }}
             className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left ${
               selection.kind === 'shift'
                 ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 ring-2 ring-blue-400'
@@ -283,7 +308,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
             const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
             const isSelected = selection.kind === 'occurrence' && selection.ot.id === ot.id;
             return (
-              <button key={ot.id} onClick={() => setSelection({ kind: 'occurrence', ot })}
+              <button key={ot.id} onClick={() => { setSelection({ kind: 'occurrence', ot }); if (ot.has_rest) applyDefaultRest(ot.rest_start, ot.rest_end); }}
                 className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left truncate ${
                   isSelected
                     ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
@@ -311,6 +336,26 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
             <span className="text-xs text-gray-400">AS</span>
             <input type="time" value={end} onChange={e => setEnd(e.target.value)}
               className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          </div>
+        )}
+
+        {/* Descanso (almoço/jantar) */}
+        {needsTimePicker && (
+          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-2 space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">
+              <input type="checkbox" checked={restEnabled} onChange={e => setRestEnabled(e.target.checked)}
+                className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-400" />
+              Descanso (almoço/jantar)
+            </label>
+            {restEnabled && (
+              <div className="flex gap-2 items-center">
+                <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <span className="text-xs text-gray-400">AS</span>
+                <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+            )}
           </div>
         )}
 
@@ -354,6 +399,9 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
   const [schedule, setSchedule]     = useState(ws);
   const [shiftStart, setStart]      = useState(employee.default_shift_start?.slice(0, 5) || '07:00');
   const [shiftEnd, setEnd]          = useState(employee.default_shift_end?.slice(0, 5) || '15:00');
+  const [restEnabled, setRestEnabled] = useState(!!(employee.default_rest_start && employee.default_rest_end));
+  const [restStart, setRestStart]   = useState(employee.default_rest_start?.slice(0, 5) || '12:00');
+  const [restEnd, setRestEnd]       = useState(employee.default_rest_end?.slice(0, 5) || '13:00');
   const [folgaDays, setFolgaDays]   = useState<number[]>(
     ws === '12x36' ? [] : ws === '5x2' ? [0, 7] : ws === '4x2' ? [0, 6, 7] : [0]
   );
@@ -375,6 +423,7 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
 
   const handleFill = async () => {
     setSaving(true);
+    const useRest = restEnabled && !!restStart && !!restEnd;
     const toInsert: Partial<ScheduleEntry>[] = weekDays.map((day, i) => ({
       schedule_id: scheduleId,
       employee_id: employee.id,
@@ -383,9 +432,15 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
       entry_type:  preview[i] ? 'shift' : 'folga',
       shift_start: preview[i] ? shiftStart : null,
       shift_end:   preview[i] ? shiftEnd   : null,
+      rest_start:  preview[i] && useRest ? restStart : null,
+      rest_end:    preview[i] && useRest ? restEnd   : null,
       custom_label: null,
       transfer_hotel_id: null,
     }));
+    supabase.from('employees').update({
+      default_rest_start: useRest ? restStart : null,
+      default_rest_end:   useRest ? restEnd   : null,
+    }).eq('id', employee.id).then(() => { /* best-effort */ });
     await onFill(toInsert);
     setSaving(false);
     onClose();
@@ -444,6 +499,24 @@ function AutoFillModal({ employee, weekDays, scheduleId, onFill, onClose }: Auto
               <input type="time" value={shiftEnd} onChange={e => setEnd(e.target.value)}
                 className="flex-1 px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
+          </div>
+
+          {/* Descanso (almoço / jantar) */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 cursor-pointer">
+              <input type="checkbox" checked={restEnabled} onChange={e => setRestEnabled(e.target.checked)}
+                className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-400" />
+              Descanso (almoço / jantar)
+            </label>
+            {restEnabled && (
+              <div className="flex gap-3 items-center">
+                <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
+                  className="flex-1 px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                <span className="text-sm font-bold text-gray-400">AS</span>
+                <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
+                  className="flex-1 px-4 py-3 text-sm border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+            )}
           </div>
 
           {/* 12×36 Sunday */}
@@ -602,7 +675,7 @@ export default function PublicScheduleEdit() {
         // 4. Load employees for this hotel + sector
         const { data: empData } = await supabase
           .from('employees')
-          .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end')
+          .select('id, name, sector, role, status, work_schedule, default_shift_start, default_shift_end, default_rest_start, default_rest_end')
           .eq('hotel_id', tk.hotel_id)
           .eq('sector', tk.sector)
           .eq('status', 'active')
@@ -764,6 +837,8 @@ export default function PublicScheduleEdit() {
           dayDate={cellEditor.dayDate} sector={cellEditor.sector}
           scheduleId={tokenData.schedule_id} hotels={hotels}
           occurrenceTypes={occurrenceTypes}
+          defaultRestStart={employees.find(e => e.id === cellEditor.empId)?.default_rest_start}
+          defaultRestEnd={employees.find(e => e.id === cellEditor.empId)?.default_rest_end}
           onSave={saveEntry}
           onClose={() => setCellEditor(null)}
         />
@@ -897,6 +972,9 @@ export default function PublicScheduleEdit() {
                           <p className={`text-[9px] leading-tight mt-0.5 ${style.color} opacity-70`}>
                             {text.line2}
                           </p>
+                        )}
+                        {text.rest && (
+                          <p className="text-[9px] leading-tight text-amber-600 dark:text-amber-400">{text.rest}</p>
                         )}
                       </td>
                     );
