@@ -13,6 +13,7 @@ import {
   Settings, Plus, Search, Filter, Download, QrCode,
   Wrench, X, Loader2, ChevronDown, Building2, AlertTriangle,
   Shield, ArrowUpDown, CheckCircle, Package, Pencil, History, Save,
+  Archive, ArchiveRestore,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,7 @@ interface Equipment {
   purchase_date: string | null; warranty_months: number | null;
   location_detail: string | null; status: string;
   loaned_to_hotel: string | null; notes: string | null; qr_code_id: string;
+  archived?: boolean;
   created_at: string;
   hotels?: { name: string };
   loaned_hotel?: { name: string } | null;
@@ -106,6 +108,7 @@ export default function MaintenanceEquipment() {
   const [filterHotel, setFilterHotel]   = useState(defaultHotelId);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [showForm, setShowForm]   = useState(false);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
@@ -141,6 +144,9 @@ export default function MaintenanceEquipment() {
       if (effectiveHotelFilter) q = q.eq('hotel_id', effectiveHotelFilter);
       if (filterStatus)         q = q.eq('status', filterStatus);
       if (filterCategory)       q = q.eq('category', filterCategory);
+      // Arquivados ficam ocultos por padrão (histórico preservado).
+      if (showArchived)         q = q.eq('archived', true);
+      else                      q = q.eq('archived', false);
 
       const { data, error: fetchErr } = await q;
 
@@ -172,7 +178,7 @@ export default function MaintenanceEquipment() {
     }
   }, [selectedHotel?.id]);
 
-  useEffect(() => { fetchEquipment(); }, [filterHotel, filterStatus, filterCategory]);
+  useEffect(() => { fetchEquipment(); }, [filterHotel, filterStatus, filterCategory, showArchived]);
 
   // Helper: nome do hotel pelo id (usa array já carregado, sem join)
   const getHotelName = (hotelId: string) =>
@@ -250,6 +256,32 @@ export default function MaintenanceEquipment() {
     }
   };
 
+  // Arquivar / desarquivar (reversível, com histórico)
+  const toggleArchive = async (eq: Equipment) => {
+    const next = !eq.archived;
+    setSavingStatus(true);
+    try {
+      const { error: upErr } = await supabase.from('maintenance_equipment')
+        .update({ archived: next }).eq('id', eq.id);
+      if (upErr) throw upErr;
+      await logHistory({ id: eq.id, hotel_id: eq.hotel_id }, next ? 'archived' : 'unarchived', null, null,
+        next ? 'Equipamento arquivado' : 'Equipamento desarquivado');
+      addNotification?.('success', next ? `"${eq.name}" arquivado.` : `"${eq.name}" desarquivado.`);
+      await fetchEquipment();
+    } catch (err: any) {
+      addNotification?.('error', 'Erro ao arquivar: ' + err.message);
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
+  // Mensagem amigável para o erro de S/N duplicado (trigger no banco)
+  const friendlySaveError = (msg: string): string => {
+    if (/DUPLICATE_SERIAL/i.test(msg) || (/s[ée]rie/i.test(msg) && /existe/i.test(msg)))
+      return 'Já existe um equipamento com este número de série neste grupo.';
+    return msg || 'Erro ao salvar. Tente novamente.';
+  };
+
   // ---------------------------------------------------------------------------
   // Save equipment (criar OU editar)
   // ---------------------------------------------------------------------------
@@ -299,7 +331,7 @@ export default function MaintenanceEquipment() {
       await fetchEquipment();
     } catch (err: any) {
       console.error('Erro ao salvar equipamento:', err);
-      setError(err.message || 'Erro ao salvar. Tente novamente.');
+      setError(friendlySaveError(err.message || ''));
     } finally {
       setSaving(false);
     }
@@ -466,6 +498,15 @@ export default function MaintenanceEquipment() {
             </select>
           </div>
         )}
+        <button onClick={() => setShowArchived(v => !v)}
+          title={showArchived ? 'Mostrar ativos' : 'Mostrar arquivados'}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-sm rounded-xl border transition-colors ${
+            showArchived
+              ? 'bg-slate-700 text-white border-slate-700'
+              : 'text-gray-500 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-slate-400'
+          }`}>
+          <Archive className="h-3.5 w-3.5" />{showArchived ? 'Arquivados' : 'Ver arquivados'}
+        </button>
         {(search || filterStatus || (canChangeHotel && filterHotel !== defaultHotelId)) && (
           <button onClick={() => { setSearch(''); setFilterStatus(''); if (canChangeHotel) setFilterHotel(defaultHotelId); setFilterCategory(''); }}
             className="flex items-center gap-1.5 px-3 py-2.5 text-sm text-gray-500 hover:text-red-500 border border-gray-200 dark:border-gray-700 rounded-xl transition-colors">
@@ -541,6 +582,13 @@ export default function MaintenanceEquipment() {
                       <button onClick={() => handleEditEquipment(eq)} title="Editar equipamento"
                         className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
                         <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    {isManager && (
+                      <button onClick={() => toggleArchive(eq)} disabled={savingStatus}
+                        title={eq.archived ? 'Desarquivar' : 'Arquivar'}
+                        className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-all">
+                        {eq.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
                       </button>
                     )}
                     <button onClick={() => openHistory(eq)} title="Histórico"
