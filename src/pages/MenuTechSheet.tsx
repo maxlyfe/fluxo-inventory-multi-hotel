@@ -1441,35 +1441,35 @@ function DishesTab({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {formData.ingredients.map((ing, idx) => (
-                      <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                        <div className="flex-1 min-w-0">
-                          <SearchableSelect
-                            options={ingredientOptions}
-                            placeholder="Buscar produto..."
-                            onSelect={(val) => {
-                              const n = [...formData.ingredients];
-                              n[idx].ingredient_id = val;
-                              const found = ingredients.find(i => i.id === val);
-                              n[idx].unit = found?.unit || 'und';
-                              setFormData({ ...formData, ingredients: n });
-                            }}
-                          />
-                          {ing.ingredient_id && (
-                            <p className="mt-1 text-[10px] font-bold text-orange-600 dark:text-orange-400 truncate">
-                              {ingredients.find(i => i.id === ing.ingredient_id)?.name}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex gap-1 items-start">
+                      <div key={idx} className="bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700 space-y-2">
+                        {/* Linha 1: busca do produto (largura total) */}
+                        <SearchableSelect
+                          options={ingredientOptions}
+                          placeholder="Buscar produto..."
+                          onSelect={(val) => {
+                            const n = [...formData.ingredients];
+                            n[idx].ingredient_id = val;
+                            const found = ingredients.find(i => i.id === val);
+                            n[idx].unit = found?.unit || 'und';
+                            setFormData({ ...formData, ingredients: n });
+                          }}
+                        />
+                        {ing.ingredient_id && (
+                          <p className="text-[11px] font-bold text-orange-600 dark:text-orange-400 truncate">
+                            {ingredients.find(i => i.id === ing.ingredient_id)?.name}
+                          </p>
+                        )}
+                        {/* Linha 2: quantidade + unidade + remover */}
+                        <div className="flex gap-2 items-center">
                           <input
                             type="text" inputMode="decimal" value={ing.quantity} placeholder="Qtd" required
                             onChange={(e) => { const n = [...formData.ingredients]; n[idx].quantity = e.target.value; setFormData({ ...formData, ingredients: n }); }}
-                            className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                            className="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-400"
                           />
                           <select
                             value={ing.unit}
                             onChange={(e) => { const n = [...formData.ingredients]; n[idx].unit = e.target.value as UnitType; setFormData({ ...formData, ingredients: n }); }}
-                            className="w-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-1 py-2 text-sm text-slate-900 dark:text-white"
+                            className="w-20 flex-shrink-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-400"
                           >
                             <option value="und">und</option>
                             <option value="kg">kg</option>
@@ -1482,7 +1482,8 @@ function DishesTab({
                           <button
                             type="button"
                             onClick={() => setFormData({ ...formData, ingredients: formData.ingredients.filter((_, i) => i !== idx) })}
-                            className="p-2 text-red-400 hover:text-red-600"
+                            className="p-2 flex-shrink-0 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                            title="Remover item"
                           >
                             <Trash2 size={15} />
                           </button>
@@ -1506,25 +1507,26 @@ function DishesTab({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {formData.sides.map((side, idx) => (
-                      <div key={idx} className="flex gap-2 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                        <div className="flex-1">
-                          <SearchableSelect
-                            options={sideOptions}
-                            placeholder="Selecionar..."
-                            onSelect={(val) => { const n = [...formData.sides]; n[idx].side_id = val; setFormData({ ...formData, sides: n }); }}
-                          />
-                          {side.side_id && <p className="mt-1 text-[10px] font-medium text-slate-400 truncate">{sides.find(s => s.id === side.side_id)?.name}</p>}
-                        </div>
-                        <div className="flex gap-1 items-start">
+                      <div key={idx} className="bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-700 space-y-2">
+                        {/* Linha 1: busca da sub-ficha/acompanhamento */}
+                        <SearchableSelect
+                          options={sideOptions}
+                          placeholder="Selecionar..."
+                          onSelect={(val) => { const n = [...formData.sides]; n[idx].side_id = val; setFormData({ ...formData, sides: n }); }}
+                        />
+                        {side.side_id && <p className="text-[11px] font-medium text-slate-400 truncate">{sides.find(s => s.id === side.side_id)?.name}</p>}
+                        {/* Linha 2: quantidade + remover */}
+                        <div className="flex gap-2 items-center">
                           <input
                             type="number" step="1" value={side.quantity} placeholder="Qtd" required
                             onChange={(e) => { const n = [...formData.sides]; n[idx].quantity = e.target.value; setFormData({ ...formData, sides: n }); }}
-                            className="w-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2.5 text-sm text-slate-900 dark:text-white"
+                            className="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
                           />
                           <button
                             type="button"
                             onClick={() => setFormData({ ...formData, sides: formData.sides.filter((_, i) => i !== idx) })}
-                            className="p-2 text-red-400 hover:text-red-600"
+                            className="p-2 flex-shrink-0 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                            title="Remover acompanhamento"
                           >
                             <Trash2 size={15} />
                           </button>
