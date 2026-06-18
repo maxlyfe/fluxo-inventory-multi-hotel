@@ -6,6 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Ingredient, UnitType, Side, SideIngredient, Dish, DishIngredient, DishSide, DishCategory } from '../types/menu';
 import type { Product } from '../types/product';
+import { sanitizeError } from '../utils/errorHandler';
 
 // Suppress unused import warnings for icons used only in JSX
 void Printer; void GripVertical; void Palette; void Beer;
@@ -152,7 +153,8 @@ export default function MenuTechSheet() {
         }));
 
       if (newRows.length > 0) {
-        await supabase.from('ingredients').insert(newRows);
+        const { error: insErr } = await supabase.from('ingredients').insert(newRows);
+        if (insErr) throw insErr;
       }
 
       if (!silent) {
@@ -163,8 +165,9 @@ export default function MenuTechSheet() {
           'success'
         );
       }
-    } catch {
-      if (!silent) addNotification('Erro ao sincronizar com inventário.', 'error');
+    } catch (err: any) {
+      console.error('Error syncing:', err);
+      if (!silent) addNotification(sanitizeError(err), 'error');
     } finally {
       if (!silent) setSyncing(false);
     }
@@ -286,35 +289,56 @@ function CategoryManagerModal({ hotelId, categories, onClose, onChange }: Catego
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleCreate = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || saving) return;
     setSaving(true);
-    await supabase.from('dish_categories').insert({
-      hotel_id: hotelId,
-      name: newName.trim(),
-      color: newColor,
-      sort_order: categories.length,
-    });
-    setNewName('');
-    onChange();
-    addNotification('Categoria criada!', 'success');
-    setSaving(false);
+    try {
+      const { error } = await supabase.from('dish_categories').insert({
+        hotel_id: hotelId,
+        name: newName.trim(),
+        color: newColor,
+        sort_order: categories.length,
+      });
+      if (error) throw error;
+
+      setNewName('');
+      onChange();
+      addNotification('Categoria criada!', 'success');
+    } catch (err: any) {
+      console.error('Error creating category:', err);
+      addNotification(sanitizeError(err), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (cat: DishCategory) => {
     if (!confirm(`Excluir "${cat.name}"? As fichas técnicas desta categoria ficarão em "Outros".`)) return;
     setDeletingId(cat.id);
-    await supabase.from('dish_categories').delete().eq('id', cat.id);
-    // dishes com category_id = cat.id ficam com NULL (ON DELETE SET NULL)
-    onChange();
-    addNotification(`Categoria "${cat.name}" excluída. Fichas movidas para Outros.`, 'info');
-    setDeletingId(null);
+    try {
+      const { error } = await supabase.from('dish_categories').delete().eq('id', cat.id);
+      if (error) throw error;
+      // dishes com category_id = cat.id ficam com NULL (ON DELETE SET NULL)
+      onChange();
+      addNotification(`Categoria "${cat.name}" excluída. Fichas movidas para Outros.`, 'info');
+    } catch (err: any) {
+      console.error('Error deleting category:', err);
+      addNotification(sanitizeError(err), 'error');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleRename = async (cat: DishCategory, newNameVal: string) => {
     if (!newNameVal.trim() || newNameVal === cat.name) return;
-    await supabase.from('dish_categories').update({ name: newNameVal.trim() }).eq('id', cat.id);
-    onChange();
-    addNotification('Categoria renomeada.', 'success');
+    try {
+      const { error } = await supabase.from('dish_categories').update({ name: newNameVal.trim() }).eq('id', cat.id);
+      if (error) throw error;
+      onChange();
+      addNotification('Categoria renomeada.', 'success');
+    } catch (err: any) {
+      console.error('Error renaming category:', err);
+      addNotification(sanitizeError(err), 'error');
+    }
   };
 
   return (
@@ -1202,6 +1226,7 @@ function DishesTab({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [movingDishId, setMovingDishId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState<{
     name: string;
     production_sector_id: string;
@@ -1213,17 +1238,25 @@ function DishesTab({
   void onCategoriesChange;
 
   const loadDishes = useCallback(async () => {
-    let query = supabase.from('dishes').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
-    if (categoryId !== null) {
-      query = query.eq('category_id', categoryId);
-    } else {
-      query = query.is('category_id', null);
+    try {
+      let query = supabase.from('dishes').select('*').or(`hotel_id.eq.${hotelId},hotel_id.is.null`).order('name');
+      if (categoryId !== null) {
+        query = query.eq('category_id', categoryId);
+      } else {
+        query = query.is('category_id', null);
+      }
+      const { data, error: err } = await query;
+      if (err) throw err;
+
+      const withCost = await Promise.all(
+        (data || []).map(async (d) => ({ ...d, cost: await calculateDishCost(d.id) }))
+      );
+      setDishes(withCost);
+    } catch (err: any) {
+      console.error('Error loading dishes:', err);
+      // Fallback empty list
+      setDishes([]);
     }
-    const { data } = await query;
-    const withCost = await Promise.all(
-      (data || []).map(async (d) => ({ ...d, cost: await calculateDishCost(d.id) }))
-    );
-    setDishes(withCost);
   }, [hotelId, categoryId]);
 
   const loadIngredients = useCallback(async () => {
@@ -1237,7 +1270,7 @@ function DishesTab({
   }, [hotelId]);
 
   const loadSectors = useCallback(async () => {
-    const { data } = await supabase.from('sectors').select('id, name').eq('hotel_id', hotelId).eq('is_active', true).order('name');
+    const { data } = await supabase.from('sectors').select('id, name').eq('hotel_id', hotelId).order('name');
     setSectors(data || []);
   }, [hotelId]);
 
@@ -1249,50 +1282,80 @@ function DishesTab({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const dishData = {
-      name: formData.name,
-      production_sector_id: formData.production_sector_id || null,
-      type: 'dish' as const,
-      category_id: categoryId,
-      hotel_id: hotelId
-    };
+    if (saving) return;
+    setSaving(true);
 
-    if (editingId) {
-      await supabase.from('dishes').update(dishData).eq('id', editingId);
-      await supabase.from('dish_ingredients').delete().eq('dish_id', editingId);
-      await supabase.from('dish_sides').delete().eq('dish_id', editingId);
+    try {
+      const dishData = {
+        name: formData.name,
+        production_sector_id: formData.production_sector_id || null,
+        type: 'dish' as const,
+        category_id: categoryId,
+        hotel_id: hotelId
+      };
 
-      const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
-        .map((i) => ({
-          dish_id: editingId,
-          ingredient_id: i.ingredient_id,
-          quantity: parseFloat(i.quantity),
-          unit: i.unit
-        }));
-      const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
-        .map((s) => ({ dish_id: editingId, side_id: s.side_id, quantity: parseInt(s.quantity) }));
+      let currentDishId = editingId;
 
-      if (ingItems.length > 0) await supabase.from('dish_ingredients').insert(ingItems);
-      if (sideItems.length > 0) await supabase.from('dish_sides').insert(sideItems);
-    } else {
-      const { data } = await supabase.from('dishes').insert([dishData]).select().single();
-      if (data) {
+      if (editingId) {
+        const { error: updErr } = await supabase.from('dishes').update(dishData).eq('id', editingId);
+        if (updErr) throw updErr;
+
+        await supabase.from('dish_ingredients').delete().eq('dish_id', editingId);
+        await supabase.from('dish_sides').delete().eq('dish_id', editingId);
+
         const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
           .map((i) => ({
-            dish_id: data.id,
+            dish_id: editingId,
             ingredient_id: i.ingredient_id,
             quantity: parseFloat(i.quantity),
             unit: i.unit
           }));
         const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
-          .map((s) => ({ dish_id: data.id, side_id: s.side_id, quantity: parseInt(s.quantity) }));
-        if (ingItems.length > 0) await supabase.from('dish_ingredients').insert(ingItems);
-        if (sideItems.length > 0) await supabase.from('dish_sides').insert(sideItems);
+          .map((s) => ({ dish_id: editingId, side_id: s.side_id, quantity: parseInt(s.quantity) }));
+
+        if (ingItems.length > 0) {
+          const { error: ingErr } = await supabase.from('dish_ingredients').insert(ingItems);
+          if (ingErr) throw ingErr;
+        }
+        if (sideItems.length > 0) {
+          const { error: sideErr } = await supabase.from('dish_sides').insert(sideItems);
+          if (sideErr) throw sideErr;
+        }
+      } else {
+        const { data, error: insErr } = await supabase.from('dishes').insert([dishData]).select().single();
+        if (insErr) throw insErr;
+        if (data) {
+          currentDishId = data.id;
+          const ingItems = formData.ingredients.filter((i) => i.ingredient_id && i.quantity)
+            .map((i) => ({
+              dish_id: data.id,
+              ingredient_id: i.ingredient_id,
+              quantity: parseFloat(i.quantity),
+              unit: i.unit
+            }));
+          const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
+            .map((s) => ({ dish_id: data.id, side_id: s.side_id, quantity: parseInt(s.quantity) }));
+          
+          if (ingItems.length > 0) {
+            const { error: ingErr } = await supabase.from('dish_ingredients').insert(ingItems);
+            if (ingErr) throw ingErr;
+          }
+          if (sideItems.length > 0) {
+            const { error: sideErr } = await supabase.from('dish_sides').insert(sideItems);
+            if (sideErr) throw sideErr;
+          }
+        }
       }
+
+      resetForm();
+      loadDishes();
+      addNotification('Ficha técnica salva com sucesso!', 'success');
+    } catch (err: any) {
+      console.error('Error saving tech sheet:', err);
+      addNotification(sanitizeError(err), 'error');
+    } finally {
+      setSaving(false);
     }
-    resetForm();
-    loadDishes();
-    addNotification('Ficha técnica salva com sucesso!', 'success');
   }
 
   async function handleEdit(dish: Dish) {
