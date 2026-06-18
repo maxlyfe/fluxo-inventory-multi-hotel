@@ -857,7 +857,7 @@ const ErbonIntegration: React.FC = () => {
                     />
                   </div>
 
-                  <div className="grid gap-2 max-h-96 overflow-y-auto">
+                  <div className="grid gap-3 max-h-[500px] overflow-y-auto pr-1">
                     {(dishSearch
                       ? erbonProducts.filter(p =>
                           p.description.toLowerCase().includes(dishSearch.toLowerCase()) ||
@@ -867,26 +867,43 @@ const ErbonIntegration: React.FC = () => {
                     ).filter(p => !productMappings.some(m => m.dish_id && m.erbon_service_id === p.id)).map(erbonProd => (
                       <div
                         key={erbonProd.id}
-                        className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                        className="flex flex-col lg:flex-row lg:items-center gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-blue-300 dark:hover:border-blue-800 transition-all shadow-sm"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
-                            {erbonProd.description}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded font-mono">
-                              Cód: {erbonProd.code}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-relaxed">
+                            <span className="inline-flex items-center gap-1 py-0.5 px-2 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded font-bold">
+                              Código: {erbonProd.code}
                             </span>
-                            <span className="text-xs text-gray-400">
-                              {erbonProd.stocksGroupDescription} &middot; R$ {erbonProd.priceSale?.toFixed(2)}
+                            <span className="text-gray-400 dark:text-gray-600">/</span>
+                            <span className="text-gray-900 dark:text-white font-bold">
+                              Serviço/Produto: {erbonProd.description}
+                            </span>
+                            <span className="text-gray-400 dark:text-gray-600">/</span>
+                            <span className="text-gray-600 dark:text-gray-400">
+                              <b className="text-gray-900 dark:text-gray-200">ID:</b> {erbonProd.id}
+                            </span>
+                            <span className="text-gray-400 dark:text-gray-600">/</span>
+                            <span className="text-gray-600 dark:text-gray-400">
+                              <b className="text-gray-900 dark:text-gray-200">Departamentos:</b> {erbonProd.stocksFamily || '1'}
+                            </span>
+                            <span className="text-gray-400 dark:text-gray-600">/</span>
+                            <span className="text-gray-600 dark:text-gray-400">
+                              <b className="text-gray-900 dark:text-gray-200">Conta:</b> {erbonProd.stocksGroupDescription || 'A&B'}
+                            </span>
+                            <span className="text-gray-400 dark:text-gray-600">/</span>
+                            <span className="text-green-600 dark:text-green-400 font-bold">
+                              Preço venda: R$ {erbonProd.priceSale?.toFixed(2)}
                             </span>
                           </div>
                         </div>
-                        <SearchableSelect
-                          placeholder="Vincular a prato..."
-                          onSelect={value => handleMapDish(value, erbonProd)}
-                          options={fluxoDishes.map(d => ({ value: d.id, label: d.name }))}
-                        />
+                        
+                        <div className="w-full lg:w-72 shrink-0 border-t lg:border-t-0 lg:border-l border-gray-100 dark:border-gray-800 pt-3 lg:pt-0 lg:pl-4">
+                          <SearchableSelect
+                            placeholder="Vincular a prato..."
+                            onSelect={value => handleMapDish(value, erbonProd)}
+                            options={fluxoDishes.map(d => ({ value: d.id, label: d.name }))}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
