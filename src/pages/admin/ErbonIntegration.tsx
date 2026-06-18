@@ -870,12 +870,17 @@ const ErbonIntegration: React.FC = () => {
                         className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
                             {erbonProd.description}
                           </p>
-                          <p className="text-xs text-gray-400">
-                            {erbonProd.stocksGroupDescription} &middot; {erbonProd.mensureUnite} &middot; R${erbonProd.priceSale?.toFixed(2)}
-                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded font-mono">
+                              Cód: {erbonProd.code}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {erbonProd.stocksGroupDescription} &middot; R$ {erbonProd.priceSale?.toFixed(2)}
+                            </span>
+                          </div>
                         </div>
                         <SearchableSelect
                           placeholder="Vincular a prato..."
