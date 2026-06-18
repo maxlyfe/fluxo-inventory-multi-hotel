@@ -59,9 +59,10 @@ interface OccurrenceType {
   is_system: boolean;
   sort_order: number;
   entry_type_key: string | null; // mapeia ao comportamento especial (meia_dobra→time picker, transfer→hotel+time)
-  has_rest?: boolean;            // tipo tem descanso padrão?
-  rest_start?: string | null;    // descanso padrão — início
-  rest_end?: string | null;      // descanso padrão — fim
+  has_rest?: boolean;            // ao atribuir, pede horário de descanso
+  asks_shift_time?: boolean;     // ao atribuir, pede horário de trabalho
+  rest_start?: string | null;    // (legado — horário é por atribuição)
+  rest_end?: string | null;
 }
 
 const OCCURRENCE_COLORS: Record<string, { bg: string; text: string; ring: string }> = {
@@ -269,15 +270,13 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [saving, setSaving]      = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
-  // ── Descanso (almoço/jantar) ──
-  const [restEnabled, setRestEnabled] = useState(!!(entry?.rest_start && entry?.rest_end));
+  // ── Descanso (almoço/jantar) — campos diretos (opcional; em branco = sem) ──
   const [restStart, setRestStart]     = useState(entry?.rest_start?.slice(0, 5) || '');
   const [restEnd, setRestEnd]         = useState(entry?.rest_end?.slice(0, 5) || '');
-  // Pré-preenche o descanso a partir de uma fonte (padrão do colaborador/tipo),
-  // sem sobrescrever o que o usuário já preencheu.
+  // Pré-preenche o descanso do colaborador (Turno), sem sobrescrever o já digitado.
   const applyDefaultRest = (s?: string | null, e?: string | null) => {
     if (s && e && !restStart && !restEnd) {
-      setRestStart(s.slice(0, 5)); setRestEnd(e.slice(0, 5)); setRestEnabled(true);
+      setRestStart(s.slice(0, 5)); setRestEnd(e.slice(0, 5));
     }
   };
 
@@ -286,16 +285,14 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [newOccCausesLoss, setNewOccCausesLoss] = useState(false);
   const [newOccThreshold, setNewOccThreshold] = useState(1);
   const [newOccHasRest, setNewOccHasRest] = useState(false);
-  const [newOccRestStart, setNewOccRestStart] = useState('12:00');
-  const [newOccRestEnd, setNewOccRestEnd] = useState('13:00');
+  const [newOccAsksTime, setNewOccAsksTime] = useState(false);
   const [creatingOcc, setCreatingOcc] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editCausesLoss, setEditCausesLoss] = useState(false);
   const [editThreshold, setEditThreshold] = useState(1);
   const [editHasRest, setEditHasRest] = useState(false);
-  const [editRestStart, setEditRestStart] = useState('12:00');
-  const [editRestEnd, setEditRestEnd] = useState('13:00');
+  const [editAsksTime, setEditAsksTime] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const ref = useRef<HTMLDivElement>(null);
@@ -309,7 +306,13 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   // ── Derived ──
   const sortedOccurrences = [...occurrenceTypes].sort((a, b) => a.sort_order - b.sort_order);
   const selectedKey = selection.kind === 'occurrence' ? (selection.ot.entry_type_key || '') : '';
-  const needsTimePicker = selection.kind === 'shift' || ['meia_dobra', 'transfer'].includes(selectedKey);
+  // Pede horário de TRABALHO: Turno, meia/dobra, transferência ou tipo marcado.
+  const wantsTime = selection.kind === 'shift'
+    || ['meia_dobra', 'transfer'].includes(selectedKey)
+    || (selection.kind === 'occurrence' && !!selection.ot.asks_shift_time);
+  // Pede horário de DESCANSO: Turno (sempre) ou tipo marcado com "tem descanso".
+  const wantsRest = selection.kind === 'shift'
+    || (selection.kind === 'occurrence' && !!selection.ot.has_rest);
   const needsHotelSelector = selectedKey === 'transfer';
 
   // ── Handlers ──
@@ -328,8 +331,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       causes_basket_loss: newOccCausesLoss,
       loss_threshold: newOccCausesLoss ? newOccThreshold : 1,
       has_rest: newOccHasRest,
-      rest_start: newOccHasRest ? newOccRestStart : null,
-      rest_end: newOccHasRest ? newOccRestEnd : null,
+      asks_shift_time: newOccAsksTime,
       is_system: false,
       sort_order: occurrenceTypes.length + 1,
       entry_type_key: null,
@@ -343,8 +345,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       setNewOccCausesLoss(false);
       setNewOccThreshold(1);
       setNewOccHasRest(false);
-      setNewOccRestStart('12:00');
-      setNewOccRestEnd('13:00');
+      setNewOccAsksTime(false);
     }
     setCreatingOcc(false);
   };
@@ -355,8 +356,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     setEditCausesLoss(ot.causes_basket_loss);
     setEditThreshold(ot.loss_threshold);
     setEditHasRest(!!ot.has_rest);
-    setEditRestStart(ot.rest_start?.slice(0, 5) || '12:00');
-    setEditRestEnd(ot.rest_end?.slice(0, 5) || '13:00');
+    setEditAsksTime(!!ot.asks_shift_time);
   };
 
   const cancelEditing = () => { setEditingId(null); };
@@ -367,20 +367,16 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     const slug = editName.trim().toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-    const restPayload = {
-      has_rest: editHasRest,
-      rest_start: editHasRest ? editRestStart : null,
-      rest_end: editHasRest ? editRestEnd : null,
-    };
+    const flagsPayload = { has_rest: editHasRest, asks_shift_time: editAsksTime };
     await supabase.from('occurrence_types').update({
       name: editName.trim(),
       slug,
       causes_basket_loss: editCausesLoss,
       loss_threshold: editCausesLoss ? editThreshold : 1,
-      ...restPayload,
+      ...flagsPayload,
     }).eq('id', ot.id);
     const updated = occurrenceTypes.map(o =>
-      o.id === ot.id ? { ...o, name: editName.trim(), slug, causes_basket_loss: editCausesLoss, loss_threshold: editCausesLoss ? editThreshold : 1, ...restPayload } : o
+      o.id === ot.id ? { ...o, name: editName.trim(), slug, causes_basket_loss: editCausesLoss, loss_threshold: editCausesLoss ? editThreshold : 1, ...flagsPayload } : o
     );
     onOccurrenceTypesChanged(updated);
     // Update selection if we edited the selected type
@@ -421,10 +417,9 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
   const save = async () => {
     setSaving(true);
-    // Descanso: só persiste quando habilitado e com início+fim
-    const hasRest = restEnabled && !!restStart && !!restEnd;
-    const rs = hasRest ? restStart : null;
-    const re = hasRest ? restEnd : null;
+    // Descanso: persiste quando o tipo pede (wantsRest) e ambos preenchidos.
+    const rs = (wantsRest && !!restStart && !!restEnd) ? restStart : null;
+    const re = (wantsRest && !!restStart && !!restEnd) ? restEnd : null;
     if (selection.kind === 'shift') {
       await onSave({
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
@@ -445,14 +440,12 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       const ot = selection.ot;
       const key = ot.entry_type_key;
       const entryType = key || 'custom';
-      const wantsTime = ['meia_dobra', 'transfer'].includes(key || '');
       await onSave({
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: entryType,
         shift_start: wantsTime ? (start || null) : null,
         shift_end: wantsTime ? (end || null) : null,
-        rest_start: wantsTime ? rs : null,
-        rest_end: wantsTime ? re : null,
+        rest_start: rs, rest_end: re,
         custom_label: !key ? ot.name : null,
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
         occurrence_type_id: ot.id,
@@ -495,7 +488,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
             const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
             const isSelected = selection.kind === 'occurrence' && selection.ot.id === ot.id;
             return (
-              <button key={ot.id} onClick={() => { setSelection({ kind: 'occurrence', ot }); if (ot.has_rest) applyDefaultRest(ot.rest_start, ot.rest_end); }}
+              <button key={ot.id} onClick={() => setSelection({ kind: 'occurrence', ot })}
                 className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left truncate ${
                   isSelected
                     ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
@@ -517,8 +510,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </button>
         </div>
 
-        {/* ── Campos dinâmicos: horário ── */}
-        {needsTimePicker && (
+        {/* ── Horário de trabalho ── */}
+        {wantsTime && (
           <div className="flex gap-2 items-center">
             <input type="time" value={start} onChange={e => setStart(e.target.value)}
               className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -528,23 +521,18 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </div>
         )}
 
-        {/* ── Descanso (almoço/jantar) — só quando há horário de turno ── */}
-        {needsTimePicker && (
-          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-2 space-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">
-              <input type="checkbox" checked={restEnabled} onChange={e => setRestEnabled(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-400" />
-              Descanso (almoço/jantar)
-            </label>
-            {restEnabled && (
-              <div className="flex gap-2 items-center">
-                <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
-                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
-                <span className="text-xs text-gray-400">AS</span>
-                <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
-                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
-              </div>
-            )}
+        {/* ── Descanso (almoço/jantar) — aparece direto; em branco = sem descanso ── */}
+        {wantsRest && (
+          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-2 space-y-1.5">
+            <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Descanso (almoço/jantar)</p>
+            <div className="flex gap-2 items-center">
+              <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              <span className="text-xs text-gray-400">AS</span>
+              <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            </div>
+            <p className="text-[10px] text-gray-400">Deixe em branco se não houver descanso.</p>
           </div>
         )}
 
@@ -609,22 +597,18 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                               </div>
                             )}
                           </div>
-                          {/* Descanso padrão do tipo */}
-                          <div className="flex items-center gap-2 flex-wrap">
+                          {/* Flags: o horário é definido ao ATRIBUIR, não aqui */}
+                          <div className="flex flex-col gap-1">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="checkbox" checked={editAsksTime} onChange={e => setEditAsksTime(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-400" />
+                              <span className="text-[11px] text-gray-600 dark:text-gray-300">Pede horário de trabalho</span>
+                            </label>
                             <label className="flex items-center gap-1.5 cursor-pointer">
                               <input type="checkbox" checked={editHasRest} onChange={e => setEditHasRest(e.target.checked)}
                                 className="w-3.5 h-3.5 rounded border-gray-300 text-amber-500 focus:ring-amber-400" />
                               <span className="text-[11px] text-gray-600 dark:text-gray-300">Tem descanso</span>
                             </label>
-                            {editHasRest && (
-                              <div className="flex items-center gap-1">
-                                <input type="time" value={editRestStart} onChange={e => setEditRestStart(e.target.value)}
-                                  className="px-1 py-0.5 text-[11px] border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
-                                <span className="text-[11px] text-gray-500">às</span>
-                                <input type="time" value={editRestEnd} onChange={e => setEditRestEnd(e.target.value)}
-                                  className="px-1 py-0.5 text-[11px] border border-gray-300 dark:border-gray-500 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
-                              </div>
-                            )}
                           </div>
                           <div className="flex gap-1.5">
                             <button onClick={cancelEditing}
@@ -701,22 +685,18 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                         <span className="text-[11px] text-gray-500">vez(es) no mês</span>
                       </div>
                     )}
-                    {/* Descanso padrão do tipo */}
-                    <div className="flex items-center gap-2 flex-wrap">
+                    {/* Flags: o horário é definido ao ATRIBUIR a escala, não aqui */}
+                    <div className="flex flex-col gap-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={newOccAsksTime} onChange={e => setNewOccAsksTime(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-400" />
+                        <span className="text-[11px] text-gray-600 dark:text-gray-300">Pede horário de trabalho</span>
+                      </label>
                       <label className="flex items-center gap-1.5 cursor-pointer">
                         <input type="checkbox" checked={newOccHasRest} onChange={e => setNewOccHasRest(e.target.checked)}
                           className="w-3.5 h-3.5 rounded border-gray-300 text-amber-500 focus:ring-amber-400" />
                         <span className="text-[11px] text-gray-600 dark:text-gray-300">Tem descanso</span>
                       </label>
-                      {newOccHasRest && (
-                        <div className="flex items-center gap-1">
-                          <input type="time" value={newOccRestStart} onChange={e => setNewOccRestStart(e.target.value)}
-                            className="px-1 py-0.5 text-[11px] border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
-                          <span className="text-[11px] text-gray-500">às</span>
-                          <input type="time" value={newOccRestEnd} onChange={e => setNewOccRestEnd(e.target.value)}
-                            className="px-1 py-0.5 text-[11px] border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100" />
-                        </div>
-                      )}
                     </div>
                     <button onClick={handleCreateOccurrenceType} disabled={creatingOcc || !newOccName.trim()}
                       className="w-full flex items-center justify-center gap-1 py-1.5 text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl disabled:opacity-60 transition-colors">

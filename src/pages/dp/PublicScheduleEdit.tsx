@@ -46,7 +46,7 @@ interface OccurrenceType {
   id: string; hotel_id: string; name: string; slug: string; color: string;
   causes_basket_loss: boolean; loss_threshold: number; is_system: boolean; sort_order: number;
   entry_type_key: string | null;
-  has_rest?: boolean; rest_start?: string | null; rest_end?: string | null;
+  has_rest?: boolean; asks_shift_time?: boolean; rest_start?: string | null; rest_end?: string | null;
 }
 
 interface ShareToken {
@@ -218,12 +218,11 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
   const [saving, setSaving] = useState(false);
-  const [restEnabled, setRestEnabled] = useState(!!(entry?.rest_start && entry?.rest_end));
   const [restStart, setRestStart]     = useState(entry?.rest_start?.slice(0, 5) || '');
   const [restEnd, setRestEnd]         = useState(entry?.rest_end?.slice(0, 5) || '');
   const applyDefaultRest = (s?: string | null, e?: string | null) => {
     if (s && e && !restStart && !restEnd) {
-      setRestStart(s.slice(0, 5)); setRestEnd(e.slice(0, 5)); setRestEnabled(true);
+      setRestStart(s.slice(0, 5)); setRestEnd(e.slice(0, 5));
     }
   };
   const ref = useRef<HTMLDivElement>(null);
@@ -236,14 +235,17 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
   const sortedOccurrences = [...occurrenceTypes].sort((a, b) => a.sort_order - b.sort_order);
   const selectedKey = selection.kind === 'occurrence' ? (selection.ot.entry_type_key || '') : '';
-  const needsTimePicker = selection.kind === 'shift' || ['meia_dobra', 'transfer'].includes(selectedKey);
+  const wantsTime = selection.kind === 'shift'
+    || ['meia_dobra', 'transfer'].includes(selectedKey)
+    || (selection.kind === 'occurrence' && !!selection.ot.asks_shift_time);
+  const wantsRest = selection.kind === 'shift'
+    || (selection.kind === 'occurrence' && !!selection.ot.has_rest);
   const needsHotelSelector = selectedKey === 'transfer';
 
   const save = async () => {
     setSaving(true);
-    const hasRest = restEnabled && !!restStart && !!restEnd;
-    const rs = hasRest ? restStart : null;
-    const re = hasRest ? restEnd : null;
+    const rs = (wantsRest && !!restStart && !!restEnd) ? restStart : null;
+    const re = (wantsRest && !!restStart && !!restEnd) ? restEnd : null;
     if (selection.kind === 'shift') {
       await onSave({
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
@@ -264,14 +266,12 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       const ot = selection.ot;
       const key = ot.entry_type_key;
       const entryType = key || 'custom';
-      const wantsTime = ['meia_dobra', 'transfer'].includes(key || '');
       await onSave({
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: entryType,
         shift_start: wantsTime ? (start || null) : null,
         shift_end: wantsTime ? (end || null) : null,
-        rest_start: wantsTime ? rs : null,
-        rest_end: wantsTime ? re : null,
+        rest_start: rs, rest_end: re,
         custom_label: !key ? ot.name : null,
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
         occurrence_type_id: ot.id,
@@ -308,7 +308,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
             const colors = OCCURRENCE_COLORS[ot.color] || OCCURRENCE_COLORS.indigo;
             const isSelected = selection.kind === 'occurrence' && selection.ot.id === ot.id;
             return (
-              <button key={ot.id} onClick={() => { setSelection({ kind: 'occurrence', ot }); if (ot.has_rest) applyDefaultRest(ot.rest_start, ot.rest_end); }}
+              <button key={ot.id} onClick={() => setSelection({ kind: 'occurrence', ot })}
                 className={`text-xs px-2 py-1.5 rounded-xl font-semibold transition-all text-left truncate ${
                   isSelected
                     ? `${colors.bg} ${colors.text} ring-2 ${colors.ring}`
@@ -329,7 +329,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </button>
         </div>
 
-        {needsTimePicker && (
+        {wantsTime && (
           <div className="flex gap-2 items-center">
             <input type="time" value={start} onChange={e => setStart(e.target.value)}
               className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -339,23 +339,18 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </div>
         )}
 
-        {/* Descanso (almoço/jantar) */}
-        {needsTimePicker && (
-          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-2 space-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer">
-              <input type="checkbox" checked={restEnabled} onChange={e => setRestEnabled(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600 text-amber-500 focus:ring-amber-400" />
-              Descanso (almoço/jantar)
-            </label>
-            {restEnabled && (
-              <div className="flex gap-2 items-center">
-                <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
-                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
-                <span className="text-xs text-gray-400">AS</span>
-                <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
-                  className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
-              </div>
-            )}
+        {/* Descanso (almoço/jantar) — aparece direto; em branco = sem descanso */}
+        {wantsRest && (
+          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-2 space-y-1.5">
+            <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Descanso (almoço/jantar)</p>
+            <div className="flex gap-2 items-center">
+              <input type="time" value={restStart} onChange={e => setRestStart(e.target.value)}
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              <span className="text-xs text-gray-400">AS</span>
+              <input type="time" value={restEnd} onChange={e => setRestEnd(e.target.value)}
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            </div>
+            <p className="text-[10px] text-gray-400">Deixe em branco se não houver descanso.</p>
           </div>
         )}
 
