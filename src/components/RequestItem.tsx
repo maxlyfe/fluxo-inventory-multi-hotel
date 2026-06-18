@@ -25,9 +25,22 @@ const RequestItem: React.FC<RequestItemProps> = ({
   const substitutedProduct = request.substituted_product;
   const isSubstituted = !!substitutedProduct;
   const displayProduct = substitutedProduct || product;
-  const displayProductName = isHistoryView && isSubstituted 
-    ? substitutedProduct?.name || request.item_name 
+  const displayProductName = isHistoryView && isSubstituted
+    ? substitutedProduct?.name || request.item_name
     : request.item_name;
+
+  // Pressionar e segurar (mobile) → mostra o nome completo (nomes truncados na tela pequena)
+  const [showFullName, setShowFullName] = React.useState(false);
+  const pressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPress = () => {
+    pressTimer.current = setTimeout(() => {
+      setShowFullName(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+    }, 450);
+  };
+  const endPress = () => {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+  };
 
   const formatDate = (dateString: string) => {
     try {
@@ -52,6 +65,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
   };
 
   return (
+    <>
     <li className="border-b border-gray-100 dark:border-gray-700/50 py-4 px-4 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 md:space-x-6 hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
       <div className="flex items-center flex-grow min-w-0">
         <div className="relative flex-shrink-0">
@@ -79,7 +93,13 @@ const RequestItem: React.FC<RequestItemProps> = ({
 
         <div className="ml-4 flex-grow min-w-0">
           <div className="flex items-center flex-wrap gap-2">
-            <span className="font-bold text-gray-900 dark:text-white text-base truncate">
+            <span
+              className="font-bold text-gray-900 dark:text-white text-base truncate select-none cursor-default"
+              title={displayProductName}
+              onTouchStart={startPress} onTouchEnd={endPress} onTouchMove={endPress}
+              onMouseDown={startPress} onMouseUp={endPress} onMouseLeave={endPress}
+              onContextMenu={e => e.preventDefault()}
+            >
               {displayProductName}
             </span>
             {request.is_custom && (
@@ -174,6 +194,23 @@ const RequestItem: React.FC<RequestItemProps> = ({
         </div>
       )}
     </li>
+
+    {/* Nome completo (pressionar e segurar no mobile) */}
+    {showFullName && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm"
+        onClick={() => setShowFullName(false)}>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl"
+          onClick={e => e.stopPropagation()}>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Produto</p>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white leading-snug break-words">{displayProductName}</h2>
+          <button onClick={() => setShowFullName(false)}
+            className="mt-5 w-full py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold">
+            Fechar
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 
