@@ -9,7 +9,7 @@ CREATE TABLE employee_dismissals (
   type TEXT NOT NULL CHECK (type IN ('voluntary', 'involuntary')),
   voluntary_reasons TEXT[] DEFAULT '{}',
   involuntary_type TEXT CHECK (involuntary_type IN ('justa_causa', 'sem_justa_causa')),
-  involuntary_reason TEXT,
+  involuntary_reason TEXT[] DEFAULT '{}',
   notes TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

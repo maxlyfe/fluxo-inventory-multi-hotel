@@ -11,7 +11,7 @@ import {
   AlertCircle, Shirt, Package, Edit2, X, Printer, Hash,
   Link2, UserCheck, UserX, Search, ShieldOff, GraduationCap, Stethoscope,
 } from 'lucide-react';
-import { format, differenceInDays, formatDistanceToNow } from 'date-fns';
+import { format, differenceInDays, differenceInMonths, differenceInYears, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 // Converte "YYYY-MM-DD" → Date LOCAL, sem conversão UTC (evita bug de -1 dia)
@@ -1008,18 +1008,54 @@ export default function DPEmployeeDetail() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
+              {/* Resumo: Admissão → Tempo de casa → Desligamento */}
+              {employee && (
+                <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
                   <div>
                     <span className="block text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                      Data do Desligamento
+                      Data de Admissão
                     </span>
                     <span className="text-sm font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5 mt-1">
-                      <Calendar className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-                      {format(parseLocalDate(dism.dismissal_date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                      <Calendar className="h-4 w-4 text-green-500" />
+                      {format(parseLocalDate(employee.admission_date), 'dd/MM/yyyy')}
                     </span>
                   </div>
+                  <div>
+                    <span className="block text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                      Tempo de Casa
+                    </span>
+                    <span className="text-sm font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5 mt-1">
+                      <Clock className="h-4 w-4 text-blue-500" />
+                      {(() => {
+                        const admDate = parseLocalDate(employee.admission_date);
+                        const dismDate = parseLocalDate(dism.dismissal_date);
+                        const years = differenceInYears(dismDate, admDate);
+                        const months = differenceInMonths(dismDate, admDate) % 12;
+                        const parts: string[] = [];
+                        if (years > 0) parts.push(`${years} ano${years > 1 ? 's' : ''}`);
+                        if (months > 0) parts.push(`${months} ${months > 1 ? 'meses' : 'mês'}`);
+                        if (parts.length === 0) {
+                          const days = differenceInDays(dismDate, admDate);
+                          parts.push(`${days} dia${days !== 1 ? 's' : ''}`);
+                        }
+                        return parts.join(' e ');
+                      })()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                      Data de Desligamento
+                    </span>
+                    <span className="text-sm font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5 mt-1">
+                      <Calendar className="h-4 w-4 text-red-500" />
+                      {format(parseLocalDate(dism.dismissal_date), 'dd/MM/yyyy')}
+                    </span>
+                  </div>
+                </div>
+              )}
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
                   {isVoluntary ? (
                     <div>
                       <span className="block text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
@@ -1040,11 +1076,21 @@ export default function DPEmployeeDetail() {
                   ) : (
                     <div>
                       <span className="block text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                        Motivo Principal
+                        {Array.isArray(dism.involuntary_reason) && dism.involuntary_reason.length > 1 ? 'Motivos' : 'Motivo Principal'}
                       </span>
-                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5 mt-1 bg-red-50/20 dark:bg-red-950/10 border border-red-200 dark:border-red-900/20 px-3 py-1.5 rounded-lg w-max">
-                        {dism.involuntary_reason}
-                      </span>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {Array.isArray(dism.involuntary_reason) ? (
+                          dism.involuntary_reason.map((r: string) => (
+                            <span key={r} className="inline-flex items-center text-xs font-semibold px-2.5 py-1 bg-red-50/40 dark:bg-red-950/20 text-red-700 dark:text-red-400 rounded-lg border border-red-200 dark:border-red-900/30">
+                              {r}
+                            </span>
+                          ))
+                        ) : dism.involuntary_reason ? (
+                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-200 bg-red-50/20 dark:bg-red-950/10 border border-red-200 dark:border-red-900/20 px-3 py-1.5 rounded-lg">
+                            {dism.involuntary_reason}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   )}
                 </div>

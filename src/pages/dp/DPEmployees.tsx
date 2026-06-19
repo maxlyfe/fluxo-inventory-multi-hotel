@@ -10,7 +10,7 @@ import {
   Users, Plus, Search, X, Loader2, AlertTriangle, ChevronDown,
   Building2, Phone, Calendar, Briefcase, UserCheck, UserX,
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
-  ArrowRightLeft, FileText,
+  ArrowRightLeft, FileText, Check,
 } from 'lucide-react';
 import EmployeesReportModal from '../../components/EmployeesReportModal';
 import { format, differenceInDays, isAfter } from 'date-fns';
@@ -229,7 +229,7 @@ export default function DPEmployees() {
     type: 'voluntary', // 'voluntary' | 'involuntary'
     voluntary_reasons: [] as string[],
     involuntary_type: '', // 'justa_causa' | 'sem_justa_causa'
-    involuntary_reason: '',
+    involuntary_reasons: [] as string[],
     notes: '',
   });
 
@@ -468,7 +468,7 @@ export default function DPEmployees() {
           type: 'voluntary',
           voluntary_reasons: [],
           involuntary_type: '',
-          involuntary_reason: '',
+          involuntary_reasons: [],
           notes: '',
         });
         setPendingSavePayload(payload);
@@ -552,8 +552,8 @@ export default function DPEmployees() {
         setDismissalError('Por favor, selecione se é com ou sem justa causa.');
         return;
       }
-      if (!dismissalForm.involuntary_reason) {
-        setDismissalError('Por favor, selecione uma das opções de motivo.');
+      if (dismissalForm.involuntary_reasons.length === 0) {
+        setDismissalError('Por favor, selecione pelo menos uma das opções de motivo.');
         return;
       }
     }
@@ -572,7 +572,7 @@ export default function DPEmployees() {
         type: dismissalForm.type,
         voluntary_reasons: dismissalForm.type === 'voluntary' ? dismissalForm.voluntary_reasons : [],
         involuntary_type: dismissalForm.type === 'involuntary' ? dismissalForm.involuntary_type : null,
-        involuntary_reason: dismissalForm.type === 'involuntary' ? dismissalForm.involuntary_reason : null,
+        involuntary_reason: dismissalForm.type === 'involuntary' ? dismissalForm.involuntary_reasons : null,
         notes: dismissalForm.notes.trim(),
       });
       if (dismError) throw dismError;
@@ -789,7 +789,7 @@ export default function DPEmployees() {
                         name="involuntary_type"
                         value="justa_causa"
                         checked={dismissalForm.involuntary_type === 'justa_causa'}
-                        onChange={() => setDismissalForm(f => ({ ...f, involuntary_type: 'justa_causa', involuntary_reason: '' }))}
+                        onChange={() => setDismissalForm(f => ({ ...f, involuntary_type: 'justa_causa', involuntary_reasons: [] }))}
                         className="text-purple-650 focus:ring-purple-500 dark:bg-gray-800 dark:border-gray-700"
                         required
                       />
@@ -801,7 +801,7 @@ export default function DPEmployees() {
                         name="involuntary_type"
                         value="sem_justa_causa"
                         checked={dismissalForm.involuntary_type === 'sem_justa_causa'}
-                        onChange={() => setDismissalForm(f => ({ ...f, involuntary_type: 'sem_justa_causa', involuntary_reason: '' }))}
+                        onChange={() => setDismissalForm(f => ({ ...f, involuntary_type: 'sem_justa_causa', involuntary_reasons: [] }))}
                         className="text-purple-655 focus:ring-purple-500 dark:bg-gray-800 dark:border-gray-700"
                         required
                       />
@@ -810,28 +810,33 @@ export default function DPEmployees() {
                   </div>
                 </div>
 
-                {/* Opções de Justa Causa */}
+                {/* Opções de Justa Causa (multi-select) */}
                 {dismissalForm.involuntary_type === 'justa_causa' && (
                   <div>
-                    <label className={labelCls}>Motivo da Justa Causa *</label>
+                    <label className={labelCls}>Motivo da Justa Causa * <span className="font-normal text-gray-400">(selecione um ou mais)</span></label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
                       {justaCausaOptions.map(opt => {
-                        const checked = dismissalForm.involuntary_reason === opt;
+                        const checked = dismissalForm.involuntary_reasons.includes(opt);
                         return (
                           <button
                             key={opt}
                             type="button"
-                            onClick={() => setDismissalForm(f => ({ ...f, involuntary_reason: opt }))}
+                            onClick={() => setDismissalForm(f => ({
+                              ...f,
+                              involuntary_reasons: checked
+                                ? f.involuntary_reasons.filter(r => r !== opt)
+                                : [...f.involuntary_reasons, opt],
+                            }))}
                             className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
                               checked
                                 ? 'bg-purple-50/55 dark:bg-purple-900/10 border-purple-300 dark:border-purple-800 text-purple-750 dark:text-purple-350'
                                 : 'border-gray-250 dark:border-gray-800 text-gray-650 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30'
                             }`}
                           >
-                            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-3xs transition-all ${
+                            <span className={`w-4 h-4 rounded flex items-center justify-center border transition-all ${
                               checked ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-300 dark:border-gray-600'
                             }`}>
-                              {checked && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                              {checked && <Check className="w-3 h-3" />}
                             </span>
                             <span className="text-xs font-semibold">{opt}</span>
                           </button>
@@ -841,28 +846,33 @@ export default function DPEmployees() {
                   </div>
                 )}
 
-                {/* Opções Sem Justa Causa */}
+                {/* Opções Sem Justa Causa (multi-select) */}
                 {dismissalForm.involuntary_type === 'sem_justa_causa' && (
                   <div>
-                    <label className={labelCls}>Motivo da demissão sem justa causa *</label>
+                    <label className={labelCls}>Motivo da demissão sem justa causa * <span className="font-normal text-gray-400">(selecione um ou mais)</span></label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
                       {semJustaCausaOptions.map(opt => {
-                        const checked = dismissalForm.involuntary_reason === opt;
+                        const checked = dismissalForm.involuntary_reasons.includes(opt);
                         return (
                           <button
                             key={opt}
                             type="button"
-                            onClick={() => setDismissalForm(f => ({ ...f, involuntary_reason: opt }))}
+                            onClick={() => setDismissalForm(f => ({
+                              ...f,
+                              involuntary_reasons: checked
+                                ? f.involuntary_reasons.filter(r => r !== opt)
+                                : [...f.involuntary_reasons, opt],
+                            }))}
                             className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
                               checked
                                 ? 'bg-purple-50/55 dark:bg-purple-900/10 border-purple-300 dark:border-purple-800 text-purple-750 dark:text-purple-350'
                                 : 'border-gray-250 dark:border-gray-800 text-gray-655 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30'
                             }`}
                           >
-                            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-3xs transition-all ${
+                            <span className={`w-4 h-4 rounded flex items-center justify-center border transition-all ${
                               checked ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-300 dark:border-gray-600'
                             }`}>
-                              {checked && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                              {checked && <Check className="w-3 h-3" />}
                             </span>
                             <span className="text-xs font-semibold">{opt}</span>
                           </button>
