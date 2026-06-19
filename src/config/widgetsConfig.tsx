@@ -1,7 +1,7 @@
 import React from 'react';
-import { 
-  Sun, ShoppingCart, TrendingUp, Hotel, 
-  Boxes, Wrench, Link as LinkIcon, Package
+import {
+  Sun, ShoppingCart, TrendingUp, Hotel,
+  Boxes, Wrench, Link as LinkIcon, Package, TrendingDown,
 } from 'lucide-react';
 
 export type WidgetSize = 'small' | 'medium' | 'large' | 'full';
@@ -82,5 +82,15 @@ export const AVAILABLE_WIDGETS: WidgetDefinition[] = [
     type: 'standard',
     defaultSize: 'medium',
     component: React.lazy(() => import('../components/widgets/StockAlertsWidget')),
-  }
+  },
+  {
+    id: 'cost-per-guest',
+    label: 'Gasto / Hóspede',
+    description: 'Linha do tempo de custo por hóspede.',
+    icon: TrendingDown,
+    module: 'reports',
+    type: 'standard',
+    defaultSize: 'large',
+    component: React.lazy(() => import('../components/widgets/CostPerGuestWidget')),
+  },
 ];
