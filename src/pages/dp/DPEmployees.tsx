@@ -221,6 +221,18 @@ export default function DPEmployees() {
   const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
 
+  // Dismissal form state
+  const [showDismissalModal, setShowDismissalModal] = useState(false);
+  const [pendingSavePayload, setPendingSavePayload] = useState<any>(null);
+  const [dismissalForm, setDismissalForm] = useState({
+    dismissal_date: '',
+    type: 'voluntary', // 'voluntary' | 'involuntary'
+    voluntary_reasons: [] as string[],
+    involuntary_type: '', // 'justa_causa' | 'sem_justa_causa'
+    involuntary_reason: '',
+    notes: '',
+  });
+
   // Transfer modal
   const [transferEmp,    setTransferEmp]    = useState<Employee | null>(null);
   const [transferHotel,  setTransferHotel]  = useState('');
@@ -446,6 +458,25 @@ export default function DPEmployees() {
         created_by:     user?.id,
       };
 
+      // Intercepta se o colaborador era ATIVO e passa a ser DESLIGADO (dismissed)
+      const originalEmployee = editId ? employees.find(emp => emp.id === editId) : null;
+      const isTransitionToDismissed = originalEmployee && originalEmployee.status === 'active' && form.status === 'dismissed';
+
+      if (isTransitionToDismissed) {
+        setDismissalForm({
+          dismissal_date: new Date().toISOString().split('T')[0],
+          type: 'voluntary',
+          voluntary_reasons: [],
+          involuntary_type: '',
+          involuntary_reason: '',
+          notes: '',
+        });
+        setPendingSavePayload(payload);
+        setShowDismissalModal(true);
+        setSaving(false);
+        return;
+      }
+
       if (editId) {
         const { error } = await supabase.from('employees').update(payload).eq('id', editId);
         if (error) throw error;
@@ -503,6 +534,391 @@ export default function DPEmployees() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const [dismissalError, setDismissalError] = useState('');
+
+  const handleConfirmDismissal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDismissalError('');
+    if (!pendingSavePayload || !editId) return;
+
+    if (!dismissalForm.dismissal_date) {
+      setDismissalError('Por favor, informe a data do desligamento.');
+      return;
+    }
+    if (dismissalForm.type === 'involuntary') {
+      if (!dismissalForm.involuntary_type) {
+        setDismissalError('Por favor, selecione se é com ou sem justa causa.');
+        return;
+      }
+      if (!dismissalForm.involuntary_reason) {
+        setDismissalError('Por favor, selecione uma das opções de motivo.');
+        return;
+      }
+    }
+    if (!dismissalForm.notes.trim()) {
+      setDismissalError('Por favor, preencha o campo de observações com o motivo detalhado.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // 1. Grava na tabela employee_dismissals
+      const { error: dismError } = await supabase.from('employee_dismissals').insert({
+        hotel_id: pendingSavePayload.hotel_id,
+        employee_id: editId,
+        dismissal_date: dismissalForm.dismissal_date,
+        type: dismissalForm.type,
+        voluntary_reasons: dismissalForm.type === 'voluntary' ? dismissalForm.voluntary_reasons : [],
+        involuntary_type: dismissalForm.type === 'involuntary' ? dismissalForm.involuntary_type : null,
+        involuntary_reason: dismissalForm.type === 'involuntary' ? dismissalForm.involuntary_reason : null,
+        notes: dismissalForm.notes.trim(),
+      });
+      if (dismError) throw dismError;
+
+      // 2. Grava a atualização do colaborador (muda status para dismissed)
+      const { error: empError } = await supabase.from('employees').update(pendingSavePayload).eq('id', editId);
+      if (empError) throw empError;
+
+      // ── Sync contato na agenda ──────────────────────────────
+      if (pendingSavePayload.phone && isValidWhatsAppNumber(pendingSavePayload.phone)) {
+        try {
+          const formatted = formatWhatsAppNumber(pendingSavePayload.phone);
+          const existing = (await whatsappService.getContacts()).find(c => c.whatsapp_number === formatted);
+          const cats = await whatsappService.getCategories();
+          const colabCat = cats.find(c => c.name === 'Colaborador');
+
+          if (existing) {
+            if (!existing.employee_id) {
+              await supabase.from('supplier_contacts').update({
+                employee_id: editId,
+                category_id: colabCat?.id || existing.category_id,
+                contact_name: pendingSavePayload.name,
+                email: pendingSavePayload.email || existing.email,
+                updated_at: new Date().toISOString(),
+              }).eq('id', existing.id);
+            }
+          } else {
+            await whatsappService.saveContact({
+              company_name: pendingSavePayload.name,
+              contact_name: pendingSavePayload.name,
+              whatsapp_number: formatted,
+              email: pendingSavePayload.email || null,
+              category_id: colabCat?.id || null,
+              employee_id: editId,
+              notes: `${pendingSavePayload.role} — ${pendingSavePayload.sector}`,
+            });
+          }
+        } catch {
+          // Não bloqueia
+        }
+      }
+
+      setShowDismissalModal(false);
+      setPendingSavePayload(null);
+      setShowForm(false);
+      await fetchEmployees();
+    } catch (err: any) {
+      setDismissalError(err.message || 'Erro ao realizar desligamento.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderDismissalModal = () => {
+    if (!showDismissalModal) return null;
+
+    const voluntaryOptions = [
+      { id: 'proposta_externa', label: 'Proposta Externa' },
+      { id: 'nao_se_adaptou', label: 'Não se adaptou' },
+      { id: 'problemas_pessoais', label: 'Problemas Pessoais' },
+      { id: 'desacordo_regras', label: 'Desacordo com regras' },
+      { id: 'salario_abaixo_expectativa', label: 'Salário abaixo da expectativa' },
+      { id: 'falta_oportunidade', label: 'Falta de oportunidade e crescimento' },
+      { id: 'mudanca_cidade_pais', label: 'Mudança de cidade ou país' },
+      { id: 'mudanca_carreira', label: 'Mudança de carreira' },
+    ];
+
+    const justaCausaOptions = [
+      'Assédio Moral',
+      'Assédio Sexual',
+      'Roubo ou Furto',
+      'Violência',
+      'Acúmulo de Suspensão',
+      'Outros',
+    ];
+
+    const semJustaCausaOptions = [
+      'Fora do perfil',
+      'Insubordinação',
+      'Mau comportamento',
+      'Indisciplina',
+      'Acúmulo de advertências recorrentes',
+      'Acordo Legal',
+      'Acordo individual',
+      'Outros',
+    ];
+
+    const toggleVoluntaryReason = (reasonId: string) => {
+      setDismissalForm(f => {
+        const reasons = f.voluntary_reasons.includes(reasonId)
+          ? f.voluntary_reasons.filter(r => r !== reasonId)
+          : [...f.voluntary_reasons, reasonId];
+        return { ...f, voluntary_reasons: reasons };
+      });
+    };
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => {
+          setShowDismissalModal(false);
+          setPendingSavePayload(null);
+        }} />
+
+        {/* Modal Content */}
+        <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-150 dark:border-gray-800 max-h-[90vh] flex flex-col">
+          {/* Header */}
+          <div className="px-6 py-4 bg-red-50 dark:bg-red-950/20 border-b border-red-100 dark:border-red-900/30 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-5 w-5" />
+              <h2 className="text-lg font-bold">Questionário de Desligamento</h2>
+            </div>
+            <button onClick={() => {
+              setShowDismissalModal(false);
+              setPendingSavePayload(null);
+            }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleConfirmDismissal} className="flex-1 overflow-y-auto p-6 space-y-5">
+            {/* Nome do Colaborador (informativo) */}
+            <div className="bg-gray-50 dark:bg-gray-850 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800">
+              <span className="text-xs text-gray-450 dark:text-gray-500 uppercase tracking-wider block font-semibold">Desligando Colaborador</span>
+              <span className="text-sm font-bold text-gray-800 dark:text-white">{pendingSavePayload?.name}</span>
+            </div>
+
+            {/* Data de Desligamento */}
+            <div>
+              <label className={labelCls}>Data do desligamento *</label>
+              <input 
+                type="date" 
+                value={dismissalForm.dismissal_date} 
+                onChange={e => setDismissalForm(f => ({ ...f, dismissal_date: e.target.value }))}
+                className={inputCls} 
+                required 
+              />
+            </div>
+
+            {/* Tipo de Desligamento (Voluntário ou Involuntário) */}
+            <div>
+              <label className={labelCls}>Tipo de desligamento *</label>
+              <div className="grid grid-cols-2 gap-3 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setDismissalForm(f => ({ ...f, type: 'voluntary' }))}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
+                    dismissalForm.type === 'voluntary'
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 text-blue-600 dark:text-blue-400 font-bold'
+                      : 'border-gray-200 dark:border-gray-800 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                  }`}
+                >
+                  <span className="text-sm">Voluntário</span>
+                  <span className="text-3xs text-gray-400 dark:text-gray-500 mt-0.5">Colaborador pede para sair</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDismissalForm(f => ({ ...f, type: 'involuntary' }))}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
+                    dismissalForm.type === 'involuntary'
+                      ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-500 text-purple-600 dark:text-purple-400 font-bold'
+                      : 'border-gray-200 dark:border-gray-800 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                  }`}
+                >
+                  <span className="text-sm">Involuntário</span>
+                  <span className="text-3xs text-gray-400 dark:text-gray-500 mt-0.5">Empresa pede desligamento</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Questionário Voluntário */}
+            {dismissalForm.type === 'voluntary' && (
+              <div className="space-y-4">
+                <div>
+                  <label className={labelCls}>Motivos de Saída (Opcionais)</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
+                    {voluntaryOptions.map(opt => {
+                      const checked = dismissalForm.voluntary_reasons.includes(opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => toggleVoluntaryReason(opt.id)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
+                            checked
+                              ? 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-400'
+                              : 'border-gray-250 dark:border-gray-800 text-gray-600 dark:text-gray-450 hover:bg-gray-50 dark:hover:bg-gray-800/30'
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded flex items-center justify-center border text-3xs transition-all ${
+                            checked ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-300 dark:border-gray-600'
+                          }`}>
+                            {checked && '✓'}
+                          </span>
+                          <span className="text-xs font-semibold">{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Questionário Involuntário */}
+            {dismissalForm.type === 'involuntary' && (
+              <div className="space-y-4">
+                {/* Justa Causa vs Sem Justa Causa */}
+                <div>
+                  <label className={labelCls}>Vertente do Desligamento *</label>
+                  <div className="flex gap-6 mt-1.5">
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-gray-305 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="involuntary_type"
+                        value="justa_causa"
+                        checked={dismissalForm.involuntary_type === 'justa_causa'}
+                        onChange={() => setDismissalForm(f => ({ ...f, involuntary_type: 'justa_causa', involuntary_reason: '' }))}
+                        className="text-purple-650 focus:ring-purple-500 dark:bg-gray-800 dark:border-gray-700"
+                        required
+                      />
+                      Justa Causa
+                    </label>
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-gray-305 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="involuntary_type"
+                        value="sem_justa_causa"
+                        checked={dismissalForm.involuntary_type === 'sem_justa_causa'}
+                        onChange={() => setDismissalForm(f => ({ ...f, involuntary_type: 'sem_justa_causa', involuntary_reason: '' }))}
+                        className="text-purple-655 focus:ring-purple-500 dark:bg-gray-800 dark:border-gray-700"
+                        required
+                      />
+                      Sem Justa Causa
+                    </label>
+                  </div>
+                </div>
+
+                {/* Opções de Justa Causa */}
+                {dismissalForm.involuntary_type === 'justa_causa' && (
+                  <div>
+                    <label className={labelCls}>Motivo da Justa Causa *</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
+                      {justaCausaOptions.map(opt => {
+                        const checked = dismissalForm.involuntary_reason === opt;
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setDismissalForm(f => ({ ...f, involuntary_reason: opt }))}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
+                              checked
+                                ? 'bg-purple-50/55 dark:bg-purple-900/10 border-purple-300 dark:border-purple-800 text-purple-750 dark:text-purple-350'
+                                : 'border-gray-250 dark:border-gray-800 text-gray-650 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30'
+                            }`}
+                          >
+                            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-3xs transition-all ${
+                              checked ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-300 dark:border-gray-600'
+                            }`}>
+                              {checked && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                            </span>
+                            <span className="text-xs font-semibold">{opt}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Opções Sem Justa Causa */}
+                {dismissalForm.involuntary_type === 'sem_justa_causa' && (
+                  <div>
+                    <label className={labelCls}>Motivo da demissão sem justa causa *</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
+                      {semJustaCausaOptions.map(opt => {
+                        const checked = dismissalForm.involuntary_reason === opt;
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setDismissalForm(f => ({ ...f, involuntary_reason: opt }))}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
+                              checked
+                                ? 'bg-purple-50/55 dark:bg-purple-900/10 border-purple-300 dark:border-purple-800 text-purple-750 dark:text-purple-350'
+                                : 'border-gray-250 dark:border-gray-800 text-gray-655 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30'
+                            }`}
+                          >
+                            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-3xs transition-all ${
+                              checked ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-300 dark:border-gray-600'
+                            }`}>
+                              {checked && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                            </span>
+                            <span className="text-xs font-semibold">{opt}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Observações / Descrição Livre (Obrigatória em todos) */}
+            <div>
+              <label className={labelCls}>Observações (Descreva em detalhes o motivo) *</label>
+              <textarea
+                value={dismissalForm.notes}
+                onChange={e => setDismissalForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Descreva aqui o motivo detalhado..."
+                rows={3}
+                className={inputCls}
+                required
+              />
+            </div>
+
+            {dismissalError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <p className="font-semibold">{dismissalError}</p>
+              </div>
+            )}
+
+            {/* Footer / Ações */}
+            <div className="pt-4 border-t border-gray-150 dark:border-gray-800 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-gray-900 z-10 pb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDismissalModal(false);
+                  setPendingSavePayload(null);
+                }}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-md hover:shadow-lg disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirmar Desligamento
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
   };
 
   // ---------------------------------------------------------------------------
@@ -1100,6 +1516,9 @@ export default function DPEmployees() {
           </div>
         </div>
       )}
+
+      {/* Modal de desligamento */}
+      {showDismissalModal && renderDismissalModal()}
 
       {/* Relatório de colaboradores */}
       <EmployeesReportModal
