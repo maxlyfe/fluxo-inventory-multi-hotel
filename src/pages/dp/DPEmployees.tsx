@@ -10,8 +10,9 @@ import {
   Users, Plus, Search, X, Loader2, AlertTriangle, ChevronDown,
   Building2, Phone, Calendar, Briefcase, UserCheck, UserX,
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
-  ArrowRightLeft,
+  ArrowRightLeft, FileText,
 } from 'lucide-react';
+import EmployeesReportModal from '../../components/EmployeesReportModal';
 import { format, differenceInDays, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { whatsappService, formatWhatsAppNumber, isValidWhatsAppNumber } from '../../lib/whatsappService';
@@ -205,6 +206,7 @@ export default function DPEmployees() {
   // List state
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [hotels, setHotels]       = useState<{ id: string; name: string }[]>([]);
+  const [showReport, setShowReport] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [search, setSearch]       = useState('');
@@ -921,10 +923,20 @@ export default function DPEmployees() {
           </button>
         )}
 
+        {/* Report button */}
+        <button onClick={() => setShowReport(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-indigo-200 dark:shadow-indigo-900/30 ml-auto"
+          title="Gerar relatório de colaboradores">
+          <FileText className="h-4 w-4" />
+          <span className="hidden sm:inline">Relatório</span>
+        </button>
+
         {/* Add button */}
         <button onClick={openNew}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-blue-200 dark:shadow-blue-900/30 ml-auto">
-          <Plus className="h-4 w-4" />Novo colaborador
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-blue-200 dark:shadow-blue-900/30">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">Novo colaborador</span>
+          <span className="sm:hidden">Novo</span>
         </button>
       </div>
 
@@ -1088,6 +1100,14 @@ export default function DPEmployees() {
           </div>
         </div>
       )}
+
+      {/* Relatório de colaboradores */}
+      <EmployeesReportModal
+        isOpen={showReport}
+        onClose={() => setShowReport(false)}
+        employees={employees as any}
+        hotelName={selectedHotel?.name || 'Hotel'}
+      />
     </div>
   );
 }
