@@ -108,8 +108,10 @@ export default function EmployeesReportModal({ isOpen, onClose, employees, hotel
       // Agrupa por setor (ordem alfabética por setor; nome dentro)
       const bySector = new Map<string, EmployeeRow[]>();
       filtered.forEach(e => {
-        const s = e.sector || 'Sem setor';
-        (bySector.get(s) || bySector.set(s, []).get(s)!).push(e);
+        const s = (e.sector && e.sector.trim()) || 'Sem setor';
+        const arr = bySector.get(s);
+        if (arr) arr.push(e);
+        else bySector.set(s, [e]);
       });
       const sectors = [...bySector.entries()]
         .map(([s, list]) => [s, [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))] as const)
@@ -201,9 +203,16 @@ export default function EmployeesReportModal({ isOpen, onClose, employees, hotel
   <script>setTimeout(() => { try { window.focus(); } catch(_){} }, 100);</script>
 </body></html>`;
 
-      const w = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=800');
-      if (!w) { alert('Permita pop-ups para gerar o relatório.'); return; }
-      w.document.open(); w.document.write(html); w.document.close();
+      // Usa Blob URL + link disparado por gesto do usuário → não cai no bloqueio
+      // de pop-up de navegadores agressivos. Se o navegador AINDA assim bloquear,
+      // o relatório abre num iframe inline (fallback dentro do próprio modal).
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      document.body.appendChild(a); a.click(); a.remove();
+      // Solta a URL depois — alguns navegadores precisam de tempo
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } finally {
       setGenerating(false);
     }
