@@ -21,7 +21,7 @@ interface JobOpening {
   work_schedule: string | null;
   status: string;
   hotel_id: string;
-  hotels?: { name: string; city?: string } | null;
+  hotels?: { name: string } | null;
 }
 
 const CONTRACT_LABELS: Record<string, string> = {
@@ -60,7 +60,7 @@ export default function PublicJobApplication() {
     setLoading(true);
     const { data, error: err } = await supabase
       .from('job_openings')
-      .select('*, hotels(name, city)')
+      .select('*, hotels(name)')
       .eq('public_token', token!)
       .single();
 
@@ -170,7 +170,7 @@ export default function PublicJobApplication() {
             <div>
               <h1 className="text-xl font-bold text-gray-900">{job!.title}</h1>
               <p className="text-sm text-gray-500">
-                {job!.hotels?.name}{job!.hotels?.city ? ` — ${job!.hotels.city}` : ''}
+                {job!.hotels?.name}
               </p>
             </div>
           </div>
