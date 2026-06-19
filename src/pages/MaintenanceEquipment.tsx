@@ -13,7 +13,7 @@ import {
   Settings, Plus, Search, Filter, Download, QrCode,
   Wrench, X, Loader2, ChevronDown, Building2, AlertTriangle,
   Shield, ArrowUpDown, CheckCircle, Package, Pencil, History, Save,
-  Archive, ArchiveRestore,
+  Archive, ArchiveRestore, Printer, Check, CheckSquare, Square,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -117,6 +117,11 @@ export default function MaintenanceEquipment() {
   const [statusMenuId, setStatusMenuId] = useState<string | null>(null);
   const [savingStatus, setSavingStatus] = useState(false);
   const [historyModal, setHistoryModal] = useState<{ eq: Equipment; rows: any[]; loading: boolean } | null>(null);
+
+  // QR Report mode
+  const [qrReportMode, setQrReportMode] = useState(false);
+  const [selectedForQR, setSelectedForQR] = useState<Set<string>>(new Set());
+  const [generatingQR, setGeneratingQR] = useState(false);
 
   // Form: hotel_id sempre inicializado com hotel selecionado no contexto
   const emptyForm = () => ({
@@ -338,6 +343,85 @@ export default function MaintenanceEquipment() {
   };
 
   // ---------------------------------------------------------------------------
+  // QR Report
+  // ---------------------------------------------------------------------------
+  const toggleQRSelect = (id: string) => {
+    setSelectedForQR(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const generateQRReport = async () => {
+    const selected = equipment.filter(eq => selectedForQR.has(eq.id));
+    if (selected.length === 0) return;
+    setGeneratingQR(true);
+    try {
+      const items = await Promise.all(
+        selected.map(async eq => ({
+          name: eq.name,
+          location: eq.location_detail || '',
+          hotel: getHotelName(eq.hotel_id),
+          serial: eq.serial_number || '',
+          dataUrl: await QRCode.toDataURL(
+            `${window.location.origin}/maintenance/equipment/${eq.qr_code_id}`,
+            { width: 400, margin: 1, color: { dark: '#000', light: '#fff' } },
+          ),
+        })),
+      );
+
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>QR Codes - Equipamentos</title>
+<style>
+  @page { size: A4 portrait; margin: 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; }
+  .grid { display: flex; flex-wrap: wrap; gap: 4mm; justify-content: center; }
+  .card {
+    width: 48mm; height: 52mm;
+    border: 0.5px dashed #ccc; border-radius: 2mm;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 2mm; page-break-inside: avoid;
+  }
+  .card img { width: 36mm; height: 36mm; }
+  .card .name { font-size: 7pt; font-weight: 700; text-align: center;
+    margin-top: 1.5mm; line-height: 1.2; max-height: 3.5em;
+    overflow: hidden; word-break: break-word; }
+  .card .sub { font-size: 5.5pt; color: #666; text-align: center;
+    line-height: 1.2; margin-top: 0.5mm; max-height: 2.4em; overflow: hidden; }
+  @media print {
+    .card { border-color: #ddd; }
+  }
+</style></head><body>
+<div class="grid">
+${items.map(it => `  <div class="card">
+    <img src="${it.dataUrl}" alt="QR">
+    <div class="name">${it.name.replace(/</g, '&lt;')}</div>
+    <div class="sub">${it.location ? it.location.replace(/</g, '&lt;') + ' · ' : ''}${it.hotel.replace(/</g, '&lt;')}${it.serial ? ' · S/N ' + it.serial.replace(/</g, '&lt;') : ''}</div>
+  </div>`).join('\n')}
+</div>
+</body></html>`;
+
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      setQrReportMode(false);
+      setSelectedForQR(new Set());
+    } catch (err: any) {
+      addNotification?.('error', 'Erro ao gerar relatório: ' + (err.message || ''));
+    } finally {
+      setGeneratingQR(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Filtered
   // ---------------------------------------------------------------------------
   const filtered = equipment.filter(eq => {
@@ -375,6 +459,18 @@ export default function MaintenanceEquipment() {
             <Wrench className="h-4 w-4" />
             <span className="hidden sm:inline">Tickets</span>
           </button>
+          {equipment.length > 0 && (
+            <button
+              onClick={() => { setQrReportMode(!qrReportMode); setSelectedForQR(new Set()); }}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+                qrReportMode
+                  ? 'bg-orange-500 text-white border-orange-500'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-orange-300 hover:text-orange-600'
+              }`}>
+              <Printer className="h-4 w-4" />
+              <span className="hidden sm:inline">{qrReportMode ? 'Cancelar' : 'Imprimir QR'}</span>
+            </button>
+          )}
           {isManager && (
             <button onClick={() => { if (showForm && !editingId) { closeForm(); } else { setEditingId(null); setForm(emptyForm()); setError(''); setShowForm(true); } }}
               className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
@@ -548,14 +644,30 @@ export default function MaintenanceEquipment() {
             const wExp    = warrantyExpires(eq.purchase_date, eq.warranty_months);
             const sCfg    = STATUS_CONFIG[eq.status] ?? STATUS_CONFIG.active;
             return (
-              <div key={eq.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-all group">
+              <div key={eq.id}
+                onClick={qrReportMode ? () => toggleQRSelect(eq.id) : undefined}
+                className={`bg-white dark:bg-gray-800 rounded-2xl border p-4 transition-all group ${
+                  qrReportMode
+                    ? `cursor-pointer ${selectedForQR.has(eq.id) ? 'border-orange-400 dark:border-orange-500 ring-2 ring-orange-200 dark:ring-orange-800/40' : 'border-gray-100 dark:border-gray-700 hover:border-orange-200'}`
+                    : 'border-gray-100 dark:border-gray-700 hover:shadow-md'
+                }`}>
                 <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 flex items-start gap-2">
+                    {qrReportMode && (
+                      <div className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center border-2 flex-shrink-0 transition-all ${
+                        selectedForQR.has(eq.id)
+                          ? 'bg-orange-500 border-orange-500 text-white'
+                          : 'border-gray-300 dark:border-gray-600'
+                      }`}>
+                        {selectedForQR.has(eq.id) && <Check className="w-3.5 h-3.5" />}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
                     {/* Status — clicável para alterar (gera histórico) */}
                     <div className="relative inline-block mb-2">
                       <button
-                        onClick={() => isManager && setStatusMenuId(statusMenuId === eq.id ? null : eq.id)}
-                        disabled={!isManager || savingStatus}
+                        onClick={e => { if (qrReportMode) { e.stopPropagation(); return; } isManager && setStatusMenuId(statusMenuId === eq.id ? null : eq.id); }}
+                        disabled={!isManager || savingStatus || qrReportMode}
                         className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${sCfg.bg} ${sCfg.color} ${isManager ? 'hover:ring-1 hover:ring-current cursor-pointer' : 'cursor-default'}`}
                         title={isManager ? 'Clique para alterar o status' : undefined}>
                         <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />{sCfg.label}
@@ -576,8 +688,9 @@ export default function MaintenanceEquipment() {
                     </div>
                     <h3 className="text-sm font-bold text-gray-900 dark:text-white truncate">{eq.name}</h3>
                     <p className="text-xs text-gray-400 mt-0.5">{eq.category}</p>
+                    </div>
                   </div>
-                  <div className="flex gap-1">
+                  {!qrReportMode && <div className="flex gap-1">
                     {isManager && (
                       <button onClick={() => handleEditEquipment(eq)} title="Editar equipamento"
                         className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
@@ -599,7 +712,7 @@ export default function MaintenanceEquipment() {
                       className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-all">
                       <QrCode className="h-4 w-4" />
                     </button>
-                  </div>
+                  </div>}
                 </div>
 
                 <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
@@ -620,10 +733,12 @@ export default function MaintenanceEquipment() {
                   </div>
                 )}
 
-                <button onClick={() => navigate(`/maintenance/equipment/${eq.qr_code_id}`)}
-                  className="w-full mt-3 py-2 text-xs font-medium text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors">
-                  Ver ficha completa →
-                </button>
+                {!qrReportMode && (
+                  <button onClick={() => navigate(`/maintenance/equipment/${eq.qr_code_id}`)}
+                    className="w-full mt-3 py-2 text-xs font-medium text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors">
+                    Ver ficha completa →
+                  </button>
+                )}
               </div>
             );
           })}
@@ -666,6 +781,36 @@ export default function MaintenanceEquipment() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* QR Report floating bar */}
+      {qrReportMode && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 px-5 py-3 flex items-center gap-4">
+          <button
+            onClick={() => {
+              if (selectedForQR.size === filtered.length) setSelectedForQR(new Set());
+              else setSelectedForQR(new Set(filtered.map(e => e.id)));
+            }}
+            className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-orange-600 transition-colors">
+            {selectedForQR.size === filtered.length
+              ? <><CheckSquare className="h-4 w-4" />Desmarcar todos</>
+              : <><Square className="h-4 w-4" />Selecionar todos</>
+            }
+          </button>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{selectedForQR.size} selecionado{selectedForQR.size !== 1 ? 's' : ''}</span>
+          <button
+            onClick={generateQRReport}
+            disabled={selectedForQR.size === 0 || generatingQR}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors">
+            {generatingQR ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+            Gerar Relatório
+          </button>
+          <button
+            onClick={() => { setQrReportMode(false); setSelectedForQR(new Set()); }}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="h-5 w-5" />
+          </button>
         </div>
       )}
 
