@@ -90,7 +90,7 @@ export const AVAILABLE_WIDGETS: WidgetDefinition[] = [
     icon: TrendingDown,
     module: 'reports',
     type: 'standard',
-    defaultSize: 'large',
+    defaultSize: 'full',
     component: React.lazy(() => import('../components/widgets/CostPerGuestWidget')),
   },
 ];
