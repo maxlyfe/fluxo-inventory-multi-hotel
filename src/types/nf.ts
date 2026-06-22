@@ -1,6 +1,7 @@
 export type NFTipo = 'nfse' | 'nfe';
-export type NFStatus = 'rascunho' | 'emitida' | 'autorizada' | 'rejeitada' | 'cancelada';
+export type NFStatus = 'rascunho' | 'emitida' | 'autorizada' | 'rejeitada' | 'cancelada' | 'contingencia';
 export type NFAmbiente = 'homologacao' | 'producao';
+export type NFDocTipo = 'cpf' | 'cnpj' | 'passaporte';
 
 export interface NFHotelConfig {
   id: string;
@@ -59,6 +60,8 @@ export interface NFInvoice {
 
   tomador_nome: string;
   tomador_cpf_cnpj: string | null;
+  tomador_doc_tipo: NFDocTipo;
+  tomador_nacionalidade: string | null;
   tomador_email: string | null;
   tomador_endereco: string | null;
 
@@ -82,6 +85,13 @@ export interface NFInvoice {
   cancelada_em: string | null;
   motivo_cancelamento: string | null;
   xml_cancelamento: string | null;
+
+  contingencia_motivo: string | null;
+  numero_rps: string | null;
+  contingencia_protocolo: string | null;
+  contingencia_em: string | null;
+  retransmitido_em: string | null;
+  retry_count: number;
 
   emitido_por: string | null;
   cancelado_por: string | null;

@@ -7,6 +7,7 @@ import type {
   NFInvoiceItem,
   NFEmittedEntry,
   NFTipo,
+  NFDocTipo,
 } from '../types/nf';
 
 const NF_PROXY = import.meta.env.PROD
@@ -411,6 +412,8 @@ interface CreateInvoiceInput {
   room_description: string | null;
   tomador_nome: string;
   tomador_cpf_cnpj: string | null;
+  tomador_doc_tipo: NFDocTipo;
+  tomador_nacionalidade: string | null;
   tomador_email: string | null;
   tomador_endereco: string | null;
   items: Array<{
@@ -419,6 +422,13 @@ interface CreateInvoiceInput {
     quantidade: number;
     valor_unitario: number;
     valor_total: number;
+    ncm?: string | null;
+    cfop?: string | null;
+    icms_aliquota?: number | null;
+    icms_valor?: number | null;
+    codigo_servico?: string | null;
+    iss_aliquota?: number | null;
+    iss_valor?: number | null;
   }>;
   emitido_por: string | null;
 }
@@ -436,6 +446,8 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
       room_description: input.room_description,
       tomador_nome: input.tomador_nome,
       tomador_cpf_cnpj: input.tomador_cpf_cnpj,
+      tomador_doc_tipo: input.tomador_doc_tipo,
+      tomador_nacionalidade: input.tomador_nacionalidade,
       tomador_email: input.tomador_email,
       tomador_endereco: input.tomador_endereco,
       valor_total: valorTotal,
@@ -453,6 +465,13 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
     quantidade: it.quantidade,
     valor_unitario: it.valor_unitario,
     valor_total: it.valor_total,
+    ncm: it.ncm ?? null,
+    cfop: it.cfop ?? null,
+    icms_aliquota: it.icms_aliquota ?? null,
+    icms_valor: it.icms_valor ?? null,
+    codigo_servico: it.codigo_servico ?? null,
+    iss_aliquota: it.iss_aliquota ?? null,
+    iss_valor: it.iss_valor ?? null,
   }));
 
   const { error: itemsErr } = await supabase.from('nf_invoice_items').insert(itemRows);
@@ -566,6 +585,182 @@ async function cancelInvoice(
   }
 }
 
+// ─── Contingência ───────────────────────────────────────────────────────────
+
+async function emitContingencia(
+  invoiceId: string,
+  hotelId: string,
+  motivo: string,
+): Promise<{ success: boolean; message: string; invoice?: NFInvoice }> {
+  try {
+    const res = await fetch(NF_PROXY, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-nf-action': 'contingencia',
+      },
+      body: JSON.stringify({ invoiceId, hotelId, motivo }),
+    });
+
+    const result = await res.json();
+
+    const { data: updated, error } = await supabase
+      .from('nf_invoices')
+      .update({
+        status: 'contingencia',
+        contingencia_motivo: motivo,
+        contingencia_em: new Date().toISOString(),
+        numero_rps: result.numero_rps || null,
+        contingencia_protocolo: result.contingencia_protocolo || null,
+      })
+      .eq('id', invoiceId)
+      .select()
+      .single();
+    if (error) throw error;
+
+    // Marcar entries como emitidas (em contingência, já vale)
+    const { data: items } = await supabase
+      .from('nf_invoice_items')
+      .select('erbon_entry_id')
+      .eq('invoice_id', invoiceId);
+
+    if (items?.length) {
+      const entryIds = items
+        .map((i: { erbon_entry_id: number | null }) => i.erbon_entry_id)
+        .filter((id): id is number => id != null);
+      if (entryIds.length > 0) {
+        await markEntriesAsEmitted(hotelId, entryIds, invoiceId);
+      }
+    }
+
+    return {
+      success: true,
+      message: `Nota emitida em contingência (RPS/EPEC). Será retransmitida automaticamente.`,
+      invoice: updated as NFInvoice,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Erro desconhecido';
+    return { success: false, message };
+  }
+}
+
+async function retryContingencyInvoices(hotelId: string): Promise<{
+  total: number;
+  success: number;
+  failed: number;
+  results: Array<{ invoiceId: string; success: boolean; message: string }>;
+}> {
+  const { data: pending } = await supabase
+    .from('nf_invoices')
+    .select('id')
+    .eq('hotel_id', hotelId)
+    .eq('status', 'contingencia')
+    .order('created_at');
+
+  if (!pending?.length) return { total: 0, success: 0, failed: 0, results: [] };
+
+  const results: Array<{ invoiceId: string; success: boolean; message: string }> = [];
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const inv of pending) {
+    const emitResult = await emitInvoice(inv.id, hotelId);
+    if (emitResult.success) {
+      await supabase
+        .from('nf_invoices')
+        .update({ retransmitido_em: new Date().toISOString() })
+        .eq('id', inv.id);
+      successCount++;
+    } else {
+      await supabase
+        .from('nf_invoices')
+        .update({ retry_count: (await supabase.from('nf_invoices').select('retry_count').eq('id', inv.id).single()).data?.retry_count + 1 || 1 })
+        .eq('id', inv.id);
+      failedCount++;
+    }
+    results.push({ invoiceId: inv.id, success: emitResult.success, message: emitResult.message });
+  }
+
+  return { total: pending.length, success: successCount, failed: failedCount, results };
+}
+
+async function getContingencyCount(hotelId: string): Promise<number> {
+  const { count } = await supabase
+    .from('nf_invoices')
+    .select('id', { count: 'exact', head: true })
+    .eq('hotel_id', hotelId)
+    .eq('status', 'contingencia');
+  return count ?? 0;
+}
+
+// ─── FNRH / WCI Guest Lookup ────────────────────────────────────────────────
+
+interface WCIGuestData {
+  name: string;
+  document_type: string | null;
+  document_number: string | null;
+  nationality: string | null;
+  email: string | null;
+  phone: string | null;
+  address_street: string | null;
+  address_neighborhood: string | null;
+  address_city: string | null;
+  address_state: string | null;
+  address_zipcode: string | null;
+  address_country: string | null;
+}
+
+async function lookupWCIGuest(
+  hotelId: string,
+  bookingNumber: string,
+  guestName: string,
+): Promise<WCIGuestData | null> {
+  const { data: fichas } = await supabase
+    .from('wci_checkin_fichas')
+    .select(`
+      id,
+      booking_number,
+      wci_checkin_guests (
+        name,
+        is_main_guest,
+        document_type,
+        document_number,
+        nationality,
+        email,
+        phone,
+        address_street,
+        address_neighborhood,
+        address_city,
+        address_state,
+        address_zipcode,
+        address_country
+      )
+    `)
+    .eq('hotel_id', hotelId)
+    .eq('booking_number', bookingNumber)
+    .eq('status', 'completed')
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  if (!fichas?.length) return null;
+
+  const normalizedTarget = guestName.toLowerCase().trim();
+
+  for (const ficha of fichas) {
+    const guests = (ficha as any).wci_checkin_guests || [];
+    // Try exact match first, then partial match
+    const match = guests.find((g: any) =>
+      g.name?.toLowerCase().trim() === normalizedTarget
+    ) || guests.find((g: any) =>
+      g.is_main_guest && normalizedTarget.includes(g.name?.toLowerCase().trim().split(' ')[0] || '___')
+    );
+
+    if (match) return match as WCIGuestData;
+  }
+
+  return null;
+}
+
 // ─── Test Connection ─────────────────────────────────────────────────────────
 
 async function testConnection(
@@ -605,6 +800,10 @@ export const nfService = {
   cancelInvoice,
   testConnection,
   resolveEntryFiscalData,
+  emitContingencia,
+  retryContingencyInvoices,
+  getContingencyCount,
+  lookupWCIGuest,
 };
 
-export type { CreateInvoiceInput, FiscalLineItem, FiscalResolutionResult };
+export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult };

@@ -14,11 +14,12 @@ import {
   Info,
   CheckCircle,
   AlertCircle,
+  Printer,
 } from 'lucide-react';
-import { nfService, type FiscalLineItem, type FiscalResolutionResult } from '../../lib/nfService';
+import { nfService, type FiscalLineItem, type FiscalResolutionResult, type WCIGuestData } from '../../lib/nfService';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
-import type { NFTipo } from '../../types/nf';
+import type { NFTipo, NFDocTipo, NFHotelConfig } from '../../types/nf';
 
 export interface CurrentAccountEntry {
   id: number;
@@ -115,6 +116,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 }) => {
   const { user } = useAuth();
   const { addNotification } = useNotification();
+  const [nfConfig, setNfConfig] = useState<NFHotelConfig | null>(null);
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -128,10 +130,16 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [ignoredItems, setIgnoredItems] = useState<CurrentAccountEntry[]>([]);
   const [checkedItemIds, setCheckedItemIds] = useState<Set<number>>(new Set());
 
+  // Emitted invoice (for print after emission)
+  const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
+
   // Tomador data state
+  const [tomadorDocTipo, setTomadorDocTipo] = useState<NFDocTipo>('cpf');
   const [tomadorNome, setTomadorNome] = useState('');
   const [tomadorCpfCnpj, setTomadorCpfCnpj] = useState('');
+  const [tomadorNacionalidade, setTomadorNacionalidade] = useState('');
   const [tomadorEmail, setTomadorEmail] = useState('');
+  const [wciLoaded, setWciLoaded] = useState(false);
   const [tomadorCep, setTomadorCep] = useState('');
   const [tomadorLogradouro, setTomadorLogradouro] = useState('');
   const [tomadorNumero, setTomadorNumero] = useState('');
@@ -150,6 +158,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setFormErrors({});
     setSubmitting(false);
     setFiscalData(null);
+
+    // Load NF config for print receipt header
+    nfService.getConfig(hotelId).then(c => setNfConfig(c)).catch(() => {});
 
     // Classify entries
     const services = selectedEntries.filter(isServiceEntry);
@@ -178,20 +189,63 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       });
     }
 
+    // Reset tomador
+    setTomadorDocTipo('cpf');
+    setTomadorNacionalidade('');
+    setEmittedInvoice(null);
+    setWciLoaded(false);
+
     // Prefill tomador data from booking guest
     const primaryGuest = booking?.guestList?.[0];
     if (primaryGuest) {
       setTomadorNome(primaryGuest.name || '');
       setTomadorEmail(primaryGuest.email || '');
 
-      // Try to find CPF or CNPJ document
+      // Detect document type
+      const passportDoc = primaryGuest.documents?.find(
+        (d: any) => d.documentType?.toUpperCase() === 'PASSAPORTE' || d.documentType?.toUpperCase() === 'PASSPORT'
+      );
       const cpfDoc = primaryGuest.documents?.find(
         (d: any) =>
           d.documentType?.toUpperCase() === 'CPF' ||
           d.documentType?.toUpperCase() === 'CNPJ' ||
           d.documentType?.toUpperCase() === 'DOCUMENT'
       );
-      setTomadorCpfCnpj(cpfDoc?.number || '');
+
+      if (passportDoc?.number) {
+        setTomadorDocTipo('passaporte');
+        setTomadorCpfCnpj(passportDoc.number);
+      } else if (cpfDoc?.number) {
+        const clean = cpfDoc.number.replace(/\D/g, '');
+        setTomadorDocTipo(clean.length === 14 ? 'cnpj' : 'cpf');
+        setTomadorCpfCnpj(cpfDoc.number);
+      } else {
+        setTomadorCpfCnpj('');
+      }
+
+      // Try WCI lookup for complete data (address, nationality)
+      const bookingNum = booking?.erbonNumber ? String(booking.erbonNumber) : null;
+      if (bookingNum && primaryGuest.name) {
+        nfService.lookupWCIGuest(hotelId, bookingNum, primaryGuest.name).then(wci => {
+          if (!wci) return;
+          setWciLoaded(true);
+          if (wci.nationality) setTomadorNacionalidade(wci.nationality);
+          if (wci.document_type?.toUpperCase() === 'PASSAPORTE') {
+            setTomadorDocTipo('passaporte');
+            if (wci.document_number) setTomadorCpfCnpj(wci.document_number);
+          } else if (wci.document_type?.toUpperCase() === 'CPF' && wci.document_number) {
+            setTomadorDocTipo('cpf');
+            setTomadorCpfCnpj(wci.document_number);
+          }
+          if (wci.email) setTomadorEmail(prev => prev || wci.email!);
+          // Fill address from WCI ficha
+          if (wci.address_street) setTomadorLogradouro(wci.address_street);
+          if (wci.address_neighborhood) setTomadorBairro(wci.address_neighborhood);
+          if (wci.address_city) setTomadorCidade(wci.address_city);
+          if (wci.address_state) setTomadorUf(wci.address_state);
+          if (wci.address_zipcode) setTomadorCep(wci.address_zipcode);
+        }).catch(() => {});
+      }
     } else {
       setTomadorNome('');
       setTomadorEmail('');
@@ -225,6 +279,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const finalItems = activeItems.filter((e) => checkedItemIds.has(e.id));
   const subtotal = finalItems.reduce((sum, e) => sum + e.amount, 0);
 
+  const isForeigner = tomadorDocTipo === 'passaporte';
+
   // Validate Tomador details (Step 2)
   const validateStep2 = () => {
     const errors: Record<string, string> = {};
@@ -233,23 +289,31 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       errors.tomadorNome = 'Nome é obrigatório';
     }
 
-    const cleanCpfCnpj = tomadorCpfCnpj.replace(/\D/g, '');
-    if (!cleanCpfCnpj) {
-      errors.tomadorCpfCnpj = 'CPF ou CNPJ é obrigatório';
-    } else if (cleanCpfCnpj.length !== 11 && cleanCpfCnpj.length !== 14) {
-      errors.tomadorCpfCnpj = 'CPF deve ter 11 dígitos e CNPJ 14 dígitos';
-    } else if (cleanCpfCnpj.length === 11 && !validateCpf(cleanCpfCnpj)) {
-      errors.tomadorCpfCnpj = 'CPF inválido';
-    } else if (cleanCpfCnpj.length === 14 && !validateCnpj(cleanCpfCnpj)) {
-      errors.tomadorCpfCnpj = 'CNPJ inválido';
+    if (tomadorDocTipo === 'passaporte') {
+      if (!tomadorCpfCnpj.trim()) {
+        errors.tomadorCpfCnpj = 'Número do passaporte é obrigatório';
+      }
+    } else {
+      const cleanCpfCnpj = tomadorCpfCnpj.replace(/\D/g, '');
+      if (!cleanCpfCnpj) {
+        errors.tomadorCpfCnpj = 'CPF ou CNPJ é obrigatório';
+      } else if (tomadorDocTipo === 'cpf' && cleanCpfCnpj.length !== 11) {
+        errors.tomadorCpfCnpj = 'CPF deve ter 11 dígitos';
+      } else if (tomadorDocTipo === 'cnpj' && cleanCpfCnpj.length !== 14) {
+        errors.tomadorCpfCnpj = 'CNPJ deve ter 14 dígitos';
+      } else if (tomadorDocTipo === 'cpf' && !validateCpf(cleanCpfCnpj)) {
+        errors.tomadorCpfCnpj = 'CPF inválido';
+      } else if (tomadorDocTipo === 'cnpj' && !validateCnpj(cleanCpfCnpj)) {
+        errors.tomadorCpfCnpj = 'CNPJ inválido';
+      }
     }
 
     if (tomadorEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tomadorEmail)) {
       errors.tomadorEmail = 'E-mail inválido';
     }
 
-    // If NF-e (produtos), address is mandatory
-    if (tipo === 'nfe') {
+    // Address mandatory for NF-e with Brazilian nationals (foreigners optional)
+    if (tipo === 'nfe' && !isForeigner) {
       if (!tomadorLogradouro.trim()) errors.tomadorLogradouro = 'Rua é obrigatória';
       if (!tomadorNumero.trim()) errors.tomadorNumero = 'Número é obrigatório';
       if (!tomadorBairro.trim()) errors.tomadorBairro = 'Bairro é obrigatório';
@@ -311,6 +375,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         room_description: booking?.roomDescription || null,
         tomador_nome: tomadorNome,
         tomador_cpf_cnpj: tomadorCpfCnpj,
+        tomador_doc_tipo: tomadorDocTipo,
+        tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
         items: finalItems.map((e) => {
@@ -350,6 +416,90 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     }
   };
 
+  const handleContingencia = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const input = {
+        hotel_id: hotelId,
+        tipo,
+        erbon_booking_id: booking?.bookingInternalID || null,
+        booking_number: booking?.erbonNumber ? String(booking.erbonNumber) : null,
+        room_description: booking?.roomDescription || null,
+        tomador_nome: tomadorNome,
+        tomador_cpf_cnpj: tomadorCpfCnpj,
+        tomador_doc_tipo: tomadorDocTipo,
+        tomador_nacionalidade: tomadorNacionalidade || null,
+        tomador_email: tomadorEmail || null,
+        tomador_endereco: getFullAddress() || null,
+        items: finalItems.map((e) => {
+          const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
+          return {
+            erbon_entry_id: e.id,
+            descricao: e.description,
+            quantidade: 1,
+            valor_unitario: e.amount,
+            valor_total: e.amount,
+            ...(tipo === 'nfe' && fiscal ? {
+              ncm: fiscal.ncm || null,
+              cfop: '5102',
+              icms_aliquota: fiscal.tax_percentage ?? null,
+              icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+            } : {}),
+          };
+        }),
+        emitido_por: user?.id || null,
+      };
+
+      const draft = await nfService.createDraftInvoice(input);
+      const result = await nfService.emitContingencia(draft.id, hotelId, 'Sistema fiscal indisponível');
+
+      if (result.success) {
+        setEmittedInvoice(result.invoice);
+        addNotification({ type: 'success', message: result.message });
+        onSuccess();
+        setStep(4);
+      } else {
+        addNotification({ type: 'error', message: result.message });
+      }
+    } catch (err: any) {
+      addNotification({ type: 'error', message: `Erro na contingência: ${err.message || err}` });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePrint = () => {
+    const content = document.getElementById('nf-receipt-print');
+    if (!content) return;
+
+    const printWindow = window.open('', '_blank', 'width=320,height=600');
+    if (!printWindow) return;
+
+    printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cupom Fiscal</title><style>
+@page { margin: 2mm; size: 80mm auto; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padding: 2mm; color: #000; }
+.text-center { text-align: center; }
+.font-bold { font-weight: bold; }
+.text-sm { font-size: 12px; }
+.text-\\[10px\\] { font-size: 10px; }
+.text-\\[9px\\] { font-size: 9px; }
+.text-\\[8px\\] { font-size: 8px; }
+.border-t { border-top: 1px dashed #000; }
+.border-dashed { border-style: dashed; }
+.my-2 { margin: 4px 0; }
+.mt-1 { margin-top: 2px; }
+.flex { display: flex; }
+.justify-between { justify-content: space-between; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-2 { margin-right: 4px; }
+.whitespace-nowrap { white-space: nowrap; }
+.break-all { word-break: break-all; }
+</style></head><body>${content.innerHTML}<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/script></body></html>`);
+    printWindow.document.close();
+  };
+
   const handleEmit = async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -368,6 +518,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         room_description: booking?.roomDescription || null,
         tomador_nome: tomadorNome,
         tomador_cpf_cnpj: tomadorCpfCnpj,
+        tomador_doc_tipo: tomadorDocTipo,
+        tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
         items: finalItems.map((e) => {
@@ -396,12 +548,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       const emitRes = await nfService.emitInvoice(draft.id, hotelId);
 
       if (emitRes.success) {
+        setEmittedInvoice(emitRes.invoice);
         addNotification({
           type: 'success',
           message: emitRes.message,
         });
         onSuccess();
-        onClose();
+        setStep(4); // Show print step
       } else {
         addNotification({
           type: 'error',
@@ -451,8 +604,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
             <span className={`pb-1 border-b-2 transition-all ${step >= 1 ? 'border-amber-500 text-amber-500' : 'border-transparent text-gray-400'}`}>1. Itens</span>
             <span className={`pb-1 border-b-2 transition-all ${step >= 2 ? 'border-amber-500 text-amber-500' : 'border-transparent text-gray-400'}`}>2. Tomador</span>
             <span className={`pb-1 border-b-2 transition-all ${step >= 3 ? 'border-amber-500 text-amber-500' : 'border-transparent text-gray-400'}`}>3. Confirmar</span>
+            {step >= 4 && <span className="pb-1 border-b-2 border-emerald-500 text-emerald-500">4. Emitida</span>}
           </div>
-          <span className="text-[10px] text-gray-400 uppercase">Passo {step} de 3</span>
+          <span className="text-[10px] text-gray-400 uppercase">{step <= 3 ? `Passo ${step} de 3` : 'Concluído'}</span>
         </div>
 
         {/* Modal Body */}
@@ -616,6 +770,14 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                 <p className="text-xs text-gray-400">Preencha as informações do hóspede responsável pelo pagamento.</p>
               </div>
 
+              {/* WCI auto-fill indicator */}
+              {wciLoaded && (
+                <div className="flex items-center gap-2 p-2.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                  Dados preenchidos automaticamente a partir da ficha de check-in (WCI).
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Nome Completo *</label>
@@ -634,8 +796,28 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                   {formErrors.tomadorNome && <p className="text-[10px] text-red-500 mt-1">{formErrors.tomadorNome}</p>}
                 </div>
 
+                {/* Document type selector */}
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">CPF ou CNPJ *</label>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Tipo de Documento *</label>
+                  <select
+                    value={tomadorDocTipo}
+                    onChange={(e) => {
+                      setTomadorDocTipo(e.target.value as NFDocTipo);
+                      setTomadorCpfCnpj('');
+                      setFormErrors({});
+                    }}
+                    className="w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors"
+                  >
+                    <option value="cpf">CPF (Pessoa Física)</option>
+                    <option value="cnpj">CNPJ (Pessoa Jurídica)</option>
+                    <option value="passaporte">Passaporte (Estrangeiro)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">
+                    {tomadorDocTipo === 'cpf' ? 'CPF *' : tomadorDocTipo === 'cnpj' ? 'CNPJ *' : 'Nº Passaporte *'}
+                  </label>
                   <input
                     type="text"
                     value={tomadorCpfCnpj}
@@ -646,12 +828,28 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                     className={`w-full p-2.5 bg-white dark:bg-gray-900 border rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors ${
                       formErrors.tomadorCpfCnpj ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
                     }`}
-                    placeholder="Apenas números"
+                    placeholder={tomadorDocTipo === 'passaporte' ? 'Ex: AB123456' : 'Apenas números'}
+                    maxLength={tomadorDocTipo === 'cpf' ? 14 : tomadorDocTipo === 'cnpj' ? 18 : 20}
                   />
                   {formErrors.tomadorCpfCnpj && <p className="text-[10px] text-red-500 mt-1">{formErrors.tomadorCpfCnpj}</p>}
                 </div>
 
-                <div>
+                {/* Nationality (shown for passport, optional for others) */}
+                {isForeigner && (
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Nacionalidade</label>
+                    <input
+                      type="text"
+                      value={tomadorNacionalidade}
+                      onChange={(e) => setTomadorNacionalidade(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors"
+                      placeholder="Ex: US, AR, FR"
+                      maxLength={2}
+                    />
+                  </div>
+                )}
+
+                <div className={isForeigner ? '' : 'md:col-span-2'}>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">E-mail</label>
                   <input
                     type="email"
@@ -673,7 +871,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
               <div className="pt-4 border-t border-gray-150 dark:border-gray-800">
                 <div className="flex items-center gap-1.5 mb-3 text-gray-500">
                   <MapPin className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Endereço {tipo === 'nfe' ? '*' : '(Opcional)'}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider">Endereço {tipo === 'nfe' && !isForeigner ? '*' : '(Opcional)'}</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -821,7 +1019,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                   <div className="col-span-2">
                     <span className="text-[10px] uppercase font-bold text-gray-400 block">Destinatário (Tomador)</span>
                     <span className="font-semibold text-gray-850 dark:text-gray-200 block">{tomadorNome}</span>
-                    <span className="text-gray-500 block">CNPJ/CPF: {tomadorCpfCnpj}</span>
+                    <span className="text-gray-500 block">
+                      {tomadorDocTipo === 'cpf' ? 'CPF' : tomadorDocTipo === 'cnpj' ? 'CNPJ' : 'Passaporte'}: {tomadorCpfCnpj}
+                    </span>
+                    {isForeigner && tomadorNacionalidade && (
+                      <span className="text-gray-500 block">Nacionalidade: {tomadorNacionalidade.toUpperCase()}</span>
+                    )}
                     {tomadorEmail && <span className="text-gray-500 block">Email: {tomadorEmail}</span>}
                     {getFullAddress() && <span className="text-gray-500 block">Endereço: {getFullAddress()}</span>}
                   </div>
@@ -870,11 +1073,119 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
               )}
             </div>
           )}
+
+          {/* STEP 4: EMITIDA - PRINT RECEIPT */}
+          {step === 4 && emittedInvoice && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                <CheckCircle className="w-8 h-8 text-emerald-500 flex-shrink-0" />
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
+                    {emittedInvoice.status === 'contingencia' ? 'Nota emitida em contingência' : 'Nota fiscal autorizada'}
+                  </h4>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    {emittedInvoice.numero_nf ? `Nº ${emittedInvoice.numero_nf}` : ''}
+                    {emittedInvoice.numero_rps ? ` · RPS: ${emittedInvoice.numero_rps}` : ''}
+                    {emittedInvoice.status === 'contingencia' && ' · Retransmissão automática pendente'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Inline receipt preview */}
+              <div className="bg-white border border-gray-200 dark:border-gray-700 rounded-xl p-4 font-mono text-[11px] text-gray-900 dark:text-gray-100 leading-relaxed mx-auto" style={{ maxWidth: '300px' }} id="nf-receipt-print">
+                <div className="text-center font-bold text-sm">{nfConfig?.nome_fantasia || 'Hotel'}</div>
+                {nfConfig?.razao_social && <div className="text-center text-[9px] text-gray-500">{nfConfig.razao_social}</div>}
+                {nfConfig?.cnpj && <div className="text-center text-[9px] text-gray-500">CNPJ: {nfConfig.cnpj}</div>}
+                {nfConfig?.endereco_logradouro && (
+                  <div className="text-center text-[9px] text-gray-500">
+                    {[nfConfig.endereco_logradouro, nfConfig.endereco_numero, nfConfig.endereco_bairro, nfConfig.endereco_cidade, nfConfig.endereco_uf].filter(Boolean).join(', ')}
+                  </div>
+                )}
+                {nfConfig?.telefone && <div className="text-center text-[9px] text-gray-500">Tel: {nfConfig.telefone}</div>}
+
+                <div className="border-t border-dashed border-gray-300 my-2" />
+
+                <div className="text-center font-bold">
+                  {emittedInvoice.tipo === 'nfse' ? 'NFS-e' : 'NF-e'} - {emittedInvoice.status === 'contingencia' ? 'CONTINGÊNCIA' : 'AUTORIZADA'}
+                </div>
+                {emittedInvoice.numero_nf && <div className="text-center text-[10px]">Nº {emittedInvoice.numero_nf} · Série {emittedInvoice.serie || '1'}</div>}
+                {emittedInvoice.numero_rps && <div className="text-center text-[10px]">RPS: {emittedInvoice.numero_rps}</div>}
+                <div className="text-center text-[9px] text-gray-500">
+                  {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div className="text-center text-[9px] text-gray-500">
+                  Reserva: {emittedInvoice.booking_number || '—'} · UH: {emittedInvoice.room_description || '—'}
+                </div>
+
+                <div className="border-t border-dashed border-gray-300 my-2" />
+
+                <div className="font-bold text-[10px]">DESTINATÁRIO</div>
+                <div>{emittedInvoice.tomador_nome}</div>
+                <div>{emittedInvoice.tomador_doc_tipo === 'passaporte' ? 'Passaporte' : emittedInvoice.tomador_doc_tipo === 'cnpj' ? 'CNPJ' : 'CPF'}: {emittedInvoice.tomador_cpf_cnpj}</div>
+                {emittedInvoice.tomador_email && <div className="text-[9px]">{emittedInvoice.tomador_email}</div>}
+
+                <div className="border-t border-dashed border-gray-300 my-2" />
+
+                <div className="font-bold text-[10px] mb-1">ITENS</div>
+                {finalItems.map((item, i) => (
+                  <div key={i} className="flex justify-between text-[10px]">
+                    <span className="truncate mr-2" style={{ maxWidth: '180px' }}>{item.description}</span>
+                    <span className="font-bold whitespace-nowrap">{item.amount.toFixed(2)}</span>
+                  </div>
+                ))}
+
+                <div className="border-t border-dashed border-gray-300 my-2" />
+
+                <div className="flex justify-between font-bold text-sm">
+                  <span>TOTAL</span>
+                  <span>R$ {Number(emittedInvoice.valor_total).toFixed(2)}</span>
+                </div>
+
+                {emittedInvoice.chave_acesso && (
+                  <>
+                    <div className="border-t border-dashed border-gray-300 my-2" />
+                    <div className="font-bold text-[9px]">CHAVE DE ACESSO</div>
+                    <div className="text-[8px] break-all">{emittedInvoice.chave_acesso}</div>
+                  </>
+                )}
+                {emittedInvoice.numero_protocolo && (
+                  <div className="mt-1">
+                    <span className="font-bold text-[9px]">PROTOCOLO: </span>
+                    <span className="text-[9px]">{emittedInvoice.numero_protocolo}</span>
+                  </div>
+                )}
+
+                <div className="border-t border-dashed border-gray-300 my-2" />
+                <div className="text-center text-[8px] text-gray-400">LyFe Hoteles - Sistema de Gestão</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex justify-between gap-3">
-          {step > 1 ? (
+          {step === 4 ? (
+            <>
+              <div />
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all"
+                >
+                  Fechar
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-bold shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"
+                >
+                  <Printer className="w-4 h-4" />
+                  Imprimir
+                </button>
+              </div>
+            </>
+          ) : (
+          <>
+          {step > 1 && step <= 3 ? (
             <button
               onClick={handleBack}
               disabled={submitting}
@@ -901,10 +1212,19 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                 <button
                   onClick={handleSaveDraft}
                   disabled={submitting}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                  className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                 >
                   {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                  Salvar Rascunho
+                  Rascunho
+                </button>
+                <button
+                  onClick={handleContingencia}
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-3 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50"
+                  title="Emitir em contingência (RPS/EPEC) quando o sistema fiscal estiver indisponível"
+                >
+                  {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                  Contingência
                 </button>
                 <button
                   onClick={handleEmit}
@@ -923,13 +1243,15 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      Emitir Nota Fiscal
+                      Emitir NF
                     </>
                   )}
                 </button>
               </>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

@@ -82,6 +82,18 @@ const handler: Handler = async (event: HandlerEvent) => {
     });
   }
 
+  // ─── Contingência (stub — RPS para NFS-e, EPEC para NF-e) ────────────────
+
+  if (action === 'contingencia') {
+    const rpsNumber = `RPS-${Date.now().toString().slice(-8)}`;
+    return jsonResponse(200, {
+      success: true,
+      numero_rps: rpsNumber,
+      contingencia_protocolo: `CONT-${Date.now()}`,
+      message: `[STUB] Nota emitida em contingência (${rpsNumber}). Retransmissão automática pendente.`,
+    });
+  }
+
   // ─── Cancel Invoice (stub) ───────────────────────────────────────────────
 
   if (action === 'cancel') {
