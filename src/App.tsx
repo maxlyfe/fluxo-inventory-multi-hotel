@@ -82,6 +82,7 @@ import GroupsManagement   from './pages/admin/GroupsManagement';
 import ErbonIntegration     from './pages/admin/ErbonIntegration';
 import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
 import FNRHIntegration    from './pages/admin/FNRHIntegration';
+import NFIntegration       from './pages/admin/NFIntegration';
 import SupplierContacts    from './pages/SupplierContacts';
 import { PrivacyPolicy, TermsOfService, DataDeletion } from './pages/LegalPages';
 import PublicSectorsPage   from './pages/PublicSectorsPage';
@@ -601,6 +602,12 @@ function App() {
                     <Route path="/admin/fnrh" element={
                       <PrivateRoute module="fnrh_integration">
                         <FNRHIntegration />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/admin/nfe" element={
+                      <PrivateRoute module="nf_integration">
+                        <NFIntegration />
                       </PrivateRoute>
                     } />
 

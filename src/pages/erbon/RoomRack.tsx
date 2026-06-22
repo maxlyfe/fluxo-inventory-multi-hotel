@@ -17,6 +17,9 @@ import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
 import Modal from '../../components/Modal';
+import { nfService } from '../../lib/nfService';
+import { NFInvoiceModal } from '../../components/nf/NFInvoiceModal';
+import { CheckCircle2, FileCheck2, ShoppingBag, Receipt as ReceiptIcon } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -1130,26 +1133,36 @@ interface CurrentAccountEntry {
 const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking, room }) => {
   const [entries, setEntries] = useState<CurrentAccountEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [nfModalType, setNfModalType] = useState<'nfse' | 'nfe' | null>(null);
 
   // Usa o bookingInternalID do booking (quando carregado) ou do próprio room como fallback
   const bookingInternalId = booking?.bookingInternalID ?? room.currentBookingID;
 
-  React.useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!bookingInternalId) { setLoading(false); return; }
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await erbonService.fetchBookingAccount(hotelId, bookingInternalId);
-        console.log(`[RoomRack] AccountTab: ${data.length} lançamentos carregados para booking ${bookingInternalId}`);
-        setEntries(data as CurrentAccountEntry[]);
-      } catch (err) {
-        console.error('[RoomRack] AccountTab error:', err);
-        setEntries([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    setLoading(true);
+    try {
+      const [accountData, emittedData] = await Promise.all([
+        erbonService.fetchBookingAccount(hotelId, bookingInternalId),
+        nfService.getEmittedEntries(hotelId)
+      ]);
+      console.log(`[RoomRack] AccountTab: ${accountData.length} lançamentos carregados para booking ${bookingInternalId}`);
+      setEntries(accountData as CurrentAccountEntry[]);
+      setEmittedEntries(emittedData);
+      setSelectedIds(new Set()); // Limpa seleções ao recarregar
+    } catch (err) {
+      console.error('[RoomRack] AccountTab error:', err);
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
   }, [hotelId, bookingInternalId]);
+
+  React.useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-sky-500" /></div>;
   if (!bookingInternalId) return <div className="text-center py-12"><DollarSign className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" /><p className="text-sm text-gray-500">Nenhuma reserva vinculada a esta UH.</p></div>;
@@ -1157,6 +1170,22 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
   const totalDebit = entries.filter(e => e.isDebit).reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const totalCredit = entries.filter(e => e.isCredit).reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const balance = totalDebit - totalCredit;
+
+  // Filtrar itens selecionáveis (débitos que ainda não foram faturados)
+  const selectableEntries = entries.filter(e => e.isDebit && !emittedEntries.has(e.id));
+  const isAllSelected = selectableEntries.length > 0 && selectableEntries.every(e => selectedIds.has(e.id));
+
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      const next = new Set(selectedIds);
+      selectableEntries.forEach(e => next.delete(e.id));
+      setSelectedIds(next);
+    } else {
+      const next = new Set(selectedIds);
+      selectableEntries.forEach(e => next.add(e.id));
+      setSelectedIds(next);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -1184,6 +1213,40 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
         </div>
       </div>
 
+      {/* Action Bar for Invoice Emission */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 ? (
+            <span className="text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {selectedIds.size} {selectedIds.size === 1 ? 'item selecionado' : 'itens selecionados'}
+            </span>
+          ) : (
+            <span className="text-xs text-gray-550 dark:text-gray-400">
+              Selecione lançamentos para faturamento
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setNfModalType('nfse')}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
+          >
+            <ReceiptIcon className="w-3.5 h-3.5" />
+            NF Serviços
+          </button>
+          <button
+            onClick={() => setNfModalType('nfe')}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            NF Consumo
+          </button>
+        </div>
+      </div>
+
       {/* Entries table */}
       {entries.length > 0 ? (
         <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
@@ -1192,9 +1255,18 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
             <span className="text-[10px] text-gray-400">{entries.length} lançamento{entries.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="max-h-80 overflow-y-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm text-gray-600 dark:text-gray-300">
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-800 text-[10px] uppercase tracking-wide text-gray-400 sticky top-0">
+                  <th className="w-10 text-center px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleToggleSelectAll}
+                      disabled={selectableEntries.length === 0}
+                      className="rounded border-gray-300 text-amber-500 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                  </th>
                   <th className="text-left px-4 py-2.5">Descrição</th>
                   <th className="text-left px-4 py-2.5">Depto</th>
                   <th className="text-right px-4 py-2.5">Débito</th>
@@ -1205,6 +1277,28 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.id} className="border-t border-gray-100 dark:border-gray-800">
+                    <td className="w-10 text-center px-4 py-2.5">
+                      {emittedEntries.has(e.id) ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-550 dark:text-green-455 mx-auto" title="NF já emitida para este lançamento" />
+                      ) : e.isDebit ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(e.id)}
+                          onChange={() => {
+                            const next = new Set(selectedIds);
+                            if (next.has(e.id)) {
+                              next.delete(e.id);
+                            } else {
+                              next.add(e.id);
+                            }
+                            setSelectedIds(next);
+                          }}
+                          className="rounded border-gray-300 text-amber-500 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer"
+                        />
+                      ) : (
+                        <span className="text-gray-350 dark:text-gray-600">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 max-w-[250px] truncate" title={e.description}>
                       {e.description || '—'}
                     </td>
@@ -1216,14 +1310,26 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
                       {e.isCredit ? fmtCurrency(e.amount) : ''}
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {e.isInvoiced && <span className="text-[10px] bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded font-medium">Faturado</span>}
+                      {emittedEntries.has(e.id) ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[10px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded font-medium"
+                          title="Nota Fiscal emitida com sucesso"
+                        >
+                          <FileCheck2 className="w-3.5 h-3.5" />
+                          NF Emitida
+                        </span>
+                      ) : e.isInvoiced ? (
+                        <span className="text-[10px] bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded font-medium">Faturado</span>
+                      ) : (
+                        <span className="text-gray-350 dark:text-gray-600">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 font-semibold">
-                  <td colSpan={2} className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs uppercase">Total</td>
+                  <td colSpan={3} className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs uppercase">Total</td>
                   <td className="px-4 py-3 text-right font-mono text-red-700 dark:text-red-300">{totalDebit > 0 ? fmtCurrency(totalDebit) : ''}</td>
                   <td className="px-4 py-3 text-right font-mono text-emerald-700 dark:text-emerald-300">{totalCredit > 0 ? fmtCurrency(totalCredit) : ''}</td>
                   <td></td>
@@ -1239,6 +1345,19 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
           <p className="text-xs text-gray-400">Lançamentos aparecerão conforme consumos forem registrados no PDV.</p>
         </div>
       )}
+
+      {/* Modal de Emissão de NF */}
+      <NFInvoiceModal
+        isOpen={nfModalType !== null}
+        onClose={() => setNfModalType(null)}
+        tipo={nfModalType || 'nfse'}
+        hotelId={hotelId}
+        booking={booking}
+        selectedEntries={entries.filter(e => selectedIds.has(e.id))}
+        onSuccess={() => {
+          loadData();
+        }}
+      />
     </div>
   );
 };
