@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useGroup } from '../../context/GroupContext';
 import {
   ArrowLeft, Loader2, AlertTriangle, User, Phone, Mail, MapPin,
   Calendar, Briefcase, Building2, FileText, Plus, Clock, CheckCircle,
@@ -116,16 +117,10 @@ function needsUniformRenewal(deliveries: Delivery[]): boolean {
 // ---------------------------------------------------------------------------
 // PDF — Termo de Responsabilidade (abre janela de impressão)
 // ---------------------------------------------------------------------------
-function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) {
-  const itemsList = delivery.items
-    .map(i => `${i.qty}x ${i.item}${i.size ? ` (${i.size})` : ''}`)
-    .join(', ');
-
-  const dateFormatted = format(
-    new Date(delivery.delivery_date),
-    "dd 'de' MMMM 'de' yyyy",
-    { locale: ptBR }
-  );
+function generateTermoPDF(emp: Employee, item: DeliveryItem, deliveryDate: string, hotelName: string, groupName: string) {
+  const itemDesc = `${item.qty}x ${item.item}${item.size ? ` (${item.size})` : ''}`;
+  const dateFormatted = format(parseLocalDate(deliveryDate), "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+  const locality = 'Armação dos Búzios';
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -140,11 +135,11 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
       color: #000;
       background: #fff;
       padding: 60px 80px;
-      line-height: 1.7;
+      line-height: 1.8;
     }
     h1 {
       text-align: center;
-      font-size: 13pt;
+      font-size: 14pt;
       font-weight: bold;
       text-transform: uppercase;
       letter-spacing: 1px;
@@ -153,17 +148,25 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
     .underline-field {
       display: inline-block;
       border-bottom: 1px solid #000;
-      min-width: 280px;
+      min-width: 300px;
       vertical-align: bottom;
       margin: 0 4px;
       padding-bottom: 1px;
     }
     p { margin-bottom: 18px; }
-    .items-label { font-weight: bold; }
-    .declaration { text-align: justify; }
-    .meta { margin-top: 8px; }
+    .items-section { margin: 24px 0; }
+    .items-label { font-weight: bold; margin-bottom: 8px; }
+    .item-box {
+      border: 1px solid #ccc;
+      padding: 8px 14px;
+      margin-bottom: 6px;
+      font-size: 12pt;
+    }
+    .declaration { text-align: justify; margin-top: 24px; }
+    .meta { margin-top: 24px; }
+    .meta p { margin-bottom: 4px; }
     .signatures {
-      margin-top: 90px;
+      margin-top: 100px;
       display: flex;
       justify-content: space-between;
     }
@@ -172,6 +175,7 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
     .sig-label { font-size: 10pt; line-height: 1.5; }
     @media print {
       @page { size: A4; margin: 20mm 25mm; }
+      body { padding: 0; }
     }
   </style>
 </head>
@@ -179,10 +183,13 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
   <h1>Termo de Responsabilidade e Recebimento de Itens</h1>
 
   <p>
-    Eu,&nbsp;<span class="underline-field">${emp.name}</span>,&nbsp;recebi do ${hotelName} os seguintes itens:
+    Eu,&nbsp;<span class="underline-field">${emp.name}</span>,&nbsp;recebi do ${groupName} os seguintes itens:
   </p>
 
-  <p class="items-label">Itens Recebidos: ${itemsList}</p>
+  <div class="items-section">
+    <p class="items-label">Itens Recebidos:</p>
+    <div class="item-box">${itemDesc}</div>
+  </div>
 
   <p class="declaration">
     Declaro estar ciente de que os itens fornecidos são de propriedade da empresa e devem
@@ -192,8 +199,7 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
   </p>
 
   <div class="meta">
-    <p><strong>Data:</strong>&nbsp;${dateFormatted}</p>
-    <p><strong>Localidade:</strong>&nbsp;${hotelName}</p>
+    <p><strong>Data:</strong>&nbsp;${dateFormatted}&nbsp;&nbsp;&nbsp;&nbsp;<strong>Localidade:</strong>&nbsp;${locality}</p>
   </div>
 
   <div class="signatures">
@@ -203,18 +209,18 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
     </div>
     <div class="sig-block">
       <div class="sig-line">&nbsp;</div>
-      <div class="sig-label">Responsável pela Entrega<br>${hotelName}</div>
+      <div class="sig-label">Responsável pela Entrega<br>${groupName}</div>
     </div>
   </div>
 </body>
 </html>`;
 
-  const win = window.open('', '_blank', 'width=850,height=950');
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
   if (!win) { alert('Permita popups para gerar o documento.'); return; }
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 500);
+  win.addEventListener('afterprint', () => URL.revokeObjectURL(url));
+  setTimeout(() => win.print(), 600);
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +229,7 @@ function generateTermoPDF(emp: Employee, delivery: Delivery, hotelName: string) 
 export default function DPEmployeeDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { currentGroup } = useGroup();
   const navigate  = useNavigate();
 
   const [employee,   setEmployee]   = useState<Employee | null>(null);
@@ -373,15 +380,23 @@ export default function DPEmployeeDetail() {
     }
   };
 
-  const handleDeleteDelivery = async (deliveryId: string) => {
-    if (!confirm('Tem certeza que deseja excluir este registro de entrega?')) return;
-    setDeletingDeliveryId(deliveryId);
+  const handleDeleteDeliveryItem = async (deliveryId: string, itemIndex: number) => {
+    if (!confirm('Tem certeza que deseja excluir este item?')) return;
+    setDeletingDeliveryId(`${deliveryId}-${itemIndex}`);
     try {
-      const { error } = await supabase.from('uniform_deliveries').delete().eq('id', deliveryId);
-      if (error) throw error;
+      const delivery = deliveries.find(d => d.id === deliveryId);
+      if (!delivery) return;
+      if (delivery.items.length <= 1) {
+        const { error } = await supabase.from('uniform_deliveries').delete().eq('id', deliveryId);
+        if (error) throw error;
+      } else {
+        const updatedItems = delivery.items.filter((_: any, i: number) => i !== itemIndex);
+        const { error } = await supabase.from('uniform_deliveries').update({ items: updatedItems }).eq('id', deliveryId);
+        if (error) throw error;
+      }
       await fetchData();
     } catch (err: any) {
-      alert(err.message || 'Erro ao excluir entrega.');
+      alert(err.message || 'Erro ao excluir item.');
     } finally {
       setDeletingDeliveryId(null);
     }
@@ -483,6 +498,7 @@ export default function DPEmployeeDetail() {
   );
 
   const hotelName    = (employee.hotels as any)?.name || 'Hotel';
+  const groupName    = currentGroup?.name || hotelName;
   const initials     = employee.name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase();
   const sCfg         = STATUS_CONFIG[employee.status] ?? STATUS_CONFIG.active;
   const renewal      = needsUniformRenewal(deliveries);
@@ -972,63 +988,65 @@ export default function DPEmployeeDetail() {
   // ---------------------------------------------------------------------------
   // Tab: Histórico
   // ---------------------------------------------------------------------------
-  const TabHistory = () => (
-    <div className="space-y-3">
-      {deliveries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
-          <Package className="h-10 w-10 opacity-30" />
-          <p className="text-sm">Nenhuma entrega registrada.</p>
-          <button onClick={() => setShowDelivery(true)} className="text-sm text-blue-500 hover:underline">
-            Registrar primeira entrega
-          </button>
-        </div>
-      ) : deliveries.map(del => (
-        <div key={del.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 sm:p-5">
-          <div className="flex items-start justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
-                <Calendar className="h-4 w-4 text-blue-500" />
+  const TabHistory = () => {
+    const allItems = deliveries.flatMap(del =>
+      del.items.map((it: DeliveryItem, idx: number) => ({
+        ...it, deliveryId: del.id, itemIndex: idx,
+        delivery_date: del.delivery_date, registered_at: del.registered_at,
+        notes: del.notes,
+      }))
+    );
+
+    return (
+      <div className="space-y-2">
+        {allItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+            <Package className="h-10 w-10 opacity-30" />
+            <p className="text-sm">Nenhuma entrega registrada.</p>
+            <button onClick={() => setShowDelivery(true)} className="text-sm text-blue-500 hover:underline">
+              Registrar primeira entrega
+            </button>
+          </div>
+        ) : allItems.map((it, i) => {
+          const deleteKey = `${it.deliveryId}-${it.itemIndex}`;
+          return (
+            <div key={`${it.deliveryId}-${it.itemIndex}-${i}`}
+              className="flex items-center gap-3 p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
+                <Shirt className="h-4.5 w-4.5 text-blue-500" />
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900 dark:text-white">
-                  {format(parseLocalDate(del.delivery_date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                  {it.qty}x {it.item}{it.size ? <span className="font-normal text-gray-400"> — {it.size}</span> : ''}
                 </p>
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  Registrado {formatDistanceToNow(new Date(del.registered_at), { locale: ptBR, addSuffix: true })}
+                  {format(parseLocalDate(it.delivery_date), "dd/MM/yyyy", { locale: ptBR })}
+                  {it.notes ? <span className="ml-1.5">· {it.notes}</span> : ''}
                 </p>
               </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={() => generateTermoPDF(employee, it, it.delivery_date, hotelName, groupName)}
+                  title="Emitir termo"
+                  className="w-8 h-8 flex items-center justify-center bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-600 hover:border-blue-300 text-gray-500 hover:text-blue-600 rounded-lg transition-all">
+                  <Printer className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => handleDeleteDeliveryItem(it.deliveryId, it.itemIndex)}
+                  disabled={deletingDeliveryId === deleteKey}
+                  title="Excluir item"
+                  className="w-8 h-8 flex items-center justify-center bg-gray-50 dark:bg-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-600 hover:border-red-300 text-gray-400 hover:text-red-500 rounded-lg transition-all disabled:opacity-50">
+                  {deletingDeliveryId === deleteKey
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={() => generateTermoPDF(employee, del, hotelName)}
-                title="Emitir termo"
-                className="w-8 h-8 flex items-center justify-center bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-600 hover:border-blue-300 text-gray-500 hover:text-blue-600 rounded-lg transition-all">
-                <Printer className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => handleDeleteDelivery(del.id)}
-                disabled={deletingDeliveryId === del.id}
-                title="Excluir registro"
-                className="w-8 h-8 flex items-center justify-center bg-gray-50 dark:bg-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-600 hover:border-red-300 text-gray-400 hover:text-red-500 rounded-lg transition-all disabled:opacity-50">
-                {deletingDeliveryId === del.id
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Trash2 className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {del.items.map((it: any, i: number) => (
-              <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-100 dark:border-blue-800">
-                {it.qty}x {it.item}{it.size ? ` (${it.size})` : ''}
-              </span>
-            ))}
-          </div>
-
-          {del.notes && <p className="text-xs text-gray-400 italic">{del.notes}</p>}
-        </div>
-      ))}
-    </div>
-  );
+          );
+        })}
+      </div>
+    );
+  };
 
   const VOLUNTARY_REASON_LABELS: Record<string, string> = {
     proposta_externa: 'Proposta Externa',
