@@ -440,7 +440,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const persistDraftToServer = useCallback(async () => {
     if (Object.keys(counts).length === 0) return;
     const countId = await ensureCountId();
-    await supabase.from('stock_counts').update({ status: 'draft', finished_at: null }).eq('id', countId);
+    await supabase.from('stock_counts').update({ status: 'draft', finished_at: null }).eq('id', countId).eq('status', 'draft');
     const items = Object.entries(counts).map(([productId, q]) => ({
       stock_count_id: countId,
       product_id: productId,
