@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   ArrowLeft, Loader2, AlertTriangle, User, Phone, Mail, MapPin,
   Calendar, Briefcase, Building2, FileText, Plus, Clock, CheckCircle,
-  AlertCircle, Shirt, Package, Edit2, X, Printer, Hash,
+  AlertCircle, Shirt, Package, Edit2, X, Printer, Hash, Trash2,
   Link2, UserCheck, UserX, Search, ShieldOff, GraduationCap, Stethoscope,
 } from 'lucide-react';
 import { format, differenceInDays, differenceInMonths, differenceInYears, formatDistanceToNow } from 'date-fns';
@@ -249,6 +249,7 @@ export default function DPEmployeeDetail() {
   const [deliveryNotes,  setDeliveryNotes]  = useState('');
   const [savingDelivery, setSavingDelivery] = useState(false);
   const [deliveryError,  setDeliveryError]  = useState('');
+  const [deletingDeliveryId, setDeletingDeliveryId] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   const fetchData = useCallback(async () => {
@@ -372,6 +373,20 @@ export default function DPEmployeeDetail() {
     }
   };
 
+  const handleDeleteDelivery = async (deliveryId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este registro de entrega?')) return;
+    setDeletingDeliveryId(deliveryId);
+    try {
+      const { error } = await supabase.from('uniform_deliveries').delete().eq('id', deliveryId);
+      if (error) throw error;
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao excluir entrega.');
+    } finally {
+      setDeletingDeliveryId(null);
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Buscar usuários do sistema para vincular
   // ---------------------------------------------------------------------------
@@ -482,100 +497,128 @@ export default function DPEmployeeDetail() {
   const DeliveryModal = () => (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowDelivery(false)} />
-      <div className="relative w-full sm:max-w-2xl bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] overflow-y-auto">
+      <div className="relative w-full sm:max-w-lg bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] overflow-y-auto">
 
-        <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-4 flex items-center justify-between rounded-t-3xl">
-          <div>
-            <h2 className="text-base font-bold text-gray-900 dark:text-white">Registrar Entrega de Uniforme</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{employee.name}</p>
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-5 py-4 flex items-center justify-between rounded-t-3xl">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+              <Package className="h-4.5 w-4.5 text-blue-500" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white">Nova Entrega de Uniforme</h2>
+              <p className="text-[11px] text-gray-400 mt-0.5">{employee.name}</p>
+            </div>
           </div>
           <button onClick={() => setShowDelivery(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSaveDelivery} className="p-6 space-y-5">
-          <div>
-            <label className={labelCls}>Data da entrega *</label>
-            <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
-              className={inputCls} required />
-            <p className="text-xs text-gray-400 mt-1.5">Pode ser uma data retroativa.</p>
+        <form onSubmit={handleSaveDelivery} className="p-5 space-y-4">
+          {/* Data da entrega */}
+          <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700/50">
+            <div className="w-9 h-9 rounded-xl bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center flex-shrink-0">
+              <Calendar className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Data da entrega</label>
+              <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
+                className="w-full bg-transparent text-sm font-semibold text-gray-900 dark:text-white border-none p-0 focus:outline-none focus:ring-0" required />
+            </div>
           </div>
 
-          {(employee.shirt_size || employee.pants_size || employee.shoe_size || employee.hat_size || employee.apron_size || employee.raincoat_size || employee.epi_items?.length > 0) && (
+          {/* Prefill */}
+          {(employee.shirt_size || employee.pants_size || employee.shoe_size || employee.hat_size || employee.apron_size || employee.raincoat_size || (employee.epi_items?.length ?? 0) > 0) && deliveryItems.length === 0 && (
             <button type="button" onClick={prefillFromEmployee}
-              className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">
-              <Shirt className="h-4 w-4" />Pré-preencher com os tamanhos cadastrados
+              className="w-full flex items-center gap-2.5 p-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-2xl text-sm font-semibold text-blue-600 dark:text-blue-400 transition-colors">
+              <Shirt className="h-4 w-4" />Pré-preencher com tamanhos cadastrados
             </button>
           )}
 
+          {/* Itens */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className={labelCls}>Itens entregues *</label>
+            <div className="flex items-center justify-between mb-2.5">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Itens entregues</label>
               <button type="button" onClick={addDeliveryItem}
-                className="flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
-                <Plus className="h-3.5 w-3.5" />Adicionar item
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
+                <Plus className="h-3 w-3" />Item
               </button>
             </div>
 
-            {deliveryItems.length === 0 && (
-              <div className="text-center py-6 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl">
-                <Package className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                <p className="text-xs text-gray-400">Nenhum item adicionado ainda.</p>
+            {deliveryItems.length === 0 ? (
+              <button type="button" onClick={addDeliveryItem}
+                className="w-full py-8 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all group">
+                <Package className="h-7 w-7 text-gray-300 dark:text-gray-600 group-hover:text-blue-400 mx-auto mb-1.5 transition-colors" />
+                <p className="text-xs text-gray-400 group-hover:text-blue-500 font-medium transition-colors">Clique para adicionar um item</p>
+              </button>
+            ) : (
+              <div className="space-y-2">
+                {deliveryItems.map((it, i) => (
+                  <div key={i} className="flex gap-2 items-start p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700/50">
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <select value={it.item}
+                        onChange={e => updateDeliveryItem(i, 'item', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${!it.item ? 'text-gray-400' : ''}`}>
+                        <option value="">Selecione o item...</option>
+                        <optgroup label="Uniforme">
+                          {UNIFORM_ITEMS.map(u => <option key={u.key} value={u.label}>{u.label}</option>)}
+                        </optgroup>
+                        <optgroup label="EPI">
+                          {EPI_OPTIONS.map(e => <option key={e} value={e}>{e}</option>)}
+                        </optgroup>
+                      </select>
+                      <div className="flex gap-2">
+                        <div className="w-20">
+                          <label className="block text-[9px] font-bold text-gray-400 uppercase mb-0.5 ml-1">Qtd</label>
+                          <input type="number" min="1" value={it.qty}
+                            onChange={e => updateDeliveryItem(i, 'qty', parseInt(e.target.value) || 1)}
+                            className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center" />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-[9px] font-bold text-gray-400 uppercase mb-0.5 ml-1">Tamanho</label>
+                          <input type="text" value={it.size}
+                            onChange={e => updateDeliveryItem(i, 'size', e.target.value)}
+                            placeholder="P, M, G, 40..."
+                            className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300" />
+                        </div>
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => removeDeliveryItem(i)}
+                      className="mt-1 w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg flex-shrink-0 transition-all">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
-
-            <div className="space-y-2">
-              {deliveryItems.map((it, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <select value={it.item}
-                    onChange={e => updateDeliveryItem(i, 'item', e.target.value)}
-                    className={`${inputCls} flex-1`}>
-                    <option value="">Selecione o item...</option>
-                    <optgroup label="Uniforme">
-                      {UNIFORM_ITEMS.map(u => <option key={u.key} value={u.label}>{u.label}</option>)}
-                    </optgroup>
-                    <optgroup label="EPI">
-                      {EPI_OPTIONS.map(e => <option key={e} value={e}>{e}</option>)}
-                    </optgroup>
-                  </select>
-                  <input type="number" min="1" value={it.qty}
-                    onChange={e => updateDeliveryItem(i, 'qty', parseInt(e.target.value) || 1)}
-                    className={`${inputCls} w-16`} placeholder="Qtd" />
-                  <input type="text" value={it.size}
-                    onChange={e => updateDeliveryItem(i, 'size', e.target.value)}
-                    className={`${inputCls} w-20`} placeholder="Tam." />
-                  <button type="button" onClick={() => removeDeliveryItem(i)}
-                    className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-red-500 flex-shrink-0 transition-colors">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
           </div>
 
+          {/* Observações */}
           <div>
-            <label className={labelCls}>Observações</label>
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Observações</label>
             <textarea value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
-              rows={2} placeholder="Notas adicionais..." className={`${inputCls} resize-none`} />
+              rows={2} placeholder="Notas adicionais (opcional)..."
+              className={`${inputCls} resize-none text-sm`} />
           </div>
 
+          {/* Error */}
           {deliveryError && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 rounded-xl text-sm text-red-700 dark:text-red-300">
+            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
               <AlertTriangle className="h-4 w-4 flex-shrink-0" />{deliveryError}
             </div>
           )}
 
-          <div className="flex gap-3 pb-2">
+          {/* Actions */}
+          <div className="flex gap-3 pt-1 pb-2">
             <button type="button" onClick={() => setShowDelivery(false)}
-              className="flex-1 py-3 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              className="flex-1 py-3 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm">
               Cancelar
             </button>
             <button type="submit" disabled={savingDelivery}
-              className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white font-semibold rounded-xl transition-colors">
-              {savingDelivery ? <><Loader2 className="h-4 w-4 animate-spin" />Salvando...</> : 'Registrar entrega'}
+              className="flex-[1.5] flex items-center justify-center gap-2 py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white font-bold rounded-xl transition-colors text-sm shadow-sm shadow-blue-500/20">
+              {savingDelivery ? <><Loader2 className="h-4 w-4 animate-spin" />Salvando...</> : <><CheckCircle className="h-4 w-4" />Registrar entrega</>}
             </button>
           </div>
         </form>
@@ -940,23 +983,40 @@ export default function DPEmployeeDetail() {
           </button>
         </div>
       ) : deliveries.map(del => (
-        <div key={del.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <p className="text-sm font-bold text-gray-900 dark:text-white">
-                {format(new Date(del.delivery_date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-              Registrado {formatDistanceToNow(new Date(del.registered_at), { locale: ptBR, addSuffix: true })}
-              </p>
+        <div key={del.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
+                <Calendar className="h-4 w-4 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900 dark:text-white">
+                  {format(parseLocalDate(del.delivery_date), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                </p>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Registrado {formatDistanceToNow(new Date(del.registered_at), { locale: ptBR, addSuffix: true })}
+                </p>
+              </div>
             </div>
-            <button
-              onClick={() => generateTermoPDF(employee, del, hotelName)}
-              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-600 hover:border-blue-300 text-gray-600 dark:text-gray-300 hover:text-blue-600 text-xs font-semibold rounded-xl transition-all">
-              <Printer className="h-3.5 w-3.5" />Emitir Termo
-            </button>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={() => generateTermoPDF(employee, del, hotelName)}
+                title="Emitir termo"
+                className="w-8 h-8 flex items-center justify-center bg-gray-50 dark:bg-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-600 hover:border-blue-300 text-gray-500 hover:text-blue-600 rounded-lg transition-all">
+                <Printer className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => handleDeleteDelivery(del.id)}
+                disabled={deletingDeliveryId === del.id}
+                title="Excluir registro"
+                className="w-8 h-8 flex items-center justify-center bg-gray-50 dark:bg-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-600 hover:border-red-300 text-gray-400 hover:text-red-500 rounded-lg transition-all disabled:opacity-50">
+                {deletingDeliveryId === del.id
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Trash2 className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap gap-1.5 mb-2">
             {del.items.map((it: any, i: number) => (
               <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-100 dark:border-blue-800">
                 {it.qty}x {it.item}{it.size ? ` (${it.size})` : ''}
