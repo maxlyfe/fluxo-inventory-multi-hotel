@@ -309,10 +309,22 @@ export default function DPEmployeeDetail() {
   // Delivery helpers
   // ---------------------------------------------------------------------------
   const addDeliveryItem = () =>
-    setDeliveryItems(prev => [...prev, { item: UNIFORM_ITEMS[0].label, qty: 1, size: '' }]);
+    setDeliveryItems(prev => [...prev, { item: '', qty: 1, size: '' }]);
 
-  const updateDeliveryItem = (i: number, field: keyof DeliveryItem, value: string | number) =>
-    setDeliveryItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
+  const updateDeliveryItem = (i: number, field: keyof DeliveryItem, value: string | number) => {
+    setDeliveryItems(prev => prev.map((it, idx) => {
+      if (idx !== i) return it;
+      const updated = { ...it, [field]: value };
+      if (field === 'item' && employee) {
+        const match = UNIFORM_ITEMS.find(u => u.label === value);
+        if (match) {
+          const size = getEmployeeUniformSize(employee, match.key);
+          if (size) updated.size = size;
+        }
+      }
+      return updated;
+    }));
+  };
 
   const removeDeliveryItem = (i: number) =>
     setDeliveryItems(prev => prev.filter((_, idx) => idx !== i));
@@ -334,6 +346,7 @@ export default function DPEmployeeDetail() {
     if (!employee)          { setDeliveryError('Colaborador inválido.'); return; }
     if (!deliveryDate)      { setDeliveryError('Informe a data da entrega.'); return; }
     if (!deliveryItems.length) { setDeliveryError('Adicione ao menos um item.'); return; }
+    if (deliveryItems.some(it => !it.item)) { setDeliveryError('Selecione o tipo de cada item.'); return; }
 
     setSavingDelivery(true);
     try {
@@ -516,9 +529,17 @@ export default function DPEmployeeDetail() {
             <div className="space-y-2">
               {deliveryItems.map((it, i) => (
                 <div key={i} className="flex gap-2 items-center">
-                  <input type="text" value={it.item}
+                  <select value={it.item}
                     onChange={e => updateDeliveryItem(i, 'item', e.target.value)}
-                    list="uniform-items-list" placeholder="Item..." className={`${inputCls} flex-1`} />
+                    className={`${inputCls} flex-1`}>
+                    <option value="">Selecione o item...</option>
+                    <optgroup label="Uniforme">
+                      {UNIFORM_ITEMS.map(u => <option key={u.key} value={u.label}>{u.label}</option>)}
+                    </optgroup>
+                    <optgroup label="EPI">
+                      {EPI_OPTIONS.map(e => <option key={e} value={e}>{e}</option>)}
+                    </optgroup>
+                  </select>
                   <input type="number" min="1" value={it.qty}
                     onChange={e => updateDeliveryItem(i, 'qty', parseInt(e.target.value) || 1)}
                     className={`${inputCls} w-16`} placeholder="Qtd" />
@@ -533,10 +554,6 @@ export default function DPEmployeeDetail() {
               ))}
             </div>
 
-            <datalist id="uniform-items-list">
-              {UNIFORM_ITEMS.map(u => <option key={u.key} value={u.label} />)}
-              {EPI_OPTIONS.map(e => <option key={e} value={e} />)}
-            </datalist>
           </div>
 
           <div>
