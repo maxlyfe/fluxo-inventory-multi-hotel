@@ -133,6 +133,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   // Emitted invoice (for print after emission)
   const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
 
+  // Inline error state (shown within the modal, not just toast)
+  const [emitError, setEmitError] = useState<{ title: string; details: string; canRetry: boolean } | null>(null);
+
   // Tomador data state
   const [tomadorDocTipo, setTomadorDocTipo] = useState<NFDocTipo>('cpf');
   const [tomadorNome, setTomadorNome] = useState('');
@@ -351,7 +354,10 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   };
 
   const handleBack = () => {
-    if (step > 1) setStep(step - 1);
+    if (step > 1) {
+      setEmitError(null);
+      setStep(step - 1);
+    }
   };
 
   // Build the combined address string
@@ -416,8 +422,43 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     }
   };
 
+  const validateConfig = (): { valid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+    if (!nfConfig) {
+      errors.push('Configuração fiscal não encontrada. Acesse Configurações > NF-e / NFS-e para cadastrar os dados da empresa.');
+      return { valid: false, errors };
+    }
+    if (!nfConfig.is_active) {
+      errors.push('A configuração fiscal está desativada para este hotel.');
+    }
+    if (!nfConfig.cnpj) errors.push('CNPJ da empresa não cadastrado.');
+    if (!nfConfig.razao_social) errors.push('Razão social não cadastrada.');
+    if (!nfConfig.nome_fantasia) errors.push('Nome fantasia não cadastrado.');
+
+    if (tipo === 'nfse') {
+      if (!nfConfig.nfse_enabled) errors.push('Emissão de NFS-e está desabilitada nas configurações.');
+      if (!nfConfig.inscricao_municipal) errors.push('Inscrição Municipal não cadastrada (obrigatória para NFS-e).');
+      if (!nfConfig.codigo_servico) errors.push('Código de serviço não cadastrado.');
+    } else {
+      if (!nfConfig.nfe_enabled) errors.push('Emissão de NF-e está desabilitada nas configurações.');
+      if (!nfConfig.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (obrigatória para NF-e).');
+    }
+
+    if (!nfConfig.certificado_base64) {
+      errors.push('Certificado digital A1 não cadastrado.');
+    } else if (nfConfig.certificado_validade) {
+      const validade = new Date(nfConfig.certificado_validade);
+      if (validade < new Date()) {
+        errors.push(`Certificado digital vencido em ${validade.toLocaleDateString('pt-BR')}.`);
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  };
+
   const handleContingencia = async () => {
     if (submitting) return;
+    setEmitError(null);
     setSubmitting(true);
     try {
       const input = {
@@ -460,10 +501,18 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         onSuccess();
         setStep(4);
       } else {
-        addNotification({ type: 'error', message: result.message });
+        setEmitError({
+          title: 'Falha na emissão em contingência',
+          details: result.message,
+          canRetry: true,
+        });
       }
     } catch (err: any) {
-      addNotification({ type: 'error', message: `Erro na contingência: ${err.message || err}` });
+      setEmitError({
+        title: 'Erro na contingência',
+        details: err.message || String(err),
+        canRetry: true,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -502,14 +551,29 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
 
   const handleEmit = async () => {
     if (submitting) return;
+    setEmitError(null);
+
+    const configCheck = validateConfig();
+    if (!configCheck.valid) {
+      setEmitError({
+        title: 'Configuração fiscal incompleta',
+        details: configCheck.errors.join('\n'),
+        canRetry: false,
+      });
+      return;
+    }
+
+    if (tipo === 'nfe' && fiscalData?.hasErrors) {
+      setEmitError({
+        title: 'Dados fiscais com pendências',
+        details: 'Corrija os dados fiscais (NCM/tributação) antes de emitir a NF-e. Verifique os itens marcados com alerta no Passo 1.',
+        canRetry: false,
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
-      if (tipo === 'nfe' && fiscalData?.hasErrors) {
-        addNotification({ type: 'error', message: 'Corrija os dados fiscais antes de emitir a NF-e.' });
-        setSubmitting(false);
-        return;
-      }
-
       const input = {
         hotel_id: hotelId,
         tipo,
@@ -541,31 +605,31 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
         emitido_por: user?.id || null,
       };
 
-      // 1. Create the draft invoice first
       const draft = await nfService.createDraftInvoice(input);
-
-      // 2. Emit the invoice via the Netlify serverless function
       const emitRes = await nfService.emitInvoice(draft.id, hotelId);
 
       if (emitRes.success) {
         setEmittedInvoice(emitRes.invoice);
-        addNotification({
-          type: 'success',
-          message: emitRes.message,
-        });
+        addNotification({ type: 'success', message: emitRes.message });
         onSuccess();
-        setStep(4); // Show print step
+        setStep(4);
       } else {
-        addNotification({
-          type: 'error',
-          message: emitRes.message,
+        setEmitError({
+          title: 'Nota fiscal rejeitada',
+          details: emitRes.message,
+          canRetry: true,
         });
       }
     } catch (err: any) {
       console.error('[NFInvoiceModal] Emit error:', err);
-      addNotification({
-        type: 'error',
-        message: `Erro ao emitir nota: ${err.message || err}`,
+      const msg = err?.message || String(err);
+      const isNetwork = msg.includes('fetch') || msg.includes('network') || msg.includes('Failed');
+      setEmitError({
+        title: isNetwork ? 'Erro de comunicação' : 'Erro ao emitir nota',
+        details: isNetwork
+          ? `Não foi possível conectar ao serviço fiscal. Verifique sua conexão ou tente emitir em contingência.\n\nDetalhes: ${msg}`
+          : msg,
+        canRetry: true,
       });
     } finally {
       setSubmitting(false);
@@ -1065,10 +1129,57 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
               </div>
 
               {/* Fiscal errors block emission */}
-              {tipo === 'nfe' && fiscalData?.hasErrors && (
+              {tipo === 'nfe' && fiscalData?.hasErrors && !emitError && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span className="font-bold">Emissão bloqueada: corrija os dados fiscais (NCM/impostos) dos produtos antes de emitir.</span>
+                </div>
+              )}
+
+              {/* Inline error panel */}
+              {emitError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-2xl overflow-hidden">
+                  <div className="px-4 py-3 bg-red-100 dark:bg-red-900/40 border-b border-red-200 dark:border-red-800 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0" />
+                    <span className="font-bold text-sm text-red-800 dark:text-red-300">{emitError.title}</span>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <div className="text-xs text-red-700 dark:text-red-400 whitespace-pre-line leading-relaxed">
+                      {emitError.details}
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => setEmitError(null)}
+                        className="px-3 py-1.5 text-xs font-bold text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-all"
+                      >
+                        Fechar
+                      </button>
+                      {emitError.canRetry && (
+                        <>
+                          <button
+                            onClick={() => { setEmitError(null); handleEmit(); }}
+                            className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-all"
+                          >
+                            Tentar Novamente
+                          </button>
+                          <button
+                            onClick={() => { setEmitError(null); handleContingencia(); }}
+                            className="px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-all"
+                          >
+                            Emitir em Contingência
+                          </button>
+                        </>
+                      )}
+                      {!emitError.canRetry && (
+                        <button
+                          onClick={() => { const base = window.location.pathname.match(/^\/grupo\/[^/]+/)?.[0] || ''; window.open(`${base}/admin/nfe`, '_blank'); }}
+                          className="px-3 py-1.5 text-xs font-bold text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-700 rounded-lg hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-all"
+                        >
+                          Abrir Configurações
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1164,8 +1275,8 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
 
         {/* Modal Footer */}
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex justify-between gap-3">
-          {step === 4 ? (
-            <>
+          {step === 4 && (
+            <React.Fragment>
               <div />
               <div className="flex gap-2">
                 <button
@@ -1182,75 +1293,75 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                   Imprimir
                 </button>
               </div>
-            </>
-          ) : (
-          <>
-          {step > 1 && step <= 3 ? (
-            <button
-              onClick={handleBack}
-              disabled={submitting}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-750 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Voltar
-            </button>
-          ) : (
-            <div />
+            </React.Fragment>
           )}
-
-          <div className="flex gap-2">
-            {step < 3 ? (
-              <button
-                onClick={handleNext}
-                className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
-              >
-                Continuar
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            ) : (
-              <>
+          {step !== 4 && (
+            <React.Fragment>
+              {step > 1 && step <= 3 ? (
                 <button
-                  onClick={handleSaveDraft}
+                  onClick={handleBack}
                   disabled={submitting}
-                  className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-750 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                 >
-                  {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                  Rascunho
+                  <ChevronLeft className="w-4 h-4" />
+                  Voltar
                 </button>
-                <button
-                  onClick={handleContingencia}
-                  disabled={submitting}
-                  className="flex items-center gap-2 px-3 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50"
-                  title="Emitir em contingência (RPS/EPEC) quando o sistema fiscal estiver indisponível"
-                >
-                  {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
-                  Contingência
-                </button>
-                <button
-                  onClick={handleEmit}
-                  disabled={submitting || (tipo === 'nfe' && fiscalData?.hasErrors)}
-                  className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50 ${
-                    tipo === 'nfse'
-                      ? 'bg-sky-600 hover:bg-sky-700'
-                      : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Processando…
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      Emitir NF
-                    </>
-                  )}
-                </button>
-              </>
-            )}
-          </div>
-          </>
+              ) : (
+                <div />
+              )}
+              <div className="flex gap-2">
+                {step < 3 ? (
+                  <button
+                    onClick={handleNext}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all"
+                  >
+                    Continuar
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <React.Fragment>
+                    <button
+                      onClick={handleSaveDraft}
+                      disabled={submitting}
+                      className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                    >
+                      {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                      Rascunho
+                    </button>
+                    <button
+                      onClick={handleContingencia}
+                      disabled={submitting}
+                      className="flex items-center gap-2 px-3 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50"
+                      title="Emitir em contingência (RPS/EPEC) quando o sistema fiscal estiver indisponível"
+                    >
+                      {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                      Contingência
+                    </button>
+                    <button
+                      onClick={handleEmit}
+                      disabled={submitting || (tipo === 'nfe' && fiscalData?.hasErrors)}
+                      className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50 ${
+                        tipo === 'nfse'
+                          ? 'bg-sky-600 hover:bg-sky-700'
+                          : 'bg-emerald-600 hover:bg-emerald-700'
+                      }`}
+                    >
+                      {submitting ? (
+                        <React.Fragment>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Processando…
+                        </React.Fragment>
+                      ) : (
+                        <React.Fragment>
+                          <CheckCircle2 className="w-4 h-4" />
+                          Emitir NF
+                        </React.Fragment>
+                      )}
+                    </button>
+                  </React.Fragment>
+                )}
+              </div>
+            </React.Fragment>
           )}
         </div>
       </div>
