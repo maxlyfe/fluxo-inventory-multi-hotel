@@ -13,6 +13,313 @@ const NF_PROXY = import.meta.env.PROD
   ? '/.netlify/functions/nf-proxy'
   : '/.netlify/functions/nf-proxy';
 
+// ─── Tipos para resolução fiscal ─────────────────────────────────────────────
+
+export interface FiscalLineItem {
+  erbon_entry_id: number;
+  erbon_description: string;
+  erbon_service_id: number | null;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total: number;
+  // Dados fiscais resolvidos
+  product_id: string | null;
+  product_name: string | null;
+  ncm: string | null;
+  tax_percentage: number;
+  // Origem
+  source: 'product' | 'dish_ingredient' | 'unmapped';
+  dish_name: string | null;
+  warnings: string[];
+}
+
+export interface FiscalResolutionResult {
+  items: FiscalLineItem[];
+  warnings: string[];
+  hasErrors: boolean;
+}
+
+// ─── Resolução fiscal: Erbon entry → NCM + imposto ──────────────────────────
+
+async function resolveEntryFiscalData(
+  hotelId: string,
+  entries: Array<{
+    id: number;
+    description: string;
+    amount: number;
+    idDepartment: number;
+  }>,
+): Promise<FiscalResolutionResult> {
+  const globalWarnings: string[] = [];
+  const items: FiscalLineItem[] = [];
+
+  // 1. Buscar todos os mapeamentos Erbon do hotel
+  const { data: mappings, error: mapErr } = await supabase
+    .from('erbon_product_mappings')
+    .select('erbon_service_id, product_id, dish_id, erbon_service_description')
+    .eq('hotel_id', hotelId);
+  if (mapErr) throw mapErr;
+
+  const mappingByService = new Map<number, { product_id: string | null; dish_id: string | null; desc: string | null }>();
+  (mappings ?? []).forEach((m: { erbon_service_id: number; product_id: string | null; dish_id: string | null; erbon_service_description: string | null }) => {
+    mappingByService.set(m.erbon_service_id, {
+      product_id: m.product_id,
+      dish_id: m.dish_id,
+      desc: m.erbon_service_description,
+    });
+  });
+
+  // 2. Coletar todos os dish_ids e product_ids que vamos precisar
+  const neededDishIds = new Set<string>();
+  const neededProductIds = new Set<string>();
+
+  // Primeiro pass: identificar o que precisamos buscar
+  // Nota: o erbon_service_id não vem no CurrentAccountEntry, então tentamos
+  // encontrar o mapeamento pela description (match parcial) ou usamos todos
+  // os mapeamentos disponíveis
+  for (const entry of entries) {
+    // Tentar encontrar mapeamento: procurar por description match
+    let matched = false;
+    for (const [_svcId, map] of mappingByService) {
+      if (map.desc && entry.description.toLowerCase().includes(map.desc.toLowerCase())) {
+        if (map.dish_id) neededDishIds.add(map.dish_id);
+        if (map.product_id) neededProductIds.add(map.product_id);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      // Tentar match exato pela description como service_description
+      for (const [_svcId, map] of mappingByService) {
+        if (map.desc && map.desc.toLowerCase() === entry.description.toLowerCase()) {
+          if (map.dish_id) neededDishIds.add(map.dish_id);
+          if (map.product_id) neededProductIds.add(map.product_id);
+          matched = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Buscar fichas técnicas (dishes) e seus ingredientes
+  let dishIngredients: Array<{
+    dish_id: string;
+    dish_name: string;
+    ingredient_id: string;
+    quantity: number;
+    product_id: string | null;
+    product_name: string | null;
+    ncm: string | null;
+    tax_percentage: number;
+  }> = [];
+
+  if (neededDishIds.size > 0) {
+    const { data: dishes } = await supabase
+      .from('dishes')
+      .select('id, name')
+      .in('id', Array.from(neededDishIds));
+
+    const dishNameMap = new Map<string, string>();
+    (dishes ?? []).forEach((d: { id: string; name: string }) => dishNameMap.set(d.id, d.name));
+
+    const { data: diRows } = await supabase
+      .from('dish_ingredients')
+      .select(`
+        dish_id,
+        quantity,
+        ingredient_id,
+        ingredients!inner (
+          id,
+          name,
+          product_id,
+          products (
+            id,
+            name,
+            mcu_code,
+            tax_percentage
+          )
+        )
+      `)
+      .in('dish_id', Array.from(neededDishIds));
+
+    (diRows ?? []).forEach((row: any) => {
+      const ing = row.ingredients;
+      const prod = ing?.products;
+      dishIngredients.push({
+        dish_id: row.dish_id,
+        dish_name: dishNameMap.get(row.dish_id) || '?',
+        ingredient_id: ing?.id || row.ingredient_id,
+        quantity: row.quantity || 1,
+        product_id: prod?.id || ing?.product_id || null,
+        product_name: prod?.name || ing?.name || null,
+        ncm: prod?.mcu_code || null,
+        tax_percentage: prod?.tax_percentage ?? 0,
+      });
+    });
+  }
+
+  // 4. Buscar produtos diretos
+  let directProducts: Map<string, { name: string; ncm: string | null; tax_percentage: number }> = new Map();
+  if (neededProductIds.size > 0) {
+    const { data: prods } = await supabase
+      .from('products')
+      .select('id, name, mcu_code, tax_percentage')
+      .in('id', Array.from(neededProductIds));
+
+    (prods ?? []).forEach((p: { id: string; name: string; mcu_code: string | null; tax_percentage: number | null }) => {
+      directProducts.set(p.id, {
+        name: p.name,
+        ncm: p.mcu_code,
+        tax_percentage: p.tax_percentage ?? 0,
+      });
+    });
+  }
+
+  // 5. Resolver cada entry
+  for (const entry of entries) {
+    let mapping: { product_id: string | null; dish_id: string | null; desc: string | null; svcId: number } | null = null;
+
+    // Buscar mapeamento por description
+    for (const [svcId, map] of mappingByService) {
+      if (map.desc && (
+        entry.description.toLowerCase().includes(map.desc.toLowerCase()) ||
+        map.desc.toLowerCase() === entry.description.toLowerCase()
+      )) {
+        mapping = { ...map, svcId };
+        break;
+      }
+    }
+
+    if (!mapping) {
+      // Sem mapeamento encontrado
+      items.push({
+        erbon_entry_id: entry.id,
+        erbon_description: entry.description,
+        erbon_service_id: null,
+        quantidade: 1,
+        valor_unitario: entry.amount,
+        valor_total: entry.amount,
+        product_id: null,
+        product_name: null,
+        ncm: null,
+        tax_percentage: 0,
+        source: 'unmapped',
+        dish_name: null,
+        warnings: [`Produto "${entry.description}" não possui mapeamento Erbon → Fluxo`],
+      });
+      globalWarnings.push(`"${entry.description}" sem mapeamento`);
+      continue;
+    }
+
+    // Rota A: Ficha técnica (dish)
+    if (mapping.dish_id) {
+      const ingredients = dishIngredients.filter(di => di.dish_id === mapping!.dish_id);
+      if (ingredients.length === 0) {
+        items.push({
+          erbon_entry_id: entry.id,
+          erbon_description: entry.description,
+          erbon_service_id: mapping.svcId,
+          quantidade: 1,
+          valor_unitario: entry.amount,
+          valor_total: entry.amount,
+          product_id: null,
+          product_name: null,
+          ncm: null,
+          tax_percentage: 0,
+          source: 'dish_ingredient',
+          dish_name: dishIngredients.find(d => d.dish_id === mapping!.dish_id)?.dish_name || entry.description,
+          warnings: [`Ficha técnica sem ingredientes cadastrados`],
+        });
+        globalWarnings.push(`Ficha técnica de "${entry.description}" sem ingredientes`);
+        continue;
+      }
+
+      // Calcular proporção de cada ingrediente no valor total
+      const totalIngQty = ingredients.reduce((s, i) => s + i.quantity, 0);
+
+      for (const ing of ingredients) {
+        const proportion = totalIngQty > 0 ? ing.quantity / totalIngQty : 1 / ingredients.length;
+        const valorItem = Math.round(entry.amount * proportion * 100) / 100;
+        const w: string[] = [];
+
+        if (!ing.product_id) w.push(`Ingrediente "${ing.product_name || '?'}" sem produto vinculado`);
+        if (!ing.ncm) w.push(`NCM ausente para "${ing.product_name || '?'}"`);
+
+        if (w.length) globalWarnings.push(...w);
+
+        items.push({
+          erbon_entry_id: entry.id,
+          erbon_description: entry.description,
+          erbon_service_id: mapping.svcId,
+          quantidade: ing.quantity,
+          valor_unitario: totalIngQty > 0 ? Math.round((entry.amount / totalIngQty) * 100) / 100 : valorItem,
+          valor_total: valorItem,
+          product_id: ing.product_id,
+          product_name: ing.product_name,
+          ncm: ing.ncm,
+          tax_percentage: ing.tax_percentage,
+          source: 'dish_ingredient',
+          dish_name: ing.dish_name,
+          warnings: w,
+        });
+      }
+      continue;
+    }
+
+    // Rota B: Produto direto
+    if (mapping.product_id) {
+      const prod = directProducts.get(mapping.product_id);
+      const w: string[] = [];
+
+      if (!prod) w.push(`Produto mapeado não encontrado no banco`);
+      if (prod && !prod.ncm) w.push(`NCM ausente para "${prod.name}"`);
+
+      if (w.length) globalWarnings.push(...w);
+
+      items.push({
+        erbon_entry_id: entry.id,
+        erbon_description: entry.description,
+        erbon_service_id: mapping.svcId,
+        quantidade: 1,
+        valor_unitario: entry.amount,
+        valor_total: entry.amount,
+        product_id: mapping.product_id,
+        product_name: prod?.name || entry.description,
+        ncm: prod?.ncm || null,
+        tax_percentage: prod?.tax_percentage ?? 0,
+        source: 'product',
+        dish_name: null,
+        warnings: w,
+      });
+      continue;
+    }
+
+    // Nenhum target
+    items.push({
+      erbon_entry_id: entry.id,
+      erbon_description: entry.description,
+      erbon_service_id: mapping.svcId,
+      quantidade: 1,
+      valor_unitario: entry.amount,
+      valor_total: entry.amount,
+      product_id: null,
+      product_name: null,
+      ncm: null,
+      tax_percentage: 0,
+      source: 'unmapped',
+      dish_name: null,
+      warnings: ['Mapeamento existe mas sem produto nem ficha técnica vinculados'],
+    });
+    globalWarnings.push(`"${entry.description}" mapeado sem target`);
+  }
+
+  const hasErrors = items.some(i =>
+    i.source === 'unmapped' || i.warnings.some(w => w.includes('NCM ausente') || w.includes('sem mapeamento'))
+  );
+
+  return { items, warnings: globalWarnings, hasErrors };
+}
+
 // ─── Config CRUD ─────────────────────────────────────────────────────────────
 
 async function getConfig(hotelId: string): Promise<NFHotelConfig | null> {
@@ -297,6 +604,7 @@ export const nfService = {
   emitInvoice,
   cancelInvoice,
   testConnection,
+  resolveEntryFiscalData,
 };
 
-export type { CreateInvoiceInput };
+export type { CreateInvoiceInput, FiscalLineItem, FiscalResolutionResult };

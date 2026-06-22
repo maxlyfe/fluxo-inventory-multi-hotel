@@ -15,10 +15,10 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { nfService } from '../../lib/nfService';
+import { nfService, type FiscalLineItem, type FiscalResolutionResult } from '../../lib/nfService';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
-import type { NFTipo, NFInvoice } from '../../types/nf';
+import type { NFTipo } from '../../types/nf';
 
 export interface CurrentAccountEntry {
   id: number;
@@ -119,6 +119,10 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
 
+  // Fiscal resolution for NF-e (products)
+  const [fiscalData, setFiscalData] = useState<FiscalResolutionResult | null>(null);
+  const [loadingFiscal, setLoadingFiscal] = useState(false);
+
   // Classify selected items
   const [activeItems, setActiveItems] = useState<CurrentAccountEntry[]>([]);
   const [ignoredItems, setIgnoredItems] = useState<CurrentAccountEntry[]>([]);
@@ -145,6 +149,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setStep(1);
     setFormErrors({});
     setSubmitting(false);
+    setFiscalData(null);
 
     // Classify entries
     const services = selectedEntries.filter(isServiceEntry);
@@ -156,6 +161,22 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setActiveItems(active);
     setIgnoredItems(ignored);
     setCheckedItemIds(new Set(active.map((e) => e.id)));
+
+    // For NF-e (products), resolve fiscal data (NCM, tax %)
+    if (tipo === 'nfe' && products.length > 0) {
+      setLoadingFiscal(true);
+      nfService.resolveEntryFiscalData(
+        hotelId,
+        products.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment }))
+      ).then(result => {
+        setFiscalData(result);
+      }).catch(err => {
+        console.error('[NFInvoiceModal] Fiscal resolution error:', err);
+        setFiscalData({ items: [], warnings: ['Erro ao resolver dados fiscais dos produtos'], hasErrors: true });
+      }).finally(() => {
+        setLoadingFiscal(false);
+      });
+    }
 
     // Prefill tomador data from booking guest
     const primaryGuest = booking?.guestList?.[0];
@@ -185,7 +206,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorBairro('');
     setTomadorCidade('');
     setTomadorUf('');
-  }, [isOpen, tipo, booking, selectedEntries]);
+  }, [isOpen, tipo, booking, selectedEntries, hotelId]);
 
   if (!isOpen) return null;
 
@@ -250,6 +271,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         });
         return;
       }
+      if (tipo === 'nfe' && loadingFiscal) {
+        addNotification({
+          type: 'error',
+          message: 'Aguarde a resolução dos dados fiscais.',
+        });
+        return;
+      }
       setStep(2);
     } else if (step === 2) {
       if (validateStep2()) {
@@ -285,13 +313,22 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         tomador_cpf_cnpj: tomadorCpfCnpj,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
-        items: finalItems.map((e) => ({
-          erbon_entry_id: e.id,
-          descricao: e.description,
-          quantidade: 1,
-          valor_unitario: e.amount,
-          valor_total: e.amount,
-        })),
+        items: finalItems.map((e) => {
+          const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
+          return {
+            erbon_entry_id: e.id,
+            descricao: e.description,
+            quantidade: 1,
+            valor_unitario: e.amount,
+            valor_total: e.amount,
+            ...(tipo === 'nfe' && fiscal ? {
+              ncm: fiscal.ncm || null,
+              cfop: '5102',
+              icms_aliquota: fiscal.tax_percentage ?? null,
+              icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+            } : {}),
+          };
+        }),
         emitido_por: user?.id || null,
       };
 
@@ -317,6 +354,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     if (submitting) return;
     setSubmitting(true);
     try {
+      if (tipo === 'nfe' && fiscalData?.hasErrors) {
+        addNotification({ type: 'error', message: 'Corrija os dados fiscais antes de emitir a NF-e.' });
+        setSubmitting(false);
+        return;
+      }
+
       const input = {
         hotel_id: hotelId,
         tipo,
@@ -327,13 +370,22 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         tomador_cpf_cnpj: tomadorCpfCnpj,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
-        items: finalItems.map((e) => ({
-          erbon_entry_id: e.id,
-          descricao: e.description,
-          quantidade: 1,
-          valor_unitario: e.amount,
-          valor_total: e.amount,
-        })),
+        items: finalItems.map((e) => {
+          const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
+          return {
+            erbon_entry_id: e.id,
+            descricao: e.description,
+            quantidade: 1,
+            valor_unitario: e.amount,
+            valor_total: e.amount,
+            ...(tipo === 'nfe' && fiscal ? {
+              ncm: fiscal.ncm || null,
+              cfop: '5102',
+              icms_aliquota: fiscal.tax_percentage ?? null,
+              icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+            } : {}),
+          };
+        }),
         emitido_por: user?.id || null,
       };
 
@@ -381,7 +433,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
               <h3 className="font-bold text-gray-900 dark:text-white">
                 {tipo === 'nfse' ? 'Emissão de NFS-e (Serviços)' : 'Emissão de NF-e (Consumo/Produtos)'}
               </h3>
-              <p className="text-xs text-gray-400">UH {booking?.roomDescription || room?.roomName || '—'} · Reserva {booking?.erbonNumber || '—'}</p>
+              <p className="text-xs text-gray-400">UH {booking?.roomDescription || '—'} · Reserva {booking?.erbonNumber || '—'}</p>
             </div>
           </div>
           <button
@@ -419,28 +471,66 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                 <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Itens Inclusos</p>
                 {activeItems.length > 0 ? (
                   <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden divide-y divide-gray-100 dark:divide-gray-800">
-                    {activeItems.map((item) => (
-                      <label
-                        key={item.id}
-                        className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-900/30 cursor-pointer text-sm transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={checkedItemIds.has(item.id)}
-                            onChange={() => handleToggleItem(item.id)}
-                            className="rounded border-gray-300 text-amber-500 focus:ring-amber-500 w-4 h-4"
-                          />
-                          <div>
-                            <span className="text-gray-850 dark:text-gray-200 font-medium block">{item.description}</span>
-                            <span className="text-[10px] text-gray-400">Depto: {item.idDepartment}</span>
+                    {activeItems.map((item) => {
+                      const fiscalItem = fiscalData?.items.find(f => f.erbon_entry_id === item.id);
+                      return (
+                        <label
+                          key={item.id}
+                          className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-900/30 cursor-pointer text-sm transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checkedItemIds.has(item.id)}
+                              onChange={() => handleToggleItem(item.id)}
+                              className="rounded border-gray-300 text-amber-500 focus:ring-amber-500 w-4 h-4"
+                            />
+                            <div>
+                              <span className="text-gray-850 dark:text-gray-200 font-medium block">{item.description}</span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-gray-400">Depto: {item.idDepartment}</span>
+                                {tipo === 'nfe' && fiscalItem && (
+                                  <>
+                                    {fiscalItem.ncm ? (
+                                      <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded font-mono">
+                                        NCM {fiscalItem.ncm}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                        <AlertCircle className="w-2.5 h-2.5" /> NCM ausente
+                                      </span>
+                                    )}
+                                    {fiscalItem.tax_percentage != null && (
+                                      <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                                        Imp. {fiscalItem.tax_percentage.toFixed(2)}%
+                                      </span>
+                                    )}
+                                    {fiscalItem.source && (
+                                      <span className="text-[10px] text-gray-400">via {fiscalItem.source}</span>
+                                    )}
+                                  </>
+                                )}
+                                {tipo === 'nfe' && loadingFiscal && (
+                                  <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
+                                )}
+                              </div>
+                              {tipo === 'nfe' && fiscalItem?.warnings && fiscalItem.warnings.length > 0 && (
+                                <div className="mt-1">
+                                  {fiscalItem.warnings.map((w, i) => (
+                                    <p key={i} className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                      <AlertTriangle className="w-2.5 h-2.5 flex-shrink-0" /> {w}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <span className="font-mono font-bold text-gray-700 dark:text-gray-300">
-                          {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                      </label>
-                    ))}
+                          <span className="font-mono font-bold text-gray-700 dark:text-gray-300">
+                            {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="p-4 bg-gray-50 dark:bg-gray-900/20 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl text-center text-xs text-gray-400">
@@ -448,6 +538,31 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Fiscal resolution warnings (NF-e only) */}
+              {tipo === 'nfe' && loadingFiscal && (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-400">
+                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                  Resolvendo dados fiscais (NCM, impostos) dos produtos…
+                </div>
+              )}
+              {tipo === 'nfe' && fiscalData && fiscalData.warnings.length > 0 && (
+                <div className={`p-3 rounded-xl border text-xs space-y-1 ${fiscalData.hasErrors ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
+                  <div className="flex items-center gap-1.5 font-bold">
+                    {fiscalData.hasErrors ? (
+                      <><AlertCircle className="w-4 h-4 text-red-500" /><span className="text-red-700 dark:text-red-400">Erros na resolução fiscal</span></>
+                    ) : (
+                      <><AlertTriangle className="w-4 h-4 text-amber-500" /><span className="text-amber-700 dark:text-amber-400">Avisos fiscais</span></>
+                    )}
+                  </div>
+                  {fiscalData.warnings.map((w, i) => (
+                    <p key={i} className={fiscalData.hasErrors ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}>• {w}</p>
+                  ))}
+                  {fiscalData.hasErrors && (
+                    <p className="font-bold text-red-700 dark:text-red-400 pt-1">A emissão será bloqueada até que os dados fiscais sejam corrigidos.</p>
+                  )}
+                </div>
+              )}
 
               {/* Ignored list */}
               {ignoredItems.length > 0 && (
@@ -716,17 +831,43 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
               {/* Items summary list */}
               <div className="space-y-2">
                 <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Lançamentos Vinculados ({finalItems.length})</p>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden max-h-40 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-850">
-                  {finalItems.map((item) => (
-                    <div key={item.id} className="flex justify-between p-2.5 text-xs bg-white dark:bg-gray-800/40">
-                      <span className="text-gray-700 dark:text-gray-300 font-medium">{item.description}</span>
-                      <span className="font-mono font-bold text-gray-700 dark:text-gray-300">
-                        {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </span>
-                    </div>
-                  ))}
+                <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden max-h-48 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-850">
+                  {finalItems.map((item) => {
+                    const fiscalItem = fiscalData?.items.find(f => f.erbon_entry_id === item.id);
+                    return (
+                      <div key={item.id} className="p-2.5 text-xs bg-white dark:bg-gray-800/40">
+                        <div className="flex justify-between">
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">{item.description}</span>
+                          <span className="font-mono font-bold text-gray-700 dark:text-gray-300">
+                            {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                        {tipo === 'nfe' && fiscalItem && (
+                          <div className="flex items-center gap-2 mt-1">
+                            {fiscalItem.ncm && (
+                              <span className="text-[10px] font-mono text-gray-500">NCM: {fiscalItem.ncm}</span>
+                            )}
+                            {fiscalItem.tax_percentage != null && (
+                              <span className="text-[10px] text-gray-500">Imposto: {fiscalItem.tax_percentage.toFixed(2)}%</span>
+                            )}
+                            {fiscalItem.source && (
+                              <span className="text-[10px] text-gray-400">({fiscalItem.source})</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+
+              {/* Fiscal errors block emission */}
+              {tipo === 'nfe' && fiscalData?.hasErrors && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span className="font-bold">Emissão bloqueada: corrija os dados fiscais (NCM/impostos) dos produtos antes de emitir.</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -767,7 +908,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
                 </button>
                 <button
                   onClick={handleEmit}
-                  disabled={submitting}
+                  disabled={submitting || (tipo === 'nfe' && fiscalData?.hasErrors)}
                   className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50 ${
                     tipo === 'nfse'
                       ? 'bg-sky-600 hover:bg-sky-700'
