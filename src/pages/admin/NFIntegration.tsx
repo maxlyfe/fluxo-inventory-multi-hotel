@@ -424,7 +424,7 @@ const NFIntegration: React.FC = () => {
                 <div>
                   <label className={labelCls}>Regime Tributário</label>
                   <select value={form.regime_tributario_nfse} onChange={upd('regime_tributario_nfse')} className={inputCls}>
-                    <option value="">Selecione...</option>
+                    <option value="">Nenhum / Regime Normal (Lucro Presumido ou Lucro Real)</option>
                     <option value="1">Microempresa Municipal</option>
                     <option value="2">Estimativa</option>
                     <option value="3">Sociedade de Profissionais</option>
@@ -515,7 +515,7 @@ const NFIntegration: React.FC = () => {
                   <select value={form.crt} onChange={upd('crt')} className={inputCls}>
                     <option value={1}>1 — Simples Nacional</option>
                     <option value={2}>2 — Simples Nacional (excesso)</option>
-                    <option value={3}>3 — Regime Normal</option>
+                    <option value={3}>3 — Regime Normal (Lucro Presumido ou Lucro Real)</option>
                   </select>
                 </div>
                 <div>
