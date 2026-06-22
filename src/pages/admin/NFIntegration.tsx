@@ -167,6 +167,7 @@ const NFIntegration: React.FC = () => {
         proximo_numero_nfse: Number(form.proximo_numero_nfse) || 1,
         crt: Number(form.crt) || 1,
         proximo_numero_nfe: Number(form.proximo_numero_nfe) || 1,
+        certificado_validade: form.certificado_validade || null,
         is_active: true,
       });
       setConfig(saved);
