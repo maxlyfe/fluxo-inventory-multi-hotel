@@ -61,6 +61,7 @@ export default function PublicJobApplication() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumePreview, setResumePreview] = useState<string | null>(null);
   const [termsAccepted,   setTermsAccepted]   = useState(false);
+  const [termsError,      setTermsError]      = useState(false);
   const [showTermsModal,  setShowTermsModal]   = useState(false);
 
   useEffect(() => {
@@ -115,7 +116,8 @@ export default function PublicJobApplication() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!job || !name.trim() || !cpf.trim() || !termsAccepted) return;
+    if (!job || !name.trim() || !cpf.trim()) return;
+    if (!termsAccepted) { setTermsError(true); return; }
 
     setSubmitting(true);
 
@@ -400,17 +402,23 @@ export default function PublicJobApplication() {
             </div>
 
             {/* ── Termos e Consentimento ── */}
-            <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2.5">
+            <div className={`rounded-xl p-4 space-y-2.5 border transition-colors ${
+              termsError
+                ? 'bg-red-50 border-red-300'
+                : 'bg-violet-50 border-violet-200'
+            }`}>
               <div className="flex items-start gap-3">
                 <button
                   type="button"
-                  onClick={() => setTermsAccepted(v => !v)}
+                  onClick={() => { setTermsAccepted(v => !v); setTermsError(false); }}
                   className="mt-0.5 flex-shrink-0"
                   aria-checked={termsAccepted}
                   role="checkbox">
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
                     termsAccepted
                       ? 'bg-violet-600 border-violet-600 shadow-sm shadow-violet-300'
+                      : termsError
+                      ? 'border-red-500 bg-red-50 animate-pulse'
                       : 'border-gray-300 bg-white hover:border-violet-400'
                   }`}>
                     {termsAccepted && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
@@ -428,13 +436,19 @@ export default function PublicJobApplication() {
                   {' '}da LyFe Hoteles, incluindo a utilização dos meus dados para cadastro interno, comunicações de novas oportunidades e pesquisas do grupo hoteleiro.
                 </p>
               </div>
-              <p className="text-xs text-gray-400 pl-8 flex items-center gap-1">
+              {termsError && (
+                <p className="pl-8 text-xs font-semibold text-red-600 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  Você precisa aceitar os Termos antes de enviar a candidatura.
+                </p>
+              )}
+              <p className={`text-xs pl-8 flex items-center gap-1 ${termsError ? 'text-red-400' : 'text-gray-400'}`}>
                 <Shield className="w-3 h-3 shrink-0" />
                 Seus dados são protegidos pela LGPD (Lei nº 13.709/2018). Você pode revogar seu consentimento a qualquer momento.
               </p>
             </div>
 
-            <button type="submit" disabled={submitting || !name.trim() || !cpf.trim() || !termsAccepted}
+            <button type="submit" disabled={submitting || !name.trim() || !cpf.trim()}
               className="w-full flex items-center justify-center gap-2 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium disabled:opacity-50 transition-colors">
               {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               Enviar Candidatura
