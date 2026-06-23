@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import {
   Briefcase, Loader2, CheckCircle, AlertTriangle, MapPin, Clock,
   DollarSign, FileText, Send, User, Phone, Mail, Calendar, Home,
+  Upload, X, File, FileImage,
 } from 'lucide-react';
 
 interface JobOpening {
@@ -51,6 +52,8 @@ export default function PublicJobApplication() {
   const [address, setAddress] = useState('');
   const [experience, setExperience] = useState('');
   const [referralSource, setReferralSource] = useState('');
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumePreview, setResumePreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (token) loadJob();
@@ -96,6 +99,25 @@ export default function PublicJobApplication() {
       return;
     }
 
+    let resumeUrl: string | null = null;
+
+    if (resumeFile) {
+      const ext = resumeFile.name.split('.').pop() || 'pdf';
+      const path = `resumes/${job.id}/${cleanCpf}-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('candidates')
+        .upload(path, resumeFile, { upsert: true });
+
+      if (uploadErr) {
+        console.error('Erro ao subir currículo:', uploadErr);
+      } else {
+        const { data: urlData } = supabase.storage
+          .from('candidates')
+          .getPublicUrl(path);
+        resumeUrl = urlData.publicUrl;
+      }
+    }
+
     const { error: insertErr } = await supabase.from('candidates').insert({
       job_opening_id: job.id,
       hotel_id: job.hotel_id,
@@ -109,15 +131,13 @@ export default function PublicJobApplication() {
       address: address.trim() || null,
       experience: experience.trim() || null,
       referral_source: referralSource.trim() || null,
+      resume_url: resumeUrl,
       status: 'applied',
     });
 
     if (insertErr) {
       alert('Erro ao enviar candidatura. Tente novamente.');
     } else {
-      // Add timeline entry
-      // We can't add timeline here since we don't have the candidate id from insert
-      // The trigger or backend can handle this
       setSubmitted(true);
     }
     setSubmitting(false);
@@ -257,6 +277,60 @@ export default function PublicJobApplication() {
               <input type="text" value={referralSource} onChange={e => setReferralSource(e.target.value)}
                 placeholder="Ex: indicação, site, redes sociais..."
                 className="w-full px-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
+            </div>
+
+            {/* Resume Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Currículo (PDF, foto ou imagem)</label>
+              {resumeFile ? (
+                <div className="flex items-center gap-3 p-3 bg-violet-50 border border-violet-200 rounded-lg">
+                  {resumePreview ? (
+                    <img src={resumePreview} alt="Preview" className="w-12 h-12 rounded object-cover flex-shrink-0 border border-violet-200" />
+                  ) : (
+                    <div className="w-12 h-12 rounded bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <File className="w-6 h-6 text-violet-500" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{resumeFile.name}</p>
+                    <p className="text-xs text-gray-500">{(resumeFile.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setResumeFile(null); setResumePreview(null); }}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-violet-400 hover:bg-violet-50/50 transition-colors">
+                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                  <span className="text-sm text-gray-600 font-medium">Clique para enviar seu currículo</span>
+                  <span className="text-xs text-gray-400 mt-1">PDF, JPG, PNG — até 10MB</span>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 10 * 1024 * 1024) {
+                        alert('Arquivo muito grande. Máximo: 10MB.');
+                        return;
+                      }
+                      setResumeFile(file);
+                      if (file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => setResumePreview(ev.target?.result as string);
+                        reader.readAsDataURL(file);
+                      } else {
+                        setResumePreview(null);
+                      }
+                    }}
+                  />
+                </label>
+              )}
             </div>
 
             <button type="submit" disabled={submitting || !name.trim() || !cpf.trim()}
