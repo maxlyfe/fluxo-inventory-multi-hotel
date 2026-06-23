@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import {
   Briefcase, Loader2, CheckCircle, AlertTriangle, MapPin, Clock,
   DollarSign, FileText, Send, User, Phone, Mail, Calendar, Home,
-  Upload, X, File, FileImage,
+  Upload, X, File, Search,
 } from 'lucide-react';
 
 interface JobOpening {
@@ -47,6 +47,8 @@ export default function PublicJobApplication() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  const [cep, setCep] = useState('');
+  const [cepLoading, setCepLoading] = useState(false);
   const [city, setCity] = useState('');
   const [neighborhood, setNeighborhood] = useState('');
   const [address, setAddress] = useState('');
@@ -76,6 +78,28 @@ export default function PublicJobApplication() {
     }
     setLoading(false);
   }
+
+  const lookupCep = async (digits: string) => {
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.erro) return;
+      if (data.logradouro) setAddress(data.logradouro);
+      if (data.bairro) setNeighborhood(data.bairro);
+      if (data.localidade) setCity(data.localidade);
+    } catch { /* usuário preenche manualmente */ }
+    finally { setCepLoading(false); }
+  };
+
+  const handleCepChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+    setCep(formatted);
+    if (digits.length === 8) lookupCep(digits);
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -250,6 +274,13 @@ export default function PublicJobApplication() {
               <FormField label="Data de nascimento" icon={Calendar}>
                 <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)}
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
+              </FormField>
+              <FormField label="CEP" icon={Search}>
+                <input type="text" value={cep} onChange={e => handleCepChange(e.target.value)}
+                  onBlur={() => { const d = cep.replace(/\D/g, ''); if (d.length === 8) lookupCep(d); }}
+                  placeholder="00000-000"
+                  className="w-full pl-9 pr-9 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
+                {cepLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-violet-500" />}
               </FormField>
               <FormField label="Cidade" icon={MapPin}>
                 <input type="text" value={city} onChange={e => setCity(e.target.value)}
