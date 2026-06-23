@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Search, ChevronDown, ChevronUp, Edit2, Check, X,
   History, Trash2, AlertTriangle, Loader2, Calendar,
-  Receipt, FileText, BookOpen, ChevronRight,
+  Receipt, FileText, BookOpen, ChevronRight, CreditCard,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
@@ -40,6 +40,9 @@ interface Purchase {
   due_date: string | null;
   chart_account_sub_id: string | null;
   chart_of_accounts_sub: ChartAccountSubSummary | null;
+  is_installment: boolean;
+  installment_count: number | null;
+  purchase_installments: PurchaseInstallment[];
   created_at: string;
   purchase_items: PurchaseItem[];
 }
@@ -55,6 +58,17 @@ interface ChartAccount {
   name: string;
   sort_order: number;
   subs: ChartAccountSub[];
+}
+
+interface PurchaseInstallment {
+  id: string;
+  purchase_id: string;
+  installment_number: number;
+  due_date: string | null;
+  amount: number;
+  is_paid: boolean;
+  paid_at: string | null;
+  notes: string | null;
 }
 
 interface EditingState {
@@ -110,11 +124,13 @@ export default function PurchaseHistory() {
         .select(`
           id, purchase_date, invoice_number, supplier, total_amount, notes, created_at,
           document_type, emission_date, due_date, chart_account_sub_id,
+          is_installment, installment_count,
           chart_of_accounts_sub:chart_account_sub_id (
             id, name,
             chart_of_accounts:account_id ( id, name )
           ),
-          purchase_items ( id, product_id, quantity, unit_price, total_price, products:products(id, name) )
+          purchase_items ( id, product_id, quantity, unit_price, total_price, products:products(id, name) ),
+          purchase_installments ( id, purchase_id, installment_number, due_date, amount, is_paid, paid_at, notes )
         `)
         .eq('hotel_id', selectedHotel.id)
         .order('purchase_date', { ascending: false })
@@ -279,6 +295,25 @@ export default function PurchaseHistory() {
     }
   }
 
+  async function toggleInstallmentPaid(installmentId: string, isPaid: boolean, purchaseId: string) {
+    const { error } = await supabase
+      .from('purchase_installments')
+      .update({ is_paid: isPaid, paid_at: isPaid ? new Date().toISOString() : null })
+      .eq('id', installmentId);
+    if (error) { addNotification('Erro: ' + error.message, 'error'); return; }
+    setPurchases(prev => prev.map(p => {
+      if (p.id !== purchaseId) return p;
+      return {
+        ...p,
+        purchase_installments: p.purchase_installments.map(inst =>
+          inst.id === installmentId
+            ? { ...inst, is_paid: isPaid, paid_at: isPaid ? new Date().toISOString() : null }
+            : inst
+        ),
+      };
+    }));
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function docTypeBadgeColor(type: string | null): string {
@@ -373,13 +408,32 @@ export default function PurchaseHistory() {
                             {p.document_type}
                           </span>
                         )}
+                        {p.is_installment && p.installment_count && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 inline-flex items-center gap-0.5">
+                            <CreditCard className="w-3 h-3" />
+                            {p.installment_count}×
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {formatDate(p.purchase_date)} · {p.purchase_items.length} ite{p.purchase_items.length !== 1 ? 'ns' : 'm'}
-                        {p.due_date && (
-                          <span className={`ml-2 ${new Date(p.due_date) < new Date() ? 'text-red-400' : 'text-slate-400'}`}>
-                            · Vence {formatDate(p.due_date)}
-                          </span>
+                        {p.is_installment && p.purchase_installments?.length > 0 ? (() => {
+                          const next = p.purchase_installments
+                            .filter(i => !i.is_paid && i.due_date)
+                            .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())[0];
+                          const paidCount = p.purchase_installments.filter(i => i.is_paid).length;
+                          return (
+                            <span className={`ml-2 ${next && new Date(next.due_date!) < new Date() ? 'text-red-400' : 'text-slate-400'}`}>
+                              · {paidCount}/{p.purchase_installments.length} pagas
+                              {next && ` · Próx. ${formatDate(next.due_date)}`}
+                            </span>
+                          );
+                        })() : (
+                          p.due_date && (
+                            <span className={`ml-2 ${new Date(p.due_date) < new Date() ? 'text-red-400' : 'text-slate-400'}`}>
+                              · Vence {formatDate(p.due_date)}
+                            </span>
+                          )
                         )}
                         {chartSub && (
                           <span className="ml-2 text-purple-400">· {chartSub}</span>
@@ -525,6 +579,67 @@ export default function PurchaseHistory() {
                         {p.notes && (
                           <p className="w-full text-xs text-slate-500 dark:text-slate-400 italic">{p.notes}</p>
                         )}
+                      </div>
+                    )}
+
+                    {/* Installments section */}
+                    {!isEditing && p.is_installment && p.purchase_installments?.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <CreditCard className="w-4 h-4 text-blue-500" />
+                          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                            Compra Parcelada — {p.installment_count}×
+                          </h3>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            p.purchase_installments.every(i => i.is_paid)
+                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                          }`}>
+                            {p.purchase_installments.filter(i => i.is_paid).length}/{p.purchase_installments.length} pagas
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-slate-50 dark:bg-slate-800/60 text-left">
+                                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">#</th>
+                                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Vencimento</th>
+                                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Valor</th>
+                                <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-center">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                              {[...p.purchase_installments]
+                                .sort((a, b) => a.installment_number - b.installment_number)
+                                .map(inst => {
+                                  const overdue = !inst.is_paid && inst.due_date && new Date(inst.due_date) < new Date();
+                                  return (
+                                    <tr key={inst.id} className={`transition-colors ${inst.is_paid ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'}`}>
+                                      <td className="px-4 py-2.5 text-xs font-bold text-blue-600 dark:text-blue-400">{inst.installment_number}×</td>
+                                      <td className={`px-4 py-2.5 text-sm ${overdue ? 'text-red-500 dark:text-red-400 font-semibold' : 'text-slate-600 dark:text-slate-400'}`}>
+                                        {formatDate(inst.due_date)}
+                                        {overdue && <span className="ml-1 text-xs">(atrasado)</span>}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-900 dark:text-slate-100">
+                                        R$ {Number(inst.amount).toFixed(2)}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-center">
+                                        <button
+                                          onClick={() => toggleInstallmentPaid(inst.id, !inst.is_paid, p.id)}
+                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                            inst.is_paid
+                                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800/40'
+                                              : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/30 dark:hover:text-blue-300'
+                                          }`}>
+                                          {inst.is_paid ? <><Check className="w-3 h-3" /> Pago</> : 'Pendente'}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
 

@@ -66,6 +66,13 @@ interface ChartAccount {
   subs: ChartAccountSub[];
 }
 
+interface Installment {
+  installment_number: number;
+  due_date: string;
+  amount: number;
+  amount_display?: string;
+}
+
 interface CustomDocType {
   id: string;
   name: string;
@@ -101,6 +108,13 @@ function suggestDueDate(purchaseDate: string): string {
   dueMonth += day < 20 ? 1 : 2;
   if (dueMonth > 11) { dueYear += Math.floor(dueMonth / 12); dueMonth = dueMonth % 12; }
   return `${dueYear}-${String(dueMonth + 1).padStart(2, '0')}-01`;
+}
+
+function addMonths(dateStr: string, n: number): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setMonth(d.getMonth() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const fieldCls =
@@ -408,6 +422,11 @@ const NewPurchase = () => {
   const [addingDocType,   setAddingDocType]   = useState(false);
   const [newDocTypeName,  setNewDocTypeName]  = useState('');
 
+  // ── Installments
+  const [isInstallment,    setIsInstallment]    = useState(false);
+  const [installmentCount, setInstallmentCount] = useState(2);
+  const [installments,     setInstallments]     = useState<Installment[]>([]);
+
   // ── Purchase form data
   const [purchaseData, setPurchaseData] = useState({
     invoice_number: '',
@@ -610,6 +629,53 @@ const NewPurchase = () => {
     setNewDocTypeName(''); setAddingDocType(false); loadDocTypes();
   }
 
+  function generateInstallments() {
+    if (total === 0 || installmentCount < 2) return;
+    const base = Math.floor((total / installmentCount) * 100) / 100;
+    const last = Math.round((total - base * (installmentCount - 1)) * 100) / 100;
+    let firstDate: string;
+    if (purchaseData.document_type === 'Cartão de Crédito' && purchaseData.purchase_date) {
+      firstDate = suggestDueDate(purchaseData.purchase_date);
+    } else if (purchaseData.due_date) {
+      firstDate = purchaseData.due_date;
+    } else if (purchaseData.purchase_date) {
+      firstDate = addMonths(purchaseData.purchase_date, 1);
+    } else {
+      firstDate = '';
+    }
+    setInstallments(
+      Array.from({ length: installmentCount }, (_, i) => ({
+        installment_number: i + 1,
+        due_date: firstDate ? addMonths(firstDate, i) : '',
+        amount: i === installmentCount - 1 ? last : base,
+      }))
+    );
+  }
+
+  function updateInstallment(i: number, field: 'due_date' | 'amount', value: string) {
+    setInstallments(prev => prev.map((inst, idx) => {
+      if (idx !== i) return inst;
+      if (field === 'due_date') return { ...inst, due_date: value };
+      const num = parseFloat(value.replace(',', '.')) || 0;
+      return { ...inst, amount: num, amount_display: value };
+    }));
+  }
+
+  function removeInstallment(i: number) {
+    setInstallments(prev =>
+      prev.filter((_, idx) => idx !== i).map((inst, idx) => ({ ...inst, installment_number: idx + 1 }))
+    );
+  }
+
+  function addInstallmentRow() {
+    const last = installments[installments.length - 1];
+    setInstallments(prev => [...prev, {
+      installment_number: prev.length + 1,
+      due_date: last?.due_date ? addMonths(last.due_date, 1) : '',
+      amount: 0,
+    }]);
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(null); setSubmitLoading(true);
     try {
@@ -626,8 +692,10 @@ const NewPurchase = () => {
         hotel_id:            selectedHotel.id,
         document_type:       purchaseData.document_type || null,
         emission_date:       purchaseData.emission_date || null,
-        due_date:            purchaseData.due_date || null,
+        due_date:            isInstallment ? (installments[0]?.due_date || null) : (purchaseData.due_date || null),
         chart_account_sub_id: purchaseData.chart_account_sub_id || null,
+        is_installment:      isInstallment,
+        installment_count:   isInstallment ? installments.length : null,
       }).select().single();
       if (pe) throw pe;
 
@@ -665,6 +733,18 @@ const NewPurchase = () => {
             addNotification(`Estoque de '${item.product?.name || item.newProduct?.name}' atualizado.`, 'info', 4000);
           }
         }
+      }
+
+      if (isInstallment && installments.length > 0) {
+        const { error: ie2 } = await supabase.from('purchase_installments').insert(
+          installments.map(inst => ({
+            purchase_id:        purchase.id,
+            installment_number: inst.installment_number,
+            due_date:           inst.due_date || null,
+            amount:             inst.amount,
+          }))
+        );
+        if (ie2) throw ie2;
       }
 
       if (budgetIdToUpdate && selectedHotel?.id) {
@@ -828,33 +908,143 @@ const NewPurchase = () => {
             </div>
           </div>
 
-          {/* Row 3: Vencimento */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                Data de Vencimento do Pagamento
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                <input type="date" value={purchaseData.due_date}
-                  onChange={e => setPurchaseData(p => ({ ...p, due_date: e.target.value }))}
-                  className={fieldCls + ' pl-9 dark:[color-scheme:dark]'} />
+          {/* Row 3: Vencimento — hidden when installment mode is on */}
+          {!isInstallment && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                  Data de Vencimento do Pagamento
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <input type="date" value={purchaseData.due_date}
+                    onChange={e => setPurchaseData(p => ({ ...p, due_date: e.target.value }))}
+                    className={fieldCls + ' pl-9 dark:[color-scheme:dark]'} />
+                </div>
+                {purchaseData.document_type === 'Cartão de Crédito' && purchaseData.purchase_date && (
+                  <p className="text-xs text-blue-500 dark:text-blue-400 mt-1.5 flex items-center gap-1">
+                    <Info className="w-3 h-3 shrink-0" />
+                    Sugestão para cartão: {formatDateBR(suggestDueDate(purchaseData.purchase_date))}
+                    {!purchaseData.due_date && (
+                      <button type="button"
+                        onClick={() => setPurchaseData(p => ({ ...p, due_date: suggestDueDate(p.purchase_date) }))}
+                        className="ml-1 underline hover:no-underline">
+                        Usar
+                      </button>
+                    )}
+                  </p>
+                )}
               </div>
-              {purchaseData.document_type === 'Cartão de Crédito' && purchaseData.purchase_date && (
-                <p className="text-xs text-blue-500 dark:text-blue-400 mt-1.5 flex items-center gap-1">
-                  <Info className="w-3 h-3 shrink-0" />
-                  Sugestão para cartão: {formatDateBR(suggestDueDate(purchaseData.purchase_date))}
-                  {!purchaseData.due_date && (
-                    <button type="button"
-                      onClick={() => setPurchaseData(p => ({ ...p, due_date: suggestDueDate(p.purchase_date) }))}
-                      className="ml-1 underline hover:no-underline">
-                      Usar
+            </div>
+          )}
+
+          {/* ── Compra Parcelada ── */}
+          <div className="pt-1">
+            <button type="button"
+              onClick={() => { setIsInstallment(v => !v); if (isInstallment) setInstallments([]); }}
+              className="flex items-center gap-2.5 group">
+              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                isInstallment
+                  ? 'bg-blue-600 border-blue-600 shadow-sm shadow-blue-500/20'
+                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 group-hover:border-blue-400 dark:group-hover:border-blue-500'
+              }`}>
+                {isInstallment && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+              </div>
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 select-none">
+                Compra Parcelada
+              </span>
+            </button>
+          </div>
+
+          {isInstallment && (
+            <div className="space-y-3 p-4 bg-blue-50/60 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-700/50 rounded-xl">
+              {/* Count + Generate */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wider whitespace-nowrap">
+                    Nº de Parcelas
+                  </span>
+                  <div className="flex items-center border border-slate-200 dark:border-slate-600 rounded-xl overflow-hidden bg-white dark:bg-slate-800">
+                    <button type="button" onClick={() => setInstallmentCount(v => Math.max(2, v - 1))}
+                      className="px-2.5 py-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                      <Minus className="w-3 h-3" />
                     </button>
-                  )}
-                </p>
+                    <input type="number" min={2} max={99} value={installmentCount}
+                      onChange={e => setInstallmentCount(Math.max(2, Math.min(99, parseInt(e.target.value) || 2)))}
+                      className="w-12 text-center text-sm font-bold text-slate-800 dark:text-white bg-transparent border-0 focus:outline-none py-2" />
+                    <button type="button" onClick={() => setInstallmentCount(v => Math.min(99, v + 1))}
+                      className="px-2.5 py-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <button type="button" onClick={generateInstallments} disabled={total === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors disabled:opacity-50 shadow-sm shadow-blue-500/20">
+                  <Layers className="w-3.5 h-3.5" />
+                  Gerar Parcelas
+                </button>
+                {total === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Adicione itens para calcular
+                  </p>
+                )}
+              </div>
+
+              {/* Installment rows */}
+              {installments.length > 0 && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[28px_1fr_130px_28px] gap-2 px-1">
+                    {['#', 'Data de Vencimento', 'Valor', ''].map(h => (
+                      <p key={h} className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{h}</p>
+                    ))}
+                  </div>
+                  {installments.map((inst, i) => (
+                    <div key={i} className="grid grid-cols-[28px_1fr_130px_28px] gap-2 items-center">
+                      <span className="text-xs font-bold text-blue-600 dark:text-blue-400 text-center">{i + 1}×</span>
+                      <div className="relative">
+                        <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                        <input type="date" value={inst.due_date}
+                          onChange={e => updateInstallment(i, 'due_date', e.target.value)}
+                          className="w-full pl-7 pr-2 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors dark:[color-scheme:dark]" />
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none select-none">R$</span>
+                        <input type="text" inputMode="decimal"
+                          value={inst.amount_display ?? inst.amount.toFixed(2)}
+                          onChange={e => updateInstallment(i, 'amount', e.target.value)}
+                          className="w-full pl-7 pr-2 py-2 text-sm font-bold rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors" />
+                      </div>
+                      <button type="button" onClick={() => removeInstallment(i)} title="Remover parcela"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between pt-1 px-1">
+                    <button type="button" onClick={addInstallmentRow}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                      <Plus className="w-3 h-3" /> Adicionar parcela
+                    </button>
+                    {(() => {
+                      const instTotal = installments.reduce((s, v) => s + v.amount, 0);
+                      const diff = Math.abs(instTotal - total);
+                      const ok = diff < 0.01;
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Total parcelado:</span>
+                          <span className={`text-sm font-bold ${ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
+                            {fmtBRL(instTotal)}
+                            {!ok && <span className="text-xs ml-1 font-normal">(dif. {fmtBRL(diff)})</span>}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
               )}
             </div>
-          </div>
+          )}
 
           {/* Observações */}
           <div>
