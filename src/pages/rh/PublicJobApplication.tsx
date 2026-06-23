@@ -537,7 +537,7 @@ export default function PublicJobApplication() {
               <section>
                 <h3 className="font-bold text-gray-900 mb-1.5">5. Compartilhamento de Dados</h3>
                 <p>
-                  Seus dados poderão ser compartilhados entre as unidades hoteleiras integrantes do <strong>Grupo LyFe Hoteles</strong> para as finalidades descritas neste documento. <strong>Não comercializamos</strong> seus dados pessoais com terceiros não relacionados ao grupo.
+                  Seus dados poderão ser compartilhados entre o grupo hoteleiro ao qual você se candidatou e os demais <strong>Parceiros de LyFe Hoteles</strong> para as finalidades descritas neste documento. <strong>Não comercializamos</strong> seus dados pessoais com terceiros não relacionados aos Parceiros de LyFe Hoteles.
                 </p>
               </section>
 
