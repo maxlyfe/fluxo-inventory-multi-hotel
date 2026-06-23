@@ -419,7 +419,7 @@ export default function DPEmployees() {
       phone: emp.phone || '', email: emp.email || '',
       birth_date: emp.birth_date || '', address: emp.address || '',
       address_cep: (emp as any).address_cep || '',
-      address_street: (emp as any).address_street || '',
+      address_street: (emp as any).address_street || emp.address || '',
       address_number: (emp as any).address_number || '',
       address_neighborhood: (emp as any).address_neighborhood || '',
       address_city: (emp as any).address_city || '',
