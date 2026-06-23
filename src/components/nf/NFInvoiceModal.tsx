@@ -153,6 +153,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
+  // Derived from prop — available in render and effects
+  const isProduct = tipo === 'nfe' || tipo === 'nfce';
+
   // 1. Initialize items and prefill Tomador on mount/open
   useEffect(() => {
     if (!isOpen) return;
@@ -169,7 +172,6 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     const services = selectedEntries.filter(isServiceEntry);
     const products = selectedEntries.filter((e) => !isServiceEntry(e));
 
-    const isProduct = tipo === 'nfe' || tipo === 'nfce';
     const active = isProduct ? products : services;
     const ignored = isProduct ? services : products;
 
