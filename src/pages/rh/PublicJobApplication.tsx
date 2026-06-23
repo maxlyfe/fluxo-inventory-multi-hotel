@@ -1,7 +1,7 @@
 // src/pages/rh/PublicJobApplication.tsx
 // Página pública para candidatos se inscreverem em vagas via token
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import {
@@ -49,6 +49,8 @@ export default function PublicJobApplication() {
   const [birthDate, setBirthDate] = useState('');
   const [cep, setCep] = useState('');
   const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState('');
+  const lastLookedUpCep = useRef('');
   const [city, setCity] = useState('');
   const [neighborhood, setNeighborhood] = useState('');
   const [address, setAddress] = useState('');
@@ -82,25 +84,30 @@ export default function PublicJobApplication() {
   }
 
   const lookupCep = async (digits: string) => {
-    if (digits.length !== 8) return;
+    if (digits.length !== 8 || digits === lastLookedUpCep.current) return;
+    lastLookedUpCep.current = digits;
     setCepLoading(true);
+    setCepError('');
     try {
       const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
-      if (!res.ok) return;
+      if (!res.ok) { setCepError('Erro ao consultar CEP'); return; }
       const data = await res.json();
-      if (data.erro) return;
+      if (data.erro) { setCepError('CEP não encontrado'); return; }
       if (data.logradouro) setAddress(data.logradouro);
       if (data.bairro) setNeighborhood(data.bairro);
       if (data.localidade) setCity(data.localidade);
       if (data.uf) setAddressState(data.uf);
-    } catch { /* usuário preenche manualmente */ }
-    finally { setCepLoading(false); }
+    } catch {
+      setCepError('Falha na conexão. Preencha manualmente.');
+    } finally { setCepLoading(false); }
   };
 
   const handleCepChange = (raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 8);
     const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
     setCep(formatted);
+    setCepError('');
+    if (digits.length < 8) lastLookedUpCep.current = '';
     if (digits.length === 8) lookupCep(digits);
   };
 
@@ -281,13 +288,16 @@ export default function PublicJobApplication() {
                 <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)}
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
               </FormField>
-              <FormField label="CEP" icon={Search}>
-                <input type="text" value={cep} onChange={e => handleCepChange(e.target.value)}
-                  onBlur={() => { const d = cep.replace(/\D/g, ''); if (d.length === 8) lookupCep(d); }}
-                  placeholder="00000-000"
-                  className="w-full pl-9 pr-9 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-                {cepLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-violet-500" />}
-              </FormField>
+              <div>
+                <FormField label="CEP" icon={Search}>
+                  <input type="text" value={cep} onChange={e => handleCepChange(e.target.value)}
+                    onBlur={() => { const d = cep.replace(/\D/g, ''); if (d.length === 8) lookupCep(d); }}
+                    placeholder="00000-000"
+                    className={`w-full pl-9 pr-9 py-2.5 rounded-lg border text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 ${cepError ? 'border-amber-400' : 'border-gray-300'}`} />
+                  {cepLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-violet-500" />}
+                </FormField>
+                {cepError && <p className="text-xs text-amber-600 mt-1 ml-1">{cepError}</p>}
+              </div>
               <FormField label="Rua" icon={Home}>
                 <input type="text" value={address} onChange={e => setAddress(e.target.value)}
                   placeholder="Nome da rua"
