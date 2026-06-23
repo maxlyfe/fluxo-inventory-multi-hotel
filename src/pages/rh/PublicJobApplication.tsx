@@ -518,7 +518,7 @@ export default function PublicJobApplication() {
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="mt-1 w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">c</span>
-                    <span><strong>Comunicação e Marketing:</strong> envio de comunicações sobre novas vagas, processos seletivos, eventos e oportunidades no Grupo LyFe Hoteles;</span>
+                    <span><strong>Comunicação e Marketing:</strong> envio de comunicações sobre novas vagas, processos seletivos, eventos e oportunidades com Parceiros de LyFe Hoteles;</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="mt-1 w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">d</span>
