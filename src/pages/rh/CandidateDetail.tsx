@@ -25,6 +25,9 @@ interface Candidate {
   address: string | null;
   city: string | null;
   neighborhood: string | null;
+  cep: string | null;
+  address_number: string | null;
+  state: string | null;
   experience: string | null;
   referral_source: string | null;
   status: string;
@@ -164,6 +167,12 @@ export default function CandidateDetail() {
       email: candidate.email,
       birth_date: candidate.birth_date,
       address: candidate.address,
+      address_cep: candidate.cep || null,
+      address_street: candidate.address || null,
+      address_number: candidate.address_number || null,
+      address_neighborhood: candidate.neighborhood || null,
+      address_city: candidate.city || null,
+      address_state: candidate.state || null,
       role: candidate.job_openings?.title || '',
       sector: candidate.job_openings?.sector || 'Outro',
       admission_date: format(new Date(), 'yyyy-MM-dd'),
