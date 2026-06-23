@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import {
   Briefcase, Loader2, CheckCircle, AlertTriangle, MapPin, Clock,
   DollarSign, FileText, Send, User, Phone, Mail, Calendar, Home,
-  Upload, X, File, Search,
+  Upload, X, File, Search, Shield, Check, ChevronRight,
 } from 'lucide-react';
 
 interface JobOpening {
@@ -60,6 +60,8 @@ export default function PublicJobApplication() {
   const [referralSource, setReferralSource] = useState('');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumePreview, setResumePreview] = useState<string | null>(null);
+  const [termsAccepted,   setTermsAccepted]   = useState(false);
+  const [showTermsModal,  setShowTermsModal]   = useState(false);
 
   useEffect(() => {
     if (token) loadJob();
@@ -113,7 +115,7 @@ export default function PublicJobApplication() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!job || !name.trim() || !cpf.trim()) return;
+    if (!job || !name.trim() || !cpf.trim() || !termsAccepted) return;
 
     setSubmitting(true);
 
@@ -170,6 +172,8 @@ export default function PublicJobApplication() {
       referral_source: referralSource.trim() || null,
       resume_url: resumeUrl,
       status: 'applied',
+      terms_accepted: true,
+      terms_accepted_at: new Date().toISOString(),
     });
 
     if (insertErr) {
@@ -395,7 +399,42 @@ export default function PublicJobApplication() {
               )}
             </div>
 
-            <button type="submit" disabled={submitting || !name.trim() || !cpf.trim()}
+            {/* ── Termos e Consentimento ── */}
+            <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2.5">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTermsAccepted(v => !v)}
+                  className="mt-0.5 flex-shrink-0"
+                  aria-checked={termsAccepted}
+                  role="checkbox">
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                    termsAccepted
+                      ? 'bg-violet-600 border-violet-600 shadow-sm shadow-violet-300'
+                      : 'border-gray-300 bg-white hover:border-violet-400'
+                  }`}>
+                    {termsAccepted && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                  </div>
+                </button>
+                <p className="text-sm text-gray-700 leading-snug">
+                  Li e concordo com os{' '}
+                  <button
+                    type="button"
+                    onClick={() => setShowTermsModal(true)}
+                    className="text-violet-600 hover:text-violet-800 underline underline-offset-2 font-semibold inline-flex items-center gap-0.5">
+                    Termos de Uso e Política de Dados
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                  {' '}da LyFe Hoteles, incluindo a utilização dos meus dados para cadastro interno, comunicações de novas oportunidades e pesquisas do grupo hoteleiro.
+                </p>
+              </div>
+              <p className="text-xs text-gray-400 pl-8 flex items-center gap-1">
+                <Shield className="w-3 h-3 shrink-0" />
+                Seus dados são protegidos pela LGPD (Lei nº 13.709/2018). Você pode revogar seu consentimento a qualquer momento.
+              </p>
+            </div>
+
+            <button type="submit" disabled={submitting || !name.trim() || !cpf.trim() || !termsAccepted}
               className="w-full flex items-center justify-center gap-2 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium disabled:opacity-50 transition-colors">
               {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               Enviar Candidatura
@@ -404,9 +443,139 @@ export default function PublicJobApplication() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Seus dados serão utilizados exclusivamente para o processo seletivo.
+          LyFe Hoteles · Seus dados são tratados em conformidade com a LGPD.
         </p>
       </div>
+
+      {/* ── Modal Termos e Política de Dados ── */}
+      {showTermsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-8">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
+                  <Shield className="w-4 h-4 text-violet-600" />
+                </div>
+                <h2 className="text-base font-bold text-gray-900">Termos de Uso e Política de Dados</h2>
+              </div>
+              <button onClick={() => setShowTermsModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 text-sm text-gray-700 space-y-5 leading-relaxed">
+
+              <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Última atualização: junho de 2026</p>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">1. Identificação do Controlador</h3>
+                <p>
+                  Os dados pessoais fornecidos neste formulário são coletados e tratados pela <strong>LyFe Hoteles</strong>, grupo hoteleiro com unidades registradas em seu sistema de gestão ("Controlador"), nos termos da Lei nº 13.709/2018 — Lei Geral de Proteção de Dados Pessoais (<strong>LGPD</strong>).
+                </p>
+              </section>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">2. Dados Coletados</h3>
+                <p className="mb-2">Para fins de candidatura a vagas de emprego, coletamos as seguintes categorias de dados pessoais:</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-600 pl-2">
+                  <li><strong>Identificação:</strong> nome completo, CPF, data de nascimento;</li>
+                  <li><strong>Contato:</strong> telefone, endereço de e-mail;</li>
+                  <li><strong>Localização:</strong> CEP, endereço, bairro, cidade, estado;</li>
+                  <li><strong>Profissionais:</strong> experiência profissional, currículo (quando enviado);</li>
+                  <li><strong>Origem:</strong> como soube da vaga.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">3. Finalidades do Tratamento</h3>
+                <p className="mb-2">Seus dados serão utilizados para as seguintes finalidades:</p>
+                <ul className="space-y-2 pl-2">
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">a</span>
+                    <span><strong>Processo Seletivo:</strong> análise e avaliação da candidatura para a vaga a que se inscreveu;</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">b</span>
+                    <span><strong>Banco de Dados de Candidatos:</strong> manutenção do seu cadastro em nosso banco de talentos interno para oportunidades futuras no grupo;</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">c</span>
+                    <span><strong>Comunicação e Marketing:</strong> envio de comunicações sobre novas vagas, processos seletivos, eventos e oportunidades no Grupo LyFe Hoteles;</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">d</span>
+                    <span><strong>Pesquisas Internas:</strong> realização de pesquisas de satisfação, perfil profissional e estudos relacionados às atividades e desenvolvimento do grupo hoteleiro.</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">4. Base Legal</h3>
+                <p>
+                  O tratamento é fundamentado no <strong>consentimento do titular</strong> (Art. 7º, I, LGPD), manifestado pelo aceite destes Termos. Você pode revogar seu consentimento a qualquer momento, sem prejuízo da licitude dos tratamentos realizados anteriormente.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">5. Compartilhamento de Dados</h3>
+                <p>
+                  Seus dados poderão ser compartilhados entre as unidades hoteleiras integrantes do <strong>Grupo LyFe Hoteles</strong> para as finalidades descritas neste documento. <strong>Não comercializamos</strong> seus dados pessoais com terceiros não relacionados ao grupo.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">6. Prazo de Retenção</h3>
+                <p>
+                  Seus dados serão mantidos pelo período necessário ao cumprimento das finalidades descritas ou até que você solicite a eliminação, respeitados os prazos legais aplicáveis.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="font-bold text-gray-900 mb-1.5">7. Seus Direitos (LGPD)</h3>
+                <p className="mb-2">Como titular de dados pessoais, você tem direito a:</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-600 pl-2">
+                  <li>Confirmação da existência de tratamento;</li>
+                  <li>Acesso aos seus dados;</li>
+                  <li>Correção de dados incompletos, inexatos ou desatualizados;</li>
+                  <li>Anonimização, bloqueio ou eliminação de dados desnecessários;</li>
+                  <li>Portabilidade dos dados a outro fornecedor;</li>
+                  <li>Eliminação dos dados tratados com base em consentimento;</li>
+                  <li>Revogação do consentimento a qualquer momento.</li>
+                </ul>
+              </section>
+
+              <section className="bg-violet-50 border border-violet-100 rounded-xl p-4">
+                <h3 className="font-bold text-gray-900 mb-1.5">8. Contato — Encarregado de Dados (DPO)</h3>
+                <p>
+                  Para exercer seus direitos ou esclarecer dúvidas sobre o tratamento de seus dados, entre em contato pelo e-mail:{' '}
+                  <strong className="text-violet-700">privacidade@lyfehoteles.com.br</strong>
+                </p>
+              </section>
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row gap-3 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => { setTermsAccepted(true); setShowTermsModal(false); }}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
+                <Check className="w-4 h-4" /> Li e aceito os termos
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="flex-1 sm:flex-none sm:px-6 py-2.5 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl text-sm font-semibold transition-colors">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
