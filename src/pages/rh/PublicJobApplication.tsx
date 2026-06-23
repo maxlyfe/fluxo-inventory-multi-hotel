@@ -52,6 +52,8 @@ export default function PublicJobApplication() {
   const [city, setCity] = useState('');
   const [neighborhood, setNeighborhood] = useState('');
   const [address, setAddress] = useState('');
+  const [addressNumber, setAddressNumber] = useState('');
+  const [addressState, setAddressState] = useState('');
   const [experience, setExperience] = useState('');
   const [referralSource, setReferralSource] = useState('');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -90,6 +92,7 @@ export default function PublicJobApplication() {
       if (data.logradouro) setAddress(data.logradouro);
       if (data.bairro) setNeighborhood(data.bairro);
       if (data.localidade) setCity(data.localidade);
+      if (data.uf) setAddressState(data.uf);
     } catch { /* usuário preenche manualmente */ }
     finally { setCepLoading(false); }
   };
@@ -150,9 +153,12 @@ export default function PublicJobApplication() {
       phone: phone.trim() || null,
       email: email.trim() || null,
       birth_date: birthDate || null,
+      cep: cep.trim() || null,
       city: city.trim() || null,
       neighborhood: neighborhood.trim() || null,
       address: address.trim() || null,
+      address_number: addressNumber.trim() || null,
+      state: addressState || null,
       experience: experience.trim() || null,
       referral_source: referralSource.trim() || null,
       resume_url: resumeUrl,
@@ -282,17 +288,32 @@ export default function PublicJobApplication() {
                   className="w-full pl-9 pr-9 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
                 {cepLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-violet-500" />}
               </FormField>
-              <FormField label="Cidade" icon={MapPin}>
-                <input type="text" value={city} onChange={e => setCity(e.target.value)}
+              <FormField label="Rua" icon={Home}>
+                <input type="text" value={address} onChange={e => setAddress(e.target.value)}
+                  placeholder="Nome da rua"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
+              </FormField>
+              <FormField label="Nº" icon={Home}>
+                <input type="text" value={addressNumber} onChange={e => setAddressNumber(e.target.value)}
+                  placeholder="Nº"
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
               </FormField>
               <FormField label="Bairro" icon={MapPin}>
                 <input type="text" value={neighborhood} onChange={e => setNeighborhood(e.target.value)}
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
               </FormField>
-              <FormField label="Endereço" icon={Home}>
-                <input type="text" value={address} onChange={e => setAddress(e.target.value)}
+              <FormField label="Cidade" icon={MapPin}>
+                <input type="text" value={city} onChange={e => setCity(e.target.value)}
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
+              </FormField>
+              <FormField label="Estado" icon={MapPin}>
+                <select value={addressState} onChange={e => setAddressState(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-300 text-gray-900 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 appearance-none">
+                  <option value="">Selecione</option>
+                  {'AC,AL,AP,AM,BA,CE,DF,ES,GO,MA,MT,MS,MG,PA,PB,PR,PE,PI,RJ,RN,RS,RO,RR,SC,SP,SE,TO'.split(',').map(uf => (
+                    <option key={uf} value={uf}>{uf}</option>
+                  ))}
+                </select>
               </FormField>
             </div>
 

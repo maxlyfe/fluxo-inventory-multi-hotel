@@ -23,6 +23,9 @@ interface Employee {
   admission_date: string;
   status: string;
   address: string | null;
+  address_city: string | null;
+  address_neighborhood: string | null;
+  address_state: string | null;
   contract_type: string;
 }
 
@@ -62,12 +65,12 @@ export default function HRAnalytics() {
     const [activeRes, allRes, dismissRes] = await Promise.all([
       supabase
         .from('employees')
-        .select('id, name, sector, role, admission_date, status, address, contract_type')
+        .select('*')
         .eq('hotel_id', hotelId)
         .eq('status', 'active'),
       supabase
         .from('employees')
-        .select('id, name, sector, role, admission_date, status, address, contract_type')
+        .select('*')
         .eq('hotel_id', hotelId),
       supabase
         .from('employee_dismissals')
@@ -161,26 +164,31 @@ export default function HRAnalytics() {
     return Object.entries(buckets).map(([range, count]) => ({ range, count }));
   }, [employees]);
 
-  // ─── Geographic Distribution (parsed from address field) ──────
+  // ─── Geographic Distribution ───────────────────────────────────
   const geoData = useMemo(() => {
-    const addressMap: Record<string, number> = {};
+    const cityMap: Record<string, number> = {};
+    const neighborhoodMap: Record<string, number> = {};
     employees.forEach(e => {
-      if (!e.address) return;
-      const addr = e.address.trim();
-      if (addr) addressMap[addr] = (addressMap[addr] || 0) + 1;
+      const city = e.address_city?.trim();
+      const neighborhood = e.address_neighborhood?.trim();
+      if (city) cityMap[city] = (cityMap[city] || 0) + 1;
+      if (neighborhood) neighborhoodMap[neighborhood] = (neighborhoodMap[neighborhood] || 0) + 1;
     });
-    const addresses = Object.entries(addressMap)
-      .map(([address, count]) => ({ address, count }))
+    const cities = Object.entries(cityMap)
+      .map(([city, count]) => ({ city, count }))
       .sort((a, b) => b.count - a.count);
+    const neighborhoods = Object.entries(neighborhoodMap)
+      .map(([neighborhood, count]) => ({ neighborhood, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 15);
 
-    const sectorGeo: Record<string, number> = {};
-    employees.forEach(e => {
-      const key = e.address ? 'Com endereço' : 'Sem endereço';
-      sectorGeo[key] = (sectorGeo[key] || 0) + 1;
-    });
-    const coverage = Object.entries(sectorGeo).map(([name, value]) => ({ name, value }));
+    const hasAddr = employees.filter(e => e.address_city || e.address_neighborhood || e.address).length;
+    const coverage = [
+      { name: 'Com endereço', value: hasAddr },
+      { name: 'Sem endereço', value: employees.length - hasAddr },
+    ].filter(c => c.value > 0);
 
-    return { addresses, coverage };
+    return { cities, neighborhoods, coverage };
   }, [employees]);
 
   // ─── Absenteeism ──────────────────────────────────────────────
@@ -222,12 +230,15 @@ export default function HRAnalytics() {
   }, [dismissals]);
 
   // ─── Summary KPIs ─────────────────────────────────────────────
-  const activeCount = employees.length;
-  const dismissedCount = dismissals.length;
-  const avgTenure = employees.length > 0
-    ? Math.round(employees.reduce((sum, e) => sum + differenceInMonths(new Date(), parseISO(e.admission_date)), 0) / employees.length)
+  const activeCount = employees?.length ?? 0;
+  const dismissedCount = dismissals?.length ?? 0;
+  const avgTenure = (employees?.length ?? 0) > 0
+    ? Math.round(employees.reduce((sum, e) => {
+        if (!e.admission_date) return sum;
+        return sum + differenceInMonths(new Date(), parseISO(e.admission_date));
+      }, 0) / employees.length)
     : 0;
-  const totalAbsences = absences.length;
+  const totalAbsences = absences?.length ?? 0;
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
@@ -384,32 +395,54 @@ export default function HRAnalytics() {
 
       {/* ─── Geographic View ─────────────────────────────────── */}
       {activeView === 'geo' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Endereços dos Colaboradores</h3>
-            {geoData.addresses.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8">Nenhum endereço cadastrado</p>
-            ) : (
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {geoData.addresses.map(a => (
-                  <div key={a.address} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/30">
-                    <span className="text-sm text-gray-700 dark:text-gray-200 truncate mr-2">{a.address}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(a.count / activeCount) * 100}%` }} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Por Cidade</h3>
+              {geoData.cities.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">Dados de cidade não preenchidos</p>
+              ) : (
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {geoData.cities.map(c => (
+                    <div key={c.city} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/30">
+                      <span className="text-sm text-gray-700 dark:text-gray-200">{c.city}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(c.count / activeCount) * 100}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-500 w-8 text-right">{c.count}</span>
                       </div>
-                      <span className="text-xs text-gray-500 w-8 text-right">{a.count}</span>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Top 15 Bairros</h3>
+              {geoData.neighborhoods.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">Dados de bairro não preenchidos</p>
+              ) : (
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {geoData.neighborhoods.map(n => (
+                    <div key={n.neighborhood} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/30">
+                      <span className="text-sm text-gray-700 dark:text-gray-200">{n.neighborhood}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                          <div className="h-full bg-violet-500 rounded-full" style={{ width: `${(n.count / activeCount) * 100}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-500 w-8 text-right">{n.count}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <h3 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Preenchimento de Endereço</h3>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie data={geoData.coverage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
+                <Pie data={geoData.coverage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70}
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
                   {geoData.coverage.map((c, i) => (
                     <Cell key={i} fill={c.name === 'Com endereço' ? '#22c55e' : '#d1d5db'} />
@@ -418,9 +451,6 @@ export default function HRAnalytics() {
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
-            <p className="text-xs text-gray-400 text-center mt-2">
-              {geoData.addresses.length} endereço(s) único(s) cadastrado(s)
-            </p>
           </div>
         </div>
       )}

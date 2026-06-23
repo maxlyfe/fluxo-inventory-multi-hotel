@@ -28,7 +28,11 @@ interface Employee {
   id: string; hotel_id: string; user_id: string | null;
   name: string; cpf: string | null; rg: string | null;
   phone: string | null; email: string | null; birth_date: string | null;
-  address: string | null; role: string; sector: string;
+  address: string | null;
+  address_cep: string | null; address_street: string | null;
+  address_number: string | null; address_neighborhood: string | null;
+  address_city: string | null; address_state: string | null;
+  role: string; sector: string;
   admission_date: string; contract_type: string; experience_end: string | null;
   status: string;
   shirt_size: string | null; pants_size: string | null; shoe_size: string | null;
@@ -657,7 +661,13 @@ export default function DPEmployeeDetail() {
             employee.cpf        && { icon: Hash,     label: 'CPF',         value: employee.cpf },
             employee.rg         && { icon: Hash,     label: 'RG',          value: employee.rg },
             employee.birth_date && { icon: Calendar, label: 'Nascimento',  value: format(parseLocalDate(employee.birth_date), 'dd/MM/yyyy') },
-            employee.address    && { icon: MapPin,   label: 'Endereço',    value: employee.address },
+            (employee.address_street || employee.address) && { icon: MapPin, label: 'Endereço', value: employee.address_street
+              ? [employee.address_street, employee.address_number].filter(Boolean).join(', ')
+                + (employee.address_neighborhood ? ` — ${employee.address_neighborhood}` : '')
+                + (employee.address_city ? `, ${employee.address_city}` : '')
+                + (employee.address_state ? `/${employee.address_state}` : '')
+                + (employee.address_cep ? ` (${employee.address_cep})` : '')
+              : employee.address },
           ] as any[]).filter(Boolean).map((item: any, i: number) => {
             const Icon = item.icon;
             return (

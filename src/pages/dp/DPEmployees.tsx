@@ -31,6 +31,12 @@ interface Employee {
   email: string | null;
   birth_date: string | null;
   address: string | null;
+  address_cep: string | null;
+  address_street: string | null;
+  address_number: string | null;
+  address_neighborhood: string | null;
+  address_city: string | null;
+  address_state: string | null;
   role: string;
   sector: string;
   admission_date: string;
@@ -100,13 +106,21 @@ const WORK_SCHEDULES = [
 
 const EMPTY_FORM = {
   hotel_id: '', user_id: '', name: '', cpf: '', rg: '', phone: '', email: '',
-  birth_date: '', address: '', role: '', sector: SECTORS[0],
+  birth_date: '', address: '',
+  address_cep: '', address_street: '', address_number: '',
+  address_neighborhood: '', address_city: '', address_state: '',
+  role: '', sector: SECTORS[0],
   admission_date: '', contract_type: 'clt', experience_end: '',
   status: 'active',
   work_schedule: '', default_shift_start: '', default_shift_end: '',
   shirt_size: '', pants_size: '', shoe_size: '', hat_size: '',
   apron_size: '', raincoat_size: '', epi_items: [] as string[], notes: '',
 };
+
+const UF_OPTIONS = [
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA',
+  'PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
+];
 
 // ---------------------------------------------------------------------------
 // Calcula datas automáticas para contrato de experiência
@@ -220,6 +234,33 @@ export default function DPEmployees() {
   const [form, setForm]           = useState({ ...EMPTY_FORM, hotel_id: defaultHotelId });
   const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
+  const [cepLoading, setCepLoading] = useState(false);
+
+  const lookupCep = async (digits: string) => {
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.erro) return;
+      setForm(f => ({
+        ...f,
+        address_street: data.logradouro || f.address_street,
+        address_neighborhood: data.bairro || f.address_neighborhood,
+        address_city: data.localidade || f.address_city,
+        address_state: data.uf || f.address_state,
+      }));
+    } catch { /* manual */ }
+    finally { setCepLoading(false); }
+  };
+
+  const handleCepChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+    setForm(f => ({ ...f, address_cep: formatted }));
+    if (digits.length === 8) lookupCep(digits);
+  };
 
   // Dismissal form state
   const [showDismissalModal, setShowDismissalModal] = useState(false);
@@ -377,6 +418,12 @@ export default function DPEmployees() {
       name: emp.name, cpf: emp.cpf || '', rg: emp.rg || '',
       phone: emp.phone || '', email: emp.email || '',
       birth_date: emp.birth_date || '', address: emp.address || '',
+      address_cep: (emp as any).address_cep || '',
+      address_street: (emp as any).address_street || '',
+      address_number: (emp as any).address_number || '',
+      address_neighborhood: (emp as any).address_neighborhood || '',
+      address_city: (emp as any).address_city || '',
+      address_state: (emp as any).address_state || '',
       role: emp.role, sector: emp.sector,
       admission_date: emp.admission_date,
       contract_type: emp.contract_type, experience_end: emp.experience_end || '',
@@ -438,6 +485,12 @@ export default function DPEmployees() {
         email:          form.email || null,
         birth_date:     form.birth_date || null,
         address:        form.address || null,
+        address_cep:          form.address_cep || null,
+        address_street:       form.address_street || null,
+        address_number:       form.address_number || null,
+        address_neighborhood: form.address_neighborhood || null,
+        address_city:         form.address_city || null,
+        address_state:        form.address_state || null,
         role:           form.role.trim(),
         sector:         form.sector,
         admission_date: form.admission_date,
@@ -1014,10 +1067,55 @@ export default function DPEmployees() {
                 <input type="date" value={form.birth_date} onChange={e => setForm(f => ({ ...f, birth_date: e.target.value }))}
                   className={inputCls} />
               </div>
+            </div>
+          </section>
+
+          {/* ── Endereço ── */}
+          <section>
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-lg bg-cyan-100 dark:bg-cyan-900/40 flex items-center justify-center text-cyan-600 dark:text-cyan-400 text-xs font-bold">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+              </span>
+              Endereço
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className={labelCls}>CEP</label>
+                <div className="relative">
+                  <input type="text" value={form.address_cep}
+                    onChange={e => handleCepChange(e.target.value)}
+                    onBlur={() => { const d = form.address_cep.replace(/\D/g, ''); if (d.length === 8) lookupCep(d); }}
+                    placeholder="00000-000" className={inputCls} />
+                  {cepLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-cyan-500" />}
+                </div>
+              </div>
               <div className="sm:col-span-2">
-                <label className={labelCls}>Endereço</label>
-                <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  placeholder="Rua, número, bairro, cidade..." className={inputCls} />
+                <label className={labelCls}>Rua</label>
+                <input type="text" value={form.address_street} onChange={e => setForm(f => ({ ...f, address_street: e.target.value }))}
+                  placeholder="Nome da rua" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Nº</label>
+                <input type="text" value={form.address_number} onChange={e => setForm(f => ({ ...f, address_number: e.target.value }))}
+                  placeholder="Nº" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Bairro</label>
+                <input type="text" value={form.address_neighborhood} onChange={e => setForm(f => ({ ...f, address_neighborhood: e.target.value }))}
+                  placeholder="Bairro" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Cidade</label>
+                <input type="text" value={form.address_city} onChange={e => setForm(f => ({ ...f, address_city: e.target.value }))}
+                  placeholder="Cidade" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Estado</label>
+                <select value={form.address_state} onChange={e => setForm(f => ({ ...f, address_state: e.target.value }))}
+                  className={`${inputCls} appearance-none`}>
+                  <option value="">Selecione</option>
+                  {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
               </div>
             </div>
           </section>
