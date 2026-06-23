@@ -321,6 +321,7 @@ export default function WCICompanionEntry() {
   const [activeTab, setActiveTab] = useState<'hotel' | 'lgpd'>('hotel');
   const [docUploads, setDocUploads] = useState<Array<{ preview: string; base64: string; name: string }>>([]);
   const [docUploading, setDocUploading] = useState(false);
+  const [docRequired, setDocRequired] = useState(false);
   const [hotelAccepted, setHotelAccepted] = useState(false);
   const [lgpdAccepted, setLgpdAccepted]   = useState(false);
 
@@ -1334,6 +1335,7 @@ export default function WCICompanionEntry() {
         }
       }
       setDocUploads(prev => [...prev, ...toAdd]);
+      if (toAdd.length > 0) setDocRequired(false);
       setDocUploading(false);
     };
 
@@ -1346,7 +1348,7 @@ export default function WCICompanionEntry() {
               Documentos de Identificação
             </h1>
             <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.83rem', margin: '0.4rem 0 0' }}>
-              Opcional — fotografe ou faça upload do seu documento.
+              Obrigatório — fotografe ou faça upload do seu documento.
             </p>
           </div>
 
@@ -1395,8 +1397,18 @@ export default function WCICompanionEntry() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1.25rem' }}>
-            <button onClick={() => setStep('signature')} style={{ padding: '1rem', borderRadius: 50, border: 'none', cursor: 'pointer', background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              {docUploads.length > 0 ? `Continuar com ${docUploads.length} documento(s)` : 'Continuar sem documentos'}
+            {docRequired && docUploads.length === 0 && (
+              <p style={{ textAlign: 'center', color: '#ff6b6b', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>
+                ⚠ Adicione pelo menos 1 documento para continuar.
+              </p>
+            )}
+            <button
+              onClick={() => {
+                if (docUploads.length === 0) { setDocRequired(true); return; }
+                setStep('signature');
+              }}
+              style={{ padding: '1rem', borderRadius: 50, border: 'none', cursor: 'pointer', background: '#0085ae', color: '#fff', fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+              {docUploads.length > 0 ? `Continuar com ${docUploads.length} documento(s)` : 'Continuar'}
               <ChevronRight size={18} />
             </button>
             <button onClick={() => setStep('fnrh')} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
