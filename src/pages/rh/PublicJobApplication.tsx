@@ -566,7 +566,7 @@ export default function PublicJobApplication() {
                 <h3 className="font-bold text-gray-900 mb-1.5">8. Contato — Encarregado de Dados (DPO)</h3>
                 <p>
                   Para exercer seus direitos ou esclarecer dúvidas sobre o tratamento de seus dados, entre em contato pelo e-mail:{' '}
-                  <strong className="text-violet-700">privacidade@lyfehoteles.com.br</strong>
+                  <strong className="text-violet-700">Lyfehoteles@gmail.com</strong>
                 </p>
               </section>
 
