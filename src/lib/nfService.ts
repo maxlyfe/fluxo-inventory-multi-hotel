@@ -482,11 +482,14 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
 
 async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ success: boolean; message: string; invoice?: NFInvoice }> {
   try {
+    const { data: inv } = await supabase.from('nf_invoices').select('tipo').eq('id', invoiceId).single();
+    const proxyAction = inv?.tipo === 'nfce' ? 'emit-nfce' : 'emit';
+
     const res = await fetch(NF_PROXY, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-nf-action': 'emit',
+        'x-nf-action': proxyAction,
       },
       body: JSON.stringify({ invoiceId, hotelId }),
     });
@@ -512,6 +515,8 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         codigo_verificacao: result.codigo_verificacao || null,
         xml_retorno: result.xml_retorno || null,
         pdf_url: result.pdf_url || null,
+        qrcode_url: result.qrcode_url || null,
+        url_consulta: result.url_consulta || null,
       })
       .eq('id', invoiceId)
       .select()

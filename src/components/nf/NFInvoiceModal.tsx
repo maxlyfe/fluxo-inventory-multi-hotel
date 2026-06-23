@@ -169,15 +169,16 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     const services = selectedEntries.filter(isServiceEntry);
     const products = selectedEntries.filter((e) => !isServiceEntry(e));
 
-    const active = tipo === 'nfse' ? services : products;
-    const ignored = tipo === 'nfse' ? products : services;
+    const isProduct = tipo === 'nfe' || tipo === 'nfce';
+    const active = isProduct ? products : services;
+    const ignored = isProduct ? services : products;
 
     setActiveItems(active);
     setIgnoredItems(ignored);
     setCheckedItemIds(new Set(active.map((e) => e.id)));
 
-    // For NF-e (products), resolve fiscal data (NCM, tax %)
-    if (tipo === 'nfe' && products.length > 0) {
+    // For NF-e/NFC-e (products), resolve fiscal data (NCM, tax %)
+    if (isProduct && products.length > 0) {
       setLoadingFiscal(true);
       nfService.resolveEntryFiscalData(
         hotelId,
@@ -288,26 +289,38 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const validateStep2 = () => {
     const errors: Record<string, string> = {};
 
-    if (!tomadorNome.trim()) {
-      errors.tomadorNome = 'Nome é obrigatório';
-    }
-
-    if (tomadorDocTipo === 'passaporte') {
-      if (!tomadorCpfCnpj.trim()) {
-        errors.tomadorCpfCnpj = 'Número do passaporte é obrigatório';
+    // NFC-e: tomador is optional (consumer invoice)
+    if (tipo === 'nfce') {
+      const cleanCpfCnpj = tomadorCpfCnpj.replace(/\D/g, '');
+      if (cleanCpfCnpj) {
+        if (tomadorDocTipo === 'cpf' && cleanCpfCnpj.length !== 11) {
+          errors.tomadorCpfCnpj = 'CPF deve ter 11 dígitos';
+        } else if (tomadorDocTipo === 'cpf' && !validateCpf(cleanCpfCnpj)) {
+          errors.tomadorCpfCnpj = 'CPF inválido';
+        }
       }
     } else {
-      const cleanCpfCnpj = tomadorCpfCnpj.replace(/\D/g, '');
-      if (!cleanCpfCnpj) {
-        errors.tomadorCpfCnpj = 'CPF ou CNPJ é obrigatório';
-      } else if (tomadorDocTipo === 'cpf' && cleanCpfCnpj.length !== 11) {
-        errors.tomadorCpfCnpj = 'CPF deve ter 11 dígitos';
-      } else if (tomadorDocTipo === 'cnpj' && cleanCpfCnpj.length !== 14) {
-        errors.tomadorCpfCnpj = 'CNPJ deve ter 14 dígitos';
-      } else if (tomadorDocTipo === 'cpf' && !validateCpf(cleanCpfCnpj)) {
-        errors.tomadorCpfCnpj = 'CPF inválido';
-      } else if (tomadorDocTipo === 'cnpj' && !validateCnpj(cleanCpfCnpj)) {
-        errors.tomadorCpfCnpj = 'CNPJ inválido';
+      if (!tomadorNome.trim()) {
+        errors.tomadorNome = 'Nome é obrigatório';
+      }
+
+      if (tomadorDocTipo === 'passaporte') {
+        if (!tomadorCpfCnpj.trim()) {
+          errors.tomadorCpfCnpj = 'Número do passaporte é obrigatório';
+        }
+      } else {
+        const cleanCpfCnpj = tomadorCpfCnpj.replace(/\D/g, '');
+        if (!cleanCpfCnpj) {
+          errors.tomadorCpfCnpj = 'CPF ou CNPJ é obrigatório';
+        } else if (tomadorDocTipo === 'cpf' && cleanCpfCnpj.length !== 11) {
+          errors.tomadorCpfCnpj = 'CPF deve ter 11 dígitos';
+        } else if (tomadorDocTipo === 'cnpj' && cleanCpfCnpj.length !== 14) {
+          errors.tomadorCpfCnpj = 'CNPJ deve ter 14 dígitos';
+        } else if (tomadorDocTipo === 'cpf' && !validateCpf(cleanCpfCnpj)) {
+          errors.tomadorCpfCnpj = 'CPF inválido';
+        } else if (tomadorDocTipo === 'cnpj' && !validateCnpj(cleanCpfCnpj)) {
+          errors.tomadorCpfCnpj = 'CNPJ inválido';
+        }
       }
     }
 
@@ -315,7 +328,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       errors.tomadorEmail = 'E-mail inválido';
     }
 
-    // Address mandatory for NF-e with Brazilian nationals (foreigners optional)
+    // Address mandatory for NF-e with Brazilian nationals (foreigners and NFC-e optional)
     if (tipo === 'nfe' && !isForeigner) {
       if (!tomadorLogradouro.trim()) errors.tomadorLogradouro = 'Rua é obrigatória';
       if (!tomadorNumero.trim()) errors.tomadorNumero = 'Número é obrigatório';
@@ -338,7 +351,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         });
         return;
       }
-      if (tipo === 'nfe' && loadingFiscal) {
+      if ((tipo === 'nfe' || tipo === 'nfce') && loadingFiscal) {
         addNotification({
           type: 'error',
           message: 'Aguarde a resolução dos dados fiscais.',
@@ -393,7 +406,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
             quantidade: 1,
             valor_unitario: e.amount,
             valor_total: e.amount,
-            ...(tipo === 'nfe' && fiscal ? {
+            ...(isProduct && fiscal ? {
               ncm: fiscal.ncm || null,
               cfop: '5102',
               icms_aliquota: fiscal.tax_percentage ?? null,
@@ -439,6 +452,11 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       if (!nfConfig.nfse_enabled) errors.push('Emissão de NFS-e está desabilitada nas configurações.');
       if (!nfConfig.inscricao_municipal) errors.push('Inscrição Municipal não cadastrada (obrigatória para NFS-e).');
       if (!nfConfig.codigo_servico) errors.push('Código de serviço não cadastrado.');
+    } else if (tipo === 'nfce') {
+      if (!nfConfig.nfce_enabled) errors.push('Emissão de NFC-e está desabilitada nas configurações.');
+      if (!nfConfig.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (compartilhada com NF-e).');
+      if (!nfConfig.nfce_csc_id) errors.push('CSC ID da NFC-e não cadastrado.');
+      if (!nfConfig.nfce_csc_token) errors.push('CSC Token da NFC-e não cadastrado.');
     } else {
       if (!nfConfig.nfe_enabled) errors.push('Emissão de NF-e está desabilitada nas configurações.');
       if (!nfConfig.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (obrigatória para NF-e).');
@@ -481,7 +499,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
             quantidade: 1,
             valor_unitario: e.amount,
             valor_total: e.amount,
-            ...(tipo === 'nfe' && fiscal ? {
+            ...(isProduct && fiscal ? {
               ncm: fiscal.ncm || null,
               cfop: '5102',
               icms_aliquota: fiscal.tax_percentage ?? null,
@@ -563,10 +581,10 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
       return;
     }
 
-    if (tipo === 'nfe' && fiscalData?.hasErrors) {
+    if (isProduct && fiscalData?.hasErrors) {
       setEmitError({
         title: 'Dados fiscais com pendências',
-        details: 'Corrija os dados fiscais (NCM/tributação) antes de emitir a NF-e. Verifique os itens marcados com alerta no Passo 1.',
+        details: `Corrija os dados fiscais (NCM/tributação) antes de emitir a ${tipo === 'nfce' ? 'NFC-e' : 'NF-e'}. Verifique os itens marcados com alerta no Passo 1.`,
         canRetry: false,
       });
       return;
@@ -594,7 +612,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
             quantidade: 1,
             valor_unitario: e.amount,
             valor_total: e.amount,
-            ...(tipo === 'nfe' && fiscal ? {
+            ...(isProduct && fiscal ? {
               ncm: fiscal.ncm || null,
               cfop: '5102',
               icms_aliquota: fiscal.tax_percentage ?? null,
@@ -643,12 +661,12 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${tipo === 'nfse' ? 'bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'}`}>
+            <div className={`p-2 rounded-lg ${tipo === 'nfse' ? 'bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400' : tipo === 'nfce' ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'}`}>
               {tipo === 'nfse' ? <Receipt className="w-5 h-5" /> : <ShoppingBag className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="font-bold text-gray-900 dark:text-white">
-                {tipo === 'nfse' ? 'Emissão de NFS-e (Serviços)' : 'Emissão de NF-e (Consumo/Produtos)'}
+                {tipo === 'nfse' ? 'Emissão de NFS-e (Serviços)' : tipo === 'nfce' ? 'Emissão de NFC-e (Consumidor)' : 'Emissão de NF-e (Consumo/Produtos)'}
               </h3>
               <p className="text-xs text-gray-400">UH {booking?.roomDescription || '—'} · Reserva {booking?.erbonNumber || '—'}</p>
             </div>
@@ -707,7 +725,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                               <span className="text-gray-850 dark:text-gray-200 font-medium block">{item.description}</span>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-[10px] text-gray-400">Depto: {item.idDepartment}</span>
-                                {tipo === 'nfe' && fiscalItem && (
+                                {isProduct && fiscalItem && (
                                   <>
                                     {fiscalItem.ncm ? (
                                       <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded font-mono">
@@ -728,11 +746,11 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                                     )}
                                   </>
                                 )}
-                                {tipo === 'nfe' && loadingFiscal && (
+                                {isProduct && loadingFiscal && (
                                   <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
                                 )}
                               </div>
-                              {tipo === 'nfe' && fiscalItem?.warnings && fiscalItem.warnings.length > 0 && (
+                              {isProduct && fiscalItem?.warnings && fiscalItem.warnings.length > 0 && (
                                 <div className="mt-1">
                                   {fiscalItem.warnings.map((w, i) => (
                                     <p key={i} className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -758,13 +776,13 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
               </div>
 
               {/* Fiscal resolution warnings (NF-e only) */}
-              {tipo === 'nfe' && loadingFiscal && (
+              {isProduct && loadingFiscal && (
                 <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-400">
                   <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
                   Resolvendo dados fiscais (NCM, impostos) dos produtos…
                 </div>
               )}
-              {tipo === 'nfe' && fiscalData && fiscalData.warnings.length > 0 && (
+              {isProduct && fiscalData && fiscalData.warnings.length > 0 && (
                 <div className={`p-3 rounded-xl border text-xs space-y-1 ${fiscalData.hasErrors ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
                   <div className="flex items-center gap-1.5 font-bold">
                     {fiscalData.hasErrors ? (
@@ -935,7 +953,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
               <div className="pt-4 border-t border-gray-150 dark:border-gray-800">
                 <div className="flex items-center gap-1.5 mb-3 text-gray-500">
                   <MapPin className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Endereço {tipo === 'nfe' && !isForeigner ? '*' : '(Opcional)'}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider">Endereço {tipo === 'nfe' && !isForeigner ? '*' : tipo === 'nfce' ? '(Opcional — CPF na nota)' : '(Opcional)'}</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1071,7 +1089,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                   <div>
                     <span className="text-[10px] uppercase font-bold text-gray-400 block">Tipo de Nota</span>
                     <span className="font-semibold text-gray-800 dark:text-gray-200">
-                      {tipo === 'nfse' ? 'NFS-e (Serviços / Búzios)' : 'NF-e (Produtos / SEFAZ-RJ)'}
+                      {tipo === 'nfse' ? 'NFS-e (Serviços / Búzios)' : tipo === 'nfce' ? 'NFC-e (Consumidor / SEFAZ-RJ)' : 'NF-e (Produtos / SEFAZ-RJ)'}
                     </span>
                   </div>
                   <div>
@@ -1109,7 +1127,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                             {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
                         </div>
-                        {tipo === 'nfe' && fiscalItem && (
+                        {isProduct && fiscalItem && (
                           <div className="flex items-center gap-2 mt-1">
                             {fiscalItem.ncm && (
                               <span className="text-[10px] font-mono text-gray-500">NCM: {fiscalItem.ncm}</span>
@@ -1129,7 +1147,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
               </div>
 
               {/* Fiscal errors block emission */}
-              {tipo === 'nfe' && fiscalData?.hasErrors && !emitError && (
+              {isProduct && fiscalData?.hasErrors && !emitError && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span className="font-bold">Emissão bloqueada: corrija os dados fiscais (NCM/impostos) dos produtos antes de emitir.</span>
@@ -1217,7 +1235,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                 <div className="border-t border-dashed border-gray-300 my-2" />
 
                 <div className="text-center font-bold">
-                  {emittedInvoice.tipo === 'nfse' ? 'NFS-e' : 'NF-e'} - {emittedInvoice.status === 'contingencia' ? 'CONTINGÊNCIA' : 'AUTORIZADA'}
+                  {emittedInvoice.tipo === 'nfse' ? 'NFS-e' : emittedInvoice.tipo === 'nfce' ? 'NFC-e' : 'NF-e'} - {emittedInvoice.status === 'contingencia' ? 'CONTINGÊNCIA' : 'AUTORIZADA'}
                 </div>
                 {emittedInvoice.numero_nf && <div className="text-center text-[10px]">Nº {emittedInvoice.numero_nf} · Série {emittedInvoice.serie || '1'}</div>}
                 {emittedInvoice.numero_rps && <div className="text-center text-[10px]">RPS: {emittedInvoice.numero_rps}</div>}
@@ -1264,6 +1282,20 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                     <span className="font-bold text-[9px]">PROTOCOLO: </span>
                     <span className="text-[9px]">{emittedInvoice.numero_protocolo}</span>
                   </div>
+                )}
+
+                {emittedInvoice.qrcode_url && (
+                  <>
+                    <div className="border-t border-dashed border-gray-300 my-2" />
+                    <div className="font-bold text-[9px] text-center">CONSULTE PELA CHAVE DE ACESSO EM</div>
+                    <div className="text-[8px] text-center text-blue-600 break-all">{emittedInvoice.url_consulta || emittedInvoice.qrcode_url}</div>
+                    <div className="text-center mt-1">
+                      <div className="inline-block border border-gray-300 p-2 rounded bg-gray-50">
+                        <div className="text-[8px] text-gray-500">[ QR Code ]</div>
+                        <div className="text-[7px] text-gray-400 break-all" style={{ maxWidth: '200px' }}>{emittedInvoice.qrcode_url}</div>
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 <div className="border-t border-dashed border-gray-300 my-2" />
@@ -1339,10 +1371,12 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                     </button>
                     <button
                       onClick={handleEmit}
-                      disabled={submitting || (tipo === 'nfe' && fiscalData?.hasErrors)}
+                      disabled={submitting || (isProduct && fiscalData?.hasErrors)}
                       className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50 ${
                         tipo === 'nfse'
                           ? 'bg-sky-600 hover:bg-sky-700'
+                          : tipo === 'nfce'
+                          ? 'bg-violet-600 hover:bg-violet-700'
                           : 'bg-emerald-600 hover:bg-emerald-700'
                       }`}
                     >

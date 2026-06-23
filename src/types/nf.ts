@@ -1,4 +1,4 @@
-export type NFTipo = 'nfse' | 'nfe';
+export type NFTipo = 'nfse' | 'nfe' | 'nfce';
 export type NFStatus = 'rascunho' | 'emitida' | 'autorizada' | 'rejeitada' | 'cancelada' | 'contingencia';
 export type NFAmbiente = 'homologacao' | 'producao';
 export type NFDocTipo = 'cpf' | 'cnpj' | 'passaporte';
@@ -39,6 +39,12 @@ export interface NFHotelConfig {
   proximo_numero_nfe: number | null;
   csc_id: string | null;
   csc_token: string | null;
+
+  nfce_enabled: boolean;
+  serie_nfce: string | null;
+  proximo_numero_nfce: number | null;
+  nfce_csc_id: string | null;
+  nfce_csc_token: string | null;
 
   certificado_base64: string | null;
   certificado_senha: string | null;
@@ -81,6 +87,8 @@ export interface NFInvoice {
   xml_envio: string | null;
   xml_retorno: string | null;
   pdf_url: string | null;
+  qrcode_url: string | null;
+  url_consulta: string | null;
 
   cancelada_em: string | null;
   motivo_cancelamento: string | null;

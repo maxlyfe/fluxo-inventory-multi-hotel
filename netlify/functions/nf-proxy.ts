@@ -94,6 +94,29 @@ const handler: Handler = async (event: HandlerEvent) => {
     });
   }
 
+  // ─── Emit NFC-e (stub — modelo 65, QR Code) ──────────────────────────────
+
+  if (action === 'emit-nfce') {
+    const mockNumber = generateMockNFNumber();
+    const mockKey = generateMockKey();
+    const mockProtocol = `${Date.now()}`;
+    const qrCode = `https://www.nfce.fazenda.rj.gov.br/consulta?chave=${mockKey}`;
+
+    return jsonResponse(200, {
+      success: true,
+      numero_nf: mockNumber,
+      serie: '1',
+      chave_acesso: mockKey,
+      numero_protocolo: mockProtocol,
+      codigo_verificacao: mockKey.substring(0, 8),
+      qrcode_url: qrCode,
+      url_consulta: 'https://www.nfce.fazenda.rj.gov.br/consulta',
+      xml_retorno: `<nfce_stub>autorizada numero="${mockNumber}" modelo="65"</nfce_stub>`,
+      pdf_url: null,
+      message: `[STUB] NFC-e ${mockNumber} autorizada (simulação). Integração real pendente.`,
+    });
+  }
+
   // ─── Cancel Invoice (stub) ───────────────────────────────────────────────
 
   if (action === 'cancel') {

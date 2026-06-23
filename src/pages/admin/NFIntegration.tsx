@@ -27,7 +27,7 @@ const inputCls = 'w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 
 const labelCls = 'block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5';
 const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed';
 
-type TabId = 'empresa' | 'nfse' | 'nfe' | 'certificado';
+type TabId = 'empresa' | 'nfse' | 'nfe' | 'nfce' | 'certificado';
 
 const EMPTY_FORM = {
   ambiente: 'homologacao' as NFAmbiente,
@@ -60,6 +60,11 @@ const EMPTY_FORM = {
   proximo_numero_nfe: 1,
   csc_id: '',
   csc_token: '',
+  nfce_enabled: false,
+  serie_nfce: '1',
+  proximo_numero_nfce: 1,
+  nfce_csc_id: '',
+  nfce_csc_token: '',
   certificado_base64: '',
   certificado_senha: '',
   certificado_validade: '',
@@ -134,6 +139,11 @@ const NFIntegration: React.FC = () => {
           proximo_numero_nfe: cfg.proximo_numero_nfe ?? 1,
           csc_id: cfg.csc_id || '',
           csc_token: cfg.csc_token || '',
+          nfce_enabled: cfg.nfce_enabled ?? false,
+          serie_nfce: cfg.serie_nfce || '1',
+          proximo_numero_nfce: cfg.proximo_numero_nfce ?? 1,
+          nfce_csc_id: cfg.nfce_csc_id || '',
+          nfce_csc_token: cfg.nfce_csc_token || '',
           certificado_base64: cfg.certificado_base64 || '',
           certificado_senha: cfg.certificado_senha || '',
           certificado_validade: cfg.certificado_validade || '',
@@ -167,6 +177,7 @@ const NFIntegration: React.FC = () => {
         proximo_numero_nfse: Number(form.proximo_numero_nfse) || 1,
         crt: Number(form.crt) || 1,
         proximo_numero_nfe: Number(form.proximo_numero_nfe) || 1,
+        proximo_numero_nfce: Number(form.proximo_numero_nfce) || 1,
         certificado_validade: form.certificado_validade || null,
         is_active: true,
       });
@@ -222,6 +233,7 @@ const NFIntegration: React.FC = () => {
     { id: 'empresa',     label: 'Empresa',     icon: Building2 },
     { id: 'nfse',        label: 'NFS-e (Serviços)', icon: FileText },
     { id: 'nfe',         label: 'NF-e (Produtos)',  icon: Receipt },
+    { id: 'nfce',        label: 'NFC-e (Consumidor)', icon: Receipt },
     { id: 'certificado', label: 'Certificado',      icon: ShieldCheck },
   ];
 
@@ -543,6 +555,72 @@ const NFIntegration: React.FC = () => {
               >
                 {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
                 Testar Conexão NF-e
+              </button>
+            </div>
+          )}
+
+          {/* ══════════════ TAB: NFC-e ══════════════ */}
+          {activeTab === 'nfce' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">NFC-e — Nota Fiscal do Consumidor</h3>
+                <div className="flex items-center gap-3">
+                  {form.nfce_enabled ? (
+                    <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400 text-sm">
+                      <Wifi className="w-4 h-4" /> Habilitado
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-gray-400 text-sm">
+                      <WifiOff className="w-4 h-4" /> Desabilitado
+                    </span>
+                  )}
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.nfce_enabled}
+                      onChange={e => setForm(p => ({ ...p, nfce_enabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-500 -mt-2">
+                Modelo 65 (SEFAZ-RJ) — cupom fiscal eletrônico para vendas ao consumidor final. Não exige identificação completa do destinatário. Compartilha o certificado digital e a inscrição estadual com a NF-e.
+              </p>
+
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-400 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>A NFC-e utiliza a mesma Inscrição Estadual e certificado digital configurados na aba NF-e. Configure-os lá primeiro. O CSC abaixo é específico para NFC-e (diferente do CSC da NF-e).</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Série NFC-e</label>
+                  <input type="text" value={form.serie_nfce} onChange={upd('serie_nfce')} className={inputCls} placeholder="1" />
+                </div>
+                <div>
+                  <label className={labelCls}>Próximo Número</label>
+                  <input type="number" value={form.proximo_numero_nfce} onChange={upd('proximo_numero_nfce')} className={inputCls} min="1" />
+                </div>
+                <div>
+                  <label className={labelCls}>CSC ID (NFC-e)</label>
+                  <input type="text" value={form.nfce_csc_id} onChange={upd('nfce_csc_id')} className={inputCls} placeholder="ID do CSC para NFC-e" />
+                </div>
+                <div>
+                  <label className={labelCls}>CSC Token (NFC-e)</label>
+                  <input type="password" value={form.nfce_csc_token} onChange={upd('nfce_csc_token')} className={inputCls} placeholder="Token do CSC para NFC-e" />
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleTestConnection('nfe')}
+                disabled={testing}
+                className={btnPrimary}
+              >
+                {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                Testar Conexão NFC-e
               </button>
             </div>
           )}

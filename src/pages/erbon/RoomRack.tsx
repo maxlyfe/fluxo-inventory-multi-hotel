@@ -1135,7 +1135,7 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
   const [loading, setLoading] = useState(true);
   const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [nfModalType, setNfModalType] = useState<'nfse' | 'nfe' | null>(null);
+  const [nfModalType, setNfModalType] = useState<'nfse' | 'nfe' | 'nfce' | null>(null);
 
   // Usa o bookingInternalID do booking (quando carregado) ou do próprio room como fallback
   const bookingInternalId = booking?.bookingInternalID ?? room.currentBookingID;
@@ -1243,6 +1243,14 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
           >
             <ShoppingBag className="w-3.5 h-3.5" />
             NF Consumo
+          </button>
+          <button
+            onClick={() => setNfModalType('nfce')}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
+          >
+            <ReceiptIcon className="w-3.5 h-3.5" />
+            NFC-e
           </button>
         </div>
       </div>
