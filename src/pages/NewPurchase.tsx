@@ -453,6 +453,7 @@ const NewPurchase = () => {
 
   // ── Supplier autocomplete
   const [suppList,       setSuppList]       = useState<SupplierSummary[]>([]);
+  const [suppLoading,    setSuppLoading]    = useState(false);
   const [suppDropOpen,   setSuppDropOpen]   = useState(false);
   const supplierRef = useRef<HTMLDivElement>(null);
 
@@ -506,14 +507,17 @@ const NewPurchase = () => {
     const fetchAll = async () => {
       if (!selectedHotel?.id) { setProducts([]); setFilteredProducts([]); setLoading(false); return; }
       setLoading(true);
-      const [{ data: prods, error: fe }, { data: supps }] = await Promise.all([
+      setSuppLoading(true);
+      const [{ data: prods, error: fe }, { data: supps, error: suppErr }] = await Promise.all([
         supabase.from('products').select('*').eq('hotel_id', selectedHotel.id).order('name'),
         supabase.from('suppliers').select('id, nome, nome_fantasia, razao_social, cnpj, type')
-          .eq('hotel_id', selectedHotel.id).eq('status', 'ativo').order('nome_fantasia'),
+          .eq('hotel_id', selectedHotel.id).eq('status', 'ativo').order('created_at', { ascending: false }),
       ]);
       if (fe) addNotification('Erro ao carregar produtos: ' + fe.message, 'error');
       else { setProducts(prods || []); setFilteredProducts(prods || []); }
+      if (suppErr) addNotification('Erro ao carregar fornecedores: ' + suppErr.message, 'error');
       setSuppList(supps || []);
+      setSuppLoading(false);
       setLoading(false);
     };
     fetchAll();
@@ -883,12 +887,13 @@ const NewPurchase = () => {
                   </span>
                 )}
                 {/* Dropdown */}
-                {suppDropOpen && filteredSuppliers.length > 0 && (
+                {suppDropOpen && !suppLoading && (
                   <div className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden max-h-52 overflow-y-auto">
-                    {filteredSuppliers.map(s => {
+                    {filteredSuppliers.length > 0 ? filteredSuppliers.map(s => {
                       const display = supplierDisplayName(s);
                       return (
                         <button key={s.id} type="button"
+                          onMouseDown={e => e.preventDefault()}
                           onClick={() => {
                             setPurchaseData(p => ({ ...p, supplier: display, supplier_id: s.id }));
                             setSuppDropOpen(false);
@@ -904,7 +909,13 @@ const NewPurchase = () => {
                           </span>
                         </button>
                       );
-                    })}
+                    }) : (
+                      <div className="px-3 py-3 text-xs text-slate-400 text-center">
+                        {suppList.length === 0
+                          ? 'Nenhum fornecedor cadastrado — digite livremente'
+                          : 'Nenhum fornecedor encontrado para a busca'}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
