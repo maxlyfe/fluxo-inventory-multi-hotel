@@ -29,6 +29,7 @@ import OnlinePurchaseList    from './pages/OnlinePurchaseList';
 import BudgetHistory         from './pages/BudgetHistory';
 import BudgetDetail          from './pages/BudgetDetail';
 import FinancialManagement   from './pages/FinancialManagement';
+import FornecedoresPage      from './pages/financial/FornecedoresPage';
 import AuthorizationsPage    from './pages/AuthorizationsPage';
 import ReportsPage           from './pages/ReportsPage';
 import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
@@ -755,6 +756,11 @@ function App() {
                     <Route path="/finances" element={
                       <PrivateRoute module="finances">
                         <FinancialManagement />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/fornecedores" element={
+                      <PrivateRoute module="finances">
+                        <FornecedoresPage />
                       </PrivateRoute>
                     } />
 

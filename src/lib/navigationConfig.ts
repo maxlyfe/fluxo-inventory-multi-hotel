@@ -18,7 +18,7 @@ import {
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
-  MessageCircle, Bot, Radio, Receipt,
+  MessageCircle, Bot, Radio, Receipt, Truck,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -175,7 +175,8 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'finances',
     activePrefixes: ['/finances'],
     items: [
-      { module: 'finances', label: 'Financeiro', href: '/finances', icon: DollarSign, iconName: 'DollarSign', color: '#10b981' },
+      { module: 'finances', label: 'Financeiro',   href: '/finances',               icon: DollarSign, iconName: 'DollarSign', color: '#10b981' },
+      { module: 'finances', label: 'Fornecedores', href: '/finances/fornecedores',  icon: Truck,      iconName: 'Truck',      color: '#059669' },
     ],
   },
   {
