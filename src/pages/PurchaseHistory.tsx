@@ -19,6 +19,7 @@ interface PurchaseItem {
   quantity: number;
   unit_price: number;
   total_price: number;
+  ncm: string | null;
   products: { id: string; name: string } | null;
 }
 
@@ -129,7 +130,7 @@ export default function PurchaseHistory() {
             id, name,
             chart_of_accounts:account_id ( id, name )
           ),
-          purchase_items ( id, product_id, quantity, unit_price, total_price, products:products(id, name) ),
+          purchase_items ( id, product_id, quantity, unit_price, total_price, ncm, products:products(id, name) ),
           purchase_installments ( id, purchase_id, installment_number, due_date, amount, is_paid, paid_at, notes )
         `)
         .eq('hotel_id', selectedHotel.id)
@@ -649,6 +650,7 @@ export default function PurchaseHistory() {
                         <thead>
                           <tr className="bg-slate-50 dark:bg-slate-800/60 text-left">
                             <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Produto</th>
+                            <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">NCM</th>
                             <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Qtd</th>
                             <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Preço Unit.</th>
                             <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Total</th>
@@ -658,6 +660,15 @@ export default function PurchaseHistory() {
                           {p.purchase_items.map(item => (
                             <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                               <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100">{item.products?.name || 'Produto removido'}</td>
+                              <td className="px-4 py-2.5">
+                                {item.ncm ? (
+                                  <span className="text-xs font-mono px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                                    {item.ncm}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                                )}
+                              </td>
                               <td className="px-4 py-2.5 text-right">
                                 {isEditing ? (
                                   <input type="text" inputMode="decimal"

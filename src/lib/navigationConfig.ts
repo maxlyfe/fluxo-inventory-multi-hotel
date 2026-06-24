@@ -18,7 +18,7 @@ import {
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
-  MessageCircle, Bot, Radio, Receipt, Truck,
+  MessageCircle, Bot, Radio, Receipt, Truck, Calculator,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -177,6 +177,16 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { module: 'finances', label: 'Financeiro',   href: '/finances',               icon: DollarSign, iconName: 'DollarSign', color: '#10b981' },
       { module: 'finances', label: 'Fornecedores', href: '/finances/fornecedores',  icon: Truck,      iconName: 'Truck',      color: '#059669' },
+    ],
+  },
+  {
+    key: 'contabilidade',
+    label: 'Contabilidade',
+    icon: Calculator,
+    module: 'finances',
+    activePrefixes: ['/accounting'],
+    items: [
+      { module: 'finances', label: 'IBS e CBS', href: '/accounting/ibs-cbs', icon: Calculator, iconName: 'Calculator', color: '#0d9488' },
     ],
   },
   {

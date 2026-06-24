@@ -30,6 +30,7 @@ import BudgetHistory         from './pages/BudgetHistory';
 import BudgetDetail          from './pages/BudgetDetail';
 import FinancialManagement   from './pages/FinancialManagement';
 import FornecedoresPage      from './pages/financial/FornecedoresPage';
+import IbsCbsPage           from './pages/accounting/IbsCbsPage';
 import AuthorizationsPage    from './pages/AuthorizationsPage';
 import ReportsPage           from './pages/ReportsPage';
 import DynamicBudgetCreation from './pages/DynamicBudgetCreation';
@@ -761,6 +762,24 @@ function App() {
                     <Route path="/finances/fornecedores" element={
                       <PrivateRoute module="finances">
                         <FornecedoresPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Contabilidade ─────────────────────────────────────── */}
+                    <Route path="/accounting/ibs-cbs" element={
+                      <PrivateRoute module="finances">
+                        <div className="max-w-7xl mx-auto px-4 py-8">
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="w-10 h-10 rounded-xl bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-teal-600 dark:text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" /><line x1="8" y1="6" x2="16" y2="6" /><line x1="16" y1="10" x2="8" y2="10" /><line x1="11" y1="14" x2="8" y2="14" /><line x1="8" y1="18" x2="16" y2="18" /></svg>
+                            </div>
+                            <div>
+                              <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">Créditos IBS e CBS</h1>
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Controle de créditos tributários gerados por fornecedores parceiros</p>
+                            </div>
+                          </div>
+                          <IbsCbsPage />
+                        </div>
                       </PrivateRoute>
                     } />
 

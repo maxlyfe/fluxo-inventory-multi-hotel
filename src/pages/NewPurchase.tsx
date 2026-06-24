@@ -7,10 +7,11 @@ import {
   ArrowLeft, Search, Plus, Trash2, DollarSign, Package,
   AlertTriangle, X, FileText, Building2, Calendar,
   StickyNote, ChevronDown, ChevronRight, Loader2, ShoppingCart,
-  Info, Minus, BookOpen, Receipt, Settings, Edit2, Check, Layers,
+  Info, Minus, BookOpen, Receipt, Settings, Edit2, Check, Layers, Link2,
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
+import { supplierDisplayName } from '../lib/accountingService';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,16 @@ interface PurchaseItem {
   total_price: number;
   quantity_display?: string;
   unit_price_display?: string;
+  ncm?: string;
+}
+
+interface SupplierSummary {
+  id: string;
+  nome: string | null;
+  nome_fantasia: string | null;
+  razao_social: string | null;
+  cnpj: string | null;
+  type: string;
 }
 
 interface Budget {
@@ -431,6 +442,7 @@ const NewPurchase = () => {
   const [purchaseData, setPurchaseData] = useState({
     invoice_number: '',
     supplier: '',
+    supplier_id: '',
     purchase_date: new Date().toISOString().split('T')[0],
     notes: '',
     document_type: '',
@@ -438,6 +450,11 @@ const NewPurchase = () => {
     due_date: '',
     chart_account_sub_id: '',
   });
+
+  // ── Supplier autocomplete
+  const [suppList,       setSuppList]       = useState<SupplierSummary[]>([]);
+  const [suppDropOpen,   setSuppDropOpen]   = useState(false);
+  const supplierRef = useRef<HTMLDivElement>(null);
 
   // ── Loaders ─────────────────────────────────────────────────────────────────
 
@@ -486,17 +503,32 @@ const NewPurchase = () => {
   }, [location.state?.budgetData]);
 
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchAll = async () => {
       if (!selectedHotel?.id) { setProducts([]); setFilteredProducts([]); setLoading(false); return; }
       setLoading(true);
-      const { data, error: fe } = await supabase
-        .from('products').select('*').eq('hotel_id', selectedHotel.id).order('name');
+      const [{ data: prods, error: fe }, { data: supps }] = await Promise.all([
+        supabase.from('products').select('*').eq('hotel_id', selectedHotel.id).order('name'),
+        supabase.from('suppliers').select('id, nome, nome_fantasia, razao_social, cnpj, type')
+          .eq('hotel_id', selectedHotel.id).eq('status', 'ativo').order('nome_fantasia'),
+      ]);
       if (fe) addNotification('Erro ao carregar produtos: ' + fe.message, 'error');
-      else { setProducts(data || []); setFilteredProducts(data || []); }
+      else { setProducts(prods || []); setFilteredProducts(prods || []); }
+      setSuppList(supps || []);
       setLoading(false);
     };
-    fetchProducts();
+    fetchAll();
   }, [selectedHotel, addNotification]);
+
+  // Close supplier dropdown on outside click
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (supplierRef.current && !supplierRef.current.contains(e.target as Node)) {
+        setSuppDropOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, []);
 
   useEffect(() => {
     loadChartAccounts();
@@ -554,6 +586,14 @@ const NewPurchase = () => {
 
   const allDocTypes = [...DEFAULT_DOC_TYPES, ...customDocTypes.map(d => d.name)];
 
+  const filteredSuppliers = suppList.filter(s => {
+    const q = purchaseData.supplier.toLowerCase();
+    if (!q) return true;
+    const display = supplierDisplayName(s).toLowerCase();
+    const cnpj = (s.cnpj ?? '').replace(/\D/g, '');
+    return display.includes(q) || cnpj.includes(q.replace(/\D/g, ''));
+  }).slice(0, 8);
+
   const allSubs = chartAccounts.flatMap(acc =>
     (acc.subs || []).map(sub => ({ sub, acc }))
   );
@@ -609,6 +649,10 @@ const NewPurchase = () => {
       next.total_price = next.quantity * next.unit_price;
       return next;
     }));
+  };
+
+  const updateNcm = (idx: number, value: string) => {
+    setItems(prev => prev.map((item, i) => i !== idx ? item : { ...item, ncm: value }));
   };
 
   const adjustQty = (idx: number, delta: number) => {
@@ -686,6 +730,7 @@ const NewPurchase = () => {
       const { data: purchase, error: pe } = await supabase.from('purchases').insert({
         invoice_number:      purchaseData.invoice_number || null,
         supplier:            purchaseData.supplier,
+        supplier_id:         purchaseData.supplier_id || null,
         purchase_date:       purchaseData.purchase_date,
         notes:               purchaseData.notes || null,
         total_amount:        total,
@@ -726,6 +771,7 @@ const NewPurchase = () => {
           const { error: ie } = await supabase.from('purchase_items').insert({
             purchase_id: purchase.id, product_id: productId,
             quantity: item.quantity, unit_price: item.unit_price, total_price: item.total_price,
+            ncm: item.ncm || null,
           });
           if (ie) throw ie;
 
@@ -814,18 +860,59 @@ const NewPurchase = () => {
 
           {/* Row 1: Fornecedor + Tipo de Documento */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Fornecedor */}
+            {/* Fornecedor — autocomplete */}
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
                 Nome do Fornecedor <span className="text-red-400">*</span>
               </label>
-              <div className="relative">
+              <div className="relative" ref={supplierRef}>
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 <input type="text" value={purchaseData.supplier}
-                  onChange={e => setPurchaseData(p => ({ ...p, supplier: e.target.value }))}
-                  placeholder="Nome do fornecedor" required
-                  className={fieldCls + ' pl-9'} />
+                  onChange={e => {
+                    setPurchaseData(p => ({ ...p, supplier: e.target.value, supplier_id: '' }));
+                    setSuppDropOpen(true);
+                  }}
+                  onFocus={() => setSuppDropOpen(true)}
+                  placeholder="Nome do fornecedor ou busque cadastrado"
+                  required
+                  className={fieldCls + ' pl-9 pr-8'} />
+                {/* Linked indicator */}
+                {purchaseData.supplier_id && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Link2 className="w-3.5 h-3.5 text-emerald-500" />
+                  </span>
+                )}
+                {/* Dropdown */}
+                {suppDropOpen && filteredSuppliers.length > 0 && (
+                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden max-h-52 overflow-y-auto">
+                    {filteredSuppliers.map(s => {
+                      const display = supplierDisplayName(s);
+                      return (
+                        <button key={s.id} type="button"
+                          onClick={() => {
+                            setPurchaseData(p => ({ ...p, supplier: display, supplier_id: s.id }));
+                            setSuppDropOpen(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors text-left border-b last:border-0 dark:border-slate-700">
+                          <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{display}</p>
+                            {s.cnpj && <p className="text-xs text-slate-400 font-mono">{s.cnpj}</p>}
+                          </div>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${s.type === 'juridica' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'}`}>
+                            {s.type === 'juridica' ? 'PJ' : 'PF'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+              {purchaseData.supplier_id && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
+                  <Link2 className="w-3 h-3" /> Fornecedor cadastrado vinculado — créditos IBS/CBS serão calculados
+                </p>
+              )}
             </div>
 
             {/* Tipo de Documento */}
@@ -1296,6 +1383,19 @@ const NewPurchase = () => {
                           )}
                         </div>
                         <p className="text-xs text-slate-400">{category}</p>
+                        {/* NCM field */}
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <span className="text-[10px] text-slate-400 font-medium shrink-0">NCM</span>
+                          <input
+                            type="text"
+                            placeholder="0000.00.00"
+                            value={item.ncm ?? ''}
+                            onChange={e => updateNcm(idx, e.target.value)}
+                            maxLength={12}
+                            onClick={e => e.stopPropagation()}
+                            className="w-28 px-1.5 py-0.5 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono focus:outline-none focus:ring-1 focus:ring-orange-400/50 focus:border-orange-400 transition-colors"
+                          />
+                        </div>
                       </div>
                     </div>
 
