@@ -705,7 +705,7 @@ export default function DPEmployees() {
     const semJustaCausaOptions = [
       'Fora do perfil',
       'Insubordinação',
-      'Mau comportamento',
+      'Mal comportamento',
       'Indisciplina',
       'Acúmulo de advertências recorrentes',
       'Acordo Legal',
