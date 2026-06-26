@@ -39,6 +39,10 @@ export interface NFeLineResult {
   unitPrice: number;
   totalPrice: number;
   unit: string;    // uCom
+  /** Crédito IBS do item conforme NF-e (vIBS) */
+  ibs: number;
+  /** Crédito CBS do item conforme NF-e (vCBS) */
+  cbs: number;
   // produto encontrado (ações update / add)
   product?: Product;
   // índice no array items atual (apenas ação update)
@@ -93,6 +97,7 @@ interface ParsedNFe {
   items: Array<{
     xProd: string; cEAN: string; ncm: string; cfop: string;
     quantity: number; unitPrice: number; totalPrice: number; unit: string;
+    ibs: number; cbs: number;
   }>;
   // Cobrança (vencimentos)
   dups: ParsedDup[];   // 0 = sem cobrança, 1 = à vista, >1 = parcelado
@@ -123,7 +128,11 @@ function parseNFe(xmlString: string): ParsedNFe | null {
       const quantity  = parseFloat(getText(prod, 'qCom') || getText(prod, 'qTrib') || '0');
       const unitPrice = parseFloat(getText(prod, 'vUnCom') || getText(prod, 'vUnTrib') || '0');
       const totalPrice= parseFloat(getText(prod, 'vProd') || '0');
-      return { xProd, cEAN, ncm, cfop, unit, quantity, unitPrice, totalPrice };
+      // IBS e CBS reais conforme NF-e (bloco <IBSCBS><gIBSCBS>)
+      const imposto   = det.getElementsByTagName('imposto')[0];
+      const ibs       = imposto ? parseFloat(getText(imposto, 'vIBS') || '0') : 0;
+      const cbs       = imposto ? parseFloat(getText(imposto, 'vCBS') || '0') : 0;
+      return { xProd, cEAN, ncm, cfop, unit, quantity, unitPrice, totalPrice, ibs, cbs };
     }).filter(Boolean) as ParsedNFe['items'];
 
     // Duplicatas (<cobr><dup>) — um nó por parcela
@@ -274,6 +283,8 @@ export default function NFeXMLImportModal({
           unitPrice:  xmlItem.unitPrice,
           totalPrice: xmlItem.totalPrice,
           unit:       xmlItem.unit,
+          ibs:        xmlItem.ibs,
+          cbs:        xmlItem.cbs,
           product,
           currentItemIndex: currentItemIndex >= 0 ? currentItemIndex : undefined,
         };

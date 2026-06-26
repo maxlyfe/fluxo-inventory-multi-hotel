@@ -662,6 +662,8 @@ const NewPurchase = () => {
               unit_price_display: String(line.unitPrice),
               ncm:  line.ncm  || item.ncm,
               cean: line.cEAN || item.cean,
+              ibs:  line.ibs,
+              cbs:  line.cbs,
             };
           });
         } else if (line.action === 'add' && line.product) {
@@ -678,6 +680,8 @@ const NewPurchase = () => {
               unit_price_display: String(line.unitPrice),
               ncm:  line.ncm  || undefined,
               cean: line.cEAN || undefined,
+              ibs:  line.ibs,
+              cbs:  line.cbs,
             });
           }
         } else if (line.action === 'create') {
@@ -698,6 +702,8 @@ const NewPurchase = () => {
               unit_price_display: String(line.unitPrice),
               ncm:  line.ncm  || undefined,
               cean: line.cEAN || undefined,
+              ibs:  line.ibs,
+              cbs:  line.cbs,
             });
           }
         }
