@@ -34,7 +34,7 @@ const emptyPJ = (): Supplier => ({
 
 // ─── Shared modal wrapper — scrollable overlay, modal centered/top on mobile ──
 
-function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+export function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   // Close on backdrop click
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose();
@@ -87,14 +87,14 @@ function StatusBadge({ ok }: { ok?: boolean | string }) {
 
 // ─── Modal Pessoa Física ──────────────────────────────────────────────────────
 
-interface PFModalProps {
+export interface PFModalProps {
   hotelId: string;
   initial?: Supplier;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved?: Supplier) => void;
 }
 
-function PFModal({ hotelId, initial, onClose, onSaved }: PFModalProps) {
+export function PFModal({ hotelId, initial, onClose, onSaved }: PFModalProps) {
   const [form, setForm] = useState<Supplier>(initial ?? emptyPF());
   const [employees, setEmployees] = useState<any[]>([]);
   const [loadingEmp, setLoadingEmp] = useState(false);
@@ -134,8 +134,8 @@ function PFModal({ hotelId, initial, onClose, onSaved }: PFModalProps) {
     if (!form.nome?.trim()) { setError('Nome é obrigatório'); return; }
     setSaving(true); setError('');
     try {
-      await supplierService.save({ ...form, hotel_id: hotelId });
-      onSaved();
+      const saved = await supplierService.save({ ...form, hotel_id: hotelId });
+      onSaved(saved);
     } catch (err: any) {
       setError(err.message ?? 'Erro ao salvar');
     } finally { setSaving(false); }
@@ -294,14 +294,14 @@ function PFModal({ hotelId, initial, onClose, onSaved }: PFModalProps) {
 
 // ─── Modal Pessoa Jurídica ────────────────────────────────────────────────────
 
-interface PJModalProps {
+export interface PJModalProps {
   hotelId: string;
   initial?: Supplier;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved?: Supplier) => void;
 }
 
-function PJModal({ hotelId, initial, onClose, onSaved }: PJModalProps) {
+export function PJModal({ hotelId, initial, onClose, onSaved }: PJModalProps) {
   const [form, setForm] = useState<Supplier>(initial ?? emptyPJ());
   const [cnpjInput, setCnpjInput] = useState(initial?.cnpj ? formatCnpj(initial.cnpj) : '');
   const [looking, setLooking] = useState(false);
@@ -353,8 +353,8 @@ function PJModal({ hotelId, initial, onClose, onSaved }: PJModalProps) {
     }
     setSaving(true); setError('');
     try {
-      await supplierService.save({ ...form, hotel_id: hotelId });
-      onSaved();
+      const saved = await supplierService.save({ ...form, hotel_id: hotelId });
+      onSaved(saved);
     } catch (err: any) {
       setError(err.message ?? 'Erro ao salvar');
     } finally { setSaving(false); }
@@ -799,7 +799,7 @@ export default function Fornecedores() {
           hotelId={selectedHotel.id}
           initial={modalPF.data}
           onClose={() => setModalPF({ open: false })}
-          onSaved={() => { setModalPF({ open: false }); load(); }}
+          onSaved={() => { setModalPF({ open: false }); load(); } }
         />
       )}
       {modalPJ.open && (
@@ -807,7 +807,7 @@ export default function Fornecedores() {
           hotelId={selectedHotel.id}
           initial={modalPJ.data}
           onClose={() => setModalPJ({ open: false })}
-          onSaved={() => { setModalPJ({ open: false }); load(); }}
+          onSaved={() => { setModalPJ({ open: false }); load(); } }
         />
       )}
     </div>

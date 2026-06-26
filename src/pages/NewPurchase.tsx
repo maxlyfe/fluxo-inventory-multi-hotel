@@ -13,6 +13,8 @@ import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
 import { supplierDisplayName } from '../lib/accountingService';
 import NFeXMLImportModal, { type NFeImportResult } from '../components/NFeXMLImportModal';
+import SupplierQuickCreateModal from '../components/SupplierQuickCreateModal';
+import type { Supplier } from '../lib/supplierService';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -418,6 +420,7 @@ const NewPurchase = () => {
   const [imgErrors,        setImgErrors]        = useState<Record<string, boolean>>({});
   const [budgetProcessed,  setBudgetProcessed]  = useState(false);
   const [showNFeModal,     setShowNFeModal]      = useState(false);
+  const [showNewSupplier,  setShowNewSupplier]   = useState(false);
 
   const [newProduct, setNewProduct] = useState({
     name: '', category: '', description: '', supplier: '', image_url: '',
@@ -624,9 +627,18 @@ const NewPurchase = () => {
     setPurchaseData(p => ({
       ...p,
       supplier:       result.supplier      || p.supplier,
+      supplier_id:    result.supplierId    || p.supplier_id,
       invoice_number: result.invoiceNumber || p.invoice_number,
       emission_date:  result.emissionDate  || p.emission_date,
     }));
+    // Recarrega lista de fornecedores se um novo foi criado
+    if (result.supplierId && selectedHotel?.id) {
+      supabase.from('suppliers')
+        .select('id, nome, nome_fantasia, razao_social, cnpj, type')
+        .eq('hotel_id', selectedHotel.id).eq('status', 'ativo')
+        .order('created_at', { ascending: false })
+        .then(({ data }) => { if (data) setSuppList(data); });
+    }
 
     // 2. Aplica cada linha conforme a ação reconciliada
     setItems(prev => {
@@ -688,6 +700,19 @@ const NewPurchase = () => {
     });
 
     addNotification(`NF-e importada: ${result.lines.length} item(s) processado(s).`, 'success');
+  };
+
+  const handleSupplierCreated = (supplier: Supplier) => {
+    const display = supplier.nome_fantasia || supplier.razao_social || supplier.nome || '';
+    setPurchaseData(p => ({ ...p, supplier: display, supplier_id: supplier.id ?? '' }));
+    // Recarrega lista de fornecedores para incluir o recém-criado
+    if (selectedHotel?.id) {
+      supabase.from('suppliers')
+        .select('id, nome, nome_fantasia, razao_social, cnpj, type')
+        .eq('hotel_id', selectedHotel.id).eq('status', 'ativo')
+        .order('created_at', { ascending: false })
+        .then(({ data }) => { if (data) setSuppList(data); });
+    }
   };
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -950,9 +975,18 @@ const NewPurchase = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Fornecedor — autocomplete */}
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                Nome do Fornecedor <span className="text-red-400">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Nome do Fornecedor <span className="text-red-400">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowNewSupplier(true)}
+                  className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> Novo Fornecedor
+                </button>
+              </div>
               <div className="relative" ref={supplierRef}>
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 <input type="text" value={purchaseData.supplier}
@@ -1588,6 +1622,15 @@ const NewPurchase = () => {
           currentItems={items}
           hotelId={selectedHotel.id}
           onConfirm={handleNFeConfirm}
+        />
+      )}
+
+      {selectedHotel && (
+        <SupplierQuickCreateModal
+          isOpen={showNewSupplier}
+          hotelId={selectedHotel.id}
+          onClose={() => setShowNewSupplier(false)}
+          onSaved={handleSupplierCreated}
         />
       )}
     </div>

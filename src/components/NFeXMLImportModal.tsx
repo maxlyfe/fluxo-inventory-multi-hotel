@@ -5,9 +5,10 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   FileText, Upload, CheckCircle2, PlusCircle, Sparkles,
-  AlertCircle, ChevronDown, ChevronUp, X,
+  AlertCircle, ChevronDown, ChevronUp, X, Building2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { lookupCnpj, supplierService, formatCnpj } from '../lib/supplierService';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ export interface NFeLineResult {
 export interface NFeImportResult {
   supplier: string;
   supplierCnpj: string;
+  supplierId?: string;   // preenchido se o fornecedor foi encontrado/criado automaticamente
   invoiceNumber: string;
   emissionDate: string;
   lines: NFeLineResult[];
@@ -144,15 +146,66 @@ export default function NFeXMLImportModal({
     if (!parsed) return;
     setParsing(true);
     try {
-      // 1. Collect all non-empty EANs from XML
+      // ── 1. Fornecedor: busca interna primeiro, depois API ──────────────────
+      let supplierId: string | undefined;
+      const cleanCnpj = parsed.supplierCnpj.replace(/\D/g, '');
+
+      if (cleanCnpj.length === 14) {
+        // Consulta banco interno (não consome créditos da API)
+        const { data: existing } = await supabase
+          .from('suppliers')
+          .select('id')
+          .eq('hotel_id', hotelId)
+          .eq('cnpj', cleanCnpj)
+          .maybeSingle();
+
+        if (existing) {
+          supplierId = existing.id;
+        } else {
+          // Não existe localmente → consulta API e cadastra automaticamente
+          try {
+            const cnpjaData = await lookupCnpj(cleanCnpj);
+            const saved = await supplierService.save({
+              type: 'juridica',
+              status: 'ativo',
+              hotel_id: hotelId,
+              cnpj:               cnpjaData.cnpj,
+              razao_social:       cnpjaData.razao_social,
+              nome_fantasia:      cnpjaData.nome_fantasia,
+              situacao:           cnpjaData.situacao,
+              situacao_cadastral: cnpjaData.situacao_cadastral,
+              tipo_empresa:       cnpjaData.tipo_empresa,
+              data_abertura:      cnpjaData.data_abertura,
+              porte:              cnpjaData.porte,
+              capital_social:     cnpjaData.capital_social,
+              natureza_juridica:  cnpjaData.natureza_juridica,
+              cnae_principal_id:  cnpjaData.cnae_principal_id,
+              cnae_principal_desc: cnpjaData.cnae_principal_desc,
+              atividade_economica: cnpjaData.atividade_economica,
+              simples_nacional:   cnpjaData.simples_nacional,
+              mei:                cnpjaData.mei,
+              ibs:                cnpjaData.ibs,
+              cbs:                cnpjaData.cbs,
+              lista_exclusao:     cnpjaData.lista_exclusao,
+              email:              cnpjaData.email,
+              telefone:           cnpjaData.telefone,
+              endereco_cep:       cnpjaData.endereco_cep,
+              endereco_logradouro: cnpjaData.endereco_logradouro,
+              endereco_numero:    cnpjaData.endereco_numero,
+              endereco_complemento: cnpjaData.endereco_complemento,
+              endereco_bairro:    cnpjaData.endereco_bairro,
+              endereco_municipio: cnpjaData.endereco_municipio,
+              endereco_uf:        cnpjaData.endereco_uf,
+            });
+            supplierId = saved.id;
+          } catch {
+            // Falha na API — continua sem supplierId (usuário pode selecionar manualmente)
+          }
+        }
+      }
+
+      // ── 2. Barcode → produto ───────────────────────────────────────────────
       const eans = parsed.items.map(i => i.cEAN).filter(Boolean);
-
-      // 2. Query product_barcodes for all at once
-      const { data: bcRows } = eans.length > 0
-        ? await supabase.from('product_barcodes').select('product_id, barcode').in('barcode', eans).eq('product_id', supabase.rpc as any) // will be filtered by hotel below
-        : { data: [] };
-
-      // We need to cross-reference with hotel products. Fetch barcode→product for this hotel.
       let eanToProductId: Record<string, string> = {};
       if (eans.length > 0) {
         const { data: rows } = await supabase
@@ -163,7 +216,7 @@ export default function NFeXMLImportModal({
         (rows ?? []).forEach((r: any) => { eanToProductId[r.barcode] = r.product_id; });
       }
 
-      // 3. Fetch product details for matched IDs
+      // ── 3. Detalhes dos produtos encontrados ──────────────────────────────
       const productIds = [...new Set(Object.values(eanToProductId))];
       let productMap: Record<string, Product> = {};
       if (productIds.length > 0) {
@@ -174,12 +227,11 @@ export default function NFeXMLImportModal({
         (prods ?? []).forEach((p: any) => { productMap[p.id] = p; });
       }
 
-      // 4. Build result lines
+      // ── 4. Reconciliação de linhas ─────────────────────────────────────────
       const lines: NFeLineResult[] = parsed.items.map(xmlItem => {
         const productId = xmlItem.cEAN ? eanToProductId[xmlItem.cEAN] : undefined;
         const product   = productId ? productMap[productId] : undefined;
 
-        // Check if already in current purchase list
         const currentItemIndex = product
           ? currentItems.findIndex(ci => !ci.isNew && ci.product_id === product.id)
           : -1;
@@ -207,6 +259,7 @@ export default function NFeXMLImportModal({
       setResult({
         supplier:      parsed.supplier,
         supplierCnpj:  parsed.supplierCnpj,
+        supplierId,
         invoiceNumber: parsed.invoiceNumber,
         emissionDate:  parsed.emissionDate,
         lines,
@@ -330,6 +383,7 @@ export default function NFeXMLImportModal({
 
               <div className="text-xs text-slate-400 dark:text-slate-500 space-y-1">
                 <p className="font-medium text-slate-500 dark:text-slate-400">Como funciona:</p>
+                <p>• <span className="font-medium text-violet-600 dark:text-violet-400">Fornecedor:</span> busca no banco interno → se não existir, consulta API via CNPJ e cadastra automaticamente</p>
                 <p>• Itens com cEAN já na lista de compra → <span className="text-emerald-600 dark:text-emerald-400 font-medium">quantidade e preço atualizados</span></p>
                 <p>• Itens com cEAN no inventário → <span className="text-blue-600 dark:text-blue-400 font-medium">adicionados à lista de compra</span></p>
                 <p>• Itens sem correspondência → <span className="text-amber-600 dark:text-amber-400 font-medium">novo produto criado ao salvar</span></p>
@@ -353,6 +407,18 @@ export default function NFeXMLImportModal({
                     <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate mt-0.5" title={value}>{value || '—'}</p>
                   </div>
                 ))}
+              </div>
+
+              {/* Supplier status badge */}
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border ${
+                result.supplierId
+                  ? 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300'
+                  : 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+              }`}>
+                <Building2 className="w-3.5 h-3.5 shrink-0" />
+                {result.supplierId
+                  ? `Fornecedor vinculado${result.supplierCnpj ? ` · CNPJ ${formatCnpj(result.supplierCnpj)}` : ''}`
+                  : `Fornecedor não cadastrado${result.supplierCnpj ? ` (CNPJ: ${formatCnpj(result.supplierCnpj)})` : ''} — selecione manualmente`}
               </div>
 
               {/* Summary badges */}
