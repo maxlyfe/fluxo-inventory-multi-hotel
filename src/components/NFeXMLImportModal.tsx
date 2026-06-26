@@ -5,7 +5,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   FileText, Upload, CheckCircle2, PlusCircle, Sparkles,
-  AlertCircle, ChevronDown, ChevronUp, X, Building2,
+  AlertCircle, ChevronDown, ChevronUp, X, Building2, Calendar,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { lookupCnpj, supplierService, formatCnpj } from '../lib/supplierService';
@@ -45,12 +45,20 @@ export interface NFeLineResult {
   currentItemIndex?: number;
 }
 
+export interface NFeImportDup {
+  nDup: string;
+  dVenc: string;
+  vDup: number;
+}
+
 export interface NFeImportResult {
   supplier: string;
   supplierCnpj: string;
-  supplierId?: string;   // preenchido se o fornecedor foi encontrado/criado automaticamente
+  supplierId?: string;
   invoiceNumber: string;
   emissionDate: string;
+  /** Duplicatas da NF-e: 0=sem cobrança, 1=à vista, >1=parcelado */
+  dups: NFeImportDup[];
   lines: NFeLineResult[];
 }
 
@@ -71,7 +79,13 @@ function getText(parent: Element | Document, tag: string): string {
   return el?.textContent?.trim() ?? '';
 }
 
-function parseNFe(xmlString: string): {
+interface ParsedDup {
+  nDup: string;
+  dVenc: string;   // YYYY-MM-DD
+  vDup: number;
+}
+
+interface ParsedNFe {
   supplier: string;
   supplierCnpj: string;
   invoiceNumber: string;
@@ -80,7 +94,11 @@ function parseNFe(xmlString: string): {
     xProd: string; cEAN: string; ncm: string; cfop: string;
     quantity: number; unitPrice: number; totalPrice: number; unit: string;
   }>;
-} | null {
+  // Cobrança (vencimentos)
+  dups: ParsedDup[];   // 0 = sem cobrança, 1 = à vista, >1 = parcelado
+}
+
+function parseNFe(xmlString: string): ParsedNFe | null {
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlString, 'application/xml');
@@ -106,12 +124,17 @@ function parseNFe(xmlString: string): {
       const unitPrice = parseFloat(getText(prod, 'vUnCom') || getText(prod, 'vUnTrib') || '0');
       const totalPrice= parseFloat(getText(prod, 'vProd') || '0');
       return { xProd, cEAN, ncm, cfop, unit, quantity, unitPrice, totalPrice };
-    }).filter(Boolean) as Array<{
-      xProd: string; cEAN: string; ncm: string; cfop: string;
-      quantity: number; unitPrice: number; totalPrice: number; unit: string;
-    }>;
+    }).filter(Boolean) as ParsedNFe['items'];
 
-    return { supplier, supplierCnpj, invoiceNumber: nNF, emissionDate, items };
+    // Duplicatas (<cobr><dup>) — um nó por parcela
+    const dupNodes = doc.getElementsByTagName('dup');
+    const dups: ParsedDup[] = Array.from(dupNodes).map(dup => ({
+      nDup:  getText(dup, 'nDup'),
+      dVenc: getText(dup, 'dVenc'),   // formato YYYY-MM-DD na NF-e
+      vDup:  parseFloat(getText(dup, 'vDup') || '0'),
+    })).filter(d => d.dVenc);
+
+    return { supplier, supplierCnpj, invoiceNumber: nNF, emissionDate, items, dups };
   } catch {
     return null;
   }
@@ -262,6 +285,7 @@ export default function NFeXMLImportModal({
         supplierId,
         invoiceNumber: parsed.invoiceNumber,
         emissionDate:  parsed.emissionDate,
+        dups:          parsed.dups,
         lines,
       });
       setStep('review');
@@ -420,6 +444,36 @@ export default function NFeXMLImportModal({
                   ? `Fornecedor vinculado${result.supplierCnpj ? ` · CNPJ ${formatCnpj(result.supplierCnpj)}` : ''}`
                   : `Fornecedor não cadastrado${result.supplierCnpj ? ` (CNPJ: ${formatCnpj(result.supplierCnpj)})` : ''} — selecione manualmente`}
               </div>
+
+              {/* Vencimentos / duplicatas */}
+              {result.dups.length > 0 && (
+                <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-indigo-200 dark:border-indigo-800">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                      {result.dups.length === 1 ? 'Vencimento (à vista)' : `Parcelado em ${result.dups.length}×`}
+                    </span>
+                    <span className="ml-auto text-xs text-indigo-500 dark:text-indigo-400 font-medium">
+                      Total: R$ {result.dups.reduce((s, d) => s + d.vDup, 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-indigo-100 dark:divide-indigo-800/50">
+                    {result.dups.map((dup, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-1.5">
+                        <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-mono">
+                          {dup.nDup || String(i + 1).padStart(3, '0')}
+                        </span>
+                        <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                          {dup.dVenc ? new Date(dup.dVenc + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
+                        </span>
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                          R$ {dup.vDup.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Summary badges */}
               {counts && (

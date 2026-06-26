@@ -699,6 +699,23 @@ const NewPurchase = () => {
       return next;
     });
 
+    // 3. Vencimentos / duplicatas
+    if (result.dups.length === 1) {
+      // À vista — preenche data de vencimento simples
+      setPurchaseData(p => ({ ...p, due_date: result.dups[0].dVenc }));
+      setIsInstallment(false);
+      setInstallments([]);
+    } else if (result.dups.length > 1) {
+      // Parcelado — ativa modo parcelado e preenche cada parcela
+      setIsInstallment(true);
+      setInstallmentCount(result.dups.length);
+      setInstallments(result.dups.map((dup, i) => ({
+        installment_number: i + 1,
+        due_date: dup.dVenc,
+        amount: dup.vDup,
+      })));
+    }
+
     addNotification(`NF-e importada: ${result.lines.length} item(s) processado(s).`, 'success');
   };
 
