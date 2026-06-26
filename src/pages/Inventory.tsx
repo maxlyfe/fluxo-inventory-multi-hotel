@@ -188,9 +188,13 @@ const Inventory = () => {
 
   // ─ Barcode ─────────────────────────────────────────────────────────────────
   const searchByBarcode = useCallback(async (barcode: string) => {
+    if (!selectedHotel?.id) return;
     const { data } = await supabase
-      .from('product_barcodes').select('product_id')
-      .eq('barcode', barcode.trim()).maybeSingle();
+      .from('product_barcodes')
+      .select('product_id, products!inner(hotel_id)')
+      .eq('barcode', barcode.trim())
+      .eq('products.hotel_id', selectedHotel.id)
+      .maybeSingle();
     if (data) {
       setBarcodeFilterProductId(data.product_id);
       setBarcodeFilterCode(barcode.trim());
@@ -199,7 +203,7 @@ const Inventory = () => {
     } else {
       addNotification('error', `Nenhum produto encontrado para código ${barcode}`);
     }
-  }, [addNotification]);
+  }, [addNotification, selectedHotel?.id]);
 
   useBarcodeScanner({ onScan: searchByBarcode, enabled: !showConferenceModal && !showForm && !showBarcodeScanner });
 
