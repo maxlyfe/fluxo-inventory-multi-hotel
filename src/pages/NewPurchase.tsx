@@ -12,6 +12,7 @@ import {
 import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
 import { supplierDisplayName } from '../lib/accountingService';
+import NFeXMLImportModal, { type NFeImportResult } from '../components/NFeXMLImportModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -416,6 +417,7 @@ const NewPurchase = () => {
   const [showNewForm,      setShowNewForm]      = useState(false);
   const [imgErrors,        setImgErrors]        = useState<Record<string, boolean>>({});
   const [budgetProcessed,  setBudgetProcessed]  = useState(false);
+  const [showNFeModal,     setShowNFeModal]      = useState(false);
 
   const [newProduct, setNewProduct] = useState({
     name: '', category: '', description: '', supplier: '', image_url: '',
@@ -614,6 +616,79 @@ const NewPurchase = () => {
   const selectedAccName = selectedSub?.acc.name;
 
   const total = items.reduce((s, i) => s + i.total_price, 0);
+
+  // ── NF-e XML import ───────────────────────────────────────────────────────────
+
+  const handleNFeConfirm = (result: NFeImportResult) => {
+    // 1. Preenche dados da compra com dados da NF-e
+    setPurchaseData(p => ({
+      ...p,
+      supplier:       result.supplier      || p.supplier,
+      invoice_number: result.invoiceNumber || p.invoice_number,
+      emission_date:  result.emissionDate  || p.emission_date,
+    }));
+
+    // 2. Aplica cada linha conforme a ação reconciliada
+    setItems(prev => {
+      let next = [...prev];
+      result.lines.forEach(line => {
+        if (line.action === 'update' && line.currentItemIndex !== undefined) {
+          // Atualiza quantidade e preço do item já na lista
+          next = next.map((item, i) => {
+            if (i !== line.currentItemIndex) return item;
+            return {
+              ...item,
+              quantity:      line.quantity,
+              unit_price:    line.unitPrice,
+              total_price:   line.quantity * line.unitPrice,
+              quantity_display: String(line.quantity),
+              unit_price_display: String(line.unitPrice),
+              ncm: line.ncm || item.ncm,
+            };
+          });
+        } else if (line.action === 'add' && line.product) {
+          // Adiciona produto do inventário que ainda não está na lista
+          const alreadyIn = next.find(i => !i.isNew && i.product_id === line.product!.id);
+          if (!alreadyIn) {
+            next.push({
+              product_id: line.product.id,
+              product:    line.product,
+              isNew:      false,
+              quantity:   line.quantity,
+              unit_price: line.unitPrice,
+              total_price: line.quantity * line.unitPrice,
+              quantity_display: String(line.quantity),
+              unit_price_display: String(line.unitPrice),
+              ncm: line.ncm || undefined,
+            });
+          }
+        } else if (line.action === 'create') {
+          // Cria novo produto a partir dos dados do XML
+          const alreadyIn = next.find(i => i.isNew && i.newProduct?.name.toLowerCase() === line.xProd.toLowerCase());
+          if (!alreadyIn) {
+            next.push({
+              isNew: true,
+              newProduct: {
+                name:     line.xProd,
+                category: 'Importado XML',
+                description: `cEAN: ${line.cEAN || '—'} | NCM: ${line.ncm || '—'}`,
+                supplier: result.supplier,
+              },
+              quantity:   line.quantity,
+              unit_price: line.unitPrice,
+              total_price: line.quantity * line.unitPrice,
+              quantity_display: String(line.quantity),
+              unit_price_display: String(line.unitPrice),
+              ncm: line.ncm || undefined,
+            });
+          }
+        }
+      });
+      return next;
+    });
+
+    addNotification(`NF-e importada: ${result.lines.length} item(s) processado(s).`, 'success');
+  };
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -834,13 +909,22 @@ const NewPurchase = () => {
           className="w-9 h-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-500 transition-colors shadow-sm">
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <ShoppingCart className="w-5 h-5 text-blue-500" />
             Registrar Nova Compra
           </h1>
           {selectedHotel && <p className="text-xs text-slate-400 mt-0.5 ml-7">{selectedHotel.name}</p>}
         </div>
+        <button
+          type="button"
+          onClick={() => setShowNFeModal(true)}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold transition-colors shadow-sm shrink-0"
+          title="Importar NF-e XML"
+        >
+          <FileText className="w-3.5 h-3.5" />
+          Importar NF-e
+        </button>
       </div>
 
       {budgetIdToUpdate && (
@@ -1494,6 +1578,16 @@ const NewPurchase = () => {
           accounts={chartAccounts}
           hotelId={selectedHotel.id}
           onRefresh={loadChartAccounts}
+        />
+      )}
+
+      {selectedHotel && (
+        <NFeXMLImportModal
+          isOpen={showNFeModal}
+          onClose={() => setShowNFeModal(false)}
+          currentItems={items}
+          hotelId={selectedHotel.id}
+          onConfirm={handleNFeConfirm}
         />
       )}
     </div>

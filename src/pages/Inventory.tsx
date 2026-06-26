@@ -30,6 +30,7 @@ import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { UNIT_MEASURE_LABELS } from '../types/product';
 import DirectDeliveryModal from '../components/DirectDeliveryModal';
 import { notifyItemDelivered } from '../lib/notificationTriggers';
+import ExportInventoryModal from '../components/ExportInventoryModal';
 
 interface Product {
   id: string;
@@ -166,6 +167,7 @@ const Inventory = () => {
   const [priceDraft, setPriceDraft]                     = useState('');
   const [savingPrice, setSavingPrice]                   = useState(false);
   const [showDirectDeliveryModal, setShowDirectDeliveryModal] = useState(false);
+  const [showExportModal, setShowExportModal]             = useState(false);
   const [allSectors, setAllSectors]                     = useState<{id: string, name: string}[]>([]);
   // Delegação de contagem
   const [showDelegateModal, setShowDelegateModal]       = useState(false);
@@ -826,7 +828,7 @@ const Inventory = () => {
 
           <div className="h-6 w-px bg-slate-200 dark:border-slate-700 mx-1 shrink-0" />
 
-          <button onClick={exportInventory} title="Exportar Excel"
+          <button onClick={() => setShowExportModal(true)} title="Exportar Excel"
             className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 transition-colors">
             <Download className="w-4 h-4" />
           </button>
@@ -1280,6 +1282,14 @@ const Inventory = () => {
         products={products.filter(p => p.is_active) as any}
         sectors={allSectors}
         onConfirm={handleConfirmDirectDelivery}
+      />
+
+      <ExportInventoryModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        products={products as any}
+        categories={categories}
+        hotelCode={selectedHotel?.code}
       />
 
       {/* ── Modal de link delegado (Inventário) ─────────────────────────────── */}
