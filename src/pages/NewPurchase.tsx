@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
-import { supplierDisplayName } from '../lib/accountingService';
+import { supplierDisplayName, parseRate } from '../lib/accountingService';
 import NFeXMLImportModal, { type NFeImportResult } from '../components/NFeXMLImportModal';
 import SupplierQuickCreateModal from '../components/SupplierQuickCreateModal';
 import type { Supplier } from '../lib/supplierService';
@@ -39,7 +39,10 @@ interface PurchaseItem {
   total_price: number;
   quantity_display?: string;
   unit_price_display?: string;
-  ncm?: string;
+  ncm?: string;   // interno – preenchido via XML, não exibido na UI
+  cean?: string;  // cEAN exibido e editável
+  ibs?: number;   // calculado: total_price × supplier_ibs_rate / 100
+  cbs?: number;   // calculado: total_price × supplier_cbs_rate / 100
 }
 
 interface SupplierSummary {
@@ -49,6 +52,8 @@ interface SupplierSummary {
   razao_social: string | null;
   cnpj: string | null;
   type: string;
+  ibs: string | null;
+  cbs: string | null;
 }
 
 interface Budget {
@@ -515,7 +520,7 @@ const NewPurchase = () => {
       setSuppLoading(true);
       const [{ data: prods, error: fe }, { data: supps, error: suppErr }] = await Promise.all([
         supabase.from('products').select('*').eq('hotel_id', selectedHotel.id).order('name'),
-        supabase.from('suppliers').select('id, nome, nome_fantasia, razao_social, cnpj, type')
+        supabase.from('suppliers').select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs')
           .eq('hotel_id', selectedHotel.id).eq('status', 'ativo').order('created_at', { ascending: false }),
       ]);
       if (fe) addNotification('Erro ao carregar produtos: ' + fe.message, 'error');
@@ -634,7 +639,7 @@ const NewPurchase = () => {
     // Recarrega lista de fornecedores se um novo foi criado
     if (result.supplierId && selectedHotel?.id) {
       supabase.from('suppliers')
-        .select('id, nome, nome_fantasia, razao_social, cnpj, type')
+        .select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs')
         .eq('hotel_id', selectedHotel.id).eq('status', 'ativo')
         .order('created_at', { ascending: false })
         .then(({ data }) => { if (data) setSuppList(data); });
@@ -655,11 +660,11 @@ const NewPurchase = () => {
               total_price:   line.quantity * line.unitPrice,
               quantity_display: String(line.quantity),
               unit_price_display: String(line.unitPrice),
-              ncm: line.ncm || item.ncm,
+              ncm:  line.ncm  || item.ncm,
+              cean: line.cEAN || item.cean,
             };
           });
         } else if (line.action === 'add' && line.product) {
-          // Adiciona produto do inventário que ainda não está na lista
           const alreadyIn = next.find(i => !i.isNew && i.product_id === line.product!.id);
           if (!alreadyIn) {
             next.push({
@@ -671,11 +676,11 @@ const NewPurchase = () => {
               total_price: line.quantity * line.unitPrice,
               quantity_display: String(line.quantity),
               unit_price_display: String(line.unitPrice),
-              ncm: line.ncm || undefined,
+              ncm:  line.ncm  || undefined,
+              cean: line.cEAN || undefined,
             });
           }
         } else if (line.action === 'create') {
-          // Cria novo produto a partir dos dados do XML
           const alreadyIn = next.find(i => i.isNew && i.newProduct?.name.toLowerCase() === line.xProd.toLowerCase());
           if (!alreadyIn) {
             next.push({
@@ -683,7 +688,7 @@ const NewPurchase = () => {
               newProduct: {
                 name:     line.xProd,
                 category: 'Importado XML',
-                description: `cEAN: ${line.cEAN || '—'} | NCM: ${line.ncm || '—'}`,
+                description: `NCM: ${line.ncm || '—'}`,
                 supplier: result.supplier,
               },
               quantity:   line.quantity,
@@ -691,7 +696,8 @@ const NewPurchase = () => {
               total_price: line.quantity * line.unitPrice,
               quantity_display: String(line.quantity),
               unit_price_display: String(line.unitPrice),
-              ncm: line.ncm || undefined,
+              ncm:  line.ncm  || undefined,
+              cean: line.cEAN || undefined,
             });
           }
         }
@@ -725,7 +731,7 @@ const NewPurchase = () => {
     // Recarrega lista de fornecedores para incluir o recém-criado
     if (selectedHotel?.id) {
       supabase.from('suppliers')
-        .select('id, nome, nome_fantasia, razao_social, cnpj, type')
+        .select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs')
         .eq('hotel_id', selectedHotel.id).eq('status', 'ativo')
         .order('created_at', { ascending: false })
         .then(({ data }) => { if (data) setSuppList(data); });
@@ -760,6 +766,20 @@ const NewPurchase = () => {
 
   const removeItem = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx));
 
+  // Retorna as taxas IBS/CBS do fornecedor atualmente selecionado
+  const supplierTaxRates = () => {
+    const s = suppList.find(x => x.id === purchaseData.supplier_id);
+    return { ibsRate: parseRate(s?.ibs), cbsRate: parseRate(s?.cbs) };
+  };
+
+  const calcTax = (total: number) => {
+    const { ibsRate, cbsRate } = supplierTaxRates();
+    return {
+      ibs: ibsRate > 0 ? Math.round(total * ibsRate) / 100 : 0,
+      cbs: cbsRate > 0 ? Math.round(total * cbsRate) / 100 : 0,
+    };
+  };
+
   const updateItem = (idx: number, field: 'quantity' | 'unit_price', value: string) => {
     const num = parseFloat(value.replace(',', '.')) || 0;
     setItems(prev => prev.map((item, i) => {
@@ -768,19 +788,24 @@ const NewPurchase = () => {
       if (field === 'quantity') { next.quantity = num; next.quantity_display = value; }
       else { next.unit_price = num; next.unit_price_display = value; }
       next.total_price = next.quantity * next.unit_price;
+      const tax = calcTax(next.total_price);
+      next.ibs = tax.ibs;
+      next.cbs = tax.cbs;
       return next;
     }));
   };
 
-  const updateNcm = (idx: number, value: string) => {
-    setItems(prev => prev.map((item, i) => i !== idx ? item : { ...item, ncm: value }));
+  const updateCean = (idx: number, value: string) => {
+    setItems(prev => prev.map((item, i) => i !== idx ? item : { ...item, cean: value }));
   };
 
   const adjustQty = (idx: number, delta: number) => {
     setItems(prev => prev.map((item, i) => {
       if (i !== idx) return item;
       const qty = Math.max(0.01, item.quantity + delta);
-      return { ...item, quantity: qty, quantity_display: String(qty), total_price: qty * item.unit_price };
+      const total = qty * item.unit_price;
+      const tax = calcTax(total);
+      return { ...item, quantity: qty, quantity_display: String(qty), total_price: total, ibs: tax.ibs, cbs: tax.cbs };
     }));
   };
 
@@ -892,9 +917,20 @@ const NewPurchase = () => {
           const { error: ie } = await supabase.from('purchase_items').insert({
             purchase_id: purchase.id, product_id: productId,
             quantity: item.quantity, unit_price: item.unit_price, total_price: item.total_price,
-            ncm: item.ncm || null,
+            ncm:  item.ncm  || null,
+            cean: item.cean || null,
+            ibs:  item.ibs  ?? 0,
+            cbs:  item.cbs  ?? 0,
           });
           if (ie) throw ie;
+
+          // Atualiza NCM no cadastro do produto (quando veio do XML)
+          if (item.ncm && productId && !item.isNew) {
+            await supabase.from('products')
+              .update({ ncm: item.ncm })
+              .eq('id', productId)
+              .eq('hotel_id', selectedHotel.id);
+          }
 
           if (!item.isNew || wasNewDuplicate) {
             addNotification(`Estoque de '${item.product?.name || item.newProduct?.name}' atualizado.`, 'info', 4000);
@@ -1529,18 +1565,34 @@ const NewPurchase = () => {
                           )}
                         </div>
                         <p className="text-xs text-slate-400">{category}</p>
-                        {/* NCM field */}
-                        <div className="flex items-center gap-1 mt-1.5">
-                          <span className="text-[10px] text-slate-400 font-medium shrink-0">NCM</span>
-                          <input
-                            type="text"
-                            placeholder="0000.00.00"
-                            value={item.ncm ?? ''}
-                            onChange={e => updateNcm(idx, e.target.value)}
-                            maxLength={12}
-                            onClick={e => e.stopPropagation()}
-                            className="w-28 px-1.5 py-0.5 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono focus:outline-none focus:ring-1 focus:ring-orange-400/50 focus:border-orange-400 transition-colors"
-                          />
+                        {/* cEAN + IBS/CBS */}
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400 font-medium shrink-0">cEAN</span>
+                            <input
+                              type="text"
+                              placeholder="0000000000000"
+                              value={item.cean ?? ''}
+                              onChange={e => updateCean(idx, e.target.value)}
+                              maxLength={14}
+                              onClick={e => e.stopPropagation()}
+                              className="w-32 px-1.5 py-0.5 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono focus:outline-none focus:ring-1 focus:ring-orange-400/50 focus:border-orange-400 transition-colors"
+                            />
+                          </div>
+                          {((item.ibs ?? 0) > 0 || (item.cbs ?? 0) > 0) && (
+                            <div className="flex items-center gap-1.5">
+                              {(item.ibs ?? 0) > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 font-mono border border-teal-200 dark:border-teal-800">
+                                  IBS R${item.ibs!.toFixed(2)}
+                                </span>
+                              )}
+                              {(item.cbs ?? 0) > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 font-mono border border-purple-200 dark:border-purple-800">
+                                  CBS R${item.cbs!.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

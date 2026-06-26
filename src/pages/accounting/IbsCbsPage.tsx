@@ -19,8 +19,7 @@ import { formatCnpj } from '../../lib/supplierService';
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-const fmtPct = (v: number) =>
-  v.toFixed(2).replace('.', ',') + '%';
+;
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
@@ -501,10 +500,10 @@ export default function IbsCbsPage() {
                     </p>
                   </div>
                 ) : (
-                  <table className="w-full text-sm min-w-[700px]">
+                  <table className="w-full text-sm min-w-[560px]">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-900/40 text-left">
-                        {['Data','Fornecedor','CNPJ','NCM','Valor Compra','IBS%','CBS%','Créd. IBS','Créd. CBS'].map(h => (
+                        {['Data','Fornecedor','CNPJ','Valor Compra','Créd. IBS','Créd. CBS'].map(h => (
                           <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap">
                             {h}
                           </th>
@@ -526,33 +525,8 @@ export default function IbsCbsPage() {
                               <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{formatCnpj(row.supplier_cnpj)}</span>
                             ) : '—'}
                           </td>
-                          <td className="px-4 py-3">
-                            {row.ncm_codes.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {row.ncm_codes.map(c => (
-                                  <span key={c} className="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded font-mono">
-                                    {c}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                          </td>
                           <td className="px-4 py-3 whitespace-nowrap text-right font-mono font-medium text-gray-900 dark:text-white">
                             {fmtBRL(row.total_amount)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-center">
-                            {row.ibs_rate > 0 ? (
-                              <span className="px-2 py-0.5 text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded-full font-medium">
-                                {fmtPct(row.ibs_rate)}
-                              </span>
-                            ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-center">
-                            {row.cbs_rate > 0 ? (
-                              <span className="px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full font-medium">
-                                {fmtPct(row.cbs_rate)}
-                              </span>
-                            ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-right font-mono font-semibold text-teal-700 dark:text-teal-300">
                             {row.ibs_credit > 0 ? fmtBRL(row.ibs_credit) : <span className="text-gray-300 dark:text-gray-600">—</span>}
@@ -567,13 +541,12 @@ export default function IbsCbsPage() {
                     {summary.rows.length > 1 && (
                       <tfoot>
                         <tr className="bg-gray-50 dark:bg-gray-900/40 font-semibold">
-                          <td colSpan={4} className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                          <td colSpan={3} className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                             Total — {summary.rows.length} compras
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-gray-900 dark:text-white">
                             {fmtBRL(summary.total_purchases_amount)}
                           </td>
-                          <td colSpan={2} />
                           <td className="px-4 py-3 text-right font-mono text-teal-700 dark:text-teal-300">
                             {fmtBRL(summary.ibs_total)}
                           </td>

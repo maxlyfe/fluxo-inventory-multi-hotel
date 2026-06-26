@@ -21,14 +21,14 @@ export interface PurchaseCreditRow {
   invoice_number: string | null;
   total_amount: number;
   supplier_id: string;
-  supplier_name: string;    // display name
+  supplier_name: string;
   supplier_razao: string | null;
   supplier_cnpj: string | null;
-  ibs_rate: number;         // percentage, e.g. 12.5
+  ibs_rate: number;      // taxa do fornecedor (para exibição)
   cbs_rate: number;
-  ibs_credit: number;       // total_amount * ibs_rate / 100
+  ibs_credit: number;    // soma de purchase_items.ibs (ou fallback taxa×total)
   cbs_credit: number;
-  ncm_codes: string[];      // unique NCM codes from purchase items
+  ncm_codes: string[];
 }
 
 export interface PeriodSummary {
@@ -86,7 +86,7 @@ export const accountingService = {
         .from('purchases')
         .select(`
           id, purchase_date, invoice_number, total_amount, supplier_id, supplier,
-          purchase_items ( ncm ),
+          purchase_items ( ncm, ibs, cbs ),
           suppliers:supplier_id ( id, nome, nome_fantasia, razao_social, cnpj, ibs, cbs )
         `)
         .eq('hotel_id', hotelId)
@@ -106,26 +106,33 @@ export const accountingService = {
     if (ue) throw ue;
 
     const rows: PurchaseCreditRow[] = (purchases || []).map((p: any) => {
-      const sup      = p.suppliers;
-      const ibsRate  = parseRate(sup?.ibs);
-      const cbsRate  = parseRate(sup?.cbs);
-      const ncmCodes = [...new Set(
-        (p.purchase_items || []).map((i: any) => i.ncm).filter(Boolean),
-      )] as string[];
+      const sup     = p.suppliers;
+      const ibsRate = parseRate(sup?.ibs);
+      const cbsRate = parseRate(sup?.cbs);
+      const items   = (p.purchase_items || []) as Array<{ ncm?: string; ibs?: number; cbs?: number }>;
+
+      // Soma dos valores por produto; se ainda não houver (dados antigos), usa fallback taxa×total
+      const itemsIbs = items.reduce((s, i) => s + (Number(i.ibs) || 0), 0);
+      const itemsCbs = items.reduce((s, i) => s + (Number(i.cbs) || 0), 0);
+      const ibs_credit = itemsIbs > 0 ? itemsIbs : (p.total_amount * ibsRate) / 100;
+      const cbs_credit = itemsCbs > 0 ? itemsCbs : (p.total_amount * cbsRate) / 100;
+
+      const ncmCodes = [...new Set(items.map(i => i.ncm).filter(Boolean))] as string[];
+
       return {
-        purchase_id:   p.id,
-        purchase_date: p.purchase_date,
+        purchase_id:    p.id,
+        purchase_date:  p.purchase_date,
         invoice_number: p.invoice_number,
-        total_amount:  p.total_amount,
-        supplier_id:   p.supplier_id,
-        supplier_name: supplierDisplayName(sup || {}) || p.supplier || '',
+        total_amount:   p.total_amount,
+        supplier_id:    p.supplier_id,
+        supplier_name:  supplierDisplayName(sup || {}) || p.supplier || '',
         supplier_razao: sup?.razao_social || null,
         supplier_cnpj:  sup?.cnpj || null,
         ibs_rate:  ibsRate,
         cbs_rate:  cbsRate,
-        ibs_credit: (p.total_amount * ibsRate) / 100,
-        cbs_credit: (p.total_amount * cbsRate) / 100,
-        ncm_codes:  ncmCodes,
+        ibs_credit,
+        cbs_credit,
+        ncm_codes: ncmCodes,
       };
     });
 
@@ -154,6 +161,7 @@ export const accountingService = {
         .from('purchases')
         .select(`
           purchase_date, total_amount,
+          purchase_items ( ibs, cbs ),
           suppliers:supplier_id ( ibs, cbs )
         `)
         .eq('hotel_id', hotelId)
@@ -174,10 +182,13 @@ export const accountingService = {
 
     (purchases || []).forEach((p: any) => {
       const m = parseInt(p.purchase_date.split('-')[1], 10);
+      const items = (p.purchase_items || []) as Array<{ ibs?: number; cbs?: number }>;
+      const itemsIbs = items.reduce((s: number, i) => s + (Number(i.ibs) || 0), 0);
+      const itemsCbs = items.reduce((s: number, i) => s + (Number(i.cbs) || 0), 0);
       const ibsRate = parseRate(p.suppliers?.ibs);
       const cbsRate = parseRate(p.suppliers?.cbs);
-      monthly[m].ibs_credit += (p.total_amount * ibsRate) / 100;
-      monthly[m].cbs_credit += (p.total_amount * cbsRate) / 100;
+      monthly[m].ibs_credit += itemsIbs > 0 ? itemsIbs : (p.total_amount * ibsRate) / 100;
+      monthly[m].cbs_credit += itemsCbs > 0 ? itemsCbs : (p.total_amount * cbsRate) / 100;
     });
 
     (usages || []).forEach((u: any) => {
