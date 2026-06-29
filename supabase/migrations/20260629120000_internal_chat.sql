@@ -190,6 +190,10 @@ CREATE POLICY "membros atualizam propria linha"
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
+CREATE POLICY "membros removem participantes"
+  ON public.conversation_members FOR DELETE
+  USING (is_conversation_member(conversation_id));
+
 -- messages
 CREATE POLICY "membros leem mensagens"
   ON public.messages FOR SELECT

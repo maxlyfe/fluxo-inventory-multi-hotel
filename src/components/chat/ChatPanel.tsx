@@ -1,9 +1,10 @@
 import { ArrowLeft, Users } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useMessages } from '../../hooks/useChat';
 import { ConversationWithMeta } from '../../lib/chat';
+import GroupMembersModal from './GroupMembersModal';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
 
@@ -23,6 +24,7 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
   const { messages, loading, sendMessage } = useMessages(conversation.id);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isGroup = conversation.type === 'group';
+  const [showMembers, setShowMembers] = useState(false);
 
   // Zera badge imediatamente ao abrir a conversa
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
           </div>
         )}
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-semibold text-gray-900 dark:text-white text-sm truncate">
             {conversation.display_name}
           </p>
@@ -72,7 +74,26 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
             </p>
           )}
         </div>
+
+        {/* Botão de gestão de participantes (só em grupos) */}
+        {isGroup && (
+          <button
+            onClick={() => setShowMembers(true)}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors flex-shrink-0"
+            title="Gerenciar participantes"
+          >
+            <Users className="w-4 h-4" />
+          </button>
+        )}
       </div>
+
+      {showMembers && (
+        <GroupMembersModal
+          conversation={conversation}
+          onClose={() => setShowMembers(false)}
+          onChanged={() => setShowMembers(false)}
+        />
+      )}
 
       {/* Área de mensagens */}
       <div className="flex-1 overflow-y-auto px-4 py-4 bg-gray-50 dark:bg-gray-900 space-y-0.5">

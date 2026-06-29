@@ -432,3 +432,18 @@ export async function addMembersToConversation(
     .upsert(inserts, { onConflict: 'conversation_id,user_id' });
   if (error) console.error('[chat] addMembersToConversation error');
 }
+
+export async function removeMemberFromConversation(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('conversation_members')
+    .delete()
+    .eq('conversation_id', conversationId)
+    .eq('user_id', userId);
+  if (error) {
+    console.error('[chat] removeMemberFromConversation error');
+    throw new Error(error.message);
+  }
+}
