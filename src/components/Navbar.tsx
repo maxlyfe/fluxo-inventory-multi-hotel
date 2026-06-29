@@ -33,6 +33,7 @@ import {
   Home,
   ChevronRight,
   Boxes as BoxesIcon,
+  MessageSquare as MessageSquareIcon,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -420,6 +421,22 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
                 aria-label="Painel do Dev"
               >
                 <BoxesIcon className="h-5 w-5" />
+              </Link>
+            )}
+
+            {/* Botão Chat Interno */}
+            {can('internal_messages') && (
+              <Link
+                to="/chat"
+                className="relative p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Chat interno"
+              >
+                <MessageSquareIcon className="h-5 w-5" />
+                {chatUnreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                    {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                  </span>
+                )}
               </Link>
             )}
 
