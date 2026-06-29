@@ -127,34 +127,24 @@ export async function createGroupConversation(
   name: string,
   memberIds: string[]
 ): Promise<Conversation | null> {
-  const { data: me } = await supabase.auth.getUser();
-  if (!me.user) return null;
+  const { data: convId, error } = await supabase.rpc('create_group_conversation', {
+    p_name: name,
+    p_members: memberIds,
+  });
 
-  const { data: myProfile } = await supabase
-    .from('profiles')
-    .select('group_id')
-    .eq('id', me.user.id)
-    .single();
-
-  if (!myProfile?.group_id) return null;
-
-  const { data: conv, error: convErr } = await supabase
-    .from('conversations')
-    .insert({ group_id: myProfile.group_id, type: 'group', name, created_by: me.user.id })
-    .select()
-    .single();
-
-  if (convErr || !conv) {
+  if (error || !convId) {
     console.error('[chat] createGroupConversation error');
     return null;
   }
 
-  const allMembers = Array.from(new Set([me.user.id, ...memberIds]));
-  await supabase.from('conversation_members').insert(
-    allMembers.map(uid => ({ conversation_id: conv.id, user_id: uid }))
-  );
+  // Busca os dados da conversa criada para retornar o objeto completo
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('id', convId)
+    .single();
 
-  return conv as Conversation;
+  return (conv as Conversation) || null;
 }
 
 export async function getMyConversations(): Promise<ConversationWithMeta[]> {

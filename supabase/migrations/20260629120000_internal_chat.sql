@@ -126,6 +126,36 @@ END;
 $$;
 
 -- ============================================================
+-- RPC: cria grupo (SECURITY DEFINER evita 403 no INSERT direto)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.create_group_conversation(
+  p_name    text,
+  p_members uuid[]
+)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_group_id uuid;
+  v_conv_id  uuid;
+BEGIN
+  SELECT group_id INTO v_group_id FROM public.profiles WHERE id = auth.uid();
+  IF v_group_id IS NULL THEN
+    RAISE EXCEPTION 'Usuário sem grupo';
+  END IF;
+
+  INSERT INTO public.conversations (group_id, type, name, created_by)
+  VALUES (v_group_id, 'group', p_name, auth.uid())
+  RETURNING id INTO v_conv_id;
+
+  INSERT INTO public.conversation_members (conversation_id, user_id)
+  SELECT v_conv_id, u
+  FROM unnest(array_append(p_members, auth.uid())) AS u
+  ON CONFLICT (conversation_id, user_id) DO NOTHING;
+
+  RETURN v_conv_id;
+END;
+$$;
+
+-- ============================================================
 -- RLS
 -- ============================================================
 ALTER TABLE public.conversations        ENABLE ROW LEVEL SECURITY;
