@@ -13,7 +13,7 @@ import {
 interface GroupMembersModalProps {
   conversation: ConversationWithMeta;
   onClose: () => void;
-  onChanged: () => void;
+  onRefresh: () => void;
 }
 
 function initials(p: ChatProfile) {
@@ -25,7 +25,7 @@ function displayName(p: ChatProfile) {
   return p.full_name?.trim() || p.email || 'Usuário';
 }
 
-export default function GroupMembersModal({ conversation, onClose, onChanged }: GroupMembersModalProps) {
+export default function GroupMembersModal({ conversation, onClose, onRefresh }: GroupMembersModalProps) {
   const { user } = useAuth();
   const { addNotification } = useNotification();
   const [allUsers, setAllUsers] = useState<ChatProfile[]>([]);
@@ -33,18 +33,29 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
   const [saving, setSaving] = useState<string | null>(null);
   const [tab, setTab] = useState<'members' | 'add'>('members');
 
-  const memberIds = new Set(conversation.members.map(m => m.user_id));
+  // Estado local para refletir adições/remoções sem fechar o modal
+  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+
   const isCreator = conversation.created_by === user?.id;
 
   useEffect(() => {
     getGroupUsers().then(data => { setAllUsers(data); setLoading(false); });
   }, []);
 
+  // Membros efetivos = originais + adicionados - removidos
+  const effectiveMemberIds = new Set([
+    ...conversation.members.map(m => m.user_id).filter(id => !removedIds.has(id)),
+    ...addedIds,
+  ]);
+
   const handleRemove = async (userId: string) => {
     setSaving(userId);
     try {
       await removeMemberFromConversation(conversation.id, userId);
-      onChanged();
+      setRemovedIds(prev => new Set([...prev, userId]));
+      setAddedIds(prev => { const s = new Set(prev); s.delete(userId); return s; });
+      onRefresh();
       addNotification('success', 'Participante removido.');
     } catch {
       addNotification('error', 'Não foi possível remover o participante.');
@@ -57,7 +68,9 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
     setSaving(userId);
     try {
       await addMembersToConversation(conversation.id, [userId]);
-      onChanged();
+      setAddedIds(prev => new Set([...prev, userId]));
+      setRemovedIds(prev => { const s = new Set(prev); s.delete(userId); return s; });
+      onRefresh();
       addNotification('success', 'Participante adicionado.');
     } catch {
       addNotification('error', 'Não foi possível adicionar o participante.');
@@ -66,13 +79,17 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
     }
   };
 
-  const currentMembers = conversation.members.map(m => ({
-    ...m.profile,
-    id: m.user_id,
-    isCreator: m.user_id === conversation.created_by,
-  }));
+  // Lista de membros para exibir (combina dados originais com adicionados)
+  const displayMembers: (ChatProfile & { isCreator: boolean })[] = [
+    ...conversation.members
+      .filter(m => !removedIds.has(m.user_id))
+      .map(m => ({ ...(m.profile || { id: m.user_id }), id: m.user_id, isCreator: m.user_id === conversation.created_by })),
+    ...allUsers
+      .filter(u => addedIds.has(u.id) && !conversation.members.find(m => m.user_id === u.id))
+      .map(u => ({ ...u, isCreator: false })),
+  ];
 
-  const nonMembers = allUsers.filter(u => !memberIds.has(u.id));
+  const nonMembers = allUsers.filter(u => !effectiveMemberIds.has(u.id));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -91,13 +108,13 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
             onClick={() => setTab('members')}
             className={`flex-1 py-2.5 text-sm font-medium transition-colors ${tab === 'members' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
           >
-            No grupo ({conversation.members.length})
+            No grupo ({displayMembers.length})
           </button>
           <button
             onClick={() => setTab('add')}
             className={`flex-1 py-2.5 text-sm font-medium transition-colors ${tab === 'add' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
           >
-            Adicionar
+            Adicionar {nonMembers.length > 0 ? `(${nonMembers.length})` : ''}
           </button>
         </div>
 
@@ -108,8 +125,8 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
             </div>
           )}
 
-          {/* Lista de membros atuais */}
-          {!loading && tab === 'members' && currentMembers.map(m => (
+          {/* Membros atuais */}
+          {!loading && tab === 'members' && displayMembers.map(m => (
             <div key={m.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700">
               <div className="w-9 h-9 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                 {initials(m as ChatProfile)}
@@ -122,13 +139,12 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
                   </p>
                 )}
               </div>
-              {/* Pode remover: criador remove qualquer um, ou usuário sai sozinho */}
               {(isCreator || m.id === user?.id) && !m.isCreator && (
                 <button
                   onClick={() => handleRemove(m.id!)}
                   disabled={saving === m.id}
                   className="p-1.5 rounded-full text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 transition-colors disabled:opacity-50"
-                  title={m.id === user?.id ? 'Sair do grupo' : 'Remover participante'}
+                  title={m.id === user?.id ? 'Sair do grupo' : 'Remover'}
                 >
                   {saving === m.id
                     ? <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
@@ -138,7 +154,7 @@ export default function GroupMembersModal({ conversation, onClose, onChanged }: 
             </div>
           ))}
 
-          {/* Adicionar não-membros */}
+          {/* Adicionar */}
           {!loading && tab === 'add' && nonMembers.length === 0 && (
             <p className="text-center text-sm text-gray-400 py-8">Todos os usuários já estão no grupo</p>
           )}

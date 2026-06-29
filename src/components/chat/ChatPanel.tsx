@@ -91,7 +91,7 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
         <GroupMembersModal
           conversation={conversation}
           onClose={() => setShowMembers(false)}
-          onChanged={() => setShowMembers(false)}
+          onRefresh={() => {/* realtime atualiza automaticamente */}}
         />
       )}
 

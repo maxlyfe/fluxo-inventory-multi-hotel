@@ -426,11 +426,14 @@ export async function addMembersToConversation(
   conversationId: string,
   userIds: string[]
 ): Promise<void> {
-  const inserts = userIds.map(uid => ({ conversation_id: conversationId, user_id: uid }));
-  const { error } = await supabase
-    .from('conversation_members')
-    .upsert(inserts, { onConflict: 'conversation_id,user_id' });
-  if (error) console.error('[chat] addMembersToConversation error');
+  const { error } = await supabase.rpc('add_conversation_members', {
+    p_conversation_id: conversationId,
+    p_user_ids: userIds,
+  });
+  if (error) {
+    console.error('[chat] addMembersToConversation error');
+    throw new Error(error.message);
+  }
 }
 
 export async function removeMemberFromConversation(
