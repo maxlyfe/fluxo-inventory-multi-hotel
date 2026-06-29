@@ -9,6 +9,7 @@ import {
   markMessagesRead,
   getTotalUnreadCount,
 } from '../lib/chat';
+import { fetchProfilesBatch } from '../lib/chat';
 import { useRealtimeSubscription } from './useRealtime';
 
 // ─── useConversations ────────────────────────────────────────────────────────
@@ -31,10 +32,17 @@ export function useConversations() {
     load();
   }, [load]);
 
-  // Realtime: qualquer nova mensagem recalcula a lista
-  useRealtimeSubscription('messages', undefined, useCallback(() => {
-    load();
-  }, [load]));
+  const onConvChange = useCallback(() => { load(); }, [load]);
+
+  // Nova mensagem → atualiza última mensagem + não-lidas
+  useRealtimeSubscription('messages', undefined, onConvChange);
+
+  // Novo membro adicionado (inclui quando sou adicionado a uma nova conversa)
+  const memberFilter = user ? `user_id=eq.${user.id}` : undefined;
+  useRealtimeSubscription('conversation_members', memberFilter, onConvChange);
+
+  // Nova conversa criada (ex: grupo onde sou creator)
+  useRealtimeSubscription('conversations', undefined, onConvChange);
 
   return { conversations, loading, totalUnread, refresh: load };
 }
@@ -46,7 +54,6 @@ export function useMessages(conversationId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const loadedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!conversationId || !user) return;
@@ -55,32 +62,39 @@ export function useMessages(conversationId: string | null) {
     setMessages(data);
     setHasMore(data.length === 50);
     setLoading(false);
-    loadedRef.current = true;
-    // Marcar como lido ao abrir o chat
     await markMessagesRead(conversationId);
   }, [conversationId, user]);
 
   useEffect(() => {
     if (!conversationId) { setMessages([]); return; }
-    loadedRef.current = false;
     load();
   }, [conversationId, load]);
 
-  // Realtime: append de novas mensagens nesta conversa
+  // Realtime: append nova mensagem e busca perfil do sender
+  const onNewMessage = useCallback(async (payload: any) => {
+    if (!conversationId || payload.eventType !== 'INSERT') return;
+    const raw = payload.new as Message;
+
+    // Buscar perfil do sender se não vier no payload
+    let sender = raw.sender;
+    if (!sender && raw.sender_id) {
+      const map = await fetchProfilesBatch([raw.sender_id]);
+      sender = map.get(raw.sender_id);
+    }
+    const newMsg: Message = { ...raw, sender };
+
+    setMessages(prev => {
+      if (prev.some(m => m.id === newMsg.id)) return prev;
+      return [...prev, newMsg];
+    });
+
+    await markMessagesRead(conversationId);
+  }, [conversationId]);
+
   useRealtimeSubscription(
     'messages',
     conversationId ? `conversation_id=eq.${conversationId}` : undefined,
-    useCallback(async (payload: any) => {
-      if (!conversationId || payload.eventType !== 'INSERT') return;
-      const newMsg = payload.new as Message;
-      setMessages(prev => {
-        // evitar duplicatas
-        if (prev.some(m => m.id === newMsg.id)) return prev;
-        return [...prev, newMsg];
-      });
-      // Marcar como lido automaticamente (chat está aberto)
-      await markMessagesRead(conversationId);
-    }, [conversationId])
+    onNewMessage,
   );
 
   const sendMessage = useCallback(async (content: string) => {
@@ -124,14 +138,10 @@ export function useUnreadCount() {
     refresh();
   }, [refresh]);
 
-  // Atualiza quando chegam novas mensagens ou leituras
-  useRealtimeSubscription('messages', undefined, useCallback(() => {
-    refresh();
-  }, [refresh]));
+  const onRefresh = useCallback(() => { refresh(); }, [refresh]);
 
-  useRealtimeSubscription('message_reads', undefined, useCallback(() => {
-    refresh();
-  }, [refresh]));
+  useRealtimeSubscription('messages', undefined, onRefresh);
+  useRealtimeSubscription('message_reads', undefined, onRefresh);
 
   return count;
 }

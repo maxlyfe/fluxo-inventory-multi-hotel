@@ -57,7 +57,7 @@ function profileDisplayName(p?: ChatProfile | null): string {
 }
 
 // Busca perfis em batch — evita joins embutidos que exigem FK para public.profiles
-async function fetchProfilesBatch(userIds: string[]): Promise<Map<string, ChatProfile>> {
+export async function fetchProfilesBatch(userIds: string[]): Promise<Map<string, ChatProfile>> {
   if (!userIds.length) return new Map();
 
   const { data } = await supabase
