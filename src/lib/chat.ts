@@ -56,6 +56,22 @@ function profileDisplayName(p?: ChatProfile | null): string {
   return p.full_name?.trim() || p.email || 'Usuário';
 }
 
+// Busca perfis em batch — evita joins embutidos que exigem FK para public.profiles
+async function fetchProfilesBatch(userIds: string[]): Promise<Map<string, ChatProfile>> {
+  if (!userIds.length) return new Map();
+
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, photo_url')
+    .in('id', userIds);
+
+  const map = new Map<string, ChatProfile>();
+  for (const p of data || []) {
+    map.set(p.id, p as ChatProfile);
+  }
+  return map;
+}
+
 // ─── Users do mesmo grupo ────────────────────────────────────────────────────
 
 export async function getGroupUsers(): Promise<ChatProfile[]> {
@@ -78,7 +94,7 @@ export async function getGroupUsers(): Promise<ChatProfile[]> {
     .order('full_name', { ascending: true, nullsFirst: false });
 
   if (error) {
-    console.error('[chat] getGroupUsers:', error);
+    console.error('[chat] getGroupUsers error');
     return [];
   }
 
@@ -101,7 +117,7 @@ export async function getOrCreateDirectConversation(otherUserId: string): Promis
     other_user_id: otherUserId,
   });
   if (error) {
-    console.error('[chat] getOrCreateDirectConversation:', error);
+    console.error('[chat] getOrCreateDirectConversation error');
     throw new Error(error.message);
   }
   return data as string;
@@ -122,7 +138,6 @@ export async function createGroupConversation(
 
   if (!myProfile?.group_id) return null;
 
-  // Criar conversa
   const { data: conv, error: convErr } = await supabase
     .from('conversations')
     .insert({ group_id: myProfile.group_id, type: 'group', name, created_by: me.user.id })
@@ -130,11 +145,10 @@ export async function createGroupConversation(
     .single();
 
   if (convErr || !conv) {
-    console.error('[chat] createGroupConversation:', convErr);
+    console.error('[chat] createGroupConversation error');
     return null;
   }
 
-  // Inserir membros (criador + selecionados)
   const allMembers = Array.from(new Set([me.user.id, ...memberIds]));
   await supabase.from('conversation_members').insert(
     allMembers.map(uid => ({ conversation_id: conv.id, user_id: uid }))
@@ -147,85 +161,97 @@ export async function getMyConversations(): Promise<ConversationWithMeta[]> {
   const { data: me } = await supabase.auth.getUser();
   if (!me.user) return [];
 
-  // Busca conversas onde o usuário é membro
+  // 1. Conversas onde o usuário é membro
   const { data: memberRows, error: memErr } = await supabase
     .from('conversation_members')
-    .select('conversation_id')
+    .select('conversation_id, last_read_at')
     .eq('user_id', me.user.id);
 
   if (memErr || !memberRows?.length) return [];
 
   const convIds = memberRows.map(r => r.conversation_id);
+  const myLastReadMap = new Map(memberRows.map(r => [r.conversation_id, r.last_read_at]));
 
-  // Conversas com todos os membros e seus perfis
+  // 2. Dados das conversas
   const { data: convs, error: convErr } = await supabase
     .from('conversations')
-    .select(`
-      *,
-      members:conversation_members(
-        id, user_id, joined_at, last_read_at,
-        profile:profiles(id, email, full_name, photo_url)
-      )
-    `)
+    .select('*')
     .in('id', convIds)
     .order('updated_at', { ascending: false });
 
   if (convErr || !convs) {
-    console.error('[chat] getMyConversations:', convErr);
+    console.error('[chat] getMyConversations error');
     return [];
   }
 
-  // Buscar última mensagem e contagem de não lidas por conversa
+  // 3. Membros de todas as conversas
+  const { data: allMembers } = await supabase
+    .from('conversation_members')
+    .select('id, conversation_id, user_id, joined_at, last_read_at')
+    .in('conversation_id', convIds);
+
+  // 4. Perfis de todos os usuários envolvidos (1 query)
+  const allUserIds = Array.from(new Set((allMembers || []).map((m: any) => m.user_id)));
+  const profileMap = await fetchProfilesBatch(allUserIds);
+
+  // Adicionar emails via RPC para fallback de nome
+  const { data: rpcUsers } = await supabase.rpc('get_all_users_with_profile');
+  const emailMap = new Map<string, string>((rpcUsers || []).map((u: any) => [u.id, u.email]));
+  for (const [id, profile] of profileMap) {
+    if (!profile.full_name && emailMap.has(id)) {
+      profile.email = emailMap.get(id);
+    }
+  }
+
+  // 5. Última mensagem e não-lidas por conversa
   const result: ConversationWithMeta[] = await Promise.all(
     convs.map(async (c: any) => {
-      const members = (c.members || []) as ConversationMember[];
+      const members: ConversationMember[] = (allMembers || [])
+        .filter((m: any) => m.conversation_id === c.id)
+        .map((m: any) => ({
+          ...m,
+          profile: profileMap.get(m.user_id),
+        }));
 
       // Última mensagem
       const { data: lastMsgs } = await supabase
         .from('messages')
-        .select('id, content, type, created_at, sender_id, sender:profiles(id, full_name, email, photo_url)')
+        .select('id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at')
         .eq('conversation_id', c.id)
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(1);
-      const last_message = (lastMsgs?.[0] as Message) || null;
 
-      // Contagem de não lidas (mensagens sem read receipt do usuário atual)
-      const myMember = members.find(m => m.user_id === me.user!.id);
-      let unread_count = 0;
-      if (myMember) {
-        const since = myMember.last_read_at || '1970-01-01';
-        const { count } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('conversation_id', c.id)
-          .is('deleted_at', null)
-          .neq('sender_id', me.user.id)
-          .gt('created_at', since);
-        unread_count = count || 0;
-      }
+      const lastMsgRaw = lastMsgs?.[0] || null;
+      const last_message: Message | null = lastMsgRaw
+        ? { ...lastMsgRaw, sender: profileMap.get(lastMsgRaw.sender_id) }
+        : null;
+
+      // Não-lidas
+      const since = myLastReadMap.get(c.id) || '1970-01-01';
+      const { count } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', c.id)
+        .is('deleted_at', null)
+        .neq('sender_id', me.user!.id)
+        .gt('created_at', since);
+      const unread_count = count || 0;
 
       // Nome e avatar para exibição
       let display_name = c.name || '';
       let display_avatar: string | null = null;
 
       if (c.type === 'direct') {
-        const other = members.find((m: any) => m.user_id !== me.user!.id);
-        const otherProfile = other?.profile as ChatProfile | undefined;
+        const other = members.find(m => m.user_id !== me.user!.id);
+        const otherProfile = other?.profile;
         display_name = profileDisplayName(otherProfile);
         display_avatar = otherProfile?.photo_url || null;
       } else {
         display_name = c.name || 'Grupo';
       }
 
-      return {
-        ...c,
-        members,
-        last_message,
-        unread_count,
-        display_name,
-        display_avatar,
-      } as ConversationWithMeta;
+      return { ...c, members, last_message, unread_count, display_name, display_avatar } as ConversationWithMeta;
     })
   );
 
@@ -235,14 +261,21 @@ export async function getMyConversations(): Promise<ConversationWithMeta[]> {
 export async function getConversationMembers(conversationId: string): Promise<ConversationMember[]> {
   const { data, error } = await supabase
     .from('conversation_members')
-    .select('id, user_id, joined_at, last_read_at, profile:profiles(id, email, full_name, photo_url)')
+    .select('id, user_id, joined_at, last_read_at')
     .eq('conversation_id', conversationId);
 
   if (error) {
-    console.error('[chat] getConversationMembers:', error);
+    console.error('[chat] getConversationMembers error');
     return [];
   }
-  return (data || []) as ConversationMember[];
+
+  const userIds = (data || []).map((m: any) => m.user_id);
+  const profileMap = await fetchProfilesBatch(userIds);
+
+  return (data || []).map((m: any) => ({
+    ...m,
+    profile: profileMap.get(m.user_id),
+  })) as ConversationMember[];
 }
 
 // ─── Mensagens ───────────────────────────────────────────────────────────────
@@ -254,7 +287,7 @@ export async function getMessages(
 ): Promise<Message[]> {
   let query = supabase
     .from('messages')
-    .select('*, sender:profiles(id, email, full_name, photo_url)')
+    .select('id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at')
     .eq('conversation_id', conversationId)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
@@ -266,10 +299,15 @@ export async function getMessages(
 
   const { data, error } = await query;
   if (error) {
-    console.error('[chat] getMessages:', error);
+    console.error('[chat] getMessages error');
     return [];
   }
-  return ((data || []) as Message[]).reverse();
+
+  const msgs = (data || []).reverse();
+  const senderIds = Array.from(new Set(msgs.map((m: any) => m.sender_id)));
+  const profileMap = await fetchProfilesBatch(senderIds);
+
+  return msgs.map((m: any) => ({ ...m, sender: profileMap.get(m.sender_id) })) as Message[];
 }
 
 export async function sendMessage(
@@ -290,18 +328,20 @@ export async function sendMessage(
       type,
       media_url: mediaUrl || null,
     })
-    .select('*, sender:profiles(id, email, full_name, photo_url)')
+    .select('id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at')
     .single();
 
   if (error) {
-    console.error('[chat] sendMessage:', error);
+    console.error('[chat] sendMessage error');
     return null;
   }
 
-  // Notificar outros membros
-  void notifyOtherMembers(conversationId, me.user.id, content, data as Message);
+  const profileMap = await fetchProfilesBatch([me.user.id]);
+  const msg = { ...data, sender: profileMap.get(me.user.id) } as Message;
 
-  return data as Message;
+  void notifyOtherMembers(conversationId, me.user.id, content, msg);
+
+  return msg;
 }
 
 async function notifyOtherMembers(
@@ -319,13 +359,9 @@ async function notifyOtherMembers(
 
     if (!members?.length) return;
 
-    const { data: senderProfile } = await supabase
-      .from('profiles')
-      .select('full_name, email')
-      .eq('id', senderId)
-      .single();
-
-    const senderName = senderProfile?.full_name || senderProfile?.email || 'Alguém';
+    const profileMap = await fetchProfilesBatch([senderId]);
+    const senderProfile = profileMap.get(senderId);
+    const senderName = profileDisplayName(senderProfile);
     const preview = content?.length > 60 ? content.slice(0, 60) + '…' : content;
 
     for (const m of members) {
@@ -334,14 +370,14 @@ async function notifyOtherMembers(
         title: senderName,
         message: preview || '📎 Mídia',
         event_key: 'NEW_INTERNAL_MESSAGE',
-        target_path: `/chat/${conversationId}`,
+        target_path: `/chat`,
         related_entity_id: message.id,
         related_entity_type: 'message',
         sendPush: true,
       });
     }
-  } catch (e) {
-    console.error('[chat] notifyOtherMembers:', e);
+  } catch {
+    // falha silenciosa — não interrompe o envio da mensagem
   }
 }
 
@@ -351,14 +387,12 @@ export async function markMessagesRead(conversationId: string): Promise<void> {
   const { data: me } = await supabase.auth.getUser();
   if (!me.user) return;
 
-  // Atualizar last_read_at do membro (cache de leitura)
   await supabase
     .from('conversation_members')
     .update({ last_read_at: new Date().toISOString() })
     .eq('conversation_id', conversationId)
     .eq('user_id', me.user.id);
 
-  // Inserir read receipts para mensagens não lidas do usuário
   const { data: unread } = await supabase
     .from('messages')
     .select('id')
@@ -376,7 +410,6 @@ export async function getTotalUnreadCount(): Promise<number> {
   const { data: me } = await supabase.auth.getUser();
   if (!me.user) return 0;
 
-  // Busca todas as conversas do usuário
   const { data: memberRows } = await supabase
     .from('conversation_members')
     .select('conversation_id, last_read_at')
@@ -407,5 +440,5 @@ export async function addMembersToConversation(
   const { error } = await supabase
     .from('conversation_members')
     .upsert(inserts, { onConflict: 'conversation_id,user_id' });
-  if (error) console.error('[chat] addMembersToConversation:', error);
+  if (error) console.error('[chat] addMembersToConversation error');
 }
