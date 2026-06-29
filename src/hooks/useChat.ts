@@ -32,6 +32,17 @@ export function useConversations() {
     load();
   }, [load]);
 
+  // Zera o badge imediatamente ao abrir uma conversa (sem esperar realtime)
+  const markConversationRead = useCallback((conversationId: string) => {
+    setConversations(prev =>
+      prev.map(c => c.id === conversationId ? { ...c, unread_count: 0 } : c)
+    );
+    setTotalUnread(prev => {
+      const conv = conversations.find(c => c.id === conversationId);
+      return Math.max(0, prev - (conv?.unread_count || 0));
+    });
+  }, [conversations]);
+
   const onConvChange = useCallback(() => { load(); }, [load]);
 
   // Nova mensagem → atualiza última mensagem + não-lidas
@@ -41,10 +52,13 @@ export function useConversations() {
   const memberFilter = user ? `user_id=eq.${user.id}` : undefined;
   useRealtimeSubscription('conversation_members', memberFilter, onConvChange);
 
-  // Nova conversa criada (ex: grupo onde sou creator)
+  // Nova conversa criada
   useRealtimeSubscription('conversations', undefined, onConvChange);
 
-  return { conversations, loading, totalUnread, refresh: load };
+  // Mensagem lida → recalcula não-lidas
+  useRealtimeSubscription('message_reads', undefined, onConvChange);
+
+  return { conversations, loading, totalUnread, refresh: load, markConversationRead };
 }
 
 // ─── useMessages ─────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { useConversations } from '../../hooks/useChat';
 
 export default function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
-  const { conversations } = useConversations();
+  const { conversations, markConversationRead } = useConversations();
 
   const activeConversation = conversations.find(c => c.id === conversationId) || null;
 
@@ -31,6 +31,7 @@ export default function ChatPage() {
           <ChatPanel
             conversation={activeConversation}
             isMobile={!!conversationId}
+            onRead={markConversationRead}
           />
         ) : (
           /* Placeholder no desktop quando nenhuma conversa está aberta */

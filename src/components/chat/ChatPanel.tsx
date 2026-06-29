@@ -10,18 +10,24 @@ import MessageInput from './MessageInput';
 interface ChatPanelProps {
   conversation: ConversationWithMeta;
   isMobile?: boolean;
+  onRead?: (conversationId: string) => void;
 }
 
 function initials(name: string) {
   return name.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase();
 }
 
-export default function ChatPanel({ conversation, isMobile }: ChatPanelProps) {
+export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { messages, loading, sendMessage } = useMessages(conversation.id);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isGroup = conversation.type === 'group';
+
+  // Zera badge imediatamente ao abrir a conversa
+  useEffect(() => {
+    onRead?.(conversation.id);
+  }, [conversation.id, onRead]);
 
   // Auto-scroll ao fundo em novas mensagens
   useEffect(() => {
