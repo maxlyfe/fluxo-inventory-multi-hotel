@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createGroupConversation, getOrCreateDirectConversation } from '../../lib/chat';
 import ContactPickerModal from './ContactPickerModal';
+import { useNotification } from '../../context/NotificationContext';
 
 interface NewConversationModalProps {
   onClose: () => void;
@@ -12,6 +13,7 @@ type Tab = 'direct' | 'group';
 
 export default function NewConversationModal({ onClose }: NewConversationModalProps) {
   const navigate = useNavigate();
+  const { addNotification } = useNotification();
   const [tab, setTab] = useState<Tab>('direct');
   const [groupName, setGroupName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -21,22 +23,36 @@ export default function NewConversationModal({ onClose }: NewConversationModalPr
   const handleDirectConfirm = async (ids: string[]) => {
     if (!ids[0]) return;
     setLoading(true);
-    const convId = await getOrCreateDirectConversation(ids[0]);
-    setLoading(false);
-    if (convId) {
-      onClose();
-      navigate(`/chat/${convId}`);
+    try {
+      const convId = await getOrCreateDirectConversation(ids[0]);
+      if (convId) {
+        onClose();
+        navigate(`/chat/${convId}`);
+      } else {
+        addNotification('error', 'Não foi possível iniciar a conversa. Tente novamente.');
+      }
+    } catch (err: any) {
+      addNotification('error', err?.message || 'Erro ao iniciar conversa.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleGroupCreate = async () => {
     if (!groupName.trim() || selectedIds.length < 1) return;
     setLoading(true);
-    const conv = await createGroupConversation(groupName.trim(), selectedIds);
-    setLoading(false);
-    if (conv) {
-      onClose();
-      navigate(`/chat/${conv.id}`);
+    try {
+      const conv = await createGroupConversation(groupName.trim(), selectedIds);
+      if (conv) {
+        onClose();
+        navigate(`/chat/${conv.id}`);
+      } else {
+        addNotification('error', 'Não foi possível criar o grupo. Tente novamente.');
+      }
+    } catch (err: any) {
+      addNotification('error', err?.message || 'Erro ao criar grupo.');
+    } finally {
+      setLoading(false);
     }
   };
 

@@ -102,7 +102,7 @@ export async function getOrCreateDirectConversation(otherUserId: string): Promis
   });
   if (error) {
     console.error('[chat] getOrCreateDirectConversation:', error);
-    return null;
+    throw new Error(error.message);
   }
   return data as string;
 }
