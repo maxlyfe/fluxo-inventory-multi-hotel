@@ -25,6 +25,21 @@ ON CONFLICT (event_key) DO UPDATE
       target_path_template     = EXCLUDED.target_path_template,
       icon                     = EXCLUDED.icon;
 
+-- Tipo para mensagens internas do chat
+INSERT INTO notification_types (event_key, description, default_message_template, target_path_template, icon)
+VALUES (
+  'NEW_INTERNAL_MESSAGE',
+  'Nova mensagem interna',
+  'Você tem uma nova mensagem',
+  '/chat',
+  '💬'
+)
+ON CONFLICT (event_key) DO UPDATE
+  SET description              = EXCLUDED.description,
+      default_message_template = EXCLUDED.default_message_template,
+      target_path_template     = EXCLUDED.target_path_template,
+      icon                     = EXCLUDED.icon;
+
 -- Confirmar
 SELECT id, event_key, description, icon FROM notification_types
-WHERE event_key IN ('EXP_CONTRACT_ENDING_SOON', 'EXP_CONTRACT_ENDS_TODAY', 'EMPLOYEE_BIRTHDAY');
+WHERE event_key IN ('EXP_CONTRACT_ENDING_SOON', 'EXP_CONTRACT_ENDS_TODAY', 'EMPLOYEE_BIRTHDAY', 'NEW_INTERNAL_MESSAGE');
