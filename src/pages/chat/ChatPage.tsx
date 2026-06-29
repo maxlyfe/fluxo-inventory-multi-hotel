@@ -6,7 +6,7 @@ import { useConversations } from '../../hooks/useChat';
 
 export default function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
-  const { conversations, markConversationRead } = useConversations();
+  const { conversations, loading, markConversationRead } = useConversations();
 
   const activeConversation = conversations.find(c => c.id === conversationId) || null;
 
@@ -18,7 +18,11 @@ export default function ChatPage() {
           conversationId ? 'hidden md:flex' : 'flex'
         } w-full md:w-80 lg:w-96 flex-shrink-0 flex-col`}
       >
-        <ConversationList activeConversationId={conversationId} />
+        <ConversationList
+          conversations={conversations}
+          loading={loading}
+          activeConversationId={conversationId}
+        />
       </div>
 
       {/* Painel de chat */}
@@ -34,7 +38,6 @@ export default function ChatPage() {
             onRead={markConversationRead}
           />
         ) : (
-          /* Placeholder no desktop quando nenhuma conversa está aberta */
           <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3 bg-gray-50 dark:bg-gray-900">
             <MessageSquare className="w-12 h-12 opacity-30" />
             <p className="text-sm">Selecione uma conversa</p>

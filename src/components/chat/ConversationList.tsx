@@ -1,15 +1,16 @@
 import { Pencil, Search } from 'lucide-react';
 import { useState } from 'react';
-import { useConversations } from '../../hooks/useChat';
+import { ConversationWithMeta } from '../../lib/chat';
 import ConversationItem from './ConversationItem';
 import NewConversationModal from './NewConversationModal';
 
 interface ConversationListProps {
+  conversations: ConversationWithMeta[];
+  loading: boolean;
   activeConversationId?: string;
 }
 
-export default function ConversationList({ activeConversationId }: ConversationListProps) {
-  const { conversations, loading } = useConversations();
+export default function ConversationList({ conversations, loading, activeConversationId }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const [showNew, setShowNew] = useState(false);
 
