@@ -157,6 +157,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'chat',
+    label: 'Chat Interno',
+    icon: MessageSquare,
+    module: 'internal_messages',
+    activePrefixes: ['/chat'],
+    items: [
+      { module: 'internal_messages', label: 'Mensagens', href: '/chat', icon: MessageSquare, iconName: 'MessageSquare', color: '#6366f1' },
+    ],
+  },
+  {
     key: 'mensagens',
     label: 'Mensagens',
     icon: MessageCircle,

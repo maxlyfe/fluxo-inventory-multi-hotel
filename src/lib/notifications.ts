@@ -18,6 +18,7 @@ const EVENT_ROUTE_MAP: Record<string, string> = {
   BUDGET_CANCELLED:         '/authorizations',
   EXP_CONTRACT_ENDING_SOON: '/personnel-department',
   EXP_CONTRACT_ENDS_TODAY:  '/personnel-department',
+  NEW_INTERNAL_MESSAGE:     '/chat',
 };
 
 /**
@@ -45,6 +46,16 @@ interface Notification {
     } | null;
     hotels?: { name?: string } | null;
     sectors?: { name?: string } | null;
+}
+
+// Import lazy para evitar dependência circular (workHours importa notifications)
+let _isUserInWorkHours: ((userId: string) => Promise<boolean>) | null = null;
+async function checkWorkHours(userId: string): Promise<boolean> {
+  if (!_isUserInWorkHours) {
+    const mod = await import('./workHours');
+    _isUserInWorkHours = mod.isUserInWorkHours;
+  }
+  return _isUserInWorkHours(userId);
 }
 
 // =====================================================
@@ -175,6 +186,16 @@ export const createNotification = async (params: CreateNotificationParams | stri
 
     if (sendPush && newNotification) {
       try {
+        // Checar filtro de horário de trabalho do destinatário
+        const inWorkHours = await checkWorkHours(userId);
+        if (!inWorkHours) {
+          await supabase
+            .from('notifications')
+            .update({ push_deferred: true })
+            .eq('id', newNotification.id);
+          return newNotification;
+        }
+
         // Garantir que o título do push seja o mesmo da notificação
         const pushTitle = title || (notificationType?.description ? `Nova ${notificationType.description}` : "Nova Notificação");
         

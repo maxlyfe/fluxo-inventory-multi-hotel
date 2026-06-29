@@ -8,8 +8,9 @@ import {
   User, Mail, Camera, Save, Loader2, AlertCircle, CheckCircle,
   Hash, Building2, Briefcase, Calendar, Clock, LogOut,
   ShieldCheck, ArrowRight, Trash2, Info, RefreshCw,
-  Lock, Eye, EyeOff
+  Lock, Eye, EyeOff, Bell, BellOff
 } from 'lucide-react';
+import { getTodayShift } from '../lib/workHours';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -58,14 +59,30 @@ export default function Profile() {
   const [savingPassword, setSavingPassword]   = useState(false);
   const [showPassword, setShowPassword]       = useState(false);
 
+  // Preferência: notificações apenas no horário de trabalho
+  const [notifyWorkHoursOnly, setNotifyWorkHoursOnly] = useState(false);
+  const [savingNotifyPref, setSavingNotifyPref]       = useState(false);
+  const [todayShift, setTodayShift]                   = useState<{ shift_start: string; shift_end: string } | null>(null);
+
   useEffect(() => {
     if (user) {
       setFullName(user.full_name || '');
       setCpf(user.cpf || '');
       setPhotoUrl(user.photo_url || '');
       checkEmployeeLink();
+      loadNotifyPref();
     }
   }, [user]);
+
+  async function loadNotifyPref() {
+    if (!user?.id) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('notify_work_hours_only')
+      .eq('id', user.id)
+      .single();
+    if (data) setNotifyWorkHoursOnly(data.notify_work_hours_only ?? false);
+  }
 
   async function checkEmployeeLink() {
     if (!user?.id) return;
@@ -76,6 +93,7 @@ export default function Profile() {
         setEmployee(byId as EmployeeLink);
         setMatchEmployee(null);
         if (!cpf && byId.cpf) setCpf(byId.cpf);
+        getTodayShift(byId.id).then(setTodayShift);
         return;
       }
       setEmployee(null);
@@ -191,6 +209,23 @@ export default function Profile() {
       setSavingPassword(false);
     }
   };
+
+  async function handleToggleNotifyPref(value: boolean) {
+    if (!user?.id) return;
+    setSavingNotifyPref(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ notify_work_hours_only: value })
+        .eq('id', user.id);
+      if (error) throw error;
+      setNotifyWorkHoursOnly(value);
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e.message || 'Erro ao salvar preferência.' });
+    } finally {
+      setSavingNotifyPref(false);
+    }
+  }
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -394,6 +429,64 @@ export default function Profile() {
               </button>
             </div>
           </form>
+
+          {/* ── Preferências de Notificação ───────────────────────────── */}
+          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Bell className="w-5 h-5 text-indigo-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Notificações</h3>
+                <p className="text-xs text-slate-400">Controle quando receber alertas push</p>
+              </div>
+            </div>
+
+            {employee ? (
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-slate-800 dark:text-white">
+                    Apenas no horário de trabalho
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Quando ativado, notificações push só chegam durante seu turno. Ao entrar no expediente, você recebe tudo de uma vez.
+                  </p>
+                  {notifyWorkHoursOnly && (
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20">
+                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                        {todayShift
+                          ? `Turno hoje: ${todayShift.shift_start.slice(0, 5)} – ${todayShift.shift_end.slice(0, 5)}`
+                          : 'Sem turno cadastrado hoje'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleToggleNotifyPref(!notifyWorkHoursOnly)}
+                  disabled={savingNotifyPref}
+                  className={`relative flex-shrink-0 w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                    notifyWorkHoursOnly ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-700'
+                  }`}
+                  role="switch"
+                  aria-checked={notifyWorkHoursOnly}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                      notifyWorkHoursOnly ? 'translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800">
+                <BellOff className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Vincule seu cadastro de colaborador para ativar o filtro de horário de trabalho.
+                </p>
+              </div>
+            )}
+          </div>
 
           {isCompatibilityMode && (
             <div className="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-3xl animate-fadeIn">

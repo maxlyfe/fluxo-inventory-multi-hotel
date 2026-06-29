@@ -9,6 +9,8 @@ import { Menu, Transition } from '@headlessui/react';
 import { supabase } from "../lib/supabase";
 import NotificationBell from "./NotificationBell";
 import SettingsModal from "./SettingsModal";
+import UnreadBadge from "./chat/UnreadBadge";
+import { useUnreadCount } from "../hooks/useChat";
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/usePermissions";
 import { NAV_GROUPS, CONTACT_ITEM_HREF } from "../lib/navigationConfig";
@@ -52,6 +54,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   const { selectedHotel, setSelectedHotel } = useHotel();
   const { currentGroup } = useGroup();
   const { theme, toggleTheme } = useTheme();
+  const chatUnreadCount = useUnreadCount();
   const navigate  = useNavigate();
   const location  = useLocation();
 
@@ -273,6 +276,9 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
                       <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
                         {activeSection.label}
                       </span>
+                      {activeSection.key === 'chat' && (
+                        <UnreadBadge count={chatUnreadCount} />
+                      )}
                     </>
                   ) : (
                     <>
@@ -334,6 +340,9 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
                               <span className="flex items-center gap-1.5">
                                 <section.icon className="h-3.5 w-3.5" />
                                 {section.label}
+                                {section.key === 'chat' && (
+                                  <UnreadBadge count={chatUnreadCount} />
+                                )}
                               </span>
                               <ChevronRight className={classNames(
                                 'h-3 w-3 transition-transform duration-200',

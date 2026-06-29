@@ -134,6 +134,7 @@ import BreakfastSettings  from './pages/breakfast/BreakfastSettings';
 import WhatsAppInbox         from './pages/messages/WhatsAppInbox';
 import WhatsAppBroadcast     from './pages/messages/WhatsAppBroadcast';
 import WhatsAppAutoResponses from './pages/messages/WhatsAppAutoResponses';
+import ChatPage              from './pages/chat/ChatPage';
 
 // ── Components ────────────────────────────────────────────────────────────────
 import PrivateRoute from './components/PrivateRoute';
@@ -158,6 +159,7 @@ import { usePermissions } from './hooks/usePermissions';
 
 // ── Push notifications ────────────────────────────────────────────────────────
 import { usePushNotifications } from './hooks/usePushNotifications';
+import { useWorkHoursNotifications } from './hooks/useWorkHoursNotifications';
 
 // NOTA: verificações diárias (aniversário/contrato) migradas para o CRON do
 // Supabase (Edge Function daily-notifications). Ver supabase/functions/.
@@ -277,6 +279,8 @@ function OAuthCallbackHandler() {
 // ---------------------------------------------------------------------------
 function PushNotificationSetup() {
   const { user } = useAuth();
+
+  useWorkHoursNotifications();
 
   usePushNotifications({
     userId: user?.id,
@@ -643,6 +647,18 @@ function App() {
                     <Route path="/reports" element={
                       <PrivateRoute module="reports">
                         <ReportsPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Chat Interno ─────────────────────────────────── */}
+                    <Route path="/chat" element={
+                      <PrivateRoute module="internal_messages">
+                        <ChatPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/chat/:conversationId" element={
+                      <PrivateRoute module="internal_messages">
+                        <ChatPage />
                       </PrivateRoute>
                     } />
 
