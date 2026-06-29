@@ -72,7 +72,7 @@ export async function getGroupUsers(): Promise<ChatProfile[]> {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, email, full_name, photo_url')
+    .select('id, full_name, photo_url')
     .eq('group_id', myProfile.group_id)
     .neq('id', me.user.id)
     .order('full_name', { ascending: true, nullsFirst: false });
@@ -81,7 +81,17 @@ export async function getGroupUsers(): Promise<ChatProfile[]> {
     console.error('[chat] getGroupUsers:', error);
     return [];
   }
-  return (data || []) as ChatProfile[];
+
+  // Busca emails via RPC para usar como fallback no nome de exibição
+  const { data: rpcUsers } = await supabase.rpc('get_all_users_with_profile');
+  const emailMap = new Map<string, string>((rpcUsers || []).map((u: any) => [u.id, u.email]));
+
+  return (data || []).map((p: any) => ({
+    id: p.id,
+    full_name: p.full_name || null,
+    photo_url: p.photo_url || null,
+    email: emailMap.get(p.id),
+  }));
 }
 
 // ─── Conversas ───────────────────────────────────────────────────────────────
