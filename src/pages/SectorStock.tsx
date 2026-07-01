@@ -198,6 +198,7 @@ const SectorStock = () => {
   const [transferDestHotel, setTransferDestHotel]   = useState<string>('');
   const [allHotels, setAllHotels]                   = useState<{ id: string; name: string }[]>([]);
   const [destHotelSectors, setDestHotelSectors]     = useState<any[]>([]);
+  const [transferSearchTerm, setTransferSearchTerm] = useState('');
   // --- FIM NOVO ---
 
   const [isBalancing, setIsBalancing] = useState(false);
@@ -826,6 +827,7 @@ const SectorStock = () => {
     setTransferMode('local');
     setTransferDestHotel('');
     setDestHotelSectors([]);
+    setTransferSearchTerm('');
     setShowTransferModal(true);
   };
 
@@ -1505,8 +1507,29 @@ const SectorStock = () => {
               <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 mt-3">
                 Quantidades a transferir <span className="normal-case font-normal">(deixe em branco para não transferir)</span>
               </p>
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={transferSearchTerm}
+                  onChange={e => setTransferSearchTerm(e.target.value)}
+                  placeholder="Buscar produto..."
+                  className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+                />
+                {transferSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setTransferSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
               <div className="space-y-2">
-                {transferItems.map(item => {
+                {transferItems
+                  .filter(item => item.productName.toLowerCase().includes(transferSearchTerm.toLowerCase()))
+                  .map(item => {
                   const qty = parseFloat(item.transferQty.replace(',', '.'));
                   const isOver = !isNaN(qty) && qty > item.availableQty;
                   const hasValue = !isNaN(qty) && qty > 0;
@@ -1547,6 +1570,10 @@ const SectorStock = () => {
                     </div>
                   );
                 })}
+                {transferItems.length > 0 &&
+                  transferItems.filter(item => item.productName.toLowerCase().includes(transferSearchTerm.toLowerCase())).length === 0 && (
+                    <p className="text-center text-sm text-gray-400 py-6">Nenhum produto encontrado para "{transferSearchTerm}".</p>
+                  )}
               </div>
 
               {/* Resumo */}
