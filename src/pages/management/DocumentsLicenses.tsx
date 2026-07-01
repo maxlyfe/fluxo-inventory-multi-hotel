@@ -9,7 +9,7 @@ import { format, parseISO, differenceInDays } from 'date-fns';
 import {
   FileText, Shield, Search, Loader2, Plus, Edit2, Trash2, Save, X,
   AlertTriangle, CheckCircle, Clock, Filter, RefreshCw, Settings,
-  FileWarning, ChevronDown, ChevronUp,
+  FileWarning, ChevronDown, ChevronUp, Paperclip, Upload, File as FileIcon,
 } from 'lucide-react';
 
 interface DocumentType {
@@ -45,6 +45,23 @@ interface Renewal {
   created_at: string;
 }
 
+interface DocumentFile {
+  id: string;
+  document_id: string;
+  file_name: string;
+  file_url: string;
+  file_size: number | null;
+  content_type: string | null;
+  created_at: string;
+}
+
+function formatFileSize(bytes: number | null | undefined) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 const CATEGORIES: Record<string, { label: string; color: string }> = {
   legal:     { label: 'Legal',      color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
   sanitario: { label: 'Sanitário',  color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
@@ -75,6 +92,8 @@ export default function DocumentsLicenses() {
   const [saving, setSaving] = useState(false);
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [renewals, setRenewals] = useState<Record<string, Renewal[]>>({});
+  const [docFiles, setDocFiles] = useState<Record<string, DocumentFile[]>>({});
+  const [fileCounts, setFileCounts] = useState<Record<string, number>>({});
 
   // Form
   const [formTypeId, setFormTypeId] = useState('');
@@ -85,6 +104,9 @@ export default function DocumentsLicenses() {
   const [formAlertDays, setFormAlertDays] = useState('30');
   const [formResponsible, setFormResponsible] = useState('');
   const [formNotes, setFormNotes] = useState('');
+  const [formFiles, setFormFiles] = useState<DocumentFile[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   useEffect(() => {
     if (selectedHotel?.id) loadData();
@@ -92,7 +114,7 @@ export default function DocumentsLicenses() {
 
   async function loadData() {
     setLoading(true);
-    const [docsRes, typesRes] = await Promise.all([
+    const [docsRes, typesRes, filesRes] = await Promise.all([
       supabase
         .from('hotel_documents')
         .select('*, document_types(name, category)')
@@ -103,10 +125,100 @@ export default function DocumentsLicenses() {
         .select('*')
         .or(`hotel_id.eq.${selectedHotel!.id},hotel_id.is.null`)
         .order('name'),
+      supabase
+        .from('hotel_document_files')
+        .select('document_id')
+        .eq('hotel_id', selectedHotel!.id),
     ]);
     setDocuments(docsRes.data || []);
     setDocTypes(typesRes.data || []);
+    const counts: Record<string, number> = {};
+    (filesRes.data || []).forEach((f: any) => { counts[f.document_id] = (counts[f.document_id] || 0) + 1; });
+    setFileCounts(counts);
     setLoading(false);
+  }
+
+  async function fetchDocumentFiles(documentId: string): Promise<DocumentFile[]> {
+    const { data } = await supabase
+      .from('hotel_document_files')
+      .select('*')
+      .eq('document_id', documentId)
+      .order('created_at', { ascending: false });
+    return data || [];
+  }
+
+  async function uploadDocumentFile(file: File, documentId: string): Promise<DocumentFile | null> {
+    if (!selectedHotel) return null;
+    const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+    const path = `${selectedHotel.id}/${documentId}/${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from('hotel-documents').upload(path, file);
+    if (uploadError) {
+      alert('Erro ao enviar arquivo: ' + uploadError.message);
+      return null;
+    }
+    const { data: urlData } = supabase.storage.from('hotel-documents').getPublicUrl(path);
+    const { data, error } = await supabase
+      .from('hotel_document_files')
+      .insert({
+        document_id: documentId,
+        hotel_id: selectedHotel.id,
+        file_name: file.name,
+        file_url: urlData.publicUrl,
+        file_size: file.size,
+        content_type: file.type || null,
+        uploaded_by: user?.id || null,
+      })
+      .select()
+      .single();
+    if (error) {
+      alert('Erro ao registrar arquivo: ' + error.message);
+      return null;
+    }
+    return data as DocumentFile;
+  }
+
+  async function handleFormFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (selected.length === 0) return;
+
+    if (editingId) {
+      setUploadingFile(true);
+      for (const file of selected) {
+        const uploaded = await uploadDocumentFile(file, editingId);
+        if (uploaded) {
+          setFormFiles(prev => [uploaded, ...prev]);
+          setFileCounts(prev => ({ ...prev, [editingId]: (prev[editingId] || 0) + 1 }));
+        }
+      }
+      setUploadingFile(false);
+    } else {
+      setPendingFiles(prev => [...prev, ...selected]);
+    }
+  }
+
+  function removePendingFile(index: number) {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  }
+
+  async function deleteDocumentFile(file: DocumentFile, scope: 'form' | 'expanded') {
+    if (!confirm(`Remover o arquivo "${file.file_name}"?`)) return;
+    await supabase.from('hotel_document_files').delete().eq('id', file.id);
+    try {
+      const marker = '/hotel-documents/';
+      const idx = file.file_url.indexOf(marker);
+      if (idx !== -1) {
+        const path = decodeURIComponent(file.file_url.slice(idx + marker.length));
+        await supabase.storage.from('hotel-documents').remove([path]);
+      }
+    } catch { /* best-effort */ }
+
+    if (scope === 'form') {
+      setFormFiles(prev => prev.filter(f => f.id !== file.id));
+    } else {
+      setDocFiles(prev => ({ ...prev, [file.document_id]: (prev[file.document_id] || []).filter(f => f.id !== file.id) }));
+    }
+    setFileCounts(prev => ({ ...prev, [file.document_id]: Math.max(0, (prev[file.document_id] || 1) - 1) }));
   }
 
   function resetForm() {
@@ -119,6 +231,8 @@ export default function DocumentsLicenses() {
     setFormResponsible('');
     setFormNotes('');
     setEditingId(null);
+    setFormFiles([]);
+    setPendingFiles([]);
     setShowForm(false);
   }
 
@@ -132,7 +246,10 @@ export default function DocumentsLicenses() {
     setFormResponsible(d.responsible || '');
     setFormNotes(d.notes || '');
     setEditingId(d.id);
+    setFormFiles([]);
+    setPendingFiles([]);
     setShowForm(true);
+    fetchDocumentFiles(d.id).then(setFormFiles);
   }
 
   async function saveDocument() {
@@ -161,10 +278,22 @@ export default function DocumentsLicenses() {
       notes: formNotes.trim() || null,
     };
 
+    let docId: string | null = editingId;
     if (editingId) {
       await supabase.from('hotel_documents').update(payload).eq('id', editingId);
     } else {
-      await supabase.from('hotel_documents').insert({ ...payload, created_by: user?.id });
+      const { data, error } = await supabase
+        .from('hotel_documents')
+        .insert({ ...payload, created_by: user?.id })
+        .select()
+        .single();
+      if (!error) docId = data.id;
+    }
+
+    if (docId && pendingFiles.length > 0) {
+      for (const file of pendingFiles) {
+        await uploadDocumentFile(file, docId);
+      }
     }
 
     setSaving(false);
@@ -191,6 +320,10 @@ export default function DocumentsLicenses() {
         .eq('document_id', docId)
         .order('created_at', { ascending: false });
       setRenewals(prev => ({ ...prev, [docId]: data || [] }));
+    }
+    if (!docFiles[docId]) {
+      const files = await fetchDocumentFiles(docId);
+      setDocFiles(prev => ({ ...prev, [docId]: files }));
     }
   }
 
@@ -335,6 +468,11 @@ export default function DocumentsLicenses() {
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-gray-800 dark:text-white truncate">{d.title}</h3>
                     {cat && <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${cat.color}`}>{cat.label}</span>}
+                    {fileCounts[d.id] > 0 && (
+                      <span className="flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0">
+                        <Paperclip className="w-3 h-3" /> {fileCounts[d.id]}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {d.expiry_date && (
@@ -363,6 +501,29 @@ export default function DocumentsLicenses() {
                 <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-700 pt-3">
                   {d.description && <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">{d.description}</p>}
                   {d.notes && <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Obs: {d.notes}</p>}
+
+                  {/* Arquivos Anexados */}
+                  <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1">
+                    <Paperclip className="w-3.5 h-3.5" /> Arquivos Anexados
+                  </h4>
+                  {(docFiles[d.id] || []).length === 0 && (
+                    <p className="text-xs text-gray-400 mb-3">Nenhum arquivo anexado</p>
+                  )}
+                  <div className="space-y-1.5 mb-3">
+                    {(docFiles[d.id] || []).map(f => (
+                      <div key={f.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/30">
+                        <a href={f.file_url} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-2 min-w-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                          <FileIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">{f.file_name}</span>
+                          {f.file_size && <span className="text-gray-400 flex-shrink-0">({formatFileSize(f.file_size)})</span>}
+                        </a>
+                        <button onClick={() => deleteDocumentFile(f, 'expanded')} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex-shrink-0">
+                          <Trash2 className="w-3 h-3 text-gray-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
 
                   <div className="flex gap-2 mb-3">
                     <button onClick={() => addRenewalAction(d.id, 'renewal_started')}
@@ -459,6 +620,50 @@ export default function DocumentsLicenses() {
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Observações</label>
                 <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} rows={2}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Arquivos</label>
+                <label className="flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 text-sm cursor-pointer hover:border-indigo-400 hover:text-indigo-500 transition-colors">
+                  {uploadingFile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {uploadingFile ? 'Enviando...' : 'Clique para enviar arquivos'}
+                  <input type="file" multiple className="hidden" onChange={handleFormFileSelect} disabled={uploadingFile} />
+                </label>
+
+                {formFiles.length > 0 && (
+                  <div className="space-y-1.5 mt-2">
+                    {formFiles.map(f => (
+                      <div key={f.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/30">
+                        <a href={f.file_url} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-2 min-w-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                          <FileIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">{f.file_name}</span>
+                          {f.file_size && <span className="text-gray-400 flex-shrink-0">({formatFileSize(f.file_size)})</span>}
+                        </a>
+                        <button type="button" onClick={() => deleteDocumentFile(f, 'form')} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex-shrink-0">
+                          <Trash2 className="w-3 h-3 text-gray-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {pendingFiles.length > 0 && (
+                  <div className="space-y-1.5 mt-2">
+                    {pendingFiles.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20">
+                        <span className="flex items-center gap-2 min-w-0 text-xs text-gray-700 dark:text-gray-200">
+                          <FileIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">{f.name}</span>
+                          <span className="text-gray-400 flex-shrink-0">({formatFileSize(f.size)})</span>
+                        </span>
+                        <button type="button" onClick={() => removePendingFile(i)} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex-shrink-0">
+                          <X className="w-3 h-3 text-gray-400" />
+                        </button>
+                      </div>
+                    ))}
+                    <p className="text-[11px] text-gray-400">Serão enviados ao salvar o documento.</p>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
