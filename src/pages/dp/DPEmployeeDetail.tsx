@@ -272,7 +272,7 @@ export default function DPEmployeeDetail() {
         supabase.from('uniform_deliveries').select('*').eq('employee_id', id).order('delivery_date', { ascending: false }),
         supabase.from('employee_dismissals').select('*').eq('employee_id', id).order('dismissal_date', { ascending: false }),
       ]);
-      if (empRes.data) {
+      if (empRes.data && (empRes.data as Employee).status !== 'deleted') {
         setEmployee(empRes.data as Employee);
         // Se tem user_id vinculado, busca os dados do perfil
         if (empRes.data.user_id) {

@@ -10,7 +10,7 @@ import {
   Users, Plus, Search, X, Loader2, AlertTriangle, ChevronDown,
   Building2, Phone, Calendar, Briefcase, UserCheck, UserX,
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
-  ArrowRightLeft, FileText, Check,
+  ArrowRightLeft, FileText, Check, Trash2,
 } from 'lucide-react';
 import EmployeesReportModal from '../../components/EmployeesReportModal';
 import { format, differenceInDays, isAfter } from 'date-fns';
@@ -282,6 +282,11 @@ export default function DPEmployees() {
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferError,  setTransferError]  = useState('');
 
+  // Exclusão (soft-delete) — oculta o cadastro de todo o sistema sem apagá-lo
+  const [deleteEmp,   setDeleteEmp]   = useState<Employee | null>(null);
+  const [deleting,    setDeleting]    = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   // ---------------------------------------------------------------------------
   // Fetch
   // ---------------------------------------------------------------------------
@@ -292,6 +297,7 @@ export default function DPEmployees() {
       let q = supabase
         .from('employees')
         .select('*, hotels:hotel_id(name)')
+        .neq('status', 'deleted')
         .order('name');
 
       const hotelFilter = canChangeHotel ? filterHotel : defaultHotelId;
@@ -408,6 +414,22 @@ export default function DPEmployees() {
       setTransferError(err.message || 'Erro ao transferir colaborador.');
     } finally {
       setTransferSaving(false);
+    }
+  };
+
+  const handleSoftDelete = async () => {
+    if (!deleteEmp) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const { error } = await supabase.from('employees').update({ status: 'deleted' }).eq('id', deleteEmp.id);
+      if (error) throw error;
+      setDeleteEmp(null);
+      await fetchEmployees();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Erro ao excluir colaborador.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1555,6 +1577,13 @@ export default function DPEmployees() {
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-xl transition-colors">
                     <ArrowRightLeft className="h-3.5 w-3.5" />Transferir
                   </button>
+                  {emp.status === 'inactive' && (
+                    <button onClick={() => { setDeleteError(''); setDeleteEmp(emp); }}
+                      title="Excluir cadastro"
+                      className="flex items-center justify-center px-2.5 py-2 text-xs font-semibold text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1619,6 +1648,49 @@ export default function DPEmployees() {
                 className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
                 {transferSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
                 {transferSaving ? 'Transferindo...' : 'Confirmar transferência'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de Exclusão (soft-delete) ─────────────────────────── */}
+      {deleteEmp && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 dark:text-white">Excluir Cadastro</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{deleteEmp.name}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Este cadastro deixará de aparecer em qualquer lista, relatório ou tela do sistema.
+              </p>
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/40 text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <p>
+                  <strong>Os dados não são apagados do banco de dados.</strong> A única forma de recuperar este
+                  cadastro é acessando o sistema diretamente e alterando o status manualmente.
+                </p>
+              </div>
+              {deleteError && <p className="text-sm text-red-600 dark:text-red-400 font-medium">{deleteError}</p>}
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              <button onClick={() => setDeleteEmp(null)} disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
+                Cancelar
+              </button>
+              <button onClick={handleSoftDelete} disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {deleting ? 'Excluindo...' : 'Confirmar exclusão'}
               </button>
             </div>
           </div>
