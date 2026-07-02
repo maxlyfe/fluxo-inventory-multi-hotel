@@ -752,7 +752,7 @@ const ErbonIntegration: React.FC = () => {
                       return (
                         <div
                           key={erbonProd.id}
-                          className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -762,16 +762,18 @@ const ErbonIntegration: React.FC = () => {
                               {erbonProd.stocksGroupDescription} · {erbonProd.mensureUnite} · R${erbonProd.priceSale?.toFixed(2)}
                             </p>
                           </div>
-                          <SearchableSelect
-                            placeholder="Vincular a..."
-                            onSelect={value => handleMapProduct(value, erbonProd)}
-                            options={[
-                              ...(suggested ? [{ value: suggested.id, label: `${suggested.name} (${suggested.category || 'Sem cat.'})`, starred: true }] : []),
-                              ...unmappedFluxoProducts
-                                .filter(p => p.id !== suggested?.id)
-                                .map(p => ({ value: p.id, label: `${p.name} (${p.category || 'Sem cat.'})` })),
-                            ]}
-                          />
+                          <div className="w-full sm:w-64 shrink-0">
+                            <SearchableSelect
+                              placeholder="Vincular a..."
+                              onSelect={value => handleMapProduct(value, erbonProd)}
+                              options={[
+                                ...(suggested ? [{ value: suggested.id, label: `${suggested.name} (${suggested.category || 'Sem cat.'})`, starred: true }] : []),
+                                ...unmappedFluxoProducts
+                                  .filter(p => p.id !== suggested?.id)
+                                  .map(p => ({ value: p.id, label: `${p.name} (${p.category || 'Sem cat.'})` })),
+                              ]}
+                            />
+                          </div>
                         </div>
                       );
                     })}
@@ -1042,7 +1044,7 @@ const ErbonIntegration: React.FC = () => {
                       return (
                         <div
                           key={dept.name}
-                          className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
@@ -1062,13 +1064,15 @@ const ErbonIntegration: React.FC = () => {
                               </p>
                             )}
                           </div>
-                          <SearchableSelect
-                            placeholder="Vincular a setor..."
-                            onSelect={value => handleMapSector(value, dept.name, dept.id)}
-                            options={fluxoSectors
-                              .filter(s => !mappedSectorDepts.has(`${s.id}::${dept.name}`))
-                              .map(s => ({ value: s.id, label: s.name }))}
-                          />
+                          <div className="w-full sm:w-64 shrink-0">
+                            <SearchableSelect
+                              placeholder="Vincular a setor..."
+                              onSelect={value => handleMapSector(value, dept.name, dept.id)}
+                              options={fluxoSectors
+                                .filter(s => !mappedSectorDepts.has(`${s.id}::${dept.name}`))
+                                .map(s => ({ value: s.id, label: s.name }))}
+                            />
+                          </div>
                         </div>
                       );
                     })}
