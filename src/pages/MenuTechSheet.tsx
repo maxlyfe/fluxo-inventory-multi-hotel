@@ -904,7 +904,7 @@ function SidesTab({ hotelId }: { hotelId: string }) {
         .map((i) => ({
           side_id: editingId,
           ingredient_id: i.ingredient_id,
-          quantity: parseFloat(i.quantity),
+          quantity: parseFloat(i.quantity.replace(',', '.')),
           unit: i.unit
         }));
       if (items.length > 0) await supabase.from('side_ingredients').insert(items);
@@ -916,7 +916,7 @@ function SidesTab({ hotelId }: { hotelId: string }) {
           .map((i) => ({
             side_id: data.id,
             ingredient_id: i.ingredient_id,
-            quantity: parseFloat(i.quantity),
+            quantity: parseFloat(i.quantity.replace(',', '.')),
             unit: i.unit
           }));
         if (items.length > 0) await supabase.from('side_ingredients').insert(items);
@@ -1307,7 +1307,7 @@ function DishesTab({
           .map((i) => ({
             dish_id: editingId,
             ingredient_id: i.ingredient_id,
-            quantity: parseFloat(i.quantity),
+            quantity: parseFloat(i.quantity.replace(',', '.')),
             unit: i.unit
           }));
         const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
@@ -1330,7 +1330,7 @@ function DishesTab({
             .map((i) => ({
               dish_id: data.id,
               ingredient_id: i.ingredient_id,
-              quantity: parseFloat(i.quantity),
+              quantity: parseFloat(i.quantity.replace(',', '.')),
               unit: i.unit
             }));
           const sideItems = formData.sides.filter((s) => s.side_id && s.quantity)
