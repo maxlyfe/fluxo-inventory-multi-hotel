@@ -913,7 +913,7 @@ const AdminPanel = () => {
     <div className="container mx-auto p-4 md:p-6 bg-slate-50 dark:bg-slate-900 min-h-screen">
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-8 gap-4">
+      <div className="flex flex-wrap items-center justify-between mb-8 gap-y-3 gap-x-4">
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 px-3 py-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
@@ -922,19 +922,19 @@ const AdminPanel = () => {
           <span className="text-sm font-medium">Voltar</span>
         </button>
 
-        <div className="flex items-center gap-3 flex-1 justify-center">
+        <div className="flex items-center gap-3 flex-1 justify-center min-w-0">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
             <Package className="w-5 h-5 text-white" />
           </div>
-          <div className="text-center">
-            <h1 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight">
+          <div className="text-center min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight truncate">
               Painel Administrativo
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{selectedHotel.name}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{selectedHotel.name}</p>
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={async () => {
               if (!selectedHotel?.id) return;
