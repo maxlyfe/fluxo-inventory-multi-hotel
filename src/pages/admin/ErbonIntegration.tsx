@@ -752,17 +752,17 @@ const ErbonIntegration: React.FC = () => {
                       return (
                         <div
                           key={erbonProd.id}
-                          className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                          className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
                         >
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
                               {erbonProd.description}
                             </p>
                             <p className="text-xs text-gray-400">
                               {erbonProd.stocksGroupDescription} · {erbonProd.mensureUnite} · R${erbonProd.priceSale?.toFixed(2)}
                             </p>
                           </div>
-                          <div className="w-full sm:w-64 shrink-0">
+                          <div className="w-full lg:w-72 shrink-0">
                             <SearchableSelect
                               placeholder="Vincular a..."
                               onSelect={value => handleMapProduct(value, erbonProd)}
@@ -1044,7 +1044,7 @@ const ErbonIntegration: React.FC = () => {
                       return (
                         <div
                           key={dept.name}
-                          className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                          className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
@@ -1064,7 +1064,7 @@ const ErbonIntegration: React.FC = () => {
                               </p>
                             )}
                           </div>
-                          <div className="w-full sm:w-64 shrink-0">
+                          <div className="w-full lg:w-72 shrink-0">
                             <SearchableSelect
                               placeholder="Vincular a setor..."
                               onSelect={value => handleMapSector(value, dept.name, dept.id)}
