@@ -18,6 +18,7 @@ import SyncProductsModal from '../components/SyncProductsModal';
 import ProductLinkModal from '../components/ProductLinkModal';
 import NewHotelTransferModal from '../components/NewHotelTransferModal';
 import { searchMatch } from '../utils/search';
+import { findProductIdByBarcode } from '../lib/barcodeLookup';
 import { useNotification } from '../context/NotificationContext';
 import NewProductModal from '../components/NewProductModal';
 import { useAuth } from '../context/AuthContext';
@@ -189,14 +190,9 @@ const Inventory = () => {
   // ─ Barcode ─────────────────────────────────────────────────────────────────
   const searchByBarcode = useCallback(async (barcode: string) => {
     if (!selectedHotel?.id) return;
-    const { data } = await supabase
-      .from('product_barcodes')
-      .select('product_id, products!inner(hotel_id)')
-      .eq('barcode', barcode.trim())
-      .eq('products.hotel_id', selectedHotel.id)
-      .maybeSingle();
-    if (data) {
-      setBarcodeFilterProductId(data.product_id);
+    const productId = await findProductIdByBarcode(selectedHotel.id, barcode);
+    if (productId) {
+      setBarcodeFilterProductId(productId);
       setBarcodeFilterCode(barcode.trim());
       setSearchTerm('');
       addNotification('success', `Produto encontrado para código ${barcode}`);

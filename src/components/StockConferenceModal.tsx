@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 import { useNotification } from '../context/NotificationContext';
 import BarcodeScanner from './BarcodeScanner';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { findProductIdByBarcode } from '../lib/barcodeLookup';
 import {
   useOfflineStockDraft, buildDraftKey, readLocalDraft, clearLocalDraft,
   type DraftSaveStatus,
@@ -218,15 +219,14 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
     );
     if (nameMatches) return;
     const timer = setTimeout(async () => {
-      const { data } = await supabase
-        .from('product_barcodes').select('product_id').eq('barcode', searchTerm.trim()).maybeSingle();
-      if (data) {
-        const found = products.find(p => p.id === data.product_id);
+      const productId = await findProductIdByBarcode(hotelId, searchTerm);
+      if (productId) {
+        const found = products.find(p => p.id === productId);
         if (found) { setSearchTerm(''); setScanProduct(found); setScanQty('1'); }
       }
     }, 600);
     return () => clearTimeout(timer);
-  }, [searchTerm, products]);
+  }, [searchTerm, products, hotelId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -385,12 +385,12 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
 
   const handleBarcodeScan = useCallback(async (barcode: string) => {
     setScanNotFound(null);
-    const { data, error } = await supabase.from('product_barcodes').select('product_id').eq('barcode', barcode).maybeSingle();
-    if (error || !data) { setScanNotFound(barcode); setShowScanner(false); return; }
-    const found = products.find(p => p.id === data.product_id);
+    const productId = await findProductIdByBarcode(hotelId, barcode);
+    if (!productId) { setScanNotFound(barcode); setShowScanner(false); return; }
+    const found = products.find(p => p.id === productId);
     if (!found) { setScanNotFound(barcode); setShowScanner(false); return; }
     setShowScanner(false); setScanProduct(found); setScanQty('1');
-  }, [products]);
+  }, [products, hotelId]);
 
   const handleConfirmScanQty = () => {
     if (!scanProduct) return;

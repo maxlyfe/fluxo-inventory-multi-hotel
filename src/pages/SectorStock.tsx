@@ -26,6 +26,7 @@ import { useRealtimeSubscription } from '../hooks/useRealtime';
 import { LiveFlash } from '../components/ui/LiveFlash';
 import { processErbonSalesDeductions, type DeductionResult } from '../lib/erbonStockDeductionService';
 import { detectSeason, getApplicableMinMax, type Season, type SeasonInfo } from '../lib/seasonHelper';
+import { findProductIdByBarcode } from '../lib/barcodeLookup';
 
 // Interfaces permanecem as mesmas
 interface Product {
@@ -166,20 +167,17 @@ const SectorStock = () => {
 
   // Busca produto por código de barras
   const searchByBarcode = useCallback(async (barcode: string) => {
-    const { data } = await supabase
-      .from('product_barcodes')
-      .select('product_id')
-      .eq('barcode', barcode.trim())
-      .maybeSingle();
-    if (data) {
-      setBarcodeFilterProductId(data.product_id);
+    if (!selectedHotel?.id) return;
+    const productId = await findProductIdByBarcode(selectedHotel.id, barcode);
+    if (productId) {
+      setBarcodeFilterProductId(productId);
       setBarcodeFilterCode(barcode.trim());
       setSearchTerm('');
       addNotification(`Produto encontrado para código ${barcode}`, 'success');
     } else {
       addNotification(`Nenhum produto encontrado para código ${barcode}`, 'error');
     }
-  }, [addNotification]);
+  }, [addNotification, selectedHotel?.id]);
 
   // Leitor USB de código de barras (detecta input rápido do leitor laser)
   useBarcodeScanner({
