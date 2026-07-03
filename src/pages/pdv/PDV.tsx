@@ -16,8 +16,9 @@ import {
 import {
   getProductsForSector, getSectorDetails, getSectorsForPDV,
   getSectorTables, createSectorTable, deleteSectorTable, updateTablePosition, updateSectorTable,
-  createSale, retryErbonPosting,
+  createSale, createErbonSale, retryErbonPosting,
   saveOpenTab, getOpenTabsForSector, deleteOpenTab,
+  getErbonProductsForPDV, syncErbonProducts, getErbonSyncStatus,
   PDVProduct, PDVSectorDetails, PdvTable, CartItem,
   SelectedBooking, SaleResult, OpenTab,
 } from '../../lib/pdvService';
@@ -151,6 +152,10 @@ const PDV: React.FC = () => {
   const [currentTabId, setCurrentTabId] = useState<string | null>(null);
   const [savingTab, setSavingTab] = useState(false);
 
+  // ── Busca de produtos + sync Erbon ────────────────────────────────────
+  const [productSearch, setProductSearch] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
   const searchRef = useRef<HTMLDivElement>(null);
 
   // ── Derived ───────────────────────────────────────────────────────────
@@ -184,14 +189,24 @@ const PDV: React.FC = () => {
   }, [products]);
 
   const filteredProducts = useMemo(() => {
-    if (selectedCategory === 'Todos') return products;
-    return products.filter(p => p.category === selectedCategory);
-  }, [products, selectedCategory]);
+    let filtered = products;
+    if (selectedCategory !== 'Todos') {
+      filtered = filtered.filter(p => p.category === selectedCategory);
+    }
+    if (productSearch.trim()) {
+      const q = productSearch.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      filtered = filtered.filter(p =>
+        p.product_name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(q)
+      );
+    }
+    return filtered;
+  }, [products, selectedCategory, productSearch]);
 
   const cartTotal = useMemo(() => cart.reduce((s, i) => s + i.unit_price * i.quantity, 0), [cart]);
   const cartCount  = cart.reduce((s, i) => s + i.quantity, 0);
   const cartHasUnmappedItems = cart.some(i => i.erbon_service_id === null);
   const currentSector = sectors.find(s => s.sector_id === selectedSectorId) ?? null;
+  const isErbonMode = sectorDetails?.erbon_department != null;
 
   // ── Effects ───────────────────────────────────────────────────────────
 
@@ -233,16 +248,31 @@ const PDV: React.FC = () => {
     }
   }, [selectedSectorId, selectedHotel]);
 
-  // 4. Carregar produtos + detalhes do setor
+  // 4. Carregar detalhes do setor → depois produtos (Erbon cache ou local)
   useEffect(() => {
     if (!selectedHotel || !selectedSectorId) { setProducts([]); setSectorDetails(null); return; }
     setProductsLoading(true);
     setSelectedCategory('Todos');
-    Promise.all([
-      getProductsForSector(selectedHotel.id, selectedSectorId),
-      getSectorDetails(selectedHotel.id, selectedSectorId),
-    ])
-      .then(([prods, details]) => { setProducts(prods); setSectorDetails(details); })
+    setProductSearch('');
+
+    getSectorDetails(selectedHotel.id, selectedSectorId)
+      .then(async details => {
+        setSectorDetails(details);
+        if (details?.erbon_department) {
+          // Verificar se precisa sync automático
+          const syncStatus = await getErbonSyncStatus(selectedHotel.id);
+          if (syncStatus.isStale) {
+            try {
+              await syncErbonProducts(selectedHotel.id);
+            } catch {
+              // Se sync falhar, usar cache existente (pode estar vazio)
+            }
+          }
+          return getErbonProductsForPDV(selectedHotel.id);
+        }
+        return getProductsForSector(selectedHotel.id, selectedSectorId);
+      })
+      .then(prods => setProducts(prods || []))
       .catch(err => addNotification('error', `Erro ao carregar produtos: ${err.message}`))
       .finally(() => setProductsLoading(false));
   }, [selectedSectorId, selectedHotel]); // eslint-disable-line
@@ -295,7 +325,7 @@ const PDV: React.FC = () => {
     setCart(prev => {
       const existing = prev.find(i => i.product_id === product.product_id);
       if (existing) {
-        if (existing.quantity >= product.stock_quantity) return prev;
+        if (!isErbonMode && existing.quantity >= product.stock_quantity) return prev;
         return prev.map(i => i.product_id === product.product_id ? { ...i, quantity: i.quantity + 1 } : i);
       }
       return [...prev, {
@@ -310,7 +340,9 @@ const PDV: React.FC = () => {
 
   function updateCartQty(productId: string, qty: number) {
     if (qty <= 0) { removeFromCart(productId); return; }
-    setCart(prev => prev.map(i => i.product_id === productId ? { ...i, quantity: Math.min(qty, i.stock_quantity) } : i));
+    setCart(prev => prev.map(i => i.product_id === productId
+      ? { ...i, quantity: isErbonMode ? qty : Math.min(qty, i.stock_quantity) }
+      : i));
   }
 
   function updateCartPrice(productId: string, price: number) {
@@ -381,7 +413,7 @@ const PDV: React.FC = () => {
     if (!selectedBooking || !selectedSectorId || !sectorDetails) return;
     setSubmitting(true);
     try {
-      const result = await createSale({
+      const saleInput = {
         hotelId: selectedHotel!.id,
         sectorId: selectedSectorId,
         bookingInternalId: selectedBooking.bookingInternalId,
@@ -394,7 +426,8 @@ const PDV: React.FC = () => {
         erbonDepartmentLabel: sectorDetails.erbon_department,
         tableId: activeTableId !== '__direct__' ? activeTableId : null,
         tableLabel: activeTableLabel,
-      });
+      };
+      const result = await (isErbonMode ? createErbonSale(saleInput) : createSale(saleInput));
       setConfirmOpen(false);
       setReceiptSale(result);
       // Limpar mesa do tableCarts após fechar
@@ -660,7 +693,7 @@ const PDV: React.FC = () => {
                     <Minus className="w-3.5 h-3.5" />
                   </StepBtn>
                   <span className="text-sm font-bold text-white w-7 text-center tabular-nums">{item.quantity}</span>
-                  <StepBtn onClick={() => updateCartQty(item.product_id, item.quantity + 1)} disabled={item.quantity >= item.stock_quantity}>
+                  <StepBtn onClick={() => updateCartQty(item.product_id, item.quantity + 1)} disabled={!isErbonMode && item.quantity >= item.stock_quantity}>
                     <Plus className="w-3.5 h-3.5" />
                   </StepBtn>
                 </div>
@@ -1256,7 +1289,9 @@ const PDV: React.FC = () => {
             <Package className="w-8 h-8 text-slate-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Sem produtos em estoque</p>
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+              {isErbonMode ? 'Sem produtos no departamento' : 'Sem produtos em estoque'}
+            </p>
             <p className="text-xs text-slate-400 mt-1">Nenhum produto disponível neste setor/categoria</p>
           </div>
         </div>
@@ -1265,7 +1300,7 @@ const PDV: React.FC = () => {
           {filteredProducts.map(product => {
             const cartItem = cart.find(i => i.product_id === product.product_id);
             const inCart = cartItem?.quantity ?? 0;
-            const outOfStock = product.stock_quantity === 0;
+            const outOfStock = !isErbonMode && product.stock_quantity === 0;
             return (
               <div key={product.product_id}
                 className={`group flex flex-col rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden transition-all duration-200
@@ -1284,11 +1319,13 @@ const PDV: React.FC = () => {
                       <span className="text-[10px] font-black text-white">{inCart}</span>
                     </div>
                   )}
-                  {/* Stock pill — canto inferior esquerdo, sólido e compacto */}
-                  <div className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm ${stockPill(product.stock_quantity)}`}>
-                    {stockLabel(product.stock_quantity)}
-                  </div>
-                  {product.erbon_service_id === null && (
+                  {/* Stock pill — apenas no modo local (não Erbon) */}
+                  {!isErbonMode && (
+                    <div className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm ${stockPill(product.stock_quantity)}`}>
+                      {stockLabel(product.stock_quantity)}
+                    </div>
+                  )}
+                  {!isErbonMode && product.erbon_service_id === null && (
                     <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-amber-500/90 flex items-center justify-center"
                       title="Sem mapeamento PMS">
                       <AlertCircle className="w-3 h-3 text-white" />
@@ -1451,7 +1488,12 @@ const PDV: React.FC = () => {
               <ChevronDown className="w-3 h-3 rotate-90" />
               Setor
             </button>
-            <span className="text-sm font-bold text-slate-800 dark:text-white truncate">{currentSector?.sector_name ?? '—'}</span>
+            <span className="text-sm font-bold text-slate-800 dark:text-white truncate">
+              {currentSector?.sector_name ?? '—'}
+              {isErbonMode && sectorDetails?.erbon_department && (
+                <span className="text-[10px] font-semibold text-blue-500 ml-1.5">Erbon</span>
+              )}
+            </span>
             <div className="flex items-center gap-1.5 ml-auto shrink-0">
               {activeTableId !== '__direct__' && (
                 <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20">
@@ -1512,6 +1554,50 @@ const PDV: React.FC = () => {
                   })}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Search + Sync bar (Erbon mode) */}
+          {selectedSectorId && isErbonMode && (
+            <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-slate-100 dark:border-slate-800/60 bg-white dark:bg-slate-900 shrink-0">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={e => setProductSearch(e.target.value)}
+                  placeholder="Buscar produto..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm text-slate-800 dark:text-white placeholder:text-slate-400 border border-transparent focus:border-amber-400 focus:ring-1 focus:ring-amber-400/40 outline-none transition-all"
+                />
+                {productSearch && (
+                  <button onClick={() => setProductSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-300 dark:bg-slate-600 flex items-center justify-center hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors">
+                    <X className="w-3 h-3 text-white" />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={async () => {
+                  if (!selectedHotel || syncing) return;
+                  setSyncing(true);
+                  try {
+                    await syncErbonProducts(selectedHotel.id);
+                    const prods = await getErbonProductsForPDV(selectedHotel.id);
+                    setProducts(prods || []);
+                    addNotification('success', 'Produtos sincronizados!');
+                  } catch (err: any) {
+                    addNotification('error', `Erro na sincronização: ${err.message}`);
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 hover:text-amber-700 dark:hover:text-amber-400 border border-transparent hover:border-amber-300 dark:hover:border-amber-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                title="Sincronizar produtos da Erbon"
+              >
+                <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{syncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+              </button>
             </div>
           )}
 

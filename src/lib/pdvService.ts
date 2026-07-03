@@ -1173,3 +1173,302 @@ export async function deletePDVEmployee(id: string): Promise<void> {
   const { error } = await supabase.from('pdv_employees').delete().eq('id', id);
   if (error) throw error;
 }
+
+// ── PDV Erbon Mode — Produtos diretos da Erbon ─────────────────────────────
+
+const ERBON_STOCK_UNLIMITED = 999999;
+const SYNC_STALE_HOURS = 24;
+
+// ── Erbon Product Cache ────────────────────────────────────────────────────
+
+export interface ErbonCachedProduct {
+  id: string;
+  hotel_id: string;
+  erbon_service_id: number;
+  erbon_code: string | null;
+  description: string;
+  category: string | null;
+  family: string | null;
+  unit_measure: string | null;
+  sale_price: number;
+  image_url: string | null;
+  is_active: boolean;
+  last_synced_at: string;
+}
+
+export interface ErbonSyncStatus {
+  lastSync: string | null;
+  productCount: number;
+  status: 'idle' | 'syncing' | 'error';
+  error: string | null;
+  isStale: boolean;
+}
+
+/**
+ * Retorna o status da última sincronização de produtos Erbon.
+ */
+export async function getErbonSyncStatus(hotelId: string): Promise<ErbonSyncStatus> {
+  const { data } = await supabase
+    .from('erbon_sync_metadata')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .maybeSingle();
+
+  if (!data) {
+    return { lastSync: null, productCount: 0, status: 'idle', error: null, isStale: true };
+  }
+
+  const lastSync = data.last_product_sync ? new Date(data.last_product_sync) : null;
+  const isStale = !lastSync || (Date.now() - lastSync.getTime()) > SYNC_STALE_HOURS * 3600_000;
+
+  return {
+    lastSync: data.last_product_sync,
+    productCount: data.product_count ?? 0,
+    status: data.sync_status ?? 'idle',
+    error: data.sync_error ?? null,
+    isStale,
+  };
+}
+
+/**
+ * Sincroniza produtos da API Erbon para o cache local.
+ * Upsert por (hotel_id, erbon_service_id) — preserva image_url e is_active do usuário.
+ */
+export async function syncErbonProducts(hotelId: string): Promise<{ synced: number; created: number; updated: number }> {
+  // Marcar início
+  await supabase
+    .from('erbon_sync_metadata')
+    .upsert({
+      hotel_id: hotelId,
+      sync_status: 'syncing',
+      sync_error: null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'hotel_id' });
+
+  try {
+    const erbonProducts = await erbonService.fetchErbonProducts(hotelId);
+
+    // Buscar cache atual para preservar campos customizados
+    const { data: existing } = await supabase
+      .from('erbon_cached_products')
+      .select('erbon_service_id, image_url, is_active')
+      .eq('hotel_id', hotelId);
+
+    const existingMap = new Map<number, { image_url: string | null; is_active: boolean }>();
+    for (const e of existing || []) {
+      existingMap.set(e.erbon_service_id, { image_url: e.image_url, is_active: e.is_active });
+    }
+
+    let created = 0;
+    let updated = 0;
+
+    const rows = erbonProducts.map(p => {
+      const prev = existingMap.get(p.id);
+      if (prev) updated++; else created++;
+      return {
+        hotel_id: hotelId,
+        erbon_service_id: p.id,
+        erbon_code: p.code || null,
+        description: p.description,
+        category: p.stocksGroupDescription || p.stocksFamily || null,
+        family: p.stocksFamily || null,
+        unit_measure: p.mensureUnite || null,
+        sale_price: p.priceSale,
+        image_url: prev?.image_url ?? null,
+        is_active: prev?.is_active ?? true,
+        last_synced_at: new Date().toISOString(),
+      };
+    });
+
+    // Upsert em lotes de 200
+    for (let i = 0; i < rows.length; i += 200) {
+      const batch = rows.slice(i, i + 200);
+      const { error } = await supabase
+        .from('erbon_cached_products')
+        .upsert(batch, { onConflict: 'hotel_id,erbon_service_id' });
+      if (error) throw error;
+    }
+
+    // Atualizar metadata
+    await supabase
+      .from('erbon_sync_metadata')
+      .upsert({
+        hotel_id: hotelId,
+        last_product_sync: new Date().toISOString(),
+        product_count: rows.length,
+        sync_status: 'idle',
+        sync_error: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'hotel_id' });
+
+    return { synced: rows.length, created, updated };
+  } catch (err: any) {
+    await supabase
+      .from('erbon_sync_metadata')
+      .upsert({
+        hotel_id: hotelId,
+        sync_status: 'error',
+        sync_error: err.message,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'hotel_id' });
+    throw err;
+  }
+}
+
+/**
+ * Busca produtos Erbon do cache local para uso no PDV.
+ * Rápido — sem chamada à API externa.
+ */
+export async function getErbonProductsForPDV(hotelId: string): Promise<PDVProduct[]> {
+  const { data, error } = await supabase
+    .from('erbon_cached_products')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .eq('is_active', true)
+    .gt('sale_price', 0)
+    .order('category')
+    .order('description');
+
+  if (error) throw error;
+
+  return (data || []).map((p: any) => ({
+    product_id: `erbon_${p.erbon_service_id}`,
+    product_name: p.description,
+    category: p.category || 'Geral',
+    unit_measure: p.unit_measure || 'und',
+    image_url: p.image_url ?? null,
+    stock_quantity: ERBON_STOCK_UNLIMITED,
+    sale_price: Number(p.sale_price),
+    erbon_service_id: p.erbon_service_id,
+    erbon_service_description: p.description,
+  }));
+}
+
+/**
+ * Atualiza a imagem de um produto Erbon cacheado.
+ */
+export async function updateErbonProductImage(
+  hotelId: string, erbonServiceId: number, imageUrl: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('erbon_cached_products')
+    .update({ image_url: imageUrl })
+    .eq('hotel_id', hotelId)
+    .eq('erbon_service_id', erbonServiceId);
+  if (error) throw error;
+}
+
+/**
+ * Cria uma venda PDV com produtos Erbon (sem estoque local).
+ * NÃO valida nem desconta sector_stock — os produtos vêm da API Erbon.
+ * POST ao Erbon é feito por item (best-effort).
+ */
+export async function createErbonSale(input: CreateSaleInput): Promise<SaleResult> {
+  const { hotelId, sectorId, bookingInternalId, bookingNumber, roomDescription,
+    guestName, operatorName, items, erbonDepartmentId, erbonDepartmentLabel } = input;
+
+  const totalAmount = items.reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
+
+  // 1. Criar cabeçalho da venda
+  const { data: sale, error: saleErr } = await supabase
+    .from('pdv_sales')
+    .insert({
+      hotel_id: hotelId,
+      sector_id: sectorId,
+      booking_internal_id: bookingInternalId,
+      booking_number: bookingNumber,
+      room_description: roomDescription,
+      guest_name: guestName,
+      operator_name: operatorName,
+      total_amount: totalAmount,
+      status: 'completed',
+      erbon_posted: false,
+      sale_date: new Date().toISOString().split('T')[0],
+      table_id: input.tableId ?? null,
+      table_label: input.tableLabel ?? null,
+    })
+    .select('id')
+    .single();
+
+  if (saleErr || !sale) throw new Error(`Erro ao criar venda: ${saleErr?.message}`);
+  const saleId = sale.id;
+
+  // 2. Inserir itens (product_id = null para itens Erbon sem produto local)
+  const itemsToInsert = items.map(item => ({
+    sale_id: saleId,
+    product_id: item.product_id.startsWith('erbon_') ? null : item.product_id,
+    product_name: item.product_name,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    erbon_service_id: item.erbon_service_id,
+    erbon_department: erbonDepartmentLabel,
+    erbon_posted: false,
+  }));
+
+  const { data: insertedItems, error: itemsErr } = await supabase
+    .from('pdv_sale_items')
+    .insert(itemsToInsert)
+    .select('id, product_name');
+
+  if (itemsErr) throw new Error(`Erro ao salvar itens: ${itemsErr.message}`);
+
+  // 3. POST Erbon por item (best-effort) — SEM desconto de estoque
+  const erbonErrors: { productName: string; error: string }[] = [];
+  let allErbon = true;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const insertedItem = insertedItems?.[i];
+
+    if (!item.erbon_service_id || !erbonDepartmentId) {
+      const reason = !item.erbon_service_id
+        ? 'Produto sem mapeamento Erbon'
+        : 'Setor sem ID de departamento Erbon';
+      if (insertedItem) {
+        await supabase
+          .from('pdv_sale_items')
+          .update({ erbon_posted: false, erbon_post_error: reason })
+          .eq('id', insertedItem.id);
+      }
+      erbonErrors.push({ productName: item.product_name, error: reason });
+      allErbon = false;
+      continue;
+    }
+
+    const result = await erbonService.postChargeToBooking(hotelId, bookingInternalId, {
+      idService: item.erbon_service_id,
+      idDepartment: erbonDepartmentId,
+      quantity: item.quantity,
+      valueUnit: item.unit_price,
+      serviceDescription: item.product_name,
+      idSource: 'PDV',
+    });
+
+    if (insertedItem) {
+      await supabase
+        .from('pdv_sale_items')
+        .update({
+          erbon_posted: result.success,
+          erbon_post_error: result.error ?? null,
+        })
+        .eq('id', insertedItem.id);
+    }
+
+    if (!result.success) {
+      erbonErrors.push({ productName: item.product_name, error: result.error ?? 'Erro desconhecido' });
+      allErbon = false;
+    }
+  }
+
+  // 4. Atualizar cabeçalho
+  const errorSummary = erbonErrors.length > 0
+    ? `${erbonErrors.length} item(s) não lançado(s): ${erbonErrors.map(e => e.productName).join(', ')}`
+    : null;
+
+  await supabase
+    .from('pdv_sales')
+    .update({ erbon_posted: allErbon, erbon_post_error: errorSummary })
+    .eq('id', saleId);
+
+  return { saleId, totalAmount, erbonPosted: allErbon, erbonErrors };
+}
