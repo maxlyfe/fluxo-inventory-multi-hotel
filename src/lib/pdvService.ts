@@ -45,6 +45,16 @@ export interface SelectedBooking {
   checkOutDate: string | null;
 }
 
+export interface SelectedEmployee {
+  id: string;
+  name: string;
+  role: string;
+  sector: string;
+  photo_url: string | null;
+}
+
+export type ChargeTarget = 'guest' | 'employee';
+
 export interface PdvTable {
   id: string;
   label: string;
@@ -61,6 +71,19 @@ export interface CreateSaleInput {
   bookingNumber: string;
   roomDescription: string;
   guestName: string;
+  operatorName: string;
+  items: CartItem[];
+  erbonDepartmentId: number | null;
+  erbonDepartmentLabel: string | null;
+  tableId?: string | null;
+  tableLabel?: string | null;
+}
+
+export interface CreateEmployeeSaleInput {
+  hotelId: string;
+  sectorId: string;
+  employeeId: string;
+  employeeName: string;
   operatorName: string;
   items: CartItem[];
   erbonDepartmentId: number | null;
@@ -1471,4 +1494,75 @@ export async function createErbonSale(input: CreateSaleInput): Promise<SaleResul
     .eq('id', saleId);
 
   return { saleId, totalAmount, erbonPosted: allErbon, erbonErrors };
+}
+
+// ── Colaboradores para PDV ────────────────────────────────────────────────
+
+export async function getEmployeesForPDV(hotelId: string): Promise<SelectedEmployee[]> {
+  const { data, error } = await supabase
+    .from('employees')
+    .select('id, name, role, sector, photo_url')
+    .eq('hotel_id', hotelId)
+    .eq('status', 'active')
+    .order('name');
+  if (error) throw error;
+  return (data || []).map((e: any) => ({
+    id: e.id,
+    name: e.name,
+    role: e.role || '',
+    sector: e.sector || '',
+    photo_url: e.photo_url || null,
+  }));
+}
+
+export async function createEmployeeSale(input: CreateEmployeeSaleInput): Promise<SaleResult> {
+  const { hotelId, sectorId, employeeId, employeeName, operatorName,
+    items, erbonDepartmentId, erbonDepartmentLabel } = input;
+
+  const totalAmount = items.reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
+
+  const { data: sale, error: saleErr } = await supabase
+    .from('pdv_sales')
+    .insert({
+      hotel_id: hotelId,
+      sector_id: sectorId,
+      charge_target: 'employee',
+      employee_id: employeeId,
+      employee_name: employeeName,
+      booking_internal_id: null,
+      booking_number: null,
+      room_description: null,
+      guest_name: null,
+      operator_name: operatorName,
+      total_amount: totalAmount,
+      status: 'completed',
+      erbon_posted: false,
+      sale_date: new Date().toISOString().split('T')[0],
+      table_id: input.tableId ?? null,
+      table_label: input.tableLabel ?? null,
+    })
+    .select('id')
+    .single();
+
+  if (saleErr || !sale) throw new Error(`Erro ao criar venda: ${saleErr?.message}`);
+  const saleId = sale.id;
+
+  const itemsToInsert = items.map(item => ({
+    sale_id: saleId,
+    product_id: item.product_id.startsWith('erbon_') ? null : item.product_id,
+    product_name: item.product_name,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    erbon_service_id: item.erbon_service_id,
+    erbon_department: erbonDepartmentLabel,
+    erbon_posted: false,
+  }));
+
+  const { error: itemsErr } = await supabase
+    .from('pdv_sale_items')
+    .insert(itemsToInsert);
+
+  if (itemsErr) throw new Error(`Erro ao salvar itens: ${itemsErr.message}`);
+
+  return { saleId, totalAmount, erbonPosted: false, erbonErrors: [] };
 }

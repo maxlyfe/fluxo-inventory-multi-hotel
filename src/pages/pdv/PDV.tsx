@@ -10,7 +10,7 @@ import {
   Users, AlertCircle, RotateCcw, History, X, Zap,
   UtensilsCrossed, Wine, Coffee, Star, ChevronDown,
   LayoutGrid, ArrowLeft, MapPin, Clock, Settings, GripVertical,
-  PenLine, BookOpen, Save, Edit2, Check,
+  PenLine, BookOpen, Save, Edit2, Check, UserCircle, Building,
 } from 'lucide-react';
 
 import {
@@ -19,8 +19,9 @@ import {
   createSale, createErbonSale, retryErbonPosting,
   saveOpenTab, getOpenTabsForSector, deleteOpenTab,
   getErbonProductsForPDV, syncErbonProducts, getErbonSyncStatus,
+  getEmployeesForPDV, createEmployeeSale,
   PDVProduct, PDVSectorDetails, PdvTable, CartItem,
-  SelectedBooking, SaleResult, OpenTab,
+  SelectedBooking, SelectedEmployee, ChargeTarget, SaleResult, OpenTab,
 } from '../../lib/pdvService';
 import { erbonService, ErbonGuest } from '../../lib/erbonService';
 import { useHotel } from '../../context/HotelContext';
@@ -108,6 +109,14 @@ const PDV: React.FC = () => {
   const [bookingSearch, setBookingSearch] = useState('');
   const [showBookingDropdown, setShowBookingDropdown] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<SelectedBooking | null>(null);
+  // ── Colaborador ──────────────────────────────────────────────────────
+  const [chargeTarget, setChargeTarget] = useState<ChargeTarget>('guest');
+  const [employees, setEmployees] = useState<SelectedEmployee[]>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<SelectedEmployee | null>(null);
+
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receiptSale, setReceiptSale] = useState<SaleResult | null>(null);
@@ -183,6 +192,16 @@ const PDV: React.FC = () => {
     );
   }, [bookingGroups, bookingSearch]);
 
+  const filteredEmployees = useMemo(() => {
+    if (!employeeSearch.trim()) return employees;
+    const q = employeeSearch.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return employees.filter(e =>
+      e.name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(q) ||
+      e.role.toLowerCase().includes(q) ||
+      e.sector.toLowerCase().includes(q)
+    );
+  }, [employees, employeeSearch]);
+
   const categories = useMemo(() => {
     const cats = [...new Set(products.map(p => p.category))].sort();
     return ['Todos', ...cats];
@@ -230,6 +249,17 @@ const PDV: React.FC = () => {
       })
       .finally(() => setGuestsLoading(false));
   }, [selectedHotel]); // eslint-disable-line
+
+  // 1b. Carregar colaboradores quando trocar para target 'employee'
+  useEffect(() => {
+    if (!selectedHotel || chargeTarget !== 'employee') return;
+    if (employees.length > 0) return; // já carregou
+    setEmployeesLoading(true);
+    getEmployeesForPDV(selectedHotel.id)
+      .then(emps => setEmployees(emps))
+      .catch(err => addNotification('error', `Erro ao carregar colaboradores: ${err.message}`))
+      .finally(() => setEmployeesLoading(false));
+  }, [selectedHotel, chargeTarget]); // eslint-disable-line
 
   // 2. Restaurar setor salvo na sessão
   useEffect(() => {
@@ -402,7 +432,8 @@ const PDV: React.FC = () => {
   // ── Sale flow ─────────────────────────────────────────────────────────
 
   function handleConfirm() {
-    if (!selectedBooking) { addNotification('error', 'Selecione uma UH (reserva)'); return; }
+    if (chargeTarget === 'guest' && !selectedBooking) { addNotification('error', 'Selecione uma UH (reserva)'); return; }
+    if (chargeTarget === 'employee' && !selectedEmployee) { addNotification('error', 'Selecione um colaborador'); return; }
     if (!selectedSectorId) { addNotification('error', 'Selecione um setor'); return; }
     if (cart.length === 0) { addNotification('error', 'Adicione itens ao carrinho'); return; }
     setCartSheetOpen(false);
@@ -410,34 +441,54 @@ const PDV: React.FC = () => {
   }
 
   async function handleSubmitSale() {
-    if (!selectedBooking || !selectedSectorId || !sectorDetails) return;
+    if (!selectedSectorId || !sectorDetails) return;
     setSubmitting(true);
     try {
-      const saleInput = {
-        hotelId: selectedHotel!.id,
-        sectorId: selectedSectorId,
-        bookingInternalId: selectedBooking.bookingInternalId,
-        bookingNumber: String(selectedBooking.bookingNumber),
-        roomDescription: selectedBooking.roomDescription,
-        guestName: selectedBooking.guestName,
-        operatorName: user?.full_name || user?.email || 'Operador',
-        items: cart,
-        erbonDepartmentId: sectorDetails.erbon_department_id,
-        erbonDepartmentLabel: sectorDetails.erbon_department,
-        tableId: activeTableId !== '__direct__' ? activeTableId : null,
-        tableLabel: activeTableLabel,
-      };
-      const result = await (isErbonMode ? createErbonSale(saleInput) : createSale(saleInput));
+      let result: SaleResult;
+
+      if (chargeTarget === 'employee') {
+        if (!selectedEmployee) return;
+        result = await createEmployeeSale({
+          hotelId: selectedHotel!.id,
+          sectorId: selectedSectorId,
+          employeeId: selectedEmployee.id,
+          employeeName: selectedEmployee.name,
+          operatorName: user?.full_name || user?.email || 'Operador',
+          items: cart,
+          erbonDepartmentId: sectorDetails.erbon_department_id,
+          erbonDepartmentLabel: sectorDetails.erbon_department,
+          tableId: activeTableId !== '__direct__' ? activeTableId : null,
+          tableLabel: activeTableLabel,
+        });
+        addNotification('success', `Venda lançada na conta de ${selectedEmployee.name}`);
+      } else {
+        if (!selectedBooking) return;
+        const saleInput = {
+          hotelId: selectedHotel!.id,
+          sectorId: selectedSectorId,
+          bookingInternalId: selectedBooking.bookingInternalId,
+          bookingNumber: String(selectedBooking.bookingNumber),
+          roomDescription: selectedBooking.roomDescription,
+          guestName: selectedBooking.guestName,
+          operatorName: user?.full_name || user?.email || 'Operador',
+          items: cart,
+          erbonDepartmentId: sectorDetails.erbon_department_id,
+          erbonDepartmentLabel: sectorDetails.erbon_department,
+          tableId: activeTableId !== '__direct__' ? activeTableId : null,
+          tableLabel: activeTableLabel,
+        };
+        result = await (isErbonMode ? createErbonSale(saleInput) : createSale(saleInput));
+        if (result.erbonPosted) {
+          addNotification('success', `Venda lançada na UH ${selectedBooking.roomDescription}`);
+        } else if (result.erbonErrors.length > 0) {
+          addNotification('warning', `Venda salva, mas ${result.erbonErrors.length} item(s) não lançado(s) no PMS`);
+        }
+      }
+
       setConfirmOpen(false);
       setReceiptSale(result);
-      // Limpar mesa do tableCarts após fechar
       if (activeTableId !== '__direct__') {
         setTableCarts(prev => { const n = { ...prev }; delete n[activeTableId]; return n; });
-      }
-      if (result.erbonPosted) {
-        addNotification('success', `Venda lançada na UH ${selectedBooking.roomDescription}`);
-      } else if (result.erbonErrors.length > 0) {
-        addNotification('warning', `Venda salva, mas ${result.erbonErrors.length} item(s) não lançado(s) no PMS`);
       }
     } catch (err: any) {
       addNotification('error', `Erro: ${err.message}`);
@@ -465,6 +516,8 @@ const PDV: React.FC = () => {
     setCart([]);
     setSelectedBooking(null);
     setBookingSearch('');
+    setSelectedEmployee(null);
+    setEmployeeSearch('');
     setReceiptSale(null);
     setActiveTableId('__direct__');
     setActiveTableLabel(null);
@@ -601,59 +654,152 @@ const PDV: React.FC = () => {
   // RENDER HELPERS
   // ══════════════════════════════════════════════════════════════════════
 
-  // ── Booking Selector (shared between desktop left panel & cart sheet) ─
+  // ── Charge Target Selector (shared between desktop left panel & cart sheet)
 
-  const renderBookingSelector = () => (
+  const renderChargeTargetSelector = () => (
     <div>
-      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2.5">
-        Unidade Habitacional
-      </p>
-      {selectedBooking ? (
-        <div className="relative flex items-center gap-3 p-3 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/30">
-          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <span className="text-white font-black text-[10px] text-center leading-tight px-1">{selectedBooking.roomDescription}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-white text-sm truncate">{selectedBooking.guestName}</p>
-            <p className="text-xs text-slate-400 mt-0.5">Res. #{selectedBooking.bookingNumber}</p>
-            <p className="text-xs text-slate-500">Out: {fmtDate(selectedBooking.checkOutDate)}</p>
-          </div>
-          <button onClick={() => { setSelectedBooking(null); setBookingSearch(''); }}
-            aria-label="Remover seleção"
-            className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-150">
-            <X className="w-3.5 h-3.5" />
-          </button>
+      {/* Toggle: Hóspede / Colaborador */}
+      <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-800 border border-slate-700/60 mb-3">
+        <button
+          onClick={() => { setChargeTarget('guest'); setSelectedEmployee(null); setEmployeeSearch(''); }}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all duration-150
+            ${chargeTarget === 'guest'
+              ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30'
+              : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
+          <Building className="w-3.5 h-3.5" />
+          Hóspede
+        </button>
+        <button
+          onClick={() => { setChargeTarget('employee'); setSelectedBooking(null); setBookingSearch(''); }}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all duration-150
+            ${chargeTarget === 'employee'
+              ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/30'
+              : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
+          <UserCircle className="w-3.5 h-3.5" />
+          Colaborador
+        </button>
+      </div>
+
+      {chargeTarget === 'guest' ? (
+        /* ── Booking selector ── */
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">
+            Unidade Habitacional
+          </p>
+          {selectedBooking ? (
+            <div className="relative flex items-center gap-3 p-3 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/30">
+              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                <span className="text-white font-black text-[10px] text-center leading-tight px-1">{selectedBooking.roomDescription}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-white text-sm truncate">{selectedBooking.guestName}</p>
+                <p className="text-xs text-slate-400 mt-0.5">Res. #{selectedBooking.bookingNumber}</p>
+                <p className="text-xs text-slate-500">Out: {fmtDate(selectedBooking.checkOutDate)}</p>
+              </div>
+              <button onClick={() => { setSelectedBooking(null); setBookingSearch(''); }}
+                aria-label="Remover seleção"
+                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-150">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div ref={searchRef} className="relative">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <input type="text" value={bookingSearch}
+                  onChange={e => { setBookingSearch(e.target.value); setShowBookingDropdown(true); }}
+                  onFocus={() => setShowBookingDropdown(true)}
+                  placeholder="UH, hóspede ou nº reserva…"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-150" />
+              </div>
+              {showBookingDropdown && (filteredBookings.length > 0 || (bookingSearch.trim() && filteredBookings.length === 0)) && (
+                <div className="absolute z-30 top-full mt-1.5 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl shadow-black/40 max-h-56 overflow-y-auto">
+                  {filteredBookings.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-slate-500 text-center">Nenhuma reserva encontrada</div>
+                  ) : (
+                    filteredBookings.map(b => (
+                      <button key={b.bookingInternalId}
+                        onClick={() => { setSelectedBooking(b); setBookingSearch(''); setShowBookingDropdown(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-3 hover:bg-slate-700/60 transition-colors text-left border-b border-slate-700/50 last:border-0">
+                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                          <span className="text-white font-black text-[10px] text-center leading-tight px-0.5">{b.roomDescription}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate">UH {b.roomDescription}</p>
+                          <p className="text-xs text-slate-400 truncate">{b.guestName}</p>
+                        </div>
+                        <span className="text-[10px] text-slate-500 shrink-0 font-mono">{fmtDate(b.checkOutDate)}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
-        <div ref={searchRef} className="relative">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-            <input type="text" value={bookingSearch}
-              onChange={e => { setBookingSearch(e.target.value); setShowBookingDropdown(true); }}
-              onFocus={() => setShowBookingDropdown(true)}
-              placeholder="UH, hóspede ou nº reserva…"
-              className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-150" />
-          </div>
-          {showBookingDropdown && (filteredBookings.length > 0 || (bookingSearch.trim() && filteredBookings.length === 0)) && (
-            <div className="absolute z-30 top-full mt-1.5 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl shadow-black/40 max-h-56 overflow-y-auto">
-              {filteredBookings.length === 0 ? (
-                <div className="px-4 py-4 text-sm text-slate-500 text-center">Nenhuma reserva encontrada</div>
-              ) : (
-                filteredBookings.map(b => (
-                  <button key={b.bookingInternalId}
-                    onClick={() => { setSelectedBooking(b); setBookingSearch(''); setShowBookingDropdown(false); }}
-                    className="w-full flex items-center gap-3 px-3 py-3 hover:bg-slate-700/60 transition-colors text-left border-b border-slate-700/50 last:border-0">
-                    <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                      <span className="text-white font-black text-[10px] text-center leading-tight px-0.5">{b.roomDescription}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white truncate">UH {b.roomDescription}</p>
-                      <p className="text-xs text-slate-400 truncate">{b.guestName}</p>
-                    </div>
-                    <span className="text-[10px] text-slate-500 shrink-0 font-mono">{fmtDate(b.checkOutDate)}</span>
-                  </button>
-                ))
-              )}
+        /* ── Employee selector ── */
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">
+            Colaborador
+          </p>
+          {selectedEmployee ? (
+            <div className="relative flex items-center gap-3 p-3 rounded-2xl bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border border-blue-500/30">
+              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20 overflow-hidden">
+                {selectedEmployee.photo_url ? (
+                  <img src={selectedEmployee.photo_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <UserCircle className="w-6 h-6 text-white" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-white text-sm truncate">{selectedEmployee.name}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{selectedEmployee.role}</p>
+                <p className="text-xs text-slate-500">{selectedEmployee.sector}</p>
+              </div>
+              <button onClick={() => { setSelectedEmployee(null); setEmployeeSearch(''); }}
+                aria-label="Remover seleção"
+                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-150">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <input type="text" value={employeeSearch}
+                  onChange={e => { setEmployeeSearch(e.target.value); setShowEmployeeDropdown(true); }}
+                  onFocus={() => setShowEmployeeDropdown(true)}
+                  placeholder="Nome, cargo ou setor…"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-150" />
+              </div>
+              {employeesLoading ? (
+                <div className="mt-2 px-4 py-3 text-sm text-slate-500 text-center">Carregando colaboradores...</div>
+              ) : showEmployeeDropdown && (filteredEmployees.length > 0 || (employeeSearch.trim() && filteredEmployees.length === 0)) ? (
+                <div className="absolute z-30 top-full mt-1.5 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl shadow-black/40 max-h-56 overflow-y-auto">
+                  {filteredEmployees.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-slate-500 text-center">Nenhum colaborador encontrado</div>
+                  ) : (
+                    filteredEmployees.map(emp => (
+                      <button key={emp.id}
+                        onClick={() => { setSelectedEmployee(emp); setEmployeeSearch(''); setShowEmployeeDropdown(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-3 hover:bg-slate-700/60 transition-colors text-left border-b border-slate-700/50 last:border-0">
+                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center overflow-hidden">
+                          {emp.photo_url ? (
+                            <img src={emp.photo_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <UserCircle className="w-5 h-5 text-white" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate">{emp.name}</p>
+                          <p className="text-xs text-slate-400 truncate">{emp.role} · {emp.sector}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -765,13 +911,25 @@ const PDV: React.FC = () => {
         </button>
         <button
           onClick={handleConfirm}
-          disabled={cart.length === 0 || !selectedBooking}
-          className="flex-[2] flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-200 active:scale-[0.98]">
-          {!selectedBooking
-            ? <><Search className="w-4 h-4 shrink-0" /><span className="truncate">Selecione uma UH</span></>
-            : cart.length === 0
-              ? <><ShoppingCart className="w-4 h-4 shrink-0" /><span>Adicione itens</span></>
-              : <><span className="truncate">Lançar UH {selectedBooking.roomDescription}</span><ChevronRight className="w-4 h-4 shrink-0" /></>}
+          disabled={cart.length === 0 || (chargeTarget === 'guest' ? !selectedBooking : !selectedEmployee)}
+          className={`flex-[2] flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl font-bold text-sm text-white shadow-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-200 active:scale-[0.98] ${
+            chargeTarget === 'employee'
+              ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 shadow-blue-500/20'
+              : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-amber-500/20'
+          }`}>
+          {chargeTarget === 'guest' ? (
+            !selectedBooking
+              ? <><Search className="w-4 h-4 shrink-0" /><span className="truncate">Selecione uma UH</span></>
+              : cart.length === 0
+                ? <><ShoppingCart className="w-4 h-4 shrink-0" /><span>Adicione itens</span></>
+                : <><span className="truncate">Lançar UH {selectedBooking.roomDescription}</span><ChevronRight className="w-4 h-4 shrink-0" /></>
+          ) : (
+            !selectedEmployee
+              ? <><UserCircle className="w-4 h-4 shrink-0" /><span className="truncate">Selecione colaborador</span></>
+              : cart.length === 0
+                ? <><ShoppingCart className="w-4 h-4 shrink-0" /><span>Adicione itens</span></>
+                : <><span className="truncate">Lançar {selectedEmployee.name.split(' ')[0]}</span><ChevronRight className="w-4 h-4 shrink-0" /></>
+          )}
         </button>
       </div>
     </div>
@@ -1256,7 +1414,7 @@ const PDV: React.FC = () => {
 
         {/* UH Selector */}
         <div className="px-4 pt-3 pb-2 border-b border-slate-800/60">
-          {renderBookingSelector()}
+          {renderChargeTargetSelector()}
         </div>
 
         {/* Cart items */}
@@ -1468,7 +1626,7 @@ const PDV: React.FC = () => {
 
           {/* Booking selector */}
           <div className="px-4 pt-3 pb-3 border-b border-slate-800 shrink-0">
-            {renderBookingSelector()}
+            {renderChargeTargetSelector()}
           </div>
 
           {/* Cart */}
@@ -1632,16 +1790,23 @@ const PDV: React.FC = () => {
 
       {/* ══ CONFIRM MODAL ════════════════════════════════════════════════════ */}
       <Modal isOpen={confirmOpen} onClose={() => !submitting && setConfirmOpen(false)}
-        title={`Confirmar — UH ${selectedBooking?.roomDescription ?? ''}`} size="xl">
-        {selectedBooking && sectorDetails && (
+        title={chargeTarget === 'employee'
+          ? `Confirmar — ${selectedEmployee?.name ?? 'Colaborador'}`
+          : `Confirmar — UH ${selectedBooking?.roomDescription ?? ''}`} size="xl">
+        {((chargeTarget === 'guest' && selectedBooking) || (chargeTarget === 'employee' && selectedEmployee)) && sectorDetails && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
-              {[
-                { label: 'Hóspede', value: selectedBooking.guestName },
-                { label: 'Reserva', value: `#${selectedBooking.bookingNumber}` },
+              {(chargeTarget === 'employee' ? [
+                { label: 'Colaborador', value: selectedEmployee!.name },
+                { label: 'Cargo', value: selectedEmployee!.role || '—' },
+                { label: 'Setor', value: sectorDetails.sector_name + (sectorDetails.erbon_department ? ` — ${sectorDetails.erbon_department}` : '') },
+                { label: activeTableLabel ? 'Mesa' : 'Destino', value: activeTableLabel ?? 'Conta colaborador' },
+              ] : [
+                { label: 'Hóspede', value: selectedBooking!.guestName },
+                { label: 'Reserva', value: `#${selectedBooking!.bookingNumber}` },
                 { label: 'Setor', value: sectorDetails.sector_name + (sectorDetails.erbon_department ? ` — ${sectorDetails.erbon_department}` : '') },
                 { label: activeTableLabel ? 'Mesa' : 'Modo', value: activeTableLabel ?? 'Direto para UH' },
-              ].map(({ label, value }) => (
+              ]).map(({ label, value }) => (
                 <div key={label} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                   <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-0.5">{label}</p>
                   <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{value}</p>
@@ -1726,9 +1891,13 @@ const PDV: React.FC = () => {
             <div className="grid grid-cols-2 gap-2 text-sm">
               {[
                 { label: 'Data / Hora', value: new Date().toLocaleString('pt-BR') },
-                { label: 'UH', value: `${selectedBooking?.roomDescription} — ${selectedBooking?.guestName}` },
+                { label: chargeTarget === 'employee' ? 'Colaborador' : 'UH',
+                  value: chargeTarget === 'employee'
+                    ? selectedEmployee?.name ?? '—'
+                    : `${selectedBooking?.roomDescription} — ${selectedBooking?.guestName}` },
                 { label: 'Setor', value: sectorDetails?.sector_name || '—' },
-                { label: activeTableLabel ? 'Mesa' : 'Modo', value: activeTableLabel ?? 'Direto para UH' },
+                { label: activeTableLabel ? 'Mesa' : 'Destino',
+                  value: activeTableLabel ?? (chargeTarget === 'employee' ? 'Conta colaborador' : 'Direto para UH') },
               ].map(({ label, value }) => (
                 <div key={label} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                   <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-0.5">{label}</p>
