@@ -51,6 +51,7 @@ export interface SelectedEmployee {
   role: string;
   sector: string;
   photo_url: string | null;
+  erbonUserId?: number | null;
 }
 
 export type ChargeTarget = 'guest' | 'employee';

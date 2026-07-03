@@ -19,6 +19,13 @@
   status = 200
   force = true
 
+# Netlify Functions: NÃO interceptar — deixar o runtime tratar
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# SPA catch-all: tudo que não seja function vai para index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"

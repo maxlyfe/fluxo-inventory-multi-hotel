@@ -226,6 +226,13 @@ export interface ErbonAccountReceivable {
   [key: string]: any; // Estrutura a validar com dados reais
 }
 
+// ── Employee / Funcionário ─────────────────────────────────────────────────
+// Retornado por GET /pmsuser/hotel/{hotelID}/userlist
+// Estrutura real a ser confirmada com resposta da API.
+export interface ErbonEmployee {
+  [key: string]: any;
+}
+
 // ── PDV Charge Payload (para POST /booking/{id}/currentaccount) ────────────
 // Lança um item de consumo na conta corrente da reserva (UH) no Erbon PMS.
 // ⚠️  Validar body shape real contra swagger antes de produção:
@@ -1338,6 +1345,21 @@ export const erbonService = {
     return { success: false, error: err.message };
   }
 },
+
+  // ── Employees / Funcionários ────────────────────────────────────────────
+
+  async fetchEmployees(hotelId: string): Promise<ErbonEmployee[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/pmsuser/hotel/${config.erbon_hotel_id}/userlist`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar funcionários Erbon (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  },
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────
 

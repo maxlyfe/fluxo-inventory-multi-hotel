@@ -251,12 +251,37 @@ const PDV: React.FC = () => {
   }, [selectedHotel]); // eslint-disable-line
 
   // 1b. Carregar colaboradores quando trocar para target 'employee'
+  // Erbon configurada → tenta buscar funcionários da Erbon primeiro, fallback DP local
   useEffect(() => {
     if (!selectedHotel || chargeTarget !== 'employee') return;
-    if (employees.length > 0) return; // já carregou
+    if (employees.length > 0) return;
     setEmployeesLoading(true);
-    getEmployeesForPDV(selectedHotel.id)
-      .then(emps => setEmployees(emps))
+
+    (async () => {
+      try {
+        if (erbonConfigured) {
+          const erbonEmps = await erbonService.fetchEmployees(selectedHotel.id);
+          console.log('[PDV] Erbon employees raw:', erbonEmps);
+          if (erbonEmps.length > 0) {
+            const mapped: SelectedEmployee[] = erbonEmps.map((e: any) => ({
+              id: String(e.id ?? e.userId ?? e.userID ?? ''),
+              name: e.name ?? e.userName ?? e.fullName ?? e.login ?? 'Sem nome',
+              role: e.role ?? e.profile ?? e.profileName ?? '',
+              sector: e.department ?? e.departmentName ?? '',
+              photo_url: null,
+              erbonUserId: e.id ?? e.userId ?? e.userID ?? null,
+            }));
+            setEmployees(mapped);
+            return;
+          }
+        }
+      } catch (err: any) {
+        console.warn('[PDV] Erbon employees fallback to DP:', err.message);
+      }
+      // Fallback: DP local
+      const localEmps = await getEmployeesForPDV(selectedHotel.id);
+      setEmployees(localEmps);
+    })()
       .catch(err => addNotification('error', `Erro ao carregar colaboradores: ${err.message}`))
       .finally(() => setEmployeesLoading(false));
   }, [selectedHotel, chargeTarget]); // eslint-disable-line
