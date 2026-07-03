@@ -5,7 +5,7 @@
 // conteúdo é renderizado INLINE, lado a lado, para comparar/planejar sem sair
 // da tela. O hotel selecionado no topo aparece primeiro e já vem pré-marcado.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
 import { useGroup } from '../../context/GroupContext';
@@ -15,7 +15,7 @@ import { ptBR } from 'date-fns/locale';
 import {
   LayoutDashboard, Package, AlertTriangle, DollarSign, Briefcase,
   CalendarDays, Users, Gift, Loader2, Building2, Check, Cake,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Search, Filter, ImageIcon,
 } from 'lucide-react';
 
 interface HotelRow { id: string; name: string; code?: string | null; [k: string]: any; }
@@ -237,7 +237,7 @@ function UnitColumn({ hotel, section, data, formatCurrency, isCurrent }: {
         {section === 'colaboradores' && <Colaboradores data={data} />}
         {section === 'vagas'        && <Vagas data={data} />}
         {section === 'beneficios'   && <Beneficios data={data} />}
-        {section === 'inventario'   && <Inventario data={data} formatCurrency={formatCurrency} />}
+        {section === 'inventario'   && <InventarioCompleto hotelId={hotel.id} formatCurrency={formatCurrency} />}
       </div>
     </div>
   );
@@ -314,25 +314,242 @@ function Beneficios({ data }: { data: LightData }) {
   );
 }
 
-function Inventario({ data, formatCurrency }: { data: LightData; formatCurrency: (v: number) => string }) {
+// ── Inventário completo (inventário central + estoques setoriais) ────────────
+
+interface SectorInfo { id: string; name: string; }
+interface ProductRow {
+  id: string;
+  name: string;
+  image_url: string | null;
+  category: string;
+  quantity: number;
+  average_price: number;
+  is_active: boolean;
+}
+interface SectorStockRow { sector_id: string; product_id: string; quantity: number; }
+interface AggregatedItem {
+  id: string;
+  name: string;
+  image_url: string | null;
+  category: string;
+  inventoryQty: number;
+  sectorQtys: Record<string, number>;
+  totalQty: number;
+  unitValue: number;
+}
+
+function InventarioCompleto({ hotelId, formatCurrency }: { hotelId: string; formatCurrency: (v: number) => string }) {
+  const [sectors, setSectors] = useState<SectorInfo[]>([]);
+  const [items, setItems] = useState<AggregatedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set());
+  const [selectedCategory, setSelectedCategory] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [{ data: prods }, { data: sectorStocks }, { data: secs }] = await Promise.all([
+          supabase.from('products')
+            .select('id, name, image_url, category, quantity, average_price, is_active')
+            .eq('hotel_id', hotelId).eq('is_active', true).order('name'),
+          supabase.from('sector_stock')
+            .select('sector_id, product_id, quantity')
+            .eq('hotel_id', hotelId),
+          supabase.from('sectors')
+            .select('id, name')
+            .eq('hotel_id', hotelId).eq('has_stock', true).order('name'),
+        ]);
+        if (!active) return;
+
+        const sectorList = (secs || []) as SectorInfo[];
+        setSectors(sectorList);
+        setSelectedSectors(new Set(sectorList.map(s => s.id)));
+
+        const ssMap = new Map<string, Record<string, number>>();
+        for (const ss of (sectorStocks || []) as SectorStockRow[]) {
+          if (!ssMap.has(ss.product_id)) ssMap.set(ss.product_id, {});
+          ssMap.get(ss.product_id)![ss.sector_id] = ss.quantity;
+        }
+
+        const aggregated: AggregatedItem[] = ((prods || []) as ProductRow[]).map(p => {
+          const sectorQtys = ssMap.get(p.id) || {};
+          const sectorTotal = Object.values(sectorQtys).reduce((a, b) => a + b, 0);
+          return {
+            id: p.id,
+            name: p.name,
+            image_url: p.image_url,
+            category: p.category || 'Sem categoria',
+            inventoryQty: p.quantity,
+            sectorQtys,
+            totalQty: p.quantity + sectorTotal,
+            unitValue: p.average_price || 0,
+          };
+        });
+        setItems(aggregated);
+      } catch { /* ignore */ }
+      finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [hotelId]);
+
+  const toggleSector = (id: string) =>
+    setSelectedSectors(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const categories = useMemo(() =>
+    [...new Set(items.map(i => i.category))].sort(),
+  [items]);
+
+  const activeSectors = useMemo(() =>
+    sectors.filter(s => selectedSectors.has(s.id)),
+  [sectors, selectedSectors]);
+
+  const filtered = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return items.filter(i => {
+      if (term && !i.name.toLowerCase().includes(term)) return false;
+      if (selectedCategory && i.category !== selectedCategory) return false;
+      return true;
+    });
+  }, [items, searchTerm, selectedCategory]);
+
+  const totals = useMemo(() => {
+    const inv = filtered.reduce((a, i) => a + i.inventoryQty, 0);
+    const sec = filtered.reduce((a, i) => {
+      return a + activeSectors.reduce((s, sec) => s + (i.sectorQtys[sec.id] || 0), 0);
+    }, 0);
+    const value = filtered.reduce((a, i) => a + i.totalQty * i.unitValue, 0);
+    return { inv, sec, total: inv + sec, value, items: filtered.length };
+  }, [filtered, activeSectors]);
+
+  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-indigo-500" /></div>;
+
   return (
-    <div>
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <MiniKpi label="Itens" value={data.items.toLocaleString('pt-BR')} />
-        <MiniKpi label="Baixo" value={data.lowStock.toLocaleString('pt-BR')} tone={data.lowStock > 0 ? 'text-amber-600 dark:text-amber-400' : ''} />
-        <MiniKpi label="Valor" value={formatCurrency(data.invested)} tone="text-emerald-600 dark:text-emerald-400" />
+    <div className="space-y-3">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-2">
+        <MiniKpi label="Itens" value={totals.items.toLocaleString('pt-BR')} />
+        <MiniKpi label="Valor total" value={formatCurrency(totals.value)} tone="text-emerald-600 dark:text-emerald-400" />
+        <MiniKpi label="Inventário" value={totals.inv.toLocaleString('pt-BR')} tone="text-blue-600 dark:text-blue-400" />
+        <MiniKpi label="Setores" value={totals.sec.toLocaleString('pt-BR')} tone="text-violet-600 dark:text-violet-400" />
       </div>
-      {data.categories.length === 0 ? <Empty text="Sem produtos." /> : (
-        <div className="space-y-1 max-h-80 overflow-y-auto">
-          {data.categories.map(c => (
-            <div key={c.name} className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-100 dark:border-gray-700">
-              <span className="text-sm text-gray-700 dark:text-gray-200 truncate">{c.name}</span>
-              <span className="flex items-center gap-2 flex-shrink-0">
-                <span className="text-[11px] text-gray-400">{c.items}</span>
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(c.value)}</span>
-              </span>
+
+      {/* Filtro de setores */}
+      {sectors.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <Filter className="w-3 h-3 text-gray-400" />
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Setores</span>
+            <div className="ml-auto flex gap-2">
+              <button onClick={() => setSelectedSectors(new Set(sectors.map(s => s.id)))}
+                className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">Todos</button>
+              <button onClick={() => setSelectedSectors(new Set())}
+                className="text-[10px] font-semibold text-gray-400 hover:underline">Limpar</button>
             </div>
-          ))}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {sectors.map(s => {
+              const on = selectedSectors.has(s.id);
+              return (
+                <button key={s.id} onClick={() => toggleSector(s.id)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                    on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-50 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-600'
+                  }`}>
+                  {on && <Check className="w-2.5 h-2.5 inline mr-0.5" />}{s.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Busca + filtro de categoria */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Buscar produto..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="w-full bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-600 rounded-xl pl-8 pr-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+          />
+        </div>
+        <select
+          value={selectedCategory}
+          onChange={e => setSelectedCategory(e.target.value)}
+          className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-600 rounded-xl px-2 py-2 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 max-w-[120px]"
+        >
+          <option value="">Todas cat.</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {/* Tabela de produtos */}
+      {filtered.length === 0 ? <Empty text="Nenhum produto encontrado." /> : (
+        <div className="max-h-[500px] overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0 z-10">
+              <tr>
+                <th className="p-2 text-left text-gray-600 dark:text-gray-300 font-bold">Produto</th>
+                <th className="p-2 text-right text-blue-600 dark:text-blue-400 font-bold whitespace-nowrap" title="Inventário central">Inv.</th>
+                {activeSectors.map(s => (
+                  <th key={s.id} className="p-2 text-right text-violet-600 dark:text-violet-400 font-bold whitespace-nowrap max-w-[60px] truncate" title={s.name}>
+                    {s.name.length > 6 ? s.name.slice(0, 5) + '…' : s.name}
+                  </th>
+                ))}
+                <th className="p-2 text-right text-emerald-600 dark:text-emerald-400 font-bold whitespace-nowrap">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+              {filtered.map(item => {
+                const sectorSum = activeSectors.reduce((a, s) => a + (item.sectorQtys[s.id] || 0), 0);
+                const rowTotal = item.inventoryQty + sectorSum;
+                return (
+                  <tr key={item.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
+                    <td className="p-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {item.image_url ? (
+                          <img src={item.image_url} alt="" className="w-7 h-7 rounded-md object-contain bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex-shrink-0" />
+                        ) : (
+                          <div className="w-7 h-7 rounded-md bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-700 flex items-center justify-center flex-shrink-0">
+                            <ImageIcon className="w-3.5 h-3.5 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-800 dark:text-white truncate leading-tight">{item.name}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{item.category}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-2 text-right font-bold text-blue-600 dark:text-blue-400 tabular-nums">{item.inventoryQty}</td>
+                    {activeSectors.map(s => {
+                      const qty = item.sectorQtys[s.id] || 0;
+                      return (
+                        <td key={s.id} className={`p-2 text-right tabular-nums ${qty > 0 ? 'font-semibold text-gray-700 dark:text-gray-200' : 'text-gray-300 dark:text-gray-600'}`}>
+                          {qty}
+                        </td>
+                      );
+                    })}
+                    <td className="p-2 text-right font-black text-emerald-600 dark:text-emerald-400 tabular-nums">{rowTotal}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="bg-gray-50 dark:bg-gray-700/50 sticky bottom-0">
+              <tr className="font-black text-xs">
+                <td className="p-2 text-gray-700 dark:text-gray-200">TOTAL ({filtered.length})</td>
+                <td className="p-2 text-right text-blue-600 dark:text-blue-400 tabular-nums">{totals.inv.toLocaleString('pt-BR')}</td>
+                {activeSectors.map(s => {
+                  const sectorTotal = filtered.reduce((a, i) => a + (i.sectorQtys[s.id] || 0), 0);
+                  return <td key={s.id} className="p-2 text-right text-violet-600 dark:text-violet-400 tabular-nums">{sectorTotal.toLocaleString('pt-BR')}</td>;
+                })}
+                <td className="p-2 text-right text-emerald-600 dark:text-emerald-400 tabular-nums">{totals.total.toLocaleString('pt-BR')}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
     </div>
