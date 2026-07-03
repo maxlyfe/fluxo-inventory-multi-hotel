@@ -6,20 +6,26 @@ import { ptBR } from 'date-fns/locale';
 
 interface RequestItemProps {
   request: Request;
-  currentStock?: number | null; 
+  currentStock?: number | null;
   onTriggerDeliver?: (request: Request) => void;
   onTriggerReject?: (request: Request) => void;
   onTriggerSubstitute?: (request: Request) => void;
   isHistoryView?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (request: Request) => void;
 }
 
-const RequestItem: React.FC<RequestItemProps> = ({ 
-  request, 
+const RequestItem: React.FC<RequestItemProps> = ({
+  request,
   currentStock,
-  onTriggerDeliver, 
-  onTriggerReject, 
+  onTriggerDeliver,
+  onTriggerReject,
   onTriggerSubstitute,
-  isHistoryView = false 
+  isHistoryView = false,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }) => {
   const product = request.products;
   const substitutedProduct = request.substituted_product;
@@ -66,8 +72,24 @@ const RequestItem: React.FC<RequestItemProps> = ({
 
   return (
     <>
-    <li className="border-b border-gray-100 dark:border-gray-700/50 py-4 px-4 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 md:space-x-6 hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+    <li
+      className={`border-b border-gray-100 dark:border-gray-700/50 py-4 px-4 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 md:space-x-6 transition-colors ${
+        selectable ? 'cursor-pointer' : ''
+      } ${selected ? 'bg-blue-50/70 dark:bg-blue-900/20 ring-1 ring-blue-200 dark:ring-blue-800 rounded-xl' : 'hover:bg-gray-50/50 dark:hover:bg-gray-800/30'}`}
+      onClick={selectable ? () => onToggleSelect?.(request) : undefined}
+    >
       <div className="flex items-center flex-grow min-w-0">
+        {selectable && (
+          <div className="flex-shrink-0 mr-3">
+            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+              selected
+                ? 'bg-blue-600 border-blue-600'
+                : 'border-slate-300 dark:border-slate-500'
+            }`}>
+              {selected && <Check className="w-3.5 h-3.5 text-white" />}
+            </div>
+          </div>
+        )}
         <div className="relative flex-shrink-0">
           {displayProduct?.image_url ? (
             <img 
@@ -149,10 +171,10 @@ const RequestItem: React.FC<RequestItemProps> = ({
         </div>
       </div>
 
-      {!isHistoryView && (
+      {!isHistoryView && !selectable && (
         <div className="flex items-center space-x-2 flex-shrink-0">
-          <button 
-            onClick={() => onTriggerDeliver?.(request)} 
+          <button
+            onClick={(e) => { e.stopPropagation(); onTriggerDeliver?.(request); }}
             className="group flex items-center justify-center p-2.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl border border-green-200 dark:border-green-800/50 hover:bg-green-600 hover:text-white dark:hover:bg-green-600 dark:hover:text-white transition-all duration-200 shadow-sm"
             title="Marcar como entregue"
           >

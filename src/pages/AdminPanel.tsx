@@ -5,7 +5,7 @@ import {
   Package, ArrowLeft, Plus, Search, Grid, List, AlertTriangle,
   ShoppingCart, X, Check, Clock, ChevronDown, ChevronUp, ImageIcon,
   ArrowLeftRight,
-  Zap, Loader2, Link2,
+  Zap, Loader2, Link2, ClipboardList,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { startOfWeek, endOfWeek, format, parseISO } from 'date-fns';
@@ -144,6 +144,9 @@ const AdminPanel = () => {
   const [autoReqLoading, setAutoReqLoading] = useState(false);
   const [autoReqSectorFilter, setAutoReqSectorFilter] = useState<string>('');
   const [autoReqCommitting, setAutoReqCommitting] = useState(false);
+
+  const [budgetSelectMode, setBudgetSelectMode] = useState(false);
+  const [selectedForBudget, setSelectedForBudget] = useState<Set<string>>(new Set());
 
 
   const fetchPendingRequestsInternal = useCallback(async (isInitialLoad = false) => {
@@ -829,6 +832,57 @@ const AdminPanel = () => {
     }
   };
 
+  const toggleBudgetSelect = (request: Request) => {
+    setSelectedForBudget(prev => {
+      const next = new Set(prev);
+      if (next.has(request.id)) next.delete(request.id);
+      else next.add(request.id);
+      return next;
+    });
+  };
+
+  const handleCreateBudgetFromSelection = () => {
+    const selected = pendingRequestsData.filter(r => selectedForBudget.has(r.id));
+    const uniqueProducts = new Map<string, Request>();
+    let customSkipped = 0;
+    for (const req of selected) {
+      const pid = req.product_id || req.products?.id;
+      if (pid && !uniqueProducts.has(pid)) {
+        uniqueProducts.set(pid, req);
+      } else if (!pid) {
+        customSkipped++;
+      }
+    }
+
+    if (uniqueProducts.size === 0) {
+      addNotification('Nenhum dos itens selecionados possui produto vinculado para orçamento.', 'warning');
+      return;
+    }
+
+    if (customSkipped > 0) {
+      addNotification(`${customSkipped} item(ns) personalizado(s) ignorado(s) — sem produto vinculado.`, 'info');
+    }
+
+    const productDetails = Array.from(uniqueProducts.values()).map(req => {
+      const p = req.products;
+      return {
+        id: p?.id || req.product_id || '',
+        name: p?.name || req.item_name,
+        image_url: p?.image_url || '',
+        quantity: p?.quantity ?? 0,
+        min_quantity: 0,
+        max_quantity: p?.quantity ?? 0,
+        unit: 'und',
+      };
+    });
+
+    setBudgetSelectMode(false);
+    setSelectedForBudget(new Set());
+    navigate('/purchases/dynamic-budget/new', {
+      state: { selectedProductDetails: productDetails },
+    });
+  };
+
   const groupRequestsBySector = (requests: Request[]) => {
     return requests.reduce((acc, req) => {
       const sectorName = req.sector?.name || 'Setor Desconhecido';
@@ -935,6 +989,21 @@ const AdminPanel = () => {
         </div>
 
         <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+          <button
+            onClick={() => {
+              setBudgetSelectMode(prev => !prev);
+              setSelectedForBudget(new Set());
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-sm transition-colors focus:outline-none focus:ring-2 font-medium text-sm ${
+              budgetSelectMode
+                ? 'bg-blue-600 text-white focus:ring-blue-500/40'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-blue-50 dark:hover:bg-slate-700 focus:ring-slate-300/40'
+            }`}
+            title="Selecionar itens pendentes para criar orçamento"
+          >
+            <ClipboardList className="w-4 h-4" />
+            <span className="hidden sm:inline">{budgetSelectMode ? 'Cancelar Seleção' : 'Criar Orçamento'}</span>
+          </button>
           <button
             onClick={async () => {
               if (!selectedHotel?.id) return;
@@ -1066,6 +1135,9 @@ const AdminPanel = () => {
                             onTriggerReject={() => triggerRejectModal(request)}
                             onTriggerSubstitute={() => triggerSubstituteModal(request)}
                             isHistoryView={false}
+                            selectable={budgetSelectMode}
+                            selected={selectedForBudget.has(request.id)}
+                            onToggleSelect={toggleBudgetSelect}
                           />
                         ))}
                     </div>
@@ -1356,6 +1428,34 @@ const AdminPanel = () => {
         onClose={() => setShowRequestLinkModal(false)}
       />
 
+
+      {/* ── Floating budget selection bar ── */}
+      {budgetSelectMode && (
+        <div className="fixed bottom-0 inset-x-0 z-50 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] pt-3 bg-gradient-to-t from-white via-white dark:from-slate-900 dark:via-slate-900">
+          <div className="container mx-auto max-w-2xl flex items-center justify-between bg-blue-600 text-white rounded-2xl px-5 py-3.5 shadow-xl shadow-blue-600/25">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
+                <ClipboardList className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">
+                  {selectedForBudget.size} {selectedForBudget.size === 1 ? 'item selecionado' : 'itens selecionados'}
+                </p>
+                <p className="text-[11px] text-blue-200">Selecione itens pendentes para o orçamento</p>
+              </div>
+            </div>
+            <button
+              onClick={handleCreateBudgetFromSelection}
+              disabled={selectedForBudget.size === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-xl text-sm font-bold hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span className="hidden sm:inline">Criar Orçamento</span>
+              <span className="sm:hidden">Criar</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Auto Requisições Modal ── */}
       <Modal isOpen={showAutoReqModal} onClose={() => setShowAutoReqModal(false)} title="Auto Requisições">
