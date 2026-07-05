@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   ConversationWithMeta,
@@ -6,6 +6,8 @@ import {
   getMyConversations,
   getMessages,
   sendMessage as sendMessageService,
+  editMessage as editMessageService,
+  deleteMessage as deleteMessageService,
   markMessagesRead,
   getTotalUnreadCount,
 } from '../lib/chat';
@@ -32,30 +34,23 @@ export function useConversations() {
     load();
   }, [load]);
 
-  // Zera o badge imediatamente ao abrir uma conversa (sem esperar realtime)
   const markConversationRead = useCallback((conversationId: string) => {
-    setConversations(prev =>
-      prev.map(c => c.id === conversationId ? { ...c, unread_count: 0 } : c)
-    );
-    setTotalUnread(prev => {
-      const conv = conversations.find(c => c.id === conversationId);
-      return Math.max(0, prev - (conv?.unread_count || 0));
+    setConversations(prev => {
+      const conv = prev.find(c => c.id === conversationId);
+      if (conv && conv.unread_count > 0) {
+        setTotalUnread(t => Math.max(0, t - conv.unread_count));
+      }
+      return prev.map(c => c.id === conversationId ? { ...c, unread_count: 0 } : c);
     });
-  }, [conversations]);
+  }, []);
 
   const onConvChange = useCallback(() => { load(); }, [load]);
 
-  // Nova mensagem → atualiza última mensagem + não-lidas
   useRealtimeSubscription('messages', undefined, onConvChange);
 
-  // Novo membro adicionado (inclui quando sou adicionado a uma nova conversa)
   const memberFilter = user ? `user_id=eq.${user.id}` : undefined;
   useRealtimeSubscription('conversation_members', memberFilter, onConvChange);
-
-  // Nova conversa criada
   useRealtimeSubscription('conversations', undefined, onConvChange);
-
-  // Mensagem lida → recalcula não-lidas
   useRealtimeSubscription('message_reads', undefined, onConvChange);
 
   return { conversations, loading, totalUnread, refresh: load, markConversationRead };
@@ -84,36 +79,52 @@ export function useMessages(conversationId: string | null) {
     load();
   }, [conversationId, load]);
 
-  // Realtime: append nova mensagem e busca perfil do sender
-  const onNewMessage = useCallback(async (payload: any) => {
-    if (!conversationId || payload.eventType !== 'INSERT') return;
-    const raw = payload.new as Message;
+  // Realtime: new message or update (edit/delete)
+  const onMessageChange = useCallback(async (payload: any) => {
+    if (!conversationId) return;
 
-    // Buscar perfil do sender se não vier no payload
-    let sender = raw.sender;
-    if (!sender && raw.sender_id) {
-      const map = await fetchProfilesBatch([raw.sender_id]);
-      sender = map.get(raw.sender_id);
+    if (payload.eventType === 'INSERT') {
+      const raw = payload.new as Message;
+      if (raw.conversation_id !== conversationId) return;
+
+      let sender = raw.sender;
+      if (!sender && raw.sender_id) {
+        const map = await fetchProfilesBatch([raw.sender_id]);
+        sender = map.get(raw.sender_id);
+      }
+      const newMsg: Message = { ...raw, sender };
+
+      setMessages(prev => {
+        if (prev.some(m => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
+
+      await markMessagesRead(conversationId);
     }
-    const newMsg: Message = { ...raw, sender };
 
-    setMessages(prev => {
-      if (prev.some(m => m.id === newMsg.id)) return prev;
-      return [...prev, newMsg];
-    });
+    if (payload.eventType === 'UPDATE') {
+      const updated = payload.new as any;
+      if (updated.conversation_id !== conversationId) return;
 
-    await markMessagesRead(conversationId);
+      setMessages(prev => prev
+        .filter(m => !(m.id === updated.id && updated.deleted_at))
+        .map(m => {
+          if (m.id !== updated.id) return m;
+          return { ...m, content: updated.content, edited_at: updated.edited_at, deleted_at: updated.deleted_at };
+        })
+      );
+    }
   }, [conversationId]);
 
   useRealtimeSubscription(
     'messages',
     conversationId ? `conversation_id=eq.${conversationId}` : undefined,
-    onNewMessage,
+    onMessageChange,
   );
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, replyToId?: string) => {
     if (!conversationId || !content.trim()) return;
-    const msg = await sendMessageService(conversationId, content.trim());
+    const msg = await sendMessageService(conversationId, content.trim(), 'text', undefined, replyToId);
     if (msg) {
       setMessages(prev => {
         if (prev.some(m => m.id === msg.id)) return prev;
@@ -121,6 +132,26 @@ export function useMessages(conversationId: string | null) {
       });
     }
   }, [conversationId]);
+
+  const editMessage = useCallback(async (messageId: string, newContent: string) => {
+    const success = await editMessageService(messageId, newContent);
+    if (success) {
+      setMessages(prev => prev.map(m =>
+        m.id === messageId
+          ? { ...m, content: newContent, edited_at: new Date().toISOString() }
+          : m
+      ));
+    }
+    return success;
+  }, []);
+
+  const deleteMessage = useCallback(async (messageId: string) => {
+    const success = await deleteMessageService(messageId);
+    if (success) {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    }
+    return success;
+  }, []);
 
   const loadMore = useCallback(async () => {
     if (!conversationId || !hasMore || loading) return;
@@ -133,7 +164,7 @@ export function useMessages(conversationId: string | null) {
     setHasMore(older.length === 50);
   }, [conversationId, hasMore, loading, messages]);
 
-  return { messages, loading, sendMessage, loadMore, hasMore };
+  return { messages, loading, sendMessage, editMessage, deleteMessage, loadMore, hasMore };
 }
 
 // ─── useUnreadCount ───────────────────────────────────────────────────────────

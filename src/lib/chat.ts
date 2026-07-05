@@ -38,7 +38,18 @@ export interface Message {
   media_url: string | null;
   created_at: string;
   deleted_at: string | null;
+  reply_to_id: string | null;
+  edited_at: string | null;
   sender?: ChatProfile;
+  reply_to?: Message | null;
+}
+
+export interface MessageEdit {
+  id: string;
+  message_id: string;
+  old_content: string;
+  edited_by: string;
+  edited_at: string;
 }
 
 export interface ConversationWithMeta extends Conversation {
@@ -206,7 +217,7 @@ export async function getMyConversations(): Promise<ConversationWithMeta[]> {
       // Última mensagem
       const { data: lastMsgs } = await supabase
         .from('messages')
-        .select('id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at')
+        .select(await getMsgColumns())
         .eq('conversation_id', c.id)
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
@@ -270,6 +281,24 @@ export async function getConversationMembers(conversationId: string): Promise<Co
 
 // ─── Mensagens ───────────────────────────────────────────────────────────────
 
+const MSG_COLUMNS_BASE = 'id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at';
+const MSG_COLUMNS_EXTENDED = 'id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at, reply_to_id, edited_at';
+
+let _hasNewColumns: boolean | null = null;
+async function detectColumns(): Promise<boolean> {
+  if (_hasNewColumns !== null) return _hasNewColumns;
+  const { error } = await supabase
+    .from('messages')
+    .select('reply_to_id')
+    .limit(1);
+  _hasNewColumns = !error;
+  return _hasNewColumns;
+}
+
+async function getMsgColumns() {
+  return (await detectColumns()) ? MSG_COLUMNS_EXTENDED : MSG_COLUMNS_BASE;
+}
+
 export async function getMessages(
   conversationId: string,
   limit = 50,
@@ -277,7 +306,7 @@ export async function getMessages(
 ): Promise<Message[]> {
   let query = supabase
     .from('messages')
-    .select('id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at')
+    .select(await getMsgColumns())
     .eq('conversation_id', conversationId)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
@@ -297,28 +326,55 @@ export async function getMessages(
   const senderIds = Array.from(new Set(msgs.map((m: any) => m.sender_id)));
   const profileMap = await fetchProfilesBatch(senderIds);
 
-  return msgs.map((m: any) => ({ ...m, sender: profileMap.get(m.sender_id) })) as Message[];
+  // Resolve reply_to references
+  const replyIds = msgs.map((m: any) => m.reply_to_id).filter(Boolean);
+  let replyMap = new Map<string, Message>();
+  if (replyIds.length > 0) {
+    const { data: replies } = await supabase
+      .from('messages')
+      .select(await getMsgColumns())
+      .in('id', replyIds);
+    const replySenderIds = Array.from(new Set((replies || []).map((r: any) => r.sender_id)));
+    const replyProfileMap = replySenderIds.length > 0
+      ? await fetchProfilesBatch(replySenderIds.filter(id => !profileMap.has(id)))
+      : new Map<string, ChatProfile>();
+    const combinedProfiles = new Map([...profileMap, ...replyProfileMap]);
+    for (const r of replies || []) {
+      replyMap.set(r.id, { ...r, sender: combinedProfiles.get(r.sender_id) } as Message);
+    }
+  }
+
+  return msgs.map((m: any) => ({
+    ...m,
+    sender: profileMap.get(m.sender_id),
+    reply_to: m.reply_to_id ? replyMap.get(m.reply_to_id) || null : null,
+  })) as Message[];
 }
 
 export async function sendMessage(
   conversationId: string,
   content: string,
   type: 'text' | 'image' | 'audio' = 'text',
-  mediaUrl?: string
+  mediaUrl?: string,
+  replyToId?: string
 ): Promise<Message | null> {
   const { data: me } = await supabase.auth.getUser();
   if (!me.user) return null;
 
+  const hasNew = await detectColumns();
+  const insertPayload: Record<string, unknown> = {
+    conversation_id: conversationId,
+    sender_id: me.user.id,
+    content: content || null,
+    type,
+    media_url: mediaUrl || null,
+  };
+  if (hasNew) insertPayload.reply_to_id = replyToId || null;
+
   const { data, error } = await supabase
     .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      sender_id: me.user.id,
-      content: content || null,
-      type,
-      media_url: mediaUrl || null,
-    })
-    .select('id, conversation_id, sender_id, content, type, media_url, created_at, deleted_at')
+    .insert(insertPayload)
+    .select(await getMsgColumns())
     .single();
 
   if (error) {
@@ -332,6 +388,69 @@ export async function sendMessage(
   void notifyOtherMembers(conversationId, me.user.id, content, msg);
 
   return msg;
+}
+
+export async function editMessage(
+  messageId: string,
+  newContent: string
+): Promise<boolean> {
+  const { data: me } = await supabase.auth.getUser();
+  if (!me.user) return false;
+
+  // Get current content for history
+  const { data: current } = await supabase
+    .from('messages')
+    .select('content, sender_id')
+    .eq('id', messageId)
+    .single();
+
+  if (!current || current.sender_id !== me.user.id) return false;
+
+  const hasNew = await detectColumns();
+
+  if (hasNew) {
+    await supabase.from('message_edits').insert({
+      message_id: messageId,
+      old_content: current.content || '',
+      edited_by: me.user.id,
+    });
+  }
+
+  const updatePayload: Record<string, unknown> = { content: newContent };
+  if (hasNew) updatePayload.edited_at = new Date().toISOString();
+
+  const { error } = await supabase
+    .from('messages')
+    .update(updatePayload)
+    .eq('id', messageId)
+    .eq('sender_id', me.user.id);
+
+  return !error;
+}
+
+export async function deleteMessage(messageId: string): Promise<boolean> {
+  const { data: me } = await supabase.auth.getUser();
+  if (!me.user) return false;
+
+  const { error } = await supabase
+    .from('messages')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', messageId)
+    .eq('sender_id', me.user.id);
+
+  return !error;
+}
+
+export async function getMessageEditHistory(messageId: string): Promise<MessageEdit[]> {
+  if (!(await detectColumns())) return [];
+  const { data, error } = await supabase
+    .from('message_edits')
+    .select('*')
+    .eq('message_id', messageId)
+    .order('edited_at', { ascending: false });
+
+  if (error) return [];
+  return (data || []) as MessageEdit[];
 }
 
 async function notifyOtherMembers(

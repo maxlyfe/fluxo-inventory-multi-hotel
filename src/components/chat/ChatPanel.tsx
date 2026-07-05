@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useMessages } from '../../hooks/useChat';
-import { ConversationWithMeta } from '../../lib/chat';
+import { ConversationWithMeta, Message } from '../../lib/chat';
 import GroupMembersModal from './GroupMembersModal';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -21,20 +21,40 @@ function initials(name: string) {
 export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { messages, loading, sendMessage } = useMessages(conversation.id);
+  const { messages, loading, sendMessage, editMessage, deleteMessage } = useMessages(conversation.id);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isGroup = conversation.type === 'group';
   const [showMembers, setShowMembers] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
-  // Zera badge imediatamente ao abrir a conversa
   useEffect(() => {
     onRead?.(conversation.id);
   }, [conversation.id, onRead]);
 
-  // Auto-scroll ao fundo em novas mensagens
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Reset reply/edit when switching conversations
+  useEffect(() => {
+    setReplyingTo(null);
+    setEditingMessage(null);
+  }, [conversation.id]);
+
+  const handleSend = (content: string, replyToId?: string) => {
+    sendMessage(content, replyToId);
+    setReplyingTo(null);
+  };
+
+  const handleEditSubmit = async (messageId: string, newContent: string) => {
+    await editMessage(messageId, newContent);
+    setEditingMessage(null);
+  };
+
+  const handleDelete = async (messageId: string) => {
+    await deleteMessage(messageId);
+  };
 
   const memberCount = conversation.members?.length || 0;
 
@@ -51,7 +71,6 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
           </button>
         )}
 
-        {/* Avatar */}
         {conversation.display_avatar ? (
           <img
             src={conversation.display_avatar}
@@ -75,7 +94,6 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
           )}
         </div>
 
-        {/* Botão de gestão de participantes (só em grupos) */}
         {isGroup && (
           <button
             onClick={() => setShowMembers(true)}
@@ -91,7 +109,7 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
         <GroupMembersModal
           conversation={conversation}
           onClose={() => setShowMembers(false)}
-          onRefresh={() => {/* realtime atualiza automaticamente */}}
+          onRefresh={() => {}}
         />
       )}
 
@@ -121,6 +139,9 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
               isOwn={isOwn}
               showSender={showSender}
               isGroup={isGroup}
+              onReply={setReplyingTo}
+              onEdit={setEditingMessage}
+              onDelete={handleDelete}
             />
           );
         })}
@@ -128,7 +149,14 @@ export default function ChatPanel({ conversation, isMobile, onRead }: ChatPanelP
       </div>
 
       {/* Input */}
-      <MessageInput onSend={sendMessage} />
+      <MessageInput
+        onSend={handleSend}
+        replyingTo={replyingTo}
+        editingMessage={editingMessage}
+        onCancelReply={() => setReplyingTo(null)}
+        onCancelEdit={() => setEditingMessage(null)}
+        onEditSubmit={handleEditSubmit}
+      />
     </div>
   );
 }
