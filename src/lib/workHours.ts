@@ -14,7 +14,8 @@ export async function isUserInWorkHours(userId: string): Promise<boolean> {
     .eq('id', userId)
     .single();
 
-  if (!profile?.notify_work_hours_only) return true; // filtro desativado
+  if (profile?.notify_work_hours_only === false) return true; // filtro explicitamente desativado
+  // Default: filtro ativado (true ou null/undefined)
 
   // 2. Buscar funcionário vinculado
   const { data: employee } = await supabase

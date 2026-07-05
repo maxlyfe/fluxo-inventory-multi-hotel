@@ -60,7 +60,7 @@ export default function Profile() {
   const [showPassword, setShowPassword]       = useState(false);
 
   // Preferência: notificações apenas no horário de trabalho
-  const [notifyWorkHoursOnly, setNotifyWorkHoursOnly] = useState(false);
+  const [notifyWorkHoursOnly, setNotifyWorkHoursOnly] = useState(true);
   const [savingNotifyPref, setSavingNotifyPref]       = useState(false);
   const [todayShift, setTodayShift]                   = useState<{ shift_start: string; shift_end: string } | null>(null);
 
@@ -81,7 +81,7 @@ export default function Profile() {
       .select('notify_work_hours_only')
       .eq('id', user.id)
       .single();
-    if (data) setNotifyWorkHoursOnly(data.notify_work_hours_only ?? false);
+    if (data) setNotifyWorkHoursOnly(data.notify_work_hours_only ?? true);
   }
 
   async function checkEmployeeLink() {
