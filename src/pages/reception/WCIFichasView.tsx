@@ -4,12 +4,13 @@ import {
   ClipboardCheck, ChevronDown, ChevronUp, Search, X,
   FileImage, Check, AlertCircle, Loader2, User, Users,
   MapPin, Car, Briefcase, Globe, CalendarDays, FileText, Shield,
-  Copy, ExternalLink, Lock, Unlock,
+  Copy, ExternalLink, Lock, Unlock, Printer,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
+import FNRHPrintModal from './FNRHPrintModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -423,14 +424,16 @@ function groupByBooking(fichas: Ficha[]): ReservaGroup[] {
 
 interface ReservaGroupRowProps {
   group: ReservaGroup;
+  hotelId: string;
   isLocked: boolean;
   togglingLock: boolean;
   onToggleLock: (bookingNumber: string, currentlyLocked: boolean) => void;
 }
 
-function ReservaGroupRow({ group, isLocked, togglingLock, onToggleLock }: ReservaGroupRowProps) {
+function ReservaGroupRow({ group, hotelId, isLocked, togglingLock, onToggleLock }: ReservaGroupRowProps) {
   const [expanded, setExpanded]     = useState(false);
   const [expandedFicha, setExpandedFicha] = useState<string | null>(null);
+  const [fnrhModalOpen, setFnrhModalOpen] = useState(false);
 
   // Todos os hóspedes de todas as fichas desta reserva
   const allGuests = group.fichas.flatMap(f => f.wci_checkin_guests);
@@ -503,6 +506,21 @@ function ReservaGroupRow({ group, isLocked, togglingLock, onToggleLock }: Reserv
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Apt {mainFicha.room_number}
             </span>
+          )}
+
+          {/* FNRH print button */}
+          {allGuests.length > 0 && (
+            <button
+              type="button"
+              title="Emitir FNRH"
+              onClick={e => {
+                e.stopPropagation();
+                setFnrhModalOpen(true);
+              }}
+              className="ml-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border border-teal-300 dark:border-teal-700/60 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-all active:scale-95 cursor-pointer"
+            >
+              <Printer className="w-3 h-3" /> FNRH
+            </button>
           )}
 
           {/* Lock toggle — only for real booking numbers */}
@@ -608,6 +626,20 @@ function ReservaGroupRow({ group, isLocked, togglingLock, onToggleLock }: Reserv
           )}
         </div>
       )}
+
+      {/* FNRH Print Modal */}
+      <FNRHPrintModal
+        open={fnrhModalOpen}
+        onClose={() => setFnrhModalOpen(false)}
+        hotelId={hotelId}
+        bookingNumber={group.bookingNumber}
+        roomNumber={mainFicha?.room_number || null}
+        checkinDate={mainFicha?.checkin_date || null}
+        checkoutDate={mainFicha?.checkout_date || null}
+        guestCount={allGuests.length}
+        guests={allGuests}
+        signatureData={mainFicha?.signature_data || null}
+      />
     </div>
   );
 }
@@ -790,6 +822,7 @@ export default function WCIFichasView() {
             <ReservaGroupRow
               key={g.bookingNumber}
               group={g}
+              hotelId={selectedHotel!.id}
               isLocked={lockedBookings.has(g.bookingNumber)}
               togglingLock={togglingLock === g.bookingNumber}
               onToggleLock={handleToggleLock}
