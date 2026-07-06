@@ -628,18 +628,28 @@ function ReservaGroupRow({ group, hotelId, isLocked, togglingLock, onToggleLock 
       )}
 
       {/* FNRH Print Modal */}
-      <FNRHPrintModal
-        open={fnrhModalOpen}
-        onClose={() => setFnrhModalOpen(false)}
-        hotelId={hotelId}
-        bookingNumber={group.bookingNumber}
-        roomNumber={mainFicha?.room_number || null}
-        checkinDate={mainFicha?.checkin_date || null}
-        checkoutDate={mainFicha?.checkout_date || null}
-        guestCount={allGuests.length}
-        guests={allGuests}
-        signatureData={mainFicha?.signature_data || null}
-      />
+      {fnrhModalOpen && (() => {
+        const sigMap: Record<string, string | null> = {};
+        for (const f of group.fichas) {
+          for (const g of f.wci_checkin_guests) {
+            sigMap[g.id] = f.signature_data;
+          }
+        }
+        return (
+          <FNRHPrintModal
+            open
+            onClose={() => setFnrhModalOpen(false)}
+            hotelId={hotelId}
+            bookingNumber={group.bookingNumber}
+            roomNumber={mainFicha?.room_number || null}
+            checkinDate={mainFicha?.checkin_date || null}
+            checkoutDate={mainFicha?.checkout_date || null}
+            guestCount={allGuests.length}
+            guests={allGuests}
+            guestSignatures={sigMap}
+          />
+        );
+      })()}
     </div>
   );
 }

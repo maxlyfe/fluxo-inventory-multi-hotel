@@ -55,7 +55,7 @@ interface FNRHPrintModalProps {
   checkoutDate: string | null;
   guestCount: number;
   guests: FNRHGuest[];
-  signatureData: string | null;
+  guestSignatures: Record<string, string | null>;
 }
 
 // ── Label maps ───────────────────────────────────────────────────────────────
@@ -414,7 +414,7 @@ function printFNRH(htmlPages: string[]) {
 
 export default function FNRHPrintModal({
   open, onClose, hotelId, bookingNumber, roomNumber,
-  checkinDate, checkoutDate, guestCount, guests, signatureData,
+  checkinDate, checkoutDate, guestCount, guests, guestSignatures,
 }: FNRHPrintModalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hotelInfo, setHotelInfo] = useState<HotelInfo | null>(null);
@@ -491,7 +491,7 @@ export default function FNRHPrintModal({
         checkinDate,
         checkoutDate,
         guestCount,
-        signatureData,
+        signatureData: guestSignatures[guest.id] || null,
       })
     );
     printFNRH(pages);
