@@ -12,7 +12,7 @@ import {
   Building2, Download, Check, RefreshCw, Zap, X, Image, Camera, Copy, CheckCheck, Link2, Pencil,
   Trash2, ChevronDown, ChevronUp, Settings2, ArrowUp, ArrowDown, Plus, Lock, Unlock,
 } from 'lucide-react';
-import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay } from 'date-fns';
+import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay, parseISO, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNotification } from '../../context/NotificationContext';
 
@@ -62,6 +62,7 @@ interface OccurrenceType {
   entry_type_key: string | null; // mapeia ao comportamento especial (meia_dobra→time picker, transfer→hotel+time)
   has_rest?: boolean;            // ao atribuir, pede horário de descanso
   asks_shift_time?: boolean;     // ao atribuir, pede horário de trabalho
+  is_recurring?: boolean;        // ao atribuir, pergunta "até quando" e preenche o intervalo
   rest_start?: string | null;    // (legado — horário é por atribuição)
   rest_end?: string | null;
 }
@@ -90,8 +91,8 @@ const DEFAULT_OCCURRENCE_SEEDS: Omit<OccurrenceType, 'id' | 'hotel_id'>[] = [
   { entry_type_key: 'meia_dobra', name: 'MEIA DOBRA',    slug: 'meia_dobra', color: 'amber',  causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 3 },
   { entry_type_key: 'transfer',   name: 'Outra unidade', slug: 'transfer',   color: 'violet', causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 4 },
   { entry_type_key: 'curso',      name: 'CURSO',         slug: 'curso',      color: 'purple', causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 5 },
-  { entry_type_key: 'inss',       name: 'INSS',          slug: 'inss',       color: 'gray',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 6 },
-  { entry_type_key: 'ferias',     name: 'FÉRIAS',        slug: 'ferias',     color: 'cyan',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 7 },
+  { entry_type_key: 'inss',       name: 'INSS',          slug: 'inss',       color: 'gray',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 6, is_recurring: true },
+  { entry_type_key: 'ferias',     name: 'FÉRIAS',        slug: 'ferias',     color: 'cyan',   causes_basket_loss: false, loss_threshold: 1, is_system: true,  sort_order: 7, is_recurring: true },
   { entry_type_key: 'falta',      name: 'FALTA',         slug: 'falta',      color: 'red',    causes_basket_loss: true,  loss_threshold: 1, is_system: true,  sort_order: 8 },
   { entry_type_key: 'atestado',   name: 'ATESTADO',      slug: 'atestado',   color: 'orange', causes_basket_loss: true,  loss_threshold: 4, is_system: true,  sort_order: 9 },
 ];
@@ -244,11 +245,13 @@ interface CellEditorProps {
   defaultRestStart?: string | null;   // descanso padrão do colaborador
   defaultRestEnd?: string | null;
   onSave: (e: Partial<ScheduleEntry>) => Promise<void>;
+  /** Preenche o mesmo tipo em todos os dias de day_date até untilDate (inclusive) */
+  onSaveRange: (e: Partial<ScheduleEntry>, untilDate: string) => Promise<void>;
   onClose: () => void;
   onOccurrenceTypesChanged: (types: OccurrenceType[]) => void;
 }
 
-function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, hotelId, defaultRestStart, defaultRestEnd, onSave, onClose, onOccurrenceTypesChanged }: CellEditorProps) {
+function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, occurrenceTypes, hotelId, defaultRestStart, defaultRestEnd, onSave, onSaveRange, onClose, onOccurrenceTypesChanged }: CellEditorProps) {
   // ── Derive initial selection from entry ──
   const getInitialSelection = (): CellSelection => {
     if (!entry || entry.entry_type === 'empty') return { kind: 'empty' };
@@ -270,6 +273,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
   const [transferSector, setTransferSector] = useState(entry?.transfer_sector || '');
   const [destSectors, setDestSectors] = useState<string[]>([]);
+  // Tipo recorrente: "até quando" — padrão o próprio dia (preenche 1 dia só)
+  const [untilDate, setUntilDate] = useState(dayDate);
   const [saving, setSaving]      = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -289,6 +294,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [newOccThreshold, setNewOccThreshold] = useState(1);
   const [newOccHasRest, setNewOccHasRest] = useState(false);
   const [newOccAsksTime, setNewOccAsksTime] = useState(false);
+  const [newOccRecurring, setNewOccRecurring] = useState(false);
   const [creatingOcc, setCreatingOcc] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -296,6 +302,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [editThreshold, setEditThreshold] = useState(1);
   const [editHasRest, setEditHasRest] = useState(false);
   const [editAsksTime, setEditAsksTime] = useState(false);
+  const [editRecurring, setEditRecurring] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const ref = useRef<HTMLDivElement>(null);
@@ -317,6 +324,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const wantsRest = selection.kind === 'shift'
     || (selection.kind === 'occurrence' && !!selection.ot.has_rest);
   const needsHotelSelector = selectedKey === 'transfer';
+  const isRecurring = selection.kind === 'occurrence' && !!selection.ot.is_recurring;
 
   // Setores do hotel DESTINO (derivados dos colaboradores ativos de lá)
   useEffect(() => {
@@ -352,6 +360,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       loss_threshold: newOccCausesLoss ? newOccThreshold : 1,
       has_rest: newOccHasRest,
       asks_shift_time: newOccAsksTime,
+      is_recurring: newOccRecurring,
       is_system: false,
       sort_order: occurrenceTypes.length + 1,
       entry_type_key: null,
@@ -366,6 +375,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       setNewOccThreshold(1);
       setNewOccHasRest(false);
       setNewOccAsksTime(false);
+      setNewOccRecurring(false);
     }
     setCreatingOcc(false);
   };
@@ -377,6 +387,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     setEditThreshold(ot.loss_threshold);
     setEditHasRest(!!ot.has_rest);
     setEditAsksTime(!!ot.asks_shift_time);
+    setEditRecurring(!!ot.is_recurring);
   };
 
   const cancelEditing = () => { setEditingId(null); };
@@ -387,7 +398,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     const slug = editName.trim().toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-    const flagsPayload = { has_rest: editHasRest, asks_shift_time: editAsksTime };
+    const flagsPayload = { has_rest: editHasRest, asks_shift_time: editAsksTime, is_recurring: editRecurring };
     await supabase.from('occurrence_types').update({
       name: editName.trim(),
       slug,
@@ -460,7 +471,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
       const ot = selection.ot;
       const key = ot.entry_type_key;
       const entryType = key || 'custom';
-      await onSave({
+      const base: Partial<ScheduleEntry> = {
         employee_id: employeeId, day_date: dayDate, sector, schedule_id: scheduleId,
         entry_type: entryType,
         shift_start: wantsTime ? (start || null) : null,
@@ -470,7 +481,12 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
         transfer_sector: key === 'transfer' ? (transferSector || null) : null,
         occurrence_type_id: ot.id,
-      });
+      };
+      if (isRecurring && untilDate && untilDate > dayDate) {
+        await onSaveRange(base, untilDate);
+      } else {
+        await onSave(base);
+      }
     }
     setSaving(false);
     onClose();
@@ -554,6 +570,21 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                 className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
             </div>
             <p className="text-[10px] text-gray-400">Deixe em branco se não houver descanso.</p>
+          </div>
+        )}
+
+        {/* ── Tipo recorrente: até quando (padrão = o próprio dia) ── */}
+        {isRecurring && (
+          <div className="rounded-xl border border-cyan-100 dark:border-cyan-900/40 p-2 space-y-1.5">
+            <p className="text-[11px] font-semibold text-cyan-600 dark:text-cyan-400">Repetir até (inclusive)</p>
+            <input type="date" value={untilDate} min={dayDate}
+              onChange={e => setUntilDate(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+            <p className="text-[10px] text-gray-400">
+              {untilDate && untilDate > dayDate
+                ? 'Todos os dias até esta data serão preenchidos de uma vez.'
+                : 'Mantendo o mesmo dia, preenche apenas 1 dia.'}
+            </p>
           </div>
         )}
 
@@ -650,6 +681,11 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                                 className="w-3.5 h-3.5 rounded border-gray-300 text-amber-500 focus:ring-amber-400" />
                               <span className="text-[11px] text-gray-600 dark:text-gray-300">Tem descanso</span>
                             </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="checkbox" checked={editRecurring} onChange={e => setEditRecurring(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded border-gray-300 text-cyan-500 focus:ring-cyan-400" />
+                              <span className="text-[11px] text-gray-600 dark:text-gray-300">É recorrente (pergunta "até quando")</span>
+                            </label>
                           </div>
                           <div className="flex gap-1.5">
                             <button onClick={cancelEditing}
@@ -737,6 +773,11 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
                         <input type="checkbox" checked={newOccHasRest} onChange={e => setNewOccHasRest(e.target.checked)}
                           className="w-3.5 h-3.5 rounded border-gray-300 text-amber-500 focus:ring-amber-400" />
                         <span className="text-[11px] text-gray-600 dark:text-gray-300">Tem descanso</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={newOccRecurring} onChange={e => setNewOccRecurring(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-cyan-500 focus:ring-cyan-400" />
+                        <span className="text-[11px] text-gray-600 dark:text-gray-300">É recorrente (pergunta "até quando")</span>
                       </label>
                     </div>
                     <button onClick={handleCreateOccurrenceType} disabled={creatingOcc || !newOccName.trim()}
@@ -1644,6 +1685,84 @@ export default function DPSchedule() {
     }
   };
 
+  // Preenche um tipo recorrente (ex.: Férias) do dia inicial até untilDate,
+  // inclusive atravessando semanas — cria a escala das semanas futuras se preciso.
+  const saveEntryRange = async (base: Partial<ScheduleEntry>, untilDate: string) => {
+    if (!schedule || isSaving || !hotelId) return;
+    setIsSaving(true);
+    try {
+      const startDate = parseISO(base.day_date!);
+      const endDate   = parseISO(untilDate);
+      const totalDays = differenceInCalendarDays(endDate, startDate) + 1;
+      if (totalDays < 1) return;
+
+      // Agrupa as datas pela semana (domingo) a que pertencem.
+      // A grade exibe 8 colunas (DOM→DOM): um domingo é coluna 8 da semana
+      // anterior E coluna 1 da seguinte — grava nas duas escalas.
+      const visibleWeekStr = format(weekStart, 'yyyy-MM-dd');
+      const byWeek = new Map<string, string[]>();
+      const push = (wk: string, ds: string) => {
+        if (!byWeek.has(wk)) byWeek.set(wk, []);
+        byWeek.get(wk)!.push(ds);
+      };
+      for (let i = 0; i < totalDays; i++) {
+        const d  = addDays(startDate, i);
+        const ds = format(d, 'yyyy-MM-dd');
+        const wk = format(getWeekSunday(d), 'yyyy-MM-dd');
+        push(wk, ds);
+        if (d.getDay() === 0) {
+          const prevWk = format(subWeeks(d, 1), 'yyyy-MM-dd');
+          if (byWeek.has(prevWk) || prevWk === visibleWeekStr) push(prevWk, ds);
+        }
+      }
+
+      for (const [weekStr, dates] of byWeek) {
+        // Garante que existe uma escala para a semana
+        let scheduleId: string;
+        if (weekStr === format(weekStart, 'yyyy-MM-dd')) {
+          scheduleId = schedule.id;
+        } else {
+          const { data: existing } = await supabase
+            .from('schedules').select('id').eq('hotel_id', hotelId).eq('week_start', weekStr).maybeSingle();
+          if (existing) {
+            scheduleId = existing.id;
+          } else {
+            const { data: created, error: ce } = await supabase
+              .from('schedules').insert({ hotel_id: hotelId, week_start: weekStr, created_by: user?.id })
+              .select('id').single();
+            if (ce) throw ce;
+            scheduleId = created!.id;
+          }
+        }
+
+        const rows = dates.map(d => ({
+          ...base,
+          day_date: d,
+          schedule_id: scheduleId,
+          updated_by: user?.id,
+        }));
+        const { data, error } = await supabase.from('schedule_entries')
+          .upsert(rows, { onConflict: 'schedule_id,employee_id,day_date' })
+          .select();
+        if (error) throw error;
+
+        // Atualiza o estado local apenas para a semana visível
+        if (scheduleId === schedule.id && data) {
+          setEntries(prev => [
+            ...prev.filter(e => !(e.employee_id === base.employee_id && dates.includes(e.day_date))),
+            ...(data as ScheduleEntry[]),
+          ]);
+        }
+      }
+      addNotification('success', `${totalDays} dia${totalDays > 1 ? 's' : ''} preenchido${totalDays > 1 ? 's' : ''} até ${format(endDate, 'dd/MM/yyyy')}.`);
+    } catch (e) {
+      console.error('Erro ao preencher intervalo:', e);
+      addNotification('error', 'Erro ao preencher o intervalo. Tente novamente.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const saveTransferEntry = async (entryId: string, start: string, end: string, sector: string | null) => {
     const { data } = await supabase
       .from('schedule_entries')
@@ -1877,7 +1996,7 @@ export default function DPSchedule() {
           occurrenceTypes={occurrenceTypes} hotelId={hotelId}
           defaultRestStart={employees.find(e => e.id === cellEditor.empId)?.default_rest_start}
           defaultRestEnd={employees.find(e => e.id === cellEditor.empId)?.default_rest_end}
-          onSave={saveEntry} onClose={() => setCellEditor(null)}
+          onSave={saveEntry} onSaveRange={saveEntryRange} onClose={() => setCellEditor(null)}
           onOccurrenceTypesChanged={setOccurrenceTypes}
         />
       )}
