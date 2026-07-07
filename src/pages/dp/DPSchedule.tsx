@@ -43,6 +43,7 @@ interface ScheduleEntry {
   rest_end: string | null;     // descanso — fim
   custom_label: string | null;
   transfer_hotel_id: string | null;
+  transfer_sector: string | null;   // setor do hotel DESTINO onde o colaborador vai atuar
   occurrence_type_id: string | null;
 }
 
@@ -267,6 +268,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [start, setStart]        = useState(entry?.shift_start?.slice(0, 5) || '');
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
+  const [transferSector, setTransferSector] = useState(entry?.transfer_sector || '');
+  const [destSectors, setDestSectors] = useState<string[]>([]);
   const [saving, setSaving]      = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -314,6 +317,23 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const wantsRest = selection.kind === 'shift'
     || (selection.kind === 'occurrence' && !!selection.ot.has_rest);
   const needsHotelSelector = selectedKey === 'transfer';
+
+  // Setores do hotel DESTINO (derivados dos colaboradores ativos de lá)
+  useEffect(() => {
+    if (!needsHotelSelector || !transferHotel) { setDestSectors([]); return; }
+    let alive = true;
+    supabase.from('employees')
+      .select('sector')
+      .eq('hotel_id', transferHotel)
+      .eq('status', 'active')
+      .then(({ data }) => {
+        if (!alive) return;
+        const uniq = [...new Set((data || []).map((r: any) => r.sector).filter(Boolean))] as string[];
+        uniq.sort((a, b) => SECTORS_ORDER.indexOf(a) - SECTORS_ORDER.indexOf(b));
+        setDestSectors(uniq.length > 0 ? uniq : SECTORS_ORDER);
+      });
+    return () => { alive = false; };
+  }, [needsHotelSelector, transferHotel]);
 
   // ── Handlers ──
   const handleCreateOccurrenceType = async () => {
@@ -426,7 +446,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         entry_type: 'shift',
         shift_start: start || null, shift_end: end || null,
         rest_start: rs, rest_end: re,
-        custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
+        custom_label: null, transfer_hotel_id: null, transfer_sector: null, occurrence_type_id: null,
       });
     } else if (selection.kind === 'empty') {
       await onSave({
@@ -434,7 +454,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         entry_type: 'empty',
         shift_start: null, shift_end: null,
         rest_start: null, rest_end: null,
-        custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
+        custom_label: null, transfer_hotel_id: null, transfer_sector: null, occurrence_type_id: null,
       });
     } else {
       const ot = selection.ot;
@@ -448,6 +468,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         rest_start: rs, rest_end: re,
         custom_label: !key ? ot.name : null,
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
+        transfer_sector: key === 'transfer' ? (transferSector || null) : null,
         occurrence_type_id: ot.id,
       });
     }
@@ -456,7 +477,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   };
 
   const canSave = (selection.kind !== 'occurrence' || !!selection.ot)
-    && (!needsHotelSelector || !!transferHotel);
+    && (!needsHotelSelector || (!!transferHotel && !!transferSector));
 
   const maxH = window.innerHeight - 24;
   const style: React.CSSProperties = {
@@ -538,8 +559,9 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
 
         {/* ── Campo: hotel de transferência ── */}
         {needsHotelSelector && (
-          <div>
-            <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
+          <div className="space-y-1.5">
+            <select value={transferHotel}
+              onChange={e => { setTransferHotel(e.target.value); setTransferSector(''); }}
               className={`w-full px-3 py-1.5 text-xs border rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400 appearance-none ${
                 !transferHotel
                   ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300'
@@ -552,6 +574,25 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
               <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 ml-1">
                 Obrigatório para registrar a transferência
               </p>
+            )}
+            {/* Setor do hotel destino onde o colaborador vai atuar */}
+            {transferHotel && (
+              <>
+                <select value={transferSector} onChange={e => setTransferSector(e.target.value)}
+                  className={`w-full px-3 py-1.5 text-xs border rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400 appearance-none ${
+                    !transferSector
+                      ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300'
+                      : 'border-gray-200 dark:border-gray-600'
+                  }`}>
+                  <option value="">⚠ Setor no hotel destino...</option>
+                  {destSectors.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                {!transferSector && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 ml-1">
+                    Em qual setor do destino o colaborador vai atuar
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -972,15 +1013,63 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
   const toggleSector = (s: string) =>
     setSelectedSectors(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
 
+  // Visitantes agrupados pelo setor onde vão atuar neste hotel (transfer_sector)
+  const visitorSectorOf = (empId: string): string | null =>
+    transferEntries.find(e => e.employee_id === empId && e.transfer_sector)?.transfer_sector || null;
+  const visitorsBySector: Record<string, Employee[]> = {};
+  for (const emp of transferredEmployees) {
+    const s = visitorSectorOf(emp.id);
+    if (s) (visitorsBySector[s] ||= []).push(emp);
+  }
+  const unassignedVisitors = transferredEmployees.filter(e => !visitorSectorOf(e.id));
+
   // Employees filtered by selected sectors
   const filteredEmps = employees.filter(e => selectedSectors.includes(e.sector));
   const sectorGroups = sectors
     .filter(s => selectedSectors.includes(s))
     .map(s => ({ sector: s, emps: filteredEmps.filter(e => e.sector === s) }))
-    .filter(g => g.emps.length > 0);
+    .filter(g => g.emps.length > 0 || (showVisitors && (visitorsBySector[g.sector]?.length ?? 0) > 0));
 
   const getEntry = (empId: string, day: string) =>
     entries.find(e => e.employee_id === empId && e.day_date === day) || null;
+
+  // Linha de visitante na imagem (dentro do setor ou no bloco "De outra unidade")
+  const renderVisitorImageRow = (emp: Employee, ei: number) => (
+    <tr key={`visitor-${emp.id}`} style={{ background: ei % 2 === 0 ? '#faf5ff' : '#f3e8ff', borderBottom: '2px solid #ddd6fe' }}>
+      <td style={{ padding: '5px 10px', fontWeight: 600, fontSize: 10, color: '#4c1d95', borderRight: '1px solid #e5e7eb' }}>
+        {emp.name.split(' ').slice(0, 2).join(' ')}
+        <div style={{ fontSize: 8, fontWeight: 'normal', color: '#7c3aed', opacity: 0.8 }}>↗ {emp.sector}</div>
+      </td>
+      {weekDays.map((day, di) => {
+        const dayStr  = format(day, 'yyyy-MM-dd');
+        const txEntry = transferEntries.find(e => e.employee_id === emp.id && e.day_date === dayStr);
+        const hasTime = txEntry?.shift_start && txEntry?.shift_end;
+        const isSun   = di === 0 || di === 7;
+        return (
+          <td key={di} style={{
+            padding: '2px', textAlign: 'center', fontSize: 10, fontWeight: 600,
+            verticalAlign: 'middle',
+            background: txEntry ? '#c4b5fd' : (isSun ? '#f5f3ff' : 'transparent'),
+            color: txEntry ? '#4c1d95' : '#d1d5db',
+            borderRight: '1px solid #f3f4f6',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 34, gap: 1 }}>
+              {txEntry ? (
+                <>
+                  <div style={{ lineHeight: 1.3 }}>Visita</div>
+                  {hasTime && (
+                    <div style={{ fontSize: 8, opacity: 0.85, lineHeight: 1.2 }}>
+                      {txEntry.shift_start!.slice(0, 5)} – {txEntry.shift_end!.slice(0, 5)}
+                    </div>
+                  )}
+                </>
+              ) : '·'}
+            </div>
+          </td>
+        );
+      })}
+    </tr>
+  );
 
   const handleExport = async () => {
     if (!tableRef.current) return;
@@ -1209,11 +1298,13 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                           })}
                         </tr>
                       ))}
+                      {/* Visitantes que vão atuar neste setor */}
+                      {showVisitors && (visitorsBySector[sector] || []).map((vEmp, vi) => renderVisitorImageRow(vEmp, emps.length + vi))}
                     </React.Fragment>
                   ))}
 
-                  {/* ── De outra unidade na imagem ── */}
-                  {showVisitors && transferredEmployees.length > 0 && (
+                  {/* ── De outra unidade na imagem (sem setor definido) ── */}
+                  {showVisitors && unassignedVisitors.length > 0 && (
                     <React.Fragment>
                       <tr style={{ background: '#6d28d9', color: 'white' }}>
                         <td style={{ padding: '5px 10px', fontWeight: 900, fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'white' }}>
@@ -1232,42 +1323,7 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
                           </td>
                         ))}
                       </tr>
-                      {transferredEmployees.map((emp, ei) => (
-                        <tr key={emp.id} style={{ background: ei % 2 === 0 ? '#faf5ff' : '#f3e8ff', borderBottom: '2px solid #ddd6fe' }}>
-                          <td style={{ padding: '5px 10px', fontWeight: 600, fontSize: 10, color: '#4c1d95', borderRight: '1px solid #e5e7eb' }}>
-                            {emp.name.split(' ').slice(0, 2).join(' ')}
-                            <div style={{ fontSize: 8, fontWeight: 'normal', color: '#7c3aed', opacity: 0.8 }}>↗ {emp.sector}</div>
-                          </td>
-                          {weekDays.map((day, di) => {
-                            const dayStr  = format(day, 'yyyy-MM-dd');
-                            const txEntry = transferEntries.find(e => e.employee_id === emp.id && e.day_date === dayStr);
-                            const hasTime = txEntry?.shift_start && txEntry?.shift_end;
-                            const isSun   = di === 0 || di === 7;
-                            return (
-                              <td key={di} style={{
-                                padding: '2px', textAlign: 'center', fontSize: 10, fontWeight: 600,
-                                verticalAlign: 'middle',
-                                background: txEntry ? '#c4b5fd' : (isSun ? '#f5f3ff' : 'transparent'),
-                                color: txEntry ? '#4c1d95' : '#d1d5db',
-                                borderRight: '1px solid #f3f4f6',
-                              }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 34, gap: 1 }}>
-                                  {txEntry ? (
-                                    <>
-                                      <div style={{ lineHeight: 1.3 }}>Visita</div>
-                                      {hasTime && (
-                                        <div style={{ fontSize: 8, opacity: 0.85, lineHeight: 1.2 }}>
-                                          {txEntry.shift_start!.slice(0, 5)} – {txEntry.shift_end!.slice(0, 5)}
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : '·'}
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                      {unassignedVisitors.map((emp, ei) => renderVisitorImageRow(emp, ei))}
                     </React.Fragment>
                   )}
                 </tbody>
@@ -1319,13 +1375,15 @@ interface TransferCellEditorProps {
   entry: ScheduleEntry;
   employee: Employee;
   hotels: Hotel[];
-  onSave: (entryId: string, start: string, end: string) => Promise<void>;
+  destSectors: string[];   // setores DESTE hotel (destino) para posicionar o visitante
+  onSave: (entryId: string, start: string, end: string, sector: string | null) => Promise<void>;
   onClose: () => void;
 }
 
-function TransferCellEditor({ entry, employee, hotels, onSave, onClose }: TransferCellEditorProps) {
+function TransferCellEditor({ entry, employee, hotels, destSectors, onSave, onClose }: TransferCellEditorProps) {
   const [start, setStart]   = useState(entry.shift_start?.slice(0, 5) || '');
   const [end, setEnd]       = useState(entry.shift_end?.slice(0, 5) || '');
+  const [sector, setSector] = useState(entry.transfer_sector || '');
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -1342,7 +1400,7 @@ function TransferCellEditor({ entry, employee, hotels, onSave, onClose }: Transf
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave(entry.id!, start, end);
+    await onSave(entry.id!, start, end, sector || null);
     setSaving(false);
     onClose();
   };
@@ -1362,6 +1420,15 @@ function TransferCellEditor({ entry, employee, hotels, onSave, onClose }: Transf
         </p>
         <p className="text-sm font-semibold text-gray-900 dark:text-white">{employee.name}</p>
         <p className="text-xs text-gray-400">{employee.sector}</p>
+      </div>
+      {/* Setor onde vai atuar nesta unidade */}
+      <div>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Setor nesta unidade</p>
+        <select value={sector} onChange={e => setSector(e.target.value)}
+          className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-400 appearance-none">
+          <option value="">Sem setor definido</option>
+          {destSectors.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
       {/* Time picker */}
       <div className="flex gap-2 items-center">
@@ -1563,10 +1630,10 @@ export default function DPSchedule() {
     }
   };
 
-  const saveTransferEntry = async (entryId: string, start: string, end: string) => {
+  const saveTransferEntry = async (entryId: string, start: string, end: string, sector: string | null) => {
     const { data } = await supabase
       .from('schedule_entries')
-      .update({ shift_start: start || null, shift_end: end || null, updated_by: user?.id })
+      .update({ shift_start: start || null, shift_end: end || null, transfer_sector: sector, updated_by: user?.id })
       .eq('id', entryId)
       .select()
       .single();
@@ -1692,6 +1759,91 @@ export default function DPSchedule() {
       .filter(g => g.emps.length > 0);
   }, [employees, entries]);
 
+  // ── Visitantes agrupados pelo setor onde vão atuar NESTE hotel ────────────
+  // (transfer_sector definido na origem ao transferir, ou ajustado aqui)
+  const visitorSectorOf = useCallback((empId: string): string | null =>
+    transferEntries.find(e => e.employee_id === empId && e.transfer_sector)?.transfer_sector || null,
+  [transferEntries]);
+
+  const visitorsBySector = useMemo(() => {
+    const map: Record<string, Employee[]> = {};
+    for (const emp of transferredEmployees) {
+      const s = visitorSectorOf(emp.id);
+      if (s) (map[s] ||= []).push(emp);
+    }
+    return map;
+  }, [transferredEmployees, visitorSectorOf]);
+
+  // Sem setor definido (legado) → continuam no bloco "De outra unidade"
+  const unassignedVisitors = useMemo(
+    () => transferredEmployees.filter(e => !visitorSectorOf(e.id)),
+    [transferredEmployees, visitorSectorOf],
+  );
+
+  // Setores que só têm visitantes (nenhum colaborador próprio) também viram bloco
+  const displaySectorGroups = useMemo(() => {
+    const groups = [...sectorGroups];
+    for (const s of Object.keys(visitorsBySector)) {
+      if (!groups.some(g => g.sector === s)) groups.push({ sector: s, emps: [] });
+    }
+    return groups.sort((a, b) => SECTORS_ORDER.indexOf(a.sector) - SECTORS_ORDER.indexOf(b.sector));
+  }, [sectorGroups, visitorsBySector]);
+
+  // Linha de colaborador visitante (de outra unidade) — usada dentro do bloco
+  // do setor onde vai atuar e no bloco "De outra unidade" (sem setor definido)
+  const renderVisitorRow = (emp: Employee, ei: number) => (
+    <tr key={`visitor-${emp.id}`}
+      className={`border-b border-violet-100 dark:border-violet-900/40 ${
+        ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-violet-50/30 dark:bg-violet-900/10'
+      }`}>
+      {/* Nome */}
+      <td className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-violet-100 dark:border-violet-900/40">
+        <div className="flex items-center gap-1">
+          <span className="font-semibold text-xs text-gray-800 dark:text-gray-100 whitespace-nowrap">
+            {emp.name.split(' ')[0]}&nbsp;
+            <span className="text-gray-400 font-normal">
+              {emp.name.split(' ').slice(1, 2).join('')?.charAt(0) || ''}.
+            </span>
+          </span>
+        </div>
+        <span className="text-[10px] text-violet-500 dark:text-violet-400">↗ {emp.sector}</span>
+      </td>
+      {/* Células */}
+      {weekDays.map((day, di) => {
+        const dayStr  = format(day, 'yyyy-MM-dd');
+        const txEntry = transferEntries.find(e => e.employee_id === emp.id && e.day_date === dayStr);
+        const isSun   = di === 0 || di === 7;
+        const hasTime = txEntry?.shift_start && txEntry?.shift_end;
+        return (
+          <td key={di}
+            onClick={() => { if (!isLocked && txEntry) setTransferCellEditor({ entry: txEntry, employee: emp }); }}
+            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : txEntry ? 'Definir horário/setor do colaborador visitante' : undefined}
+            className={`px-1 py-2 text-center transition-all
+              ${txEntry && !isLocked ? 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-violet-400' : ''}
+              ${isLocked ? 'cursor-not-allowed' : ''}
+              ${isSun ? 'bg-gray-50/60 dark:bg-gray-900/20' : ''}
+              bg-violet-50/50 dark:bg-violet-900/10
+            `}>
+            {txEntry ? (
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-[10px] font-bold text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-900/40 px-1.5 py-0.5 rounded-full leading-tight">
+                  Visita
+                </span>
+                {hasTime && (
+                  <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-tight">
+                    {txEntry.shift_start!.slice(0, 5)} – {txEntry.shift_end!.slice(0, 5)}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="text-gray-200 dark:text-gray-700 text-[11px]">·</span>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+
   // ---------------------------------------------------------------------------
   if (loading) return (
     <div className="flex items-center justify-center py-20">
@@ -1727,6 +1879,7 @@ export default function DPSchedule() {
           entry={transferCellEditor.entry}
           employee={transferCellEditor.employee}
           hotels={hotels}
+          destSectors={[...new Set([...activeSectors, ...SECTORS_ORDER])]}
           onSave={saveTransferEntry}
           onClose={() => setTransferCellEditor(null)}
         />
@@ -1863,7 +2016,7 @@ export default function DPSchedule() {
               </tr>
             </thead>
             <tbody>
-              {sectorGroups.map(({ sector, emps }) => (
+              {displaySectorGroups.map(({ sector, emps }) => (
                 <React.Fragment key={sector}>
                   <tr className="bg-gray-100 dark:bg-gray-700 group/sector">
                     <td colSpan={9} className="px-4 py-2 text-xs font-black text-gray-700 dark:text-gray-200 uppercase tracking-widest sticky left-0 bg-gray-100 dark:bg-gray-700">
@@ -1946,69 +2099,20 @@ export default function DPSchedule() {
                       })}
                     </tr>
                   ))}
+                  {/* Visitantes que vão atuar NESTE setor */}
+                  {(visitorsBySector[sector] || []).map((vEmp, vi) => renderVisitorRow(vEmp, emps.length + vi))}
                 </React.Fragment>
               ))}
 
-              {/* ── De outra unidade: colaboradores transferidos de outros hotéis ── */}
-              {transferredEmployees.length > 0 && (
+              {/* ── De outra unidade: visitantes sem setor definido ── */}
+              {unassignedVisitors.length > 0 && (
                 <React.Fragment>
                   <tr className="bg-violet-100 dark:bg-violet-900/30">
                     <td colSpan={9} className="px-4 py-2 text-xs font-black text-violet-700 dark:text-violet-300 uppercase tracking-widest sticky left-0 bg-violet-100 dark:bg-violet-900/30">
                       De outra unidade
                     </td>
                   </tr>
-                  {transferredEmployees.map((emp, ei) => (
-                    <tr key={emp.id}
-                      className={`border-b border-violet-100 dark:border-violet-900/40 ${
-                        ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-violet-50/30 dark:bg-violet-900/10'
-                      }`}>
-                      {/* Nome */}
-                      <td className="px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-violet-100 dark:border-violet-900/40">
-                        <div className="flex items-center gap-1">
-                          <span className="font-semibold text-xs text-gray-800 dark:text-gray-100 whitespace-nowrap">
-                            {emp.name.split(' ')[0]}&nbsp;
-                            <span className="text-gray-400 font-normal">
-                              {emp.name.split(' ').slice(1, 2).join('')?.charAt(0) || ''}.
-                            </span>
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-violet-500 dark:text-violet-400">↗ {emp.sector}</span>
-                      </td>
-                      {/* Células */}
-                      {weekDays.map((day, di) => {
-                        const dayStr  = format(day, 'yyyy-MM-dd');
-                        const txEntry = transferEntries.find(e => e.employee_id === emp.id && e.day_date === dayStr);
-                        const isSun   = di === 0 || di === 7;
-                        const hasTime = txEntry?.shift_start && txEntry?.shift_end;
-                        return (
-                          <td key={di}
-                            onClick={() => { if (!isLocked && txEntry) setTransferCellEditor({ entry: txEntry, employee: emp }); }}
-                            title={isLocked ? 'Semana protegida — clique no cadeado para editar' : txEntry ? 'Definir horário do colaborador visitante' : undefined}
-                            className={`px-1 py-2 text-center transition-all
-                              ${txEntry && !isLocked ? 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-violet-400' : ''}
-                              ${isLocked ? 'cursor-not-allowed' : ''}
-                              ${isSun ? 'bg-gray-50/60 dark:bg-gray-900/20' : ''}
-                              bg-violet-50/50 dark:bg-violet-900/10
-                            `}>
-                            {txEntry ? (
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="text-[10px] font-bold text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-900/40 px-1.5 py-0.5 rounded-full leading-tight">
-                                  Visita
-                                </span>
-                                {hasTime && (
-                                  <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-tight">
-                                    {txEntry.shift_start!.slice(0, 5)} – {txEntry.shift_end!.slice(0, 5)}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-gray-200 dark:text-gray-700 text-[11px]">·</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {unassignedVisitors.map((emp, ei) => renderVisitorRow(emp, ei))}
                 </React.Fragment>
               )}
             </tbody>

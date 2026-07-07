@@ -37,6 +37,7 @@ interface ScheduleEntry {
   rest_end: string | null;
   custom_label: string | null;
   transfer_hotel_id: string | null;
+  transfer_sector: string | null;   // setor do hotel destino onde o colaborador vai atuar
   occurrence_type_id: string | null;
 }
 
@@ -217,6 +218,8 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [start, setStart]        = useState(entry?.shift_start?.slice(0, 5) || '');
   const [end, setEnd]            = useState(entry?.shift_end?.slice(0, 5) || '');
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
+  const [transferSector, setTransferSector] = useState(entry?.transfer_sector || '');
+  const [destSectors, setDestSectors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [restStart, setRestStart]     = useState(entry?.rest_start?.slice(0, 5) || '');
   const [restEnd, setRestEnd]         = useState(entry?.rest_end?.slice(0, 5) || '');
@@ -242,6 +245,25 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     || (selection.kind === 'occurrence' && !!selection.ot.has_rest);
   const needsHotelSelector = selectedKey === 'transfer';
 
+  // Setores do hotel DESTINO (derivados dos colaboradores ativos de lá)
+  useEffect(() => {
+    if (!needsHotelSelector || !transferHotel) { setDestSectors([]); return; }
+    let alive = true;
+    supabase.from('employees')
+      .select('sector')
+      .eq('hotel_id', transferHotel)
+      .eq('status', 'active')
+      .then(({ data }) => {
+        if (!alive) return;
+        const fallback = ['Recepção', 'Governança', 'Manutenção', 'Cozinha', 'Salão',
+          'Reservas', 'Administrativo', 'Lavanderia', 'Segurança', 'Outro'];
+        const uniq = [...new Set((data || []).map((r: any) => r.sector).filter(Boolean))] as string[];
+        uniq.sort((a, b) => fallback.indexOf(a) - fallback.indexOf(b));
+        setDestSectors(uniq.length > 0 ? uniq : fallback);
+      });
+    return () => { alive = false; };
+  }, [needsHotelSelector, transferHotel]);
+
   const save = async () => {
     setSaving(true);
     const rs = (wantsRest && !!restStart && !!restEnd) ? restStart : null;
@@ -252,7 +274,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         entry_type: 'shift',
         shift_start: start || null, shift_end: end || null,
         rest_start: rs, rest_end: re,
-        custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
+        custom_label: null, transfer_hotel_id: null, transfer_sector: null, occurrence_type_id: null,
       });
     } else if (selection.kind === 'empty') {
       await onSave({
@@ -260,7 +282,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         entry_type: 'empty',
         shift_start: null, shift_end: null,
         rest_start: null, rest_end: null,
-        custom_label: null, transfer_hotel_id: null, occurrence_type_id: null,
+        custom_label: null, transfer_hotel_id: null, transfer_sector: null, occurrence_type_id: null,
       });
     } else {
       const ot = selection.ot;
@@ -274,6 +296,7 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         rest_start: rs, rest_end: re,
         custom_label: !key ? ot.name : null,
         transfer_hotel_id: key === 'transfer' ? (transferHotel || null) : null,
+        transfer_sector: key === 'transfer' ? (transferSector || null) : null,
         occurrence_type_id: ot.id,
       });
     }
@@ -355,11 +378,21 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
         )}
 
         {needsHotelSelector && (
-          <select value={transferHotel} onChange={e => setTransferHotel(e.target.value)}
-            className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
-            <option value="">Selecione a unidade...</option>
-            {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-          </select>
+          <div className="space-y-1.5">
+            <select value={transferHotel}
+              onChange={e => { setTransferHotel(e.target.value); setTransferSector(''); }}
+              className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
+              <option value="">Selecione a unidade...</option>
+              {hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+            {transferHotel && (
+              <select value={transferSector} onChange={e => setTransferSector(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
+                <option value="">Setor no hotel destino...</option>
+                {destSectors.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </div>
         )}
       </div>
 
