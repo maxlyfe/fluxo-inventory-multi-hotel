@@ -273,8 +273,20 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
   const [transferHotel, setTransferHotel] = useState(entry?.transfer_hotel_id || '');
   const [transferSector, setTransferSector] = useState(entry?.transfer_sector || '');
   const [destSectors, setDestSectors] = useState<string[]>([]);
-  // Tipo recorrente: "até quando" — padrão o próprio dia (preenche 1 dia só)
+  // Tipo recorrente: "até quando" — padrão o próprio dia (preenche 1 dia só).
+  // Campos espelhados: informar a data final calcula os dias e vice-versa,
+  // contando o dia lançado como o dia 1.
   const [untilDate, setUntilDate] = useState(dayDate);
+  const recurringDays = Math.max(1, differenceInCalendarDays(parseISO(untilDate || dayDate), parseISO(dayDate)) + 1);
+  const handleUntilDateChange = (v: string) => {
+    if (!v) { setUntilDate(dayDate); return; }
+    setUntilDate(v < dayDate ? dayDate : v);
+  };
+  const handleDaysChange = (v: string) => {
+    const n = parseInt(v, 10);
+    if (isNaN(n) || n < 1) { setUntilDate(dayDate); return; }
+    setUntilDate(format(addDays(parseISO(dayDate), n - 1), 'yyyy-MM-dd'));
+  };
   const [saving, setSaving]      = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -573,17 +585,28 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
           </div>
         )}
 
-        {/* ── Tipo recorrente: até quando (padrão = o próprio dia) ── */}
+        {/* ── Tipo recorrente: data final OU quantidade de dias (espelhados) ── */}
         {isRecurring && (
           <div className="rounded-xl border border-cyan-100 dark:border-cyan-900/40 p-2 space-y-1.5">
-            <p className="text-[11px] font-semibold text-cyan-600 dark:text-cyan-400">Repetir até (inclusive)</p>
-            <input type="date" value={untilDate} min={dayDate}
-              onChange={e => setUntilDate(e.target.value)}
-              className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+            <p className="text-[11px] font-semibold text-cyan-600 dark:text-cyan-400">Período (o dia lançado conta como dia 1)</p>
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <label className="block text-[10px] text-gray-400 mb-0.5">Até (inclusive)</label>
+                <input type="date" value={untilDate} min={dayDate}
+                  onChange={e => handleUntilDateChange(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+              </div>
+              <div className="w-20">
+                <label className="block text-[10px] text-gray-400 mb-0.5">Dias</label>
+                <input type="number" min={1} value={recurringDays}
+                  onChange={e => handleDaysChange(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs text-center border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+              </div>
+            </div>
             <p className="text-[10px] text-gray-400">
-              {untilDate && untilDate > dayDate
-                ? 'Todos os dias até esta data serão preenchidos de uma vez.'
-                : 'Mantendo o mesmo dia, preenche apenas 1 dia.'}
+              {recurringDays > 1
+                ? `${recurringDays} dias serão preenchidos de uma vez, terminando em ${format(parseISO(untilDate), 'dd/MM/yyyy')}.`
+                : 'Mantendo 1 dia, preenche apenas o dia selecionado.'}
             </p>
           </div>
         )}
