@@ -85,6 +85,9 @@ const StockCountHistoryModal: React.FC<StockCountHistoryModalProps> = ({
           )
         `)
         .eq('hotel_id', hotelId)
+        // Pendentes/rascunhos (sem finished_at) primeiro; depois finalizadas
+        // da mais recente para a mais antiga — reabrir+refinalizar sobe ao topo
+        .order('finished_at', { ascending: false, nullsFirst: true })
         .order('created_at', { ascending: false });
 
       if (sectorId) query = query.eq('sector_id', sectorId);

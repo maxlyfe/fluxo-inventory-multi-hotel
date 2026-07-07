@@ -183,7 +183,8 @@ export default function PublicStockCount() {
           .select('quantity, product:products(id, name, category, image_url)')
           .eq('sector_id', data.sector_id)
           .eq('hotel_id', data.hotel_id);
-        prods = (ss || []).map((r: any) => ({
+        // r.product pode vir null (produto apagado do catálogo) — ignorar
+        prods = (ss || []).filter((r: any) => r.product).map((r: any) => ({
           id:        r.product.id,
           name:      r.product.name,
           category:  r.product.category || 'Sem Categoria',
@@ -282,44 +283,70 @@ export default function PublicStockCount() {
   // ── Rascunho offline-first ──────────────────────────────────────────────
   const storageKey = token ? buildDraftKey({ token }) : null;
 
-  // Persiste rascunho no servidor sem UI (usado pelo autosave)
-  const persistDraftToServer = useCallback(async () => {
-    if (!tokenData || Object.keys(counts).length === 0) return;
-    const now = new Date().toISOString();
-    let countId = activeCountId;
-    if (!countId) {
-      const { data: sc, error } = await supabase.from('stock_counts').insert({
-        hotel_id:        tokenData.hotel_id,
-        sector_id:       tokenData.sector_id,
-        status:          'delegated_draft',
-        started_at:      now,
-        finished_at:     null,
-        counted_by_name: collaboratorName,
-        notes:           tokenData.sector_id ? 'Contagem delegada — Setor' : 'Contagem delegada — Inventário',
-      }).select('id').single();
-      if (error) throw error;
-      countId = sc!.id;
-      setActiveCountId(countId);
-    } else {
-      await supabase.from('stock_counts').update({
-        status: 'delegated_draft', counted_by_name: collaboratorName,
-      }).eq('id', countId);
+  // Refs para evitar corrida entre autosave e finalização:
+  // - activeCountIdRef: valor sempre atual (closures do autosave podem estar velhas)
+  // - creatingCountRef: garante que só UM insert de stock_counts acontece por vez
+  // - finalizingRef: bloqueia o autosave enquanto o usuário salva/finaliza
+  const activeCountIdRef  = useRef<string | null>(null);
+  useEffect(() => { activeCountIdRef.current = activeCountId; }, [activeCountId]);
+  const creatingCountRef  = useRef<Promise<string> | null>(null);
+  const finalizingRef     = useRef(false);
+
+  const ensureCountId = useCallback(async (statusIfNew: string): Promise<string> => {
+    if (activeCountIdRef.current) return activeCountIdRef.current;
+    if (!creatingCountRef.current) {
+      creatingCountRef.current = (async () => {
+        const now = new Date().toISOString();
+        const { data: sc, error } = await supabase.from('stock_counts').insert({
+          hotel_id:        tokenData!.hotel_id,
+          sector_id:       tokenData!.sector_id,
+          status:          statusIfNew,
+          started_at:      now,
+          finished_at:     null,
+          counted_by_name: collaboratorName,
+          notes:           tokenData!.sector_id ? 'Contagem delegada — Setor' : 'Contagem delegada — Inventário',
+        }).select('id').single();
+        if (error) { creatingCountRef.current = null; throw error; }
+        activeCountIdRef.current = sc!.id;
+        setActiveCountId(sc!.id);
+        // Vincula o token imediatamente — garante restore ao recarregar
+        await supabase.from('stock_count_tokens').update({ stock_count_id: sc!.id }).eq('token', token!);
+        return sc!.id as string;
+      })();
     }
+    return creatingCountRef.current;
+  }, [tokenData, collaboratorName, token]);
+
+  const persistItems = useCallback(async (countId: string) => {
     const items = Object.entries(counts).map(([productId, q]) => ({
       stock_count_id:    countId,
       product_id:        productId,
       previous_quantity: products.find(p => p.id === productId)?.quantity ?? 0,
       counted_quantity:  q,
     }));
-    await supabase.from('stock_count_items').delete().eq('stock_count_id', countId!);
-    await supabase.from('stock_count_items').insert(items);
-    await supabase.from('stock_count_tokens').update({ stock_count_id: countId }).eq('token', token!);
-  }, [tokenData, counts, activeCountId, collaboratorName, products, token]);
+    await supabase.from('stock_count_items').delete().eq('stock_count_id', countId);
+    if (items.length > 0) {
+      const { error } = await supabase.from('stock_count_items').insert(items);
+      if (error) throw error;
+    }
+  }, [counts, products]);
+
+  // Persiste rascunho no servidor sem UI (usado pelo autosave)
+  const persistDraftToServer = useCallback(async () => {
+    if (!tokenData || finalizingRef.current || Object.keys(counts).length === 0) return;
+    const countId = await ensureCountId('delegated_draft');
+    if (finalizingRef.current) return; // finalização começou enquanto criava
+    // Guard por status: nunca reverte uma contagem já finalizada para rascunho
+    await supabase.from('stock_counts').update({
+      counted_by_name: collaboratorName,
+    }).eq('id', countId).eq('status', 'delegated_draft');
+    await persistItems(countId);
+  }, [tokenData, counts, collaboratorName, ensureCountId, persistItems]);
 
   const draft = useOfflineStockDraft({
     storageKey,
     counts,
-    enabled: step === 'counting',
+    enabled: step === 'counting' && !saving,
     saveDraftToServer: persistDraftToServer,
   });
 
@@ -329,47 +356,20 @@ export default function PublicStockCount() {
     if (Object.keys(counts).length === 0) return;
     setSaving(true);
     setShowConfirm(false);
+    finalizingRef.current = true;
     try {
+      // Se um autosave estava criando o registro, aguarda para reutilizá-lo
+      if (creatingCountRef.current) { try { await creatingCountRef.current; } catch { /* tratado abaixo */ } }
       const now = new Date().toISOString();
-      let countId = activeCountId;
-      if (!countId) {
-        const { data: sc, error: sce } = await supabase
-          .from('stock_counts')
-          .insert({
-            hotel_id:        tokenData!.hotel_id,
-            sector_id:       tokenData!.sector_id,
-            status:          isFinal ? 'delegated_pending' : 'delegated_draft',
-            started_at:      now,
-            finished_at:     isFinal ? now : null,
-            counted_by_name: collaboratorName,
-            notes:           tokenData!.sector_id ? 'Contagem delegada — Setor' : 'Contagem delegada — Inventário',
-          })
-          .select('id')
-          .single();
-        if (sce) throw sce;
-        countId = sc!.id;
-        setActiveCountId(countId);
-      } else {
-        await supabase.from('stock_counts').update({
-          status:          isFinal ? 'delegated_pending' : 'delegated_draft',
-          finished_at:     isFinal ? now : null,
-          counted_by_name: collaboratorName,
-        }).eq('id', countId);
-      }
+      const countId = await ensureCountId(isFinal ? 'delegated_pending' : 'delegated_draft');
+      const { error: ue } = await supabase.from('stock_counts').update({
+        status:          isFinal ? 'delegated_pending' : 'delegated_draft',
+        finished_at:     isFinal ? now : null,
+        counted_by_name: collaboratorName,
+      }).eq('id', countId);
+      if (ue) throw ue;
 
-      const items = Object.entries(counts).map(([productId, countedQty]) => ({
-        stock_count_id:    countId,
-        product_id:        productId,
-        previous_quantity: products.find(p => p.id === productId)?.quantity ?? 0,
-        counted_quantity:  countedQty,
-      }));
-      await supabase.from('stock_count_items').delete().eq('stock_count_id', countId!);
-      await supabase.from('stock_count_items').insert(items);
-
-      // Sempre vincula o token ao count (rascunho ou final) — garante restore ao recarregar
-      await supabase.from('stock_count_tokens')
-        .update({ stock_count_id: countId })
-        .eq('token', token!);
+      await persistItems(countId);
 
       if (isFinal) {
         if (storageKey) clearLocalDraft(storageKey); // limpa rascunho local
@@ -378,6 +378,7 @@ export default function PublicStockCount() {
     } catch (err: any) {
       alert('Erro ao salvar: ' + (err.message || 'Erro desconhecido'));
     } finally {
+      finalizingRef.current = false;
       setSaving(false);
     }
   };

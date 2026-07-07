@@ -454,7 +454,7 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
   const draft = useOfflineStockDraft({
     storageKey,
     counts,
-    enabled: isOpen && !preloadCountId && !isLoadingDraft,
+    enabled: isOpen && !preloadCountId && !isLoadingDraft && !isSaving,
     saveDraftToServer: persistDraftToServer,
   });
 
@@ -483,14 +483,19 @@ const StockConferenceModal: React.FC<StockConferenceModalProps> = ({
       if (ie) throw ie;
 
       if (isFinal) {
-        for (const [productId, newQty] of Object.entries(counts)) {
-          if (sectorId) {
-            const { error: se } = await supabase.from('sector_stock').update({ quantity: newQty }).eq('sector_id', sectorId).eq('product_id', productId);
-            if (se) throw se;
-          } else {
-            const { error: pe } = await supabase.from('products').update({ quantity: newQty }).eq('id', productId);
-            if (pe) throw pe;
-          }
+        // Atualiza o estoque em lotes paralelos (antes era 1 requisição por
+        // produto em série — minutos para setores grandes e propenso a falhas)
+        const entries = Object.entries(counts);
+        const CHUNK = 20;
+        for (let i = 0; i < entries.length; i += CHUNK) {
+          const chunk = entries.slice(i, i + CHUNK);
+          const results = await Promise.all(chunk.map(([productId, newQty]) =>
+            sectorId
+              ? supabase.from('sector_stock').update({ quantity: newQty }).eq('sector_id', sectorId).eq('product_id', productId)
+              : supabase.from('products').update({ quantity: newQty }).eq('id', productId)
+          ));
+          const failed = results.find(r => r.error);
+          if (failed?.error) throw failed.error;
         }
         if (storageKey) clearLocalDraft(storageKey); // limpa rascunho local
         addNotification('Conferência finalizada e estoque atualizado!', 'success');
