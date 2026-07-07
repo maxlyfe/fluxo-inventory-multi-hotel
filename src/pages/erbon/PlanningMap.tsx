@@ -105,15 +105,31 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
         }));
         setRows(mapRows);
 
-        // Reservas que TOCAM o mês: busca com margem antes do início do mês
-        // para capturar hospedagens longas já em andamento.
-        const searchFrom = format(subDays(monthStart, 60), 'yyyy-MM-dd');
-        const searchTo = format(addDays(monthEnd, 1), 'yyyy-MM-dd');
-        const found = await erbonService.searchBookings(hotelId, {
-          checkin: searchFrom,
-          checkout: searchTo,
-        });
-        setBookings((found || []).filter(b => !isCancelled(b)));
+        // A API Erbon filtra por data de check-in ESPECÍFICA (não intervalo)
+        // — mesma limitação tratada no PickupReport. Fazemos 1 chamada por
+        // dia (mês + 30 dias antes, para pegar hospedagens longas em
+        // andamento), em lotes paralelos, deduplicando por bookingInternalID.
+        const LOOKBACK = 30;
+        const totalDays = LOOKBACK + daysInMonth;
+        const dates = Array.from({ length: totalDays }, (_, i) =>
+          format(addDays(subDays(monthStart, LOOKBACK), i), 'yyyy-MM-dd'));
+
+        const all: ErbonBooking[] = [];
+        const seen = new Set<number>();
+        const CHUNK = 10;
+        for (let i = 0; i < dates.length; i += CHUNK) {
+          const settled = await Promise.allSettled(
+            dates.slice(i, i + CHUNK).map(date =>
+              erbonService.searchBookings(hotelId, { checkin: date })),
+          );
+          for (const r of settled) {
+            if (r.status !== 'fulfilled') continue;
+            for (const b of r.value || []) {
+              if (!seen.has(b.bookingInternalID)) { seen.add(b.bookingInternalID); all.push(b); }
+            }
+          }
+        }
+        setBookings(all.filter(b => !isCancelled(b)));
       } else {
         // Sem Erbon: UHs e categorias do módulo de governança
         const [localRooms, categories]: [HotelRoom[], RoomCategory[]] = await Promise.all([
