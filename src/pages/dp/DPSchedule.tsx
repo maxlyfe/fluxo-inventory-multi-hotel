@@ -287,6 +287,9 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
     if (isNaN(n) || n < 1) { setUntilDate(dayDate); return; }
     setUntilDate(format(addDays(parseISO(dayDate), n - 1), 'yyyy-MM-dd'));
   };
+  // Rascunho de digitação: enquanto o campo está focado pode ficar vazio;
+  // o cálculo só acontece ao sair do campo (blur).
+  const [daysDraft, setDaysDraft] = useState<string | null>(null);
   const [saving, setSaving]      = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -598,8 +601,12 @@ function CellEditor({ entry, employeeId, dayDate, sector, scheduleId, hotels, oc
               </div>
               <div className="w-20">
                 <label className="block text-[10px] text-gray-400 mb-0.5">Dias</label>
-                <input type="number" min={1} value={recurringDays}
-                  onChange={e => handleDaysChange(e.target.value)}
+                <input type="number" min={1} inputMode="numeric"
+                  value={daysDraft ?? String(recurringDays)}
+                  onFocus={e => { setDaysDraft(''); e.target.select(); }}
+                  onChange={e => setDaysDraft(e.target.value)}
+                  onBlur={() => { if (daysDraft && daysDraft.trim()) handleDaysChange(daysDraft); setDaysDraft(null); }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                   className="w-full px-2 py-1.5 text-xs text-center border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
               </div>
             </div>
