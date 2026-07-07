@@ -1071,18 +1071,36 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
     </tr>
   );
 
+  // Captura a tabela INTEIRA (domingo a domingo), independente do tamanho da
+  // tela: usa scrollWidth/scrollHeight em vez da área visível — no mobile o
+  // contêiner tem scroll e a captura padrão sairia cortada. A escala é
+  // dinâmica: quanto possível até 3x, limitada a ~4096px de largura final
+  // para não estourar memória em tabelas com muitos colaboradores.
+  const captureFullTable = async () => {
+    const el = tableRef.current!;
+    const html2canvas = (await import('html2canvas')).default;
+    const fullW = el.scrollWidth;
+    const fullH = el.scrollHeight;
+    const scale = Math.max(2, Math.min(3, 4096 / fullW));
+    return html2canvas(el, {
+      backgroundColor: '#ffffff',
+      scale,
+      useCORS: true,
+      logging: false,
+      width: fullW,
+      height: fullH,
+      windowWidth: fullW,
+      windowHeight: fullH,
+      scrollX: 0,
+      scrollY: 0,
+    });
+  };
+
   const handleExport = async () => {
     if (!tableRef.current) return;
     setGenerating(true);
     try {
-      // Dynamically import html2canvas
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(tableRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureFullTable();
       const link = document.createElement('a');
       link.download = `escala-${weekLabel.replace(/\//g, '-')}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -1100,13 +1118,7 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
     if (!tableRef.current) return;
     setCopying(true);
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(tableRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureFullTable();
       canvas.toBlob(async (blob) => {
         if (!blob) { alert('Não foi possível gerar a imagem.'); setCopying(false); return; }
         try {
@@ -1190,7 +1202,9 @@ function ExportModal({ sectors, employees, weekDays, entries, hotels, occurrence
 
           {/* Preview table (this is what gets captured) */}
           <div className="overflow-x-auto">
-            <div ref={tableRef} className="bg-white p-3" style={{ fontFamily: 'Arial, sans-serif' }}>
+            {/* minWidth fixo: garante o layout completo da semana (8 colunas)
+                mesmo em telas pequenas — a captura usa a largura total */}
+            <div ref={tableRef} className="bg-white p-3" style={{ fontFamily: 'Arial, sans-serif', minWidth: 1080 }}>
               {/* Title */}
               <div style={{ textAlign: 'center', marginBottom: 12, padding: '8px 0', background: '#1f2937', color: 'white', borderRadius: 4 }}>
                 <p style={{ fontWeight: 'bold', fontSize: 13, letterSpacing: 1, margin: 0 }}>
