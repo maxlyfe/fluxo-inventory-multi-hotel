@@ -14,8 +14,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { format, parseISO, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { erbonService, ErbonBooking, ErbonGuest } from '../../lib/erbonService';
-import { supabase } from '../../lib/supabase';
 import { createWCISession, WebCheckinGuest } from '../webcheckin/webCheckinService';
+import { ensureHotelWciCode } from '../../lib/wciCode';
 import { useNotification } from '../../context/NotificationContext';
 
 interface BookingDetailModalProps {
@@ -260,10 +260,10 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   const handleGenerateWci = async () => {
     setGeneratingWci(true);
     try {
-      const { data: hotel } = await supabase
-        .from('hotels').select('wci_code').eq('id', hotelId).single();
-      if (!hotel?.wci_code) {
-        addNotification('Este hotel não tem código de web-checkin (wci_code) configurado.', 'error');
+      // Gera o wci_code automaticamente se o hotel ainda não tiver
+      const wciCode = await ensureHotelWciCode(hotelId);
+      if (!wciCode) {
+        addNotification('Não foi possível gerar o código de web-checkin do hotel.', 'error');
         return;
       }
       const wciGuests: WebCheckinGuest[] = guests.map((g, i) => ({
@@ -281,7 +281,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
       // Mantém o prefixo /grupo/<slug> quando o app roda sob um grupo
       const groupMatch = window.location.pathname.match(/^\/grupo\/([^/]+)/);
       const base = groupMatch ? `${window.location.origin}/grupo/${groupMatch[1]}` : window.location.origin;
-      setWciUrl(`${base}/web-checkin/${hotel.wci_code}/companion/${token}`);
+      setWciUrl(`${base}/web-checkin/${wciCode}/companion/${token}`);
     } catch (e: any) {
       addNotification('Erro ao gerar link: ' + (e.message || ''), 'error');
     } finally {
