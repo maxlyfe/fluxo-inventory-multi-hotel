@@ -55,6 +55,7 @@ export const MODULES: Module[] = [
   { key: 'hotels_management',    label: 'Gestão de Hotéis',     description: 'Cadastro e configuração de unidades',      group: 'Administração',       icon: 'Building2'     },
   { key: 'users_management',     label: 'Gestão de Usuários',   description: 'Criar e gerir utilizadores do sistema',    group: 'Administração',       icon: 'UserCheck'     },
   { key: 'erbon_pms',            label: 'Integração Erbon',     description: 'Configuração da API Erbon PMS',            group: 'Administração',       icon: 'Link2'         },
+  { key: 'omnibees_pms',         label: 'Integração Omnibees',  description: 'Channel manager Omnibees (reservas dos canais)', group: 'Administração',  icon: 'Globe'         },
   { key: 'whatsapp_integration', label: 'Integração WhatsApp',  description: 'Configuração da API Meta/WhatsApp',        group: 'Administração',       icon: 'MessageSquare' },
   { key: 'fnrh_integration',    label: 'Integração FNRH Gov', description: 'Envio automático de fichas ao Governo Federal', group: 'Administração',    icon: 'FileText'      },
   { key: 'nf_integration',      label: 'NF-e / NFS-e',        description: 'Configuração e emissão de notas fiscais',     group: 'Administração',    icon: 'Receipt'       },

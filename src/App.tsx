@@ -82,6 +82,7 @@ import RolesManagement    from './pages/admin/RolesManagement';
 import SectorsManagement  from './pages/admin/SectorsManagement';
 import GroupsManagement   from './pages/admin/GroupsManagement';
 import ErbonIntegration     from './pages/admin/ErbonIntegration';
+import OmnibeesIntegration  from './pages/admin/OmnibeesIntegration';
 import WhatsAppIntegration from './pages/admin/WhatsAppIntegration';
 import FNRHIntegration    from './pages/admin/FNRHIntegration';
 import NFIntegration       from './pages/admin/NFIntegration';
@@ -596,6 +597,12 @@ function App() {
                     <Route path="/admin/erbon" element={
                       <PrivateRoute module="erbon_pms">
                         <ErbonIntegration />
+                      </PrivateRoute>
+                    } />
+
+                    <Route path="/admin/omnibees" element={
+                      <PrivateRoute module="omnibees_pms">
+                        <OmnibeesIntegration />
                       </PrivateRoute>
                     } />
 

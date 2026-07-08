@@ -18,7 +18,7 @@ import {
   GraduationCap, Stethoscope, Briefcase, Target,
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
-  MessageCircle, Bot, Radio, Receipt, Truck, Calculator,
+  MessageCircle, Bot, Radio, Receipt, Truck, Calculator, Globe,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -295,13 +295,14 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Configurações',
     icon: SettingsIcon,
     adminOnly: true,
-    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/groups', '/admin/erbon', '/admin/whatsapp', '/admin/fnrh', '/admin/nfe'],
+    activePrefixes: ['/users', '/admin/roles', '/admin/sectors', '/admin/groups', '/admin/erbon', '/admin/omnibees', '/admin/whatsapp', '/admin/fnrh', '/admin/nfe'],
     items: [
       { module: '__groups_dev__',     label: 'Grupos',            href: '/admin/groups',   icon: Boxes,         iconName: 'Boxes',         color: '#8b5cf6' },
       { module: 'users_management',   label: 'Usuários',          href: '/users',          icon: UsersRound,    iconName: 'UsersRound',    color: '#6366f1' },
       { module: 'roles_management',   label: 'Gestão de Perfis',  href: '/admin/roles',    icon: UserCog,       iconName: 'UserCog',       color: '#f59e0b' },
       { module: 'sectors_management', label: 'Gestão de Setores', href: '/admin/sectors',  icon: LayoutGrid,    iconName: 'LayoutGrid',    color: '#14b8a6' },
       { module: 'erbon_pms',          label: 'Erbon PMS',         href: '/admin/erbon',    icon: Link2,         iconName: 'Link2',         color: '#0ea5e9' },
+      { module: 'omnibees_pms',       label: 'Omnibees',          href: '/admin/omnibees', icon: Globe,         iconName: 'Globe',         color: '#2563eb' },
       { module: 'whatsapp_integration', label: 'WhatsApp',        href: '/admin/whatsapp', icon: MessageSquare, iconName: 'MessageSquare', color: '#22c55e' },
       { module: 'fnrh_integration',    label: 'FNRH Gov',         href: '/admin/fnrh',     icon: FileText,      iconName: 'FileText',      color: '#10b981' },
       { module: 'nf_integration',      label: 'NF-e / NFS-e',    href: '/admin/nfe',      icon: Receipt,       iconName: 'Receipt',       color: '#f59e0b' },
