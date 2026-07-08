@@ -12,6 +12,13 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/erbon-api/, ''),
         secure: true,
       },
+      // Omnibees PMS Pull WebService (SOAP) — dev direto, prod via Netlify Function
+      '/omnibees-api': {
+        target: 'https://pms.omnibees.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/omnibees-api/, ''),
+        secure: true,
+      },
       // Netlify Functions proxy — necessário quando rodando `vite dev` (porta 5173).
       // O `netlify dev` (porta 8888) serve as functions e o Vite proxy encaminha para lá.
       // Usar `npm run dev:netlify` para ter as functions disponíveis.

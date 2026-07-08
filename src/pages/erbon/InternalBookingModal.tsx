@@ -35,6 +35,9 @@ export interface InternalBooking {
   status: string;    // confirmed | checkedin | checkedout | cancelled
   total_rate: number | null;
   notes: string | null;
+  source?: string;          // internal | omnibees
+  channel?: string | null;  // canal de venda (Booking, Expedia...)
+  external_id?: string | null;
 }
 
 interface Payment {
@@ -303,6 +306,7 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
           <div className="text-white min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">
               {isNew ? 'Nova reserva' : `Reserva ${booking!.code} · ${INTERNAL_STATUS_LABEL[status] || status}`}
+              {booking?.source === 'omnibees' && ` · Omnibees${booking?.channel ? ` (${booking.channel})` : ''}`}
             </p>
             <h3 className="text-base font-bold truncate">{guestName || 'Reserva interna'}</h3>
           </div>

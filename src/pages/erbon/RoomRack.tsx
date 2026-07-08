@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import InternalBookingModal, { InternalBooking } from './InternalBookingModal';
+import { omnibeesService } from '../../lib/omnibeesService';
 import Modal from '../../components/Modal';
 import { nfService } from '../../lib/nfService';
 import { NFInvoiceModal } from '../../components/nf/NFInvoiceModal';
@@ -1460,6 +1461,17 @@ const RoomRack: React.FC = () => {
 
   useEffect(() => {
     if (!erbonConfigured && selectedHotel?.id && !loading) loadLocalRack();
+  }, [erbonConfigured, selectedHotel?.id, loading, loadLocalRack]);
+
+  // Omnibees (hotéis sem Erbon): puxa reservas dos canais em background — 1x por hotel
+  const omniSyncedHotelRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (erbonConfigured || !selectedHotel?.id || loading) return;
+    if (omniSyncedHotelRef.current === selectedHotel.id) return;
+    omniSyncedHotelRef.current = selectedHotel.id;
+    omnibeesService.syncHotel(selectedHotel.id)
+      .then(n => { if (n > 0) loadLocalRack(); })
+      .catch(err => console.error('[RoomRack] Omnibees sync:', err?.message));
   }, [erbonConfigured, selectedHotel?.id, loading, loadLocalRack]);
 
   const fetchWorkflows = useCallback(async () => {

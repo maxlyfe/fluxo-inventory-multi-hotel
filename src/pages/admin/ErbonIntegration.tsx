@@ -34,6 +34,8 @@ import {
   ErbonSectorMapping,
 } from '../../lib/erbonService';
 import { getProductsWithPrices, upsertProductPrice } from '../../lib/pdvService';
+import { omnibeesService, OmnibeesConfig } from '../../lib/omnibeesService';
+import { Globe } from 'lucide-react';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
 // ── Interfaces locais ───────────────────────────────────────────────────────
@@ -56,7 +58,7 @@ const labelCls = 'block text-xs font-bold text-gray-500 dark:text-gray-400 upper
 const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed';
 const btnDanger = 'p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors';
 
-type TabId = 'config' | 'products' | 'dishes' | 'sectors' | 'prices';
+type TabId = 'config' | 'omnibees' | 'products' | 'dishes' | 'sectors' | 'prices';
 
 interface PDVPriceRow {
   product_id: string;
@@ -127,10 +129,91 @@ const ErbonIntegration: React.FC = () => {
   const [editingDeptIdValue, setEditingDeptIdValue] = useState<string>('');
   const [savingDeptId, setSavingDeptId] = useState(false);
 
+  // ── Omnibees config state ───────────────────────────────────────────────
+  const [obConfig, setObConfig] = useState<OmnibeesConfig | null>(null);
+  const [obForm, setObForm] = useState({
+    hotel_code: '',
+    chain_code: '',
+    user_code: '',
+    username: '',
+    password: '',
+    base_url: 'https://pms.omnibees.com/OTA2014B/PullWebService.asmx',
+    is_active: true,
+  });
+  const [obTesting, setObTesting] = useState(false);
+  const [obTestResult, setObTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [obSaving, setObSaving] = useState(false);
+  const [obSyncing, setObSyncing] = useState(false);
+
+  const loadOmnibeesConfig = async () => {
+    if (!selectedHotel) return;
+    const cfg = await omnibeesService.getConfig(selectedHotel.id);
+    setObConfig(cfg);
+    if (cfg) {
+      setObForm({
+        hotel_code: cfg.hotel_code,
+        chain_code: cfg.chain_code || '',
+        user_code: cfg.user_code,
+        username: cfg.username,
+        password: cfg.password,
+        base_url: cfg.base_url,
+        is_active: cfg.is_active,
+      });
+    }
+  };
+
+  const handleObTest = async () => {
+    setObTesting(true); setObTestResult(null);
+    const result = await omnibeesService.testConnection({
+      ...(obConfig || {}),
+      hotel_id: selectedHotel!.id,
+      hotel_code: obForm.hotel_code,
+      chain_code: obForm.chain_code || null,
+      user_code: obForm.user_code,
+      username: obForm.username,
+      password: obForm.password,
+      base_url: obForm.base_url,
+    } as OmnibeesConfig);
+    setObTestResult(result.success
+      ? { success: true, message: 'Conexão OK — credenciais válidas (OTA_Ping).' }
+      : { success: false, message: result.error || 'Falha na conexão.' });
+    setObTesting(false);
+  };
+
+  const handleObSave = async () => {
+    if (!selectedHotel) return;
+    setObSaving(true);
+    try {
+      await omnibeesService.saveConfig({ hotel_id: selectedHotel.id, ...obForm, chain_code: obForm.chain_code || null });
+      await loadOmnibeesConfig();
+      setSuccess('Configuração Omnibees salva!');
+    } catch (e: any) {
+      setError('Erro ao salvar: ' + (e.message || ''));
+    } finally {
+      setObSaving(false);
+    }
+  };
+
+  const handleObSyncNow = async () => {
+    if (!selectedHotel) return;
+    setObSyncing(true);
+    try {
+      const n = await omnibeesService.syncHotel(selectedHotel.id);
+      setSuccess(n > 0
+        ? `${n} reserva${n > 1 ? 's' : ''} sincronizada${n > 1 ? 's' : ''} da Omnibees!`
+        : 'Sincronizado — nenhuma reserva pendente de entrega.');
+      await loadOmnibeesConfig();
+    } catch (e: any) {
+      setError('Erro na sincronização: ' + (e.message || ''));
+    } finally {
+      setObSyncing(false);
+    }
+  };
+
   // ── Init ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (selectedHotel) loadConfig();
+    if (selectedHotel) { loadConfig(); loadOmnibeesConfig(); }
   }, [selectedHotel]);
 
   useEffect(() => {
@@ -454,6 +537,7 @@ const ErbonIntegration: React.FC = () => {
 
   const tabs: { id: TabId; label: string; icon: React.FC<any>; disabled?: boolean }[] = [
     { id: 'config', label: 'Configuração', icon: Settings },
+    { id: 'omnibees', label: 'Omnibees', icon: Globe },
     { id: 'products', label: 'Produtos', icon: Package, disabled: !config?.is_active },
     { id: 'dishes', label: 'Pratos', icon: ChefHat, disabled: !config?.is_active },
     { id: 'sectors', label: 'Setores', icon: Utensils, disabled: !config?.is_active },
@@ -673,6 +757,120 @@ const ErbonIntegration: React.FC = () => {
           )}
 
           {/* ══════════════ TAB: PRODUTOS ══════════════ */}
+          {/* ══════════════ TAB: OMNIBEES ══════════════ */}
+          {activeTab === 'omnibees' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Credenciais Omnibees (PMS)</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  {obConfig?.is_active ? (
+                    <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+                      <Wifi className="w-4 h-4" /> Ativo
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-gray-400">
+                      <WifiOff className="w-4 h-4" /> Inativo
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-400 -mt-3">
+                Integração OTA 2014B (Pull WebService). As reservas dos canais (Booking, Expedia...) entram
+                automaticamente no Planning e no Rack. Hotéis com Erbon ativa continuam usando a Erbon como
+                fonte principal — a Omnibees complementa hotéis sem PMS.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Hotel Code *</label>
+                  <input type="text" value={obForm.hotel_code}
+                    onChange={e => setObForm(f => ({ ...f, hotel_code: e.target.value }))}
+                    placeholder="Código do hotel na Omnibees" className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Chain Code</label>
+                  <input type="text" value={obForm.chain_code}
+                    onChange={e => setObForm(f => ({ ...f, chain_code: e.target.value }))}
+                    placeholder="Só se configurado na Omnibees" className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>User Code (nome do PMS) *</label>
+                  <input type="text" value={obForm.user_code}
+                    onChange={e => setObForm(f => ({ ...f, user_code: e.target.value }))}
+                    className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Username *</label>
+                  <input type="text" value={obForm.username}
+                    onChange={e => setObForm(f => ({ ...f, username: e.target.value }))}
+                    className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Password *</label>
+                  <input type="password" value={obForm.password}
+                    onChange={e => setObForm(f => ({ ...f, password: e.target.value }))}
+                    className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>URL do Web Service</label>
+                  <input type="text" value={obForm.base_url}
+                    onChange={e => setObForm(f => ({ ...f, base_url: e.target.value }))}
+                    className={inputCls} />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Produção: pms.omnibees.com · Certificação: pmscert.omnibees.com
+                  </p>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={obForm.is_active}
+                  onChange={e => setObForm(f => ({ ...f, is_active: e.target.checked }))}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Integração ativa</span>
+              </label>
+
+              {obTestResult && (
+                <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${
+                  obTestResult.success
+                    ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                    : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                }`}>
+                  {obTestResult.success ? <CheckCircle className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                  {obTestResult.message}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <button onClick={handleObTest}
+                  disabled={obTesting || !obForm.hotel_code || !obForm.user_code || !obForm.username || !obForm.password}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-bold text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50">
+                  {obTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                  Testar Conexão
+                </button>
+                <button onClick={handleObSave}
+                  disabled={obSaving || !obForm.hotel_code || !obForm.user_code || !obForm.username || !obForm.password}
+                  className={btnPrimary}>
+                  {obSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Salvar
+                </button>
+                {obConfig?.is_active && (
+                  <button onClick={handleObSyncNow} disabled={obSyncing}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm transition-all disabled:opacity-50">
+                    {obSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                    Sincronizar Reservas Agora
+                  </button>
+                )}
+              </div>
+
+              {obConfig?.last_sync_at && (
+                <p className="text-xs text-gray-400">
+                  Última sincronização: {new Date(obConfig.last_sync_at).toLocaleString('pt-BR')}
+                </p>
+              )}
+            </div>
+          )}
+
           {activeTab === 'products' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">

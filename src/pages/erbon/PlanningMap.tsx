@@ -24,6 +24,7 @@ import { governanceService, RoomCategory, HotelRoom } from '../../lib/governance
 import { supabase } from '../../lib/supabase';
 import BookingDetailModal from './BookingDetailModal';
 import InternalBookingModal, { InternalBooking } from './InternalBookingModal';
+import { omnibeesService } from '../../lib/omnibeesService';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
   const [selected, setSelected] = useState<ErbonBooking | null>(null);
   const [internalBookings, setInternalBookings] = useState<InternalBooking[]>([]);
   const [internalModal, setInternalModal] = useState<{ booking: InternalBooking | null } | null>(null);
+  const [omniSyncing, setOmniSyncing] = useState(false);
   const [centerLabel, setCenterLabel] = useState('');
   const [pendingFetches, setPendingFetches] = useState(0);
   // bump para re-render do shimmer quando dias terminam de carregar
@@ -248,7 +250,17 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     loadCachedBookings();
     loadInternalBookings();
     loadRooms();
-  }, [loadRooms, loadCachedBookings, loadInternalBookings]);
+
+    // Hotéis sem Erbon com Omnibees configurada: puxa reservas dos canais
+    // em background e recarrega o mapa quando chegarem novidades
+    if (!erbonConfigured && hotelId) {
+      setOmniSyncing(true);
+      omnibeesService.syncHotel(hotelId)
+        .then(n => { if (n > 0) loadInternalBookings(); })
+        .catch(err => console.error('[PlanningMap] Omnibees sync:', err?.message))
+        .finally(() => setOmniSyncing(false));
+    }
+  }, [loadRooms, loadCachedBookings, loadInternalBookings, erbonConfigured, hotelId]);
 
   // ── Carregamento progressivo de reservas (por dia de check-in) ─────────────
   const ensureDaysLoaded = useCallback((dates: string[]) => {
@@ -573,19 +585,37 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       </div>
 
       {/* Avisos */}
-      {erbonConfigured && (roomsSyncing || pendingFetches > 0) && (
+      {((erbonConfigured && (roomsSyncing || pendingFetches > 0)) || omniSyncing) && (
         <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-700 dark:text-indigo-300">
           <span className="relative flex h-2.5 w-2.5 shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500" />
           </span>
-          Sincronização com a Erbon em andamento — exibindo os dados já salvos; o mapa atualiza sozinho.
+          Sincronização com a {omniSyncing ? 'Omnibees' : 'Erbon'} em andamento — exibindo os dados já salvos; o mapa atualiza sozinho.
         </div>
       )}
       {!erbonConfigured && rows.length > 0 && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
           <Info className="w-4 h-4 shrink-0" />
           Reservas internas — crie pelo botão "Nova Reserva" e clique numa barra para editar datas, lançar pagamentos, incluir hóspedes e dar check-in/out.
+        </div>
+      )}
+      {/* Reservas (ex.: vindas da Omnibees) ainda sem UH — clique para atribuir */}
+      {!erbonConfigured && internalBookings.some(b => !b.room_id && b.status !== 'cancelled') && (
+        <div className="px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
+          <div className="flex items-center gap-2 mb-1.5">
+            <BedDouble className="w-4 h-4 shrink-0" />
+            Reservas sem UH atribuída — clique para definir o apartamento:
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {internalBookings.filter(b => !b.room_id && b.status !== 'cancelled').map(b => (
+              <button key={b.id} onClick={() => setInternalModal({ booking: b })}
+                className="px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 font-semibold transition-colors">
+                {b.guest_name.split(' ').slice(0, 2).join(' ')} · {format(parseISO(b.checkin), 'dd/MM')}
+                {(b as any).channel ? ` · ${(b as any).channel}` : ''}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {erbonConfigured && unassignedCount > 0 && (
