@@ -46,11 +46,22 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   const [booking, setBooking] = useState<ErbonBooking>(initialBooking);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Conta corrente
-  const [account, setAccount] = useState<any[] | null>(null);
+  // Conta corrente — lançamento normalizado e enriquecido
+  interface AccountEntry {
+    id: any;
+    description: string;
+    amount: number;
+    isDebit: boolean;
+    isCredit: boolean;
+    quantity?: number;
+    date?: string;        // dia do lançamento (via sales/transactions)
+    department?: string;  // departamento (via sales/transactions)
+    source?: string;      // POS, PMS... (via sales/transactions)
+    paymentType?: string; // forma de pagamento (créditos, via recibo)
+    titleNumber?: string; // nº do recibo (créditos)
+  }
+  const [account, setAccount] = useState<AccountEntry[] | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(false);
-  // Recibos/pagamentos detalhados (vindos do contas a receber)
-  const [receipts, setReceipts] = useState<{ titleNumber: string; paymentType: string; emissionDate: string; valueTotal: number }[]>([]);
 
   // Hóspedes — ações
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -92,42 +103,101 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   useEffect(() => {
     if (tab !== 'conta' || account !== null || loadingAccount) return;
     setLoadingAccount(true);
-    Promise.allSettled([
-      erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID),
-      erbonService.fetchAccountsReceivable(hotelId),
-    ]).then(([accR, arR]) => {
-      const map = new Map<any, any>();
+    (async () => {
+      const [accR, arR] = await Promise.allSettled([
+        erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID),
+        erbonService.fetchAccountsReceivable(hotelId),
+      ]);
+
+      const map = new Map<any, AccountEntry>();
       if (accR.status === 'fulfilled') {
-        for (const e of (accR.value || [])) map.set(e.id ?? `live-${map.size}`, e);
+        for (const e of (accR.value || [])) {
+          map.set(e.id ?? `live-${map.size}`, {
+            id: e.id, description: e.description, amount: e.amount,
+            isDebit: !!e.isDebit, isCredit: !!e.isCredit,
+          });
+        }
       }
-      const recs: { titleNumber: string; paymentType: string; emissionDate: string; valueTotal: number }[] = [];
+
+      // Recibos do contas a receber: completam CRÉDITOS que o currentaccount
+      // omite e trazem a forma de pagamento. ATENÇÃO: valueTotal do recibo é
+      // o total do TÍTULO (pode agrupar outras contas) — o que pertence a
+      // esta reserva são os lançamentos da currentAccountList.
       if (arR.status === 'fulfilled') {
         for (const r of ((arR.value as any[]) || [])) {
           if (String(r.bookingNumber) !== String(booking.erbonNumber)) continue;
           if (r.isCanceled) continue;
-          recs.push({
-            titleNumber: r.titleNumber,
-            paymentType: r.paymentType,
-            emissionDate: r.emissionDate,
-            valueTotal: r.valueTotal,
-          });
           for (const it of (r.currentAccountList || [])) {
             if (it.iscanceled) continue;
-            if (!map.has(it.id)) {
+            const existing = map.get(it.id);
+            const receiptInfo = it.iscredit
+              ? { paymentType: r.paymentType, titleNumber: r.titleNumber, date: r.emissionDate }
+              : {};
+            if (existing) {
+              Object.assign(existing, receiptInfo, { quantity: existing.quantity ?? it.quantity });
+            } else {
               map.set(it.id, {
-                id: it.id,
-                description: it.description,
-                amount: it.valueTotal,
-                isDebit: !!it.isdebit,
-                isCredit: !!it.iscredit,
+                id: it.id, description: it.description, amount: it.valueTotal,
+                isDebit: !!it.isdebit, isCredit: !!it.iscredit,
+                quantity: it.quantity || undefined,
+                ...receiptInfo,
               });
             }
           }
         }
       }
+
       setAccount([...map.values()]);
-      setReceipts(recs);
-    }).finally(() => setLoadingAccount(false));
+      setLoadingAccount(false);
+
+      // ── Enriquecimento assíncrono: data/departamento/origem dos consumos ──
+      // sales/transactions é por dia; varre a estadia (máx. 31 dias) e casa
+      // cada transação com o lançamento pela descrição + valor.
+      try {
+        const ci = parseISO(booking.checkInDateTime);
+        const co = parseISO(booking.checkOutDateTime);
+        const today = new Date();
+        const end = co < today ? co : today;
+        const totalDays = Math.min(differenceInCalendarDays(end, ci) + 1, 31);
+        if (totalDays <= 0) return;
+        const dates = Array.from({ length: totalDays }, (_, i) =>
+          format(new Date(ci.getTime() + i * 86400000), 'yyyy-MM-dd'));
+
+        const txAll: any[] = [];
+        const CHUNK = 8;
+        for (let i = 0; i < dates.length; i += CHUNK) {
+          const settled = await Promise.allSettled(
+            dates.slice(i, i + CHUNK).map(d => erbonService.fetchTransactionsForDate(hotelId, d)),
+          );
+          for (const s of settled) if (s.status === 'fulfilled') txAll.push(...(s.value as any[]));
+        }
+        if (txAll.length === 0) return;
+
+        setAccount(prev => {
+          if (!prev) return prev;
+          const pool = txAll.filter((t: any) => !t.isCanceled);
+          const used = new Set<number>();
+          return prev.map(entry => {
+            if (!entry.isDebit || entry.date) return entry;
+            const idx = pool.findIndex((t: any, ti: number) =>
+              !used.has(ti)
+              && (t.serviceDescription || '').trim().toLowerCase() === (entry.description || '').trim().toLowerCase()
+              && Math.abs((t.valueTotal ?? 0) - (entry.amount ?? 0)) < 0.01,
+            );
+            if (idx === -1) return entry;
+            used.add(idx);
+            const t = pool[idx];
+            return {
+              ...entry,
+              date: t.date,
+              department: t.department,
+              quantity: entry.quantity ?? t.quantity,
+              source: t.idSource || undefined,
+            };
+          });
+        });
+      } catch { /* enriquecimento é best-effort */ }
+    })();
   }, [tab]);
 
   const debits  = useMemo(() => (account || []).filter((e: any) => e.isDebit), [account]);
@@ -376,8 +446,20 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                   ) : (
                     <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800">
                       {debits.map((e: any, i: number) => (
-                        <div key={e.id || i} className="flex items-center justify-between px-3 py-2 text-sm">
-                          <span className="text-gray-700 dark:text-gray-200 truncate mr-3">{e.description}</span>
+                        <div key={e.id || i} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
+                          <div className="min-w-0">
+                            <p className="text-gray-700 dark:text-gray-200 truncate">{e.description}</p>
+                            {(e.date || e.department || e.quantity > 1 || e.source) && (
+                              <p className="text-[11px] text-gray-400 truncate">
+                                {[
+                                  e.date ? format(parseISO(e.date), 'dd/MM/yyyy') : null,
+                                  e.department,
+                                  e.quantity > 1 ? `${e.quantity}x` : null,
+                                  e.source,
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
                           <span className="font-semibold text-red-500 whitespace-nowrap">{fmtBRL(e.amount)}</span>
                         </div>
                       ))}
@@ -399,8 +481,19 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                   ) : (
                     <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800">
                       {credits.map((e: any, i: number) => (
-                        <div key={e.id || i} className="flex items-center justify-between px-3 py-2 text-sm">
-                          <span className="text-gray-700 dark:text-gray-200 truncate mr-3">{e.description}</span>
+                        <div key={e.id || i} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
+                          <div className="min-w-0">
+                            <p className="text-gray-700 dark:text-gray-200 truncate">{e.description}</p>
+                            {(e.paymentType || e.titleNumber || e.date) && (
+                              <p className="text-[11px] text-gray-400 truncate">
+                                {[
+                                  e.paymentType,
+                                  e.titleNumber,
+                                  e.date ? format(parseISO(e.date), 'dd/MM/yyyy') : null,
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
                           <span className="font-semibold text-emerald-600 whitespace-nowrap">{fmtBRL(e.amount)}</span>
                         </div>
                       ))}
@@ -412,28 +505,6 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                   )}
                 </div>
 
-                {/* Recibos / pagamentos detalhados (contas a receber) */}
-                {receipts.length > 0 && (
-                  <div>
-                    <p className="flex items-center gap-1.5 text-xs font-bold text-indigo-500 uppercase tracking-wider mb-2">
-                      <Wallet className="w-3.5 h-3.5" /> Recibos · Pagamentos detalhados ({receipts.length})
-                    </p>
-                    <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800">
-                      {receipts.map((r, i) => (
-                        <div key={i} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
-                          <div className="min-w-0">
-                            <p className="text-gray-700 dark:text-gray-200 font-medium truncate">{r.paymentType || '—'}</p>
-                            <p className="text-[11px] text-gray-400">
-                              {r.titleNumber}
-                              {r.emissionDate && ` · ${format(parseISO(r.emissionDate), 'dd/MM/yyyy')}`}
-                            </p>
-                          </div>
-                          <span className="font-semibold text-indigo-600 whitespace-nowrap">{fmtBRL(r.valueTotal)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )
           )}
