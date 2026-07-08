@@ -176,6 +176,18 @@ const OmnibeesIntegration: React.FC = () => {
         </span>
       </div>
 
+      {/* Aviso: credenciais próprias */}
+      <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        <span>
+          <strong>Use credenciais emitidas pela Omnibees para ESTE sistema</strong> (modo Pull), solicitadas
+          ao suporte da Omnibees com o HotelCode da unidade mapeado. <strong>Não reutilize credenciais de
+          outro PMS</strong> (ex.: as da Erbon): além de a Omnibees recusar ("Invalid hotel code / PMS
+          mappings"), confirmar a entrega de reservas pela conta de outro parceiro faria as reservas
+          deixarem de chegar a ele.
+        </span>
+      </div>
+
       {/* Card de configuração */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 p-6 space-y-6">
         {loading ? (
