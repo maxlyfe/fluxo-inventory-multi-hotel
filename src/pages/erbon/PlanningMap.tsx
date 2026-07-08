@@ -12,8 +12,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  ChevronLeft, ChevronRight, Loader2, BedDouble, X, RefreshCw,
-  Users, CalendarRange, Info,
+  ChevronLeft, ChevronRight, Loader2, BedDouble, RefreshCw, Info, Plus,
 } from 'lucide-react';
 import {
   format, addDays, subDays, differenceInCalendarDays, parseISO, isSameDay, getDay,
@@ -22,6 +21,9 @@ import {
 import { ptBR } from 'date-fns/locale';
 import { erbonService, ErbonBooking, ErbonRoom } from '../../lib/erbonService';
 import { governanceService, RoomCategory, HotelRoom } from '../../lib/governanceService';
+import { supabase } from '../../lib/supabase';
+import BookingDetailModal from './BookingDetailModal';
+import InternalBookingModal, { InternalBooking } from './InternalBookingModal';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -65,6 +67,27 @@ function isCancelled(b: ErbonBooking): boolean {
   return s.includes('CANCEL') || s.includes('NOSHOW') || s.includes('NO SHOW');
 }
 
+// Cor da barra para reservas INTERNAS (hotéis sem Erbon)
+function internalBarColor(status: string): string {
+  if (status === 'checkedin')  return 'linear-gradient(135deg, #34d399, #059669)';
+  if (status === 'checkedout') return 'linear-gradient(135deg, #94a3b8, #64748b)';
+  return 'linear-gradient(135deg, #818cf8, #4f46e5)';
+}
+
+// Barra pronta para renderização — une reservas Erbon e internas
+interface RenderBar {
+  id: string;
+  label: string;
+  startPos: number;
+  widthCols: number;
+  clippedStart: boolean;
+  clippedEnd: boolean;
+  bg: string;
+  title: string;
+  erbon?: ErbonBooking;
+  internal?: InternalBooking;
+}
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) => {
@@ -77,8 +100,11 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
   const [rows, setRows] = useState<MapRow[]>([]);
   const [bookings, setBookings] = useState<ErbonBooking[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
+  const [roomsSyncing, setRoomsSyncing] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<ErbonBooking | null>(null);
+  const [internalBookings, setInternalBookings] = useState<InternalBooking[]>([]);
+  const [internalModal, setInternalModal] = useState<{ booking: InternalBooking | null } | null>(null);
   const [centerLabel, setCenterLabel] = useState('');
   const [pendingFetches, setPendingFetches] = useState(0);
   // bump para re-render do shimmer quando dias terminam de carregar
@@ -91,8 +117,14 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
   // Cache de carregamento por dia (chave 'yyyy-MM-dd' do check-in)
   const loadedDaysRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef<Set<string>>(new Set());
-  const seenBookingsRef = useRef<Set<number>>(new Set());
   const visibleLoadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reservas indexadas por bookingInternalID — dados frescos da Erbon
+  // SUBSTITUEM os do cache local (status pode ter mudado)
+  const bookingMapRef = useRef<Map<number, ErbonBooking>>(new Map());
+  const commitBookings = useCallback(() => {
+    setBookings([...bookingMapRef.current.values()]);
+  }, []);
 
   // Drag-to-pan (mesmo padrão da Linha do Tempo dos relatórios)
   const isDragging = useRef(false);
@@ -107,18 +139,50 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
   const gridWidth = rangeDays * COL_W;
   const todayIdx = differenceInCalendarDays(today, rangeStart);
 
-  // ── UHs (linhas) ───────────────────────────────────────────────────────────
+  // ── UHs (linhas): cache local primeiro, Erbon sincroniza em background ─────
   const loadRooms = useCallback(async () => {
     if (!hotelId) return;
-    setLoadingRooms(true); setError('');
+    setError('');
     try {
       if (erbonConfigured) {
-        const erbonRooms: ErbonRoom[] = await erbonService.fetchHousekeeping(hotelId);
-        setRows(erbonRooms.map(r => ({
-          key: String(r.idRoom),
-          name: r.roomName,
-          category: r.roomTypeDescription || 'Sem categoria',
-        })));
+        // 1) Resultado rápido: UHs já mapeadas no banco
+        const { data: cached } = await supabase
+          .from('erbon_rooms_cache')
+          .select('erbon_room_id, room_name, room_type')
+          .eq('hotel_id', hotelId);
+        if (cached && cached.length > 0) {
+          setRows(cached.map((r: any) => ({
+            key: String(r.erbon_room_id),
+            name: r.room_name,
+            category: r.room_type || 'Sem categoria',
+          })));
+          setLoadingRooms(false);
+        }
+
+        // 2) Sincroniza com a Erbon e atualiza banco + tela
+        setRoomsSyncing(true);
+        try {
+          const erbonRooms: ErbonRoom[] = await erbonService.fetchHousekeeping(hotelId);
+          setRows(erbonRooms.map(r => ({
+            key: String(r.idRoom),
+            name: r.roomName,
+            category: r.roomTypeDescription || 'Sem categoria',
+          })));
+          const now = new Date().toISOString();
+          await supabase.from('erbon_rooms_cache').upsert(
+            erbonRooms.map(r => ({
+              hotel_id: hotelId,
+              erbon_room_id: r.idRoom,
+              room_name: r.roomName,
+              room_type: r.roomTypeDescription || null,
+              floor: r.numberFloor ?? null,
+              synced_at: now,
+            })),
+            { onConflict: 'hotel_id,erbon_room_id' },
+          );
+        } finally {
+          setRoomsSyncing(false);
+        }
       } else {
         const [localRooms, categories]: [HotelRoom[], RoomCategory[]] = await Promise.all([
           governanceService.fetchLocalRooms(hotelId),
@@ -138,16 +202,53 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     }
   }, [hotelId, erbonConfigured]);
 
+  // Reservas já mapeadas no banco — pinta o mapa imediatamente
+  const loadCachedBookings = useCallback(async () => {
+    if (!hotelId || !erbonConfigured) return;
+    const { data } = await supabase
+      .from('erbon_bookings_cache')
+      .select('booking_internal_id, payload')
+      .eq('hotel_id', hotelId)
+      .gte('checkout', subDays(today, 90).toISOString())
+      .limit(3000);
+    if (data && data.length > 0) {
+      for (const row of data as any[]) {
+        // Dados frescos da Erbon têm prioridade sobre o cache
+        if (!bookingMapRef.current.has(row.booking_internal_id)) {
+          bookingMapRef.current.set(row.booking_internal_id, row.payload as ErbonBooking);
+        }
+      }
+      commitBookings();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId, erbonConfigured, commitBookings]);
+
+  // Reservas internas (hotéis sem Erbon)
+  const loadInternalBookings = useCallback(async () => {
+    if (!hotelId || erbonConfigured) { setInternalBookings([]); return; }
+    const { data } = await supabase
+      .from('internal_bookings')
+      .select('*')
+      .eq('hotel_id', hotelId)
+      .neq('status', 'cancelled')
+      .gte('checkout', format(subDays(today, 120), 'yyyy-MM-dd'));
+    setInternalBookings((data || []) as InternalBooking[]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId, erbonConfigured]);
+
   useEffect(() => {
     // Reset completo ao trocar de hotel
     loadedDaysRef.current.clear();
     inFlightRef.current.clear();
-    seenBookingsRef.current.clear();
+    bookingMapRef.current.clear();
     setBookings([]);
     setPendingFetches(0);
     initialScrollDone.current = false;
+    setLoadingRooms(true);
+    loadCachedBookings();
+    loadInternalBookings();
     loadRooms();
-  }, [loadRooms]);
+  }, [loadRooms, loadCachedBookings, loadInternalBookings]);
 
   // ── Carregamento progressivo de reservas (por dia de check-in) ─────────────
   const ensureDaysLoaded = useCallback((dates: string[]) => {
@@ -170,20 +271,38 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
           if (r.status === 'fulfilled') {
             loadedDaysRef.current.add(date);
             for (const b of r.value || []) {
-              if (!seenBookingsRef.current.has(b.bookingInternalID)) {
-                seenBookingsRef.current.add(b.bookingInternalID);
-                if (!isCancelled(b)) fresh.push(b);
-              }
+              // Substitui a versão do cache — status pode ter mudado
+              bookingMapRef.current.set(b.bookingInternalID, b);
+              fresh.push(b);
             }
           }
           // dia com falha: sai do in-flight sem marcar carregado → retenta depois
         });
-        if (fresh.length > 0) setBookings(prev => [...prev, ...fresh]);
+        if (fresh.length > 0) {
+          commitBookings();
+          // Persiste no cache local (fire-and-forget — não trava a UI)
+          const now = new Date().toISOString();
+          supabase.from('erbon_bookings_cache').upsert(
+            fresh.map(b => ({
+              hotel_id: hotelId,
+              booking_internal_id: b.bookingInternalID,
+              status: b.status || null,
+              checkin: b.checkInDateTime || null,
+              checkout: b.checkOutDateTime || null,
+              room_id: b.roomID || null,
+              payload: b,
+              synced_at: now,
+            })),
+            { onConflict: 'hotel_id,booking_internal_id' },
+          ).then(({ error: upErr }) => {
+            if (upErr) console.error('[PlanningMap] cache upsert:', upErr.message);
+          });
+        }
         setPendingFetches(c => Math.max(0, c - chunk.length));
         setLoadedVersion(v => v + 1);
       }
     })();
-  }, [erbonConfigured, hotelId]);
+  }, [erbonConfigured, hotelId, commitBookings]);
 
   // Agenda o carregamento dos dias visíveis (+ lookback e buffer), debounced
   const scheduleVisibleLoad = useCallback(() => {
@@ -240,20 +359,22 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     }
   }, [rangeStart.getTime(), rangeDays]);
 
-  // Posição inicial: hoje na 3ª coluna visível
+  // Posição inicial: hoje encostado à esquerda (1 dia de contexto atrás) —
+  // o foco do planning é o presente e o futuro; o passado fica a um arrasto
+  // de distância.
   useEffect(() => {
-    if (loadingRooms || initialScrollDone.current || !scrollRef.current) return;
+    if (loadingRooms || rows.length === 0 || initialScrollDone.current || !scrollRef.current) return;
     initialScrollDone.current = true;
-    scrollRef.current.scrollLeft = Math.max(0, todayIdx * COL_W - 2 * COL_W);
+    scrollRef.current.scrollLeft = Math.max(0, todayIdx * COL_W - 1 * COL_W);
     handleScroll();
-  }, [loadingRooms]);
+  }, [loadingRooms, rows.length]);
 
   const goToToday = () => {
     const el = scrollRef.current;
     if (!el) return;
     const idx = differenceInCalendarDays(today, rangeStart);
     if (idx >= 0 && idx < rangeDays) {
-      el.scrollTo({ left: Math.max(0, idx * COL_W - 2 * COL_W), behavior: 'smooth' });
+      el.scrollTo({ left: Math.max(0, idx * COL_W - 1 * COL_W), behavior: 'smooth' });
     } else {
       setRangeStart(subDays(today, 15));
       setRangeDays(70);
@@ -298,31 +419,57 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
 
   // ── Barras por UH (recortadas na janela renderizada) ───────────────────────
   const barsByRoom = useMemo(() => {
-    const map = new Map<string, { booking: ErbonBooking; startPos: number; widthCols: number; clippedStart: boolean; clippedEnd: boolean }[]>();
+    const map = new Map<string, RenderBar[]>();
     const rangeEndExcl = addDays(rangeStart, rangeDays);
-    for (const b of bookings) {
-      if (!b.roomID) continue;
-      let ci: Date, co: Date;
-      try { ci = parseISO(b.checkInDateTime); co = parseISO(b.checkOutDateTime); } catch { continue; }
-      if (co <= rangeStart || ci >= rangeEndExcl) continue;
 
+    // Geometria da barra (meia diária no in/out, recortada na janela)
+    const clip = (ci: Date, co: Date) => {
+      if (co <= rangeStart || ci >= rangeEndExcl) return null;
       const clippedStart = ci < rangeStart;
       const clippedEnd = co > rangeEndExcl;
       const startIdx = clippedStart ? 0 : differenceInCalendarDays(ci, rangeStart);
       const endIdx = clippedEnd ? rangeDays : differenceInCalendarDays(co, rangeStart);
       const startPos = clippedStart ? 0 : startIdx + 0.5;
       const endPos = clippedEnd ? rangeDays : endIdx + 0.5;
-
-      const key = String(b.roomID);
+      return { startPos, widthCols: Math.max(endPos - startPos, 0.5), clippedStart, clippedEnd };
+    };
+    const push = (key: string, bar: RenderBar) => {
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push({
-        booking: b, startPos,
-        widthCols: Math.max(endPos - startPos, 0.5),
-        clippedStart, clippedEnd,
-      });
+      map.get(key)!.push(bar);
+    };
+
+    if (erbonConfigured) {
+      for (const b of bookings) {
+        if (!b.roomID || isCancelled(b)) continue;
+        let ci: Date, co: Date;
+        try { ci = parseISO(b.checkInDateTime); co = parseISO(b.checkOutDateTime); } catch { continue; }
+        const g = clip(ci, co);
+        if (!g) continue;
+        const label = b.guestList?.[0]?.name || `Reserva ${b.erbonNumber || b.bookingInternalID}`;
+        push(String(b.roomID), {
+          id: `e-${b.bookingInternalID}`, label, ...g,
+          bg: barColor(b).bg,
+          title: `${label} · ${format(ci, 'dd/MM')} → ${format(co, 'dd/MM')}`,
+          erbon: b,
+        });
+      }
+    } else {
+      for (const ib of internalBookings) {
+        if (!ib.room_id || ib.status === 'cancelled') continue;
+        let ci: Date, co: Date;
+        try { ci = parseISO(ib.checkin); co = parseISO(ib.checkout); } catch { continue; }
+        const g = clip(ci, co);
+        if (!g) continue;
+        push(ib.room_id, {
+          id: `i-${ib.id}`, label: ib.guest_name, ...g,
+          bg: internalBarColor(ib.status),
+          title: `${ib.guest_name} · ${format(ci, 'dd/MM')} → ${format(co, 'dd/MM')} · ${ib.code}`,
+          internal: ib,
+        });
+      }
     }
     return map;
-  }, [bookings, rangeStart.getTime(), rangeDays]);
+  }, [erbonConfigured, bookings, internalBookings, rangeStart.getTime(), rangeDays]);
 
   // ── Fundo das linhas: grade + fim de semana via CSS (leve) ─────────────────
   const rowBackground = useMemo(() => {
@@ -357,12 +504,9 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
   }, [erbonConfigured, rangeStart.getTime(), rangeDays, pendingFetches, bookings.length]);
 
   const unassignedCount = useMemo(
-    () => bookings.filter(b => !b.roomID).length,
+    () => bookings.filter(b => !b.roomID && !isCancelled(b)).length,
     [bookings],
   );
-
-  const guestName = (b: ErbonBooking) =>
-    b.guestList?.[0]?.name || `Reserva ${b.erbonNumber || b.bookingInternalID}`;
 
   const bodyHeight = groups.reduce((h, g) => h + 26 + g.rooms.length * ROW_H, 0);
 
@@ -404,12 +548,19 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
         </button>
         <button onClick={() => {
           loadedDaysRef.current.clear(); inFlightRef.current.clear();
-          seenBookingsRef.current.clear(); setBookings([]);
-          scheduleVisibleLoad(); loadRooms();
+          scheduleVisibleLoad(); loadInternalBookings(); loadRooms();
         }} disabled={loadingRooms}
           className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-500 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
           <RefreshCw className={`h-3.5 w-3.5 ${loadingRooms ? 'animate-spin' : ''}`} />
         </button>
+
+        {/* Nova reserva interna — apenas hotéis sem Erbon */}
+        {!erbonConfigured && rows.length > 0 && (
+          <button onClick={() => setInternalModal({ booking: null })}
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors shadow-sm">
+            <Plus className="h-3.5 w-3.5" /> Nova Reserva
+          </button>
+        )}
 
         {erbonConfigured && (
           <div className="ml-auto flex flex-wrap items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
@@ -422,10 +573,19 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       </div>
 
       {/* Avisos */}
-      {!erbonConfigured && (
+      {erbonConfigured && (roomsSyncing || pendingFetches > 0) && (
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-700 dark:text-indigo-300">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500" />
+          </span>
+          Sincronização com a Erbon em andamento — exibindo os dados já salvos; o mapa atualiza sozinho.
+        </div>
+      )}
+      {!erbonConfigured && rows.length > 0 && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
           <Info className="w-4 h-4 shrink-0" />
-          Hotel sem integração Erbon — exibindo as UHs cadastradas em Governança → Quartos. O lançamento interno de reservas chega em breve.
+          Reservas internas — crie pelo botão "Nova Reserva" e clique numa barra para editar datas, lançar pagamentos, incluir hóspedes e dar check-in/out.
         </div>
       )}
       {erbonConfigured && unassignedCount > 0 && (
@@ -540,28 +700,29 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
                           </div>
 
                           <div className="relative" style={{ width: gridWidth, minWidth: gridWidth, ...rowBackground }}>
-                            {bars.map((bar, bi) => {
-                              const colors = barColor(bar.booking);
-                              return (
-                                <button key={bi}
-                                  onClick={() => { if (dragMoved.current < 6) setSelected(bar.booking); }}
-                                  title={`${guestName(bar.booking)} · ${format(parseISO(bar.booking.checkInDateTime), 'dd/MM')} → ${format(parseISO(bar.booking.checkOutDateTime), 'dd/MM')}`}
-                                  className="absolute flex items-center gap-1 px-2 text-[10px] font-bold truncate shadow-sm hover:brightness-110 hover:z-10 transition-all cursor-pointer"
-                                  style={{
-                                    left: bar.startPos * COL_W + 1,
-                                    width: bar.widthCols * COL_W - 2,
-                                    top: 4,
-                                    height: ROW_H - 8,
-                                    background: colors.bg,
-                                    color: colors.text,
-                                    borderRadius: `${bar.clippedStart ? 0 : 10}px ${bar.clippedEnd ? 0 : 10}px ${bar.clippedEnd ? 0 : 10}px ${bar.clippedStart ? 0 : 10}px`,
-                                  }}>
-                                  {bar.clippedStart && <span className="opacity-70">◂</span>}
-                                  <span className="truncate">{guestName(bar.booking)}</span>
-                                  {bar.clippedEnd && <span className="ml-auto opacity-70">▸</span>}
-                                </button>
-                              );
-                            })}
+                            {bars.map(bar => (
+                              <button key={bar.id}
+                                onClick={() => {
+                                  if (dragMoved.current >= 6) return;
+                                  if (bar.erbon) setSelected(bar.erbon);
+                                  else if (bar.internal) setInternalModal({ booking: bar.internal });
+                                }}
+                                title={bar.title}
+                                className="absolute flex items-center gap-1 px-2 text-[10px] font-bold truncate shadow-sm hover:brightness-110 hover:z-10 transition-all cursor-pointer"
+                                style={{
+                                  left: bar.startPos * COL_W + 1,
+                                  width: bar.widthCols * COL_W - 2,
+                                  top: 4,
+                                  height: ROW_H - 8,
+                                  background: bar.bg,
+                                  color: '#fff',
+                                  borderRadius: `${bar.clippedStart ? 0 : 10}px ${bar.clippedEnd ? 0 : 10}px ${bar.clippedEnd ? 0 : 10}px ${bar.clippedStart ? 0 : 10}px`,
+                                }}>
+                                {bar.clippedStart && <span className="opacity-70">◂</span>}
+                                <span className="truncate">{bar.label}</span>
+                                {bar.clippedEnd && <span className="ml-auto opacity-70">▸</span>}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       );
@@ -574,58 +735,24 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
         </div>
       )}
 
-      {/* ── Detalhes da reserva ── */}
+      {/* ── Modal detalhado da reserva Erbon ── */}
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => setSelected(null)}>
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-          <div onClick={e => e.stopPropagation()}
-            className="relative w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-5 py-4 flex items-start justify-between"
-              style={{ background: barColor(selected).bg }}>
-              <div className="text-white min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">
-                  Reserva {selected.erbonNumber || selected.bookingInternalID} · {selected.status}
-                </p>
-                <h3 className="text-base font-bold truncate">{guestName(selected)}</h3>
-              </div>
-              <button onClick={() => setSelected(null)}
-                className="w-8 h-8 flex items-center justify-center rounded-xl text-white/80 hover:text-white hover:bg-white/20 transition-colors shrink-0">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="p-5 space-y-3 text-sm">
-              <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                <CalendarRange className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>
-                  {format(parseISO(selected.checkInDateTime), "dd/MM/yyyy", { locale: ptBR })}
-                  {' → '}
-                  {format(parseISO(selected.checkOutDateTime), "dd/MM/yyyy", { locale: ptBR })}
-                  <span className="text-gray-400 ml-1">
-                    ({differenceInCalendarDays(parseISO(selected.checkOutDateTime), parseISO(selected.checkInDateTime))} diárias)
-                  </span>
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                <BedDouble className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>UH <strong>{selected.roomDescription}</strong> · {selected.roomTypeDescription}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                <Users className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>
-                  {selected.adultQuantity} adulto{selected.adultQuantity !== 1 ? 's' : ''}
-                  {!!selected.childQuantity && ` · ${selected.childQuantity} criança${selected.childQuantity !== 1 ? 's' : ''}`}
-                  {!!selected.babyQuantity && ` · ${selected.babyQuantity} bebê${selected.babyQuantity !== 1 ? 's' : ''}`}
-                </span>
-              </div>
-              {(selected.segmentDesc || selected.sourceDesc) && (
-                <p className="text-xs text-gray-400">
-                  {[selected.segmentDesc, selected.sourceDesc].filter(Boolean).join(' · ')}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        <BookingDetailModal
+          hotelId={hotelId}
+          booking={selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
+
+      {/* ── Modal de reserva interna (sem Erbon) ── */}
+      {internalModal && (
+        <InternalBookingModal
+          hotelId={hotelId}
+          rooms={rows.map(r => ({ id: r.key, name: r.name, category: r.category }))}
+          booking={internalModal.booking}
+          onSaved={loadInternalBookings}
+          onClose={() => setInternalModal(null)}
+        />
       )}
     </div>
   );
