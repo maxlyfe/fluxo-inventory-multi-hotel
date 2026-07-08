@@ -49,6 +49,8 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   // Conta corrente
   const [account, setAccount] = useState<any[] | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(false);
+  // Recibos/pagamentos detalhados (vindos do contas a receber)
+  const [receipts, setReceipts] = useState<{ titleNumber: string; paymentType: string; emissionDate: string; valueTotal: number }[]>([]);
 
   // Hóspedes — ações
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -82,13 +84,50 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   useEffect(() => { refreshBooking(); }, []);
 
   // ── Conta corrente (lazy — ao abrir a aba) ─────────────────────────────────
+  // A API da Erbon divide a informação em DUAS fontes:
+  //  - /booking/{id}/currentaccount → só traz os DÉBITOS (consumos/diárias)
+  //  - /sales/financialaccountreceive → recibos com a conta completa,
+  //    incluindo CRÉDITOS/adiantamentos e a forma de pagamento
+  // Mesclamos as duas (dedupe por id do lançamento) para não faltar nada.
   useEffect(() => {
     if (tab !== 'conta' || account !== null || loadingAccount) return;
     setLoadingAccount(true);
-    erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID)
-      .then(entries => setAccount(entries || []))
-      .catch(() => setAccount([]))
-      .finally(() => setLoadingAccount(false));
+    Promise.allSettled([
+      erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID),
+      erbonService.fetchAccountsReceivable(hotelId),
+    ]).then(([accR, arR]) => {
+      const map = new Map<any, any>();
+      if (accR.status === 'fulfilled') {
+        for (const e of (accR.value || [])) map.set(e.id ?? `live-${map.size}`, e);
+      }
+      const recs: { titleNumber: string; paymentType: string; emissionDate: string; valueTotal: number }[] = [];
+      if (arR.status === 'fulfilled') {
+        for (const r of ((arR.value as any[]) || [])) {
+          if (String(r.bookingNumber) !== String(booking.erbonNumber)) continue;
+          if (r.isCanceled) continue;
+          recs.push({
+            titleNumber: r.titleNumber,
+            paymentType: r.paymentType,
+            emissionDate: r.emissionDate,
+            valueTotal: r.valueTotal,
+          });
+          for (const it of (r.currentAccountList || [])) {
+            if (it.iscanceled) continue;
+            if (!map.has(it.id)) {
+              map.set(it.id, {
+                id: it.id,
+                description: it.description,
+                amount: it.valueTotal,
+                isDebit: !!it.isdebit,
+                isCredit: !!it.iscredit,
+              });
+            }
+          }
+        }
+      }
+      setAccount([...map.values()]);
+      setReceipts(recs);
+    }).finally(() => setLoadingAccount(false));
   }, [tab]);
 
   const debits  = useMemo(() => (account || []).filter((e: any) => e.isDebit), [account]);
@@ -372,6 +411,29 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                     </div>
                   )}
                 </div>
+
+                {/* Recibos / pagamentos detalhados (contas a receber) */}
+                {receipts.length > 0 && (
+                  <div>
+                    <p className="flex items-center gap-1.5 text-xs font-bold text-indigo-500 uppercase tracking-wider mb-2">
+                      <Wallet className="w-3.5 h-3.5" /> Recibos · Pagamentos detalhados ({receipts.length})
+                    </p>
+                    <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800">
+                      {receipts.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
+                          <div className="min-w-0">
+                            <p className="text-gray-700 dark:text-gray-200 font-medium truncate">{r.paymentType || '—'}</p>
+                            <p className="text-[11px] text-gray-400">
+                              {r.titleNumber}
+                              {r.emissionDate && ` · ${format(parseISO(r.emissionDate), 'dd/MM/yyyy')}`}
+                            </p>
+                          </div>
+                          <span className="font-semibold text-indigo-600 whitespace-nowrap">{fmtBRL(r.valueTotal)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           )}
