@@ -98,6 +98,13 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
   const [rangeStart, setRangeStart] = useState<Date>(() => subDays(today, 15));
   const [rangeDays, setRangeDays] = useState(70);
 
+  // ── Fonte das reservas — REGRA DE PRIORIDADE ──────────────────────────────
+  // 1º Omnibees ativa  → modo interno + sync Omnibees (foco principal)
+  // 2º Erbon ativa     → dados da Erbon
+  // 3º nenhuma         → reservas internas manuais
+  const [sourceMode, setSourceMode] = useState<'erbon' | 'internal' | null>(null);
+  const isErbon = sourceMode === 'erbon';
+
   const [rows, setRows] = useState<MapRow[]>([]);
   const [bookings, setBookings] = useState<ErbonBooking[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
@@ -146,7 +153,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     if (!hotelId) return;
     setError('');
     try {
-      if (erbonConfigured) {
+      if (isErbon) {
         // 1) Resultado rápido: UHs já mapeadas no banco
         const { data: cached } = await supabase
           .from('erbon_rooms_cache')
@@ -202,11 +209,11 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     } finally {
       setLoadingRooms(false);
     }
-  }, [hotelId, erbonConfigured]);
+  }, [hotelId, isErbon, sourceMode]);
 
   // Reservas já mapeadas no banco — pinta o mapa imediatamente
   const loadCachedBookings = useCallback(async () => {
-    if (!hotelId || !erbonConfigured) return;
+    if (!hotelId || !isErbon) return;
     const { data } = await supabase
       .from('erbon_bookings_cache')
       .select('booking_internal_id, payload')
@@ -223,11 +230,11 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       commitBookings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hotelId, erbonConfigured, commitBookings]);
+  }, [hotelId, isErbon, sourceMode, commitBookings]);
 
   // Reservas internas (hotéis sem Erbon)
   const loadInternalBookings = useCallback(async () => {
-    if (!hotelId || erbonConfigured) { setInternalBookings([]); return; }
+    if (!hotelId || isErbon) { setInternalBookings([]); return; }
     const { data } = await supabase
       .from('internal_bookings')
       .select('*')
@@ -236,10 +243,26 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       .gte('checkout', format(subDays(today, 120), 'yyyy-MM-dd'));
     setInternalBookings((data || []) as InternalBooking[]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId, isErbon, sourceMode]);
+
+  // Resolve a FONTE das reservas ao trocar de hotel (prioridade: Omnibees > Erbon > interno)
+  useEffect(() => {
+    let alive = true;
+    setSourceMode(null);
+    (async () => {
+      let mode: 'erbon' | 'internal' = 'internal';
+      if (erbonConfigured && hotelId) {
+        const omniCfg = await omnibeesService.getConfig(hotelId).catch(() => null);
+        mode = omniCfg?.is_active ? 'internal' : 'erbon';
+      }
+      if (alive) setSourceMode(mode);
+    })();
+    return () => { alive = false; };
   }, [hotelId, erbonConfigured]);
 
   useEffect(() => {
-    // Reset completo ao trocar de hotel
+    if (sourceMode === null) return;
+    // Reset completo ao trocar de hotel/fonte
     loadedDaysRef.current.clear();
     inFlightRef.current.clear();
     bookingMapRef.current.clear();
@@ -251,20 +274,20 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     loadInternalBookings();
     loadRooms();
 
-    // Hotéis sem Erbon com Omnibees configurada: puxa reservas dos canais
+    // Modo interno com Omnibees configurada: puxa reservas dos canais
     // em background e recarrega o mapa quando chegarem novidades
-    if (!erbonConfigured && hotelId) {
+    if (sourceMode === 'internal' && hotelId) {
       setOmniSyncing(true);
       omnibeesService.syncHotel(hotelId)
         .then(n => { if (n > 0) loadInternalBookings(); })
         .catch(err => console.error('[PlanningMap] Omnibees sync:', err?.message))
         .finally(() => setOmniSyncing(false));
     }
-  }, [loadRooms, loadCachedBookings, loadInternalBookings, erbonConfigured, hotelId]);
+  }, [loadRooms, loadCachedBookings, loadInternalBookings, sourceMode, hotelId]);
 
   // ── Carregamento progressivo de reservas (por dia de check-in) ─────────────
   const ensureDaysLoaded = useCallback((dates: string[]) => {
-    if (!erbonConfigured || !hotelId) return;
+    if (!isErbon || !hotelId) return;
     const missing = dates.filter(d => !loadedDaysRef.current.has(d) && !inFlightRef.current.has(d));
     if (missing.length === 0) return;
     missing.forEach(d => inFlightRef.current.add(d));
@@ -314,11 +337,11 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
         setLoadedVersion(v => v + 1);
       }
     })();
-  }, [erbonConfigured, hotelId, commitBookings]);
+  }, [isErbon, hotelId, commitBookings]);
 
   // Agenda o carregamento dos dias visíveis (+ lookback e buffer), debounced
   const scheduleVisibleLoad = useCallback(() => {
-    if (!erbonConfigured) return;
+    if (!isErbon) return;
     if (visibleLoadTimer.current) clearTimeout(visibleLoadTimer.current);
     visibleLoadTimer.current = setTimeout(() => {
       const el = scrollRef.current;
@@ -331,7 +354,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       const dates = Array.from({ length: n }, (_, i) => format(addDays(from, i), 'yyyy-MM-dd'));
       ensureDaysLoaded(dates);
     }, 250);
-  }, [erbonConfigured, rangeStart.getTime(), ensureDaysLoaded]);
+  }, [isErbon, rangeStart.getTime(), ensureDaysLoaded]);
 
   // ── Extensão automática do range nas bordas ────────────────────────────────
   const handleScroll = useCallback(() => {
@@ -450,7 +473,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       map.get(key)!.push(bar);
     };
 
-    if (erbonConfigured) {
+    if (isErbon) {
       for (const b of bookings) {
         if (!b.roomID || isCancelled(b)) continue;
         let ci: Date, co: Date;
@@ -481,7 +504,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       }
     }
     return map;
-  }, [erbonConfigured, bookings, internalBookings, rangeStart.getTime(), rangeDays]);
+  }, [isErbon, bookings, internalBookings, rangeStart.getTime(), rangeDays]);
 
   // ── Fundo das linhas: grade + fim de semana via CSS (leve) ─────────────────
   const rowBackground = useMemo(() => {
@@ -501,7 +524,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
 
   // ── Segmentos ainda não carregados (shimmer) ───────────────────────────────
   const unloadedSegments = useMemo(() => {
-    if (!erbonConfigured) return [] as { start: number; len: number }[];
+    if (!isErbon) return [] as { start: number; len: number }[];
     const segs: { start: number; len: number }[] = [];
     let runStart = -1;
     for (let i = 0; i < rangeDays; i++) {
@@ -513,7 +536,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
     if (runStart !== -1) segs.push({ start: runStart, len: rangeDays - runStart });
     return segs;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [erbonConfigured, rangeStart.getTime(), rangeDays, pendingFetches, bookings.length]);
+  }, [isErbon, rangeStart.getTime(), rangeDays, pendingFetches, bookings.length]);
 
   const unassignedCount = useMemo(
     () => bookings.filter(b => !b.roomID && !isCancelled(b)).length,
@@ -567,14 +590,14 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
         </button>
 
         {/* Nova reserva interna — apenas hotéis sem Erbon */}
-        {!erbonConfigured && rows.length > 0 && (
+        {!isErbon && rows.length > 0 && (
           <button onClick={() => setInternalModal({ booking: null })}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors shadow-sm">
             <Plus className="h-3.5 w-3.5" /> Nova Reserva
           </button>
         )}
 
-        {erbonConfigured && (
+        {isErbon && (
           <div className="ml-auto flex flex-wrap items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: 'linear-gradient(135deg,#818cf8,#4f46e5)' }} /> Confirmada</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: 'linear-gradient(135deg,#34d399,#059669)' }} /> In-house</span>
@@ -585,7 +608,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
       </div>
 
       {/* Avisos */}
-      {((erbonConfigured && (roomsSyncing || pendingFetches > 0)) || omniSyncing) && (
+      {((isErbon && (roomsSyncing || pendingFetches > 0)) || omniSyncing) && (
         <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-700 dark:text-indigo-300">
           <span className="relative flex h-2.5 w-2.5 shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
@@ -594,14 +617,14 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
           Sincronização com a {omniSyncing ? 'Omnibees' : 'Erbon'} em andamento — exibindo os dados já salvos; o mapa atualiza sozinho.
         </div>
       )}
-      {!erbonConfigured && rows.length > 0 && (
+      {!isErbon && rows.length > 0 && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
           <Info className="w-4 h-4 shrink-0" />
           Reservas internas — crie pelo botão "Nova Reserva" e clique numa barra para editar datas, lançar pagamentos, incluir hóspedes e dar check-in/out.
         </div>
       )}
       {/* Reservas (ex.: vindas da Omnibees) ainda sem UH — clique para atribuir */}
-      {!erbonConfigured && internalBookings.some(b => !b.room_id && b.status !== 'cancelled') && (
+      {!isErbon && internalBookings.some(b => !b.room_id && b.status !== 'cancelled') && (
         <div className="px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
           <div className="flex items-center gap-2 mb-1.5">
             <BedDouble className="w-4 h-4 shrink-0" />
@@ -618,7 +641,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
           </div>
         </div>
       )}
-      {erbonConfigured && unassignedCount > 0 && (
+      {isErbon && unassignedCount > 0 && (
         <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
           <BedDouble className="w-4 h-4 shrink-0" />
           {unassignedCount} reserva{unassignedCount > 1 ? 's' : ''} carregada{unassignedCount > 1 ? 's' : ''} sem UH atribuída (não aparece{unassignedCount > 1 ? 'm' : ''} no mapa).
@@ -633,7 +656,7 @@ const PlanningMap: React.FC<PlanningMapProps> = ({ hotelId, erbonConfigured }) =
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700">
           <BedDouble className="h-10 w-10 opacity-30" />
           <p className="text-sm">Nenhuma UH cadastrada.</p>
-          {!erbonConfigured && (
+          {!isErbon && (
             <p className="text-xs">Cadastre categorias e apartamentos em <strong>Governança → Quartos</strong>.</p>
           )}
         </div>

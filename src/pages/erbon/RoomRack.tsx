@@ -1408,6 +1408,22 @@ const RoomRack: React.FC = () => {
     (hotelId) => erbonService.fetchHousekeeping(hotelId), [], { autoRefreshMs: 60_000 }
   );
 
+  // ── Fonte das reservas — REGRA DE PRIORIDADE ──────────────────────────────
+  // 1º Omnibees ativa → modo interno + sync Omnibees; 2º Erbon; 3º interno
+  const [omniActive, setOmniActive] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setOmniActive(null);
+    if (!selectedHotel?.id) return;
+    omnibeesService.getConfig(selectedHotel.id)
+      .then(c => { if (alive) setOmniActive(!!c?.is_active); })
+      .catch(() => { if (alive) setOmniActive(false); });
+    return () => { alive = false; };
+  }, [selectedHotel?.id]);
+
+  const modeResolved = !erbonConfigured || omniActive !== null;
+  const isErbon = erbonConfigured && omniActive === false;
+
   // ── Modo LOCAL (hotel sem Erbon): UHs de governance/rooms + reservas internas ──
   type RackRoom = ErbonRoom & { localId?: string; internalBooking?: InternalBooking | null };
   const wfKey = (r: RackRoom) => r.localId || String(r.idRoom);
@@ -1417,7 +1433,7 @@ const RoomRack: React.FC = () => {
   const [internalModal, setInternalModal] = useState<{ booking: InternalBooking | null; defaultRoomId?: string | null } | null>(null);
 
   const loadLocalRack = useCallback(async () => {
-    if (!selectedHotel?.id || erbonConfigured) return;
+    if (!selectedHotel?.id || isErbon || !modeResolved) return;
     setLocalLoading(true);
     try {
       const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -1457,22 +1473,22 @@ const RoomRack: React.FC = () => {
       setLocalRooms(mapped);
     } catch { setLocalRooms([]); }
     finally { setLocalLoading(false); }
-  }, [selectedHotel?.id, erbonConfigured]);
+  }, [selectedHotel?.id, isErbon, modeResolved]);
 
   useEffect(() => {
-    if (!erbonConfigured && selectedHotel?.id && !loading) loadLocalRack();
-  }, [erbonConfigured, selectedHotel?.id, loading, loadLocalRack]);
+    if (!isErbon && modeResolved && selectedHotel?.id && !loading) loadLocalRack();
+  }, [isErbon, modeResolved, selectedHotel?.id, loading, loadLocalRack]);
 
   // Omnibees (hotéis sem Erbon): puxa reservas dos canais em background — 1x por hotel
   const omniSyncedHotelRef = React.useRef<string | null>(null);
   useEffect(() => {
-    if (erbonConfigured || !selectedHotel?.id || loading) return;
+    if (isErbon || !modeResolved || !selectedHotel?.id || loading) return;
     if (omniSyncedHotelRef.current === selectedHotel.id) return;
     omniSyncedHotelRef.current = selectedHotel.id;
     omnibeesService.syncHotel(selectedHotel.id)
       .then(n => { if (n > 0) loadLocalRack(); })
       .catch(err => console.error('[RoomRack] Omnibees sync:', err?.message));
-  }, [erbonConfigured, selectedHotel?.id, loading, loadLocalRack]);
+  }, [isErbon, modeResolved, selectedHotel?.id, loading, loadLocalRack]);
 
   const fetchWorkflows = useCallback(async () => {
     if (!selectedHotel) return;
@@ -1494,7 +1510,7 @@ const RoomRack: React.FC = () => {
 
   // Auto-reset: quando Erbon retorna UH como DIRTY e workflow não é pending_maint, resetar
   React.useEffect(() => {
-    if (!erbonConfigured) return;
+    if (!isErbon) return;
     if (!rooms || !selectedHotel?.id || Object.keys(workflows).length === 0) return;
     const toReset = rooms.filter(r =>
       r.idHousekeepingStatus === 'DIRTY' &&
@@ -1526,7 +1542,7 @@ const RoomRack: React.FC = () => {
 
     // Modo local (sem Erbon): limpo/sujo vive no workflow interno
     const localId = (room as any).localId as string | undefined;
-    if (!erbonConfigured && localId) {
+    if (!isErbon && localId) {
       try {
         const wfStatus = newStatus === 'CLEAN' ? 'clean' : 'pending_maint';
         await supabase.from('hotel_room_workflow').upsert({
@@ -1588,17 +1604,17 @@ const RoomRack: React.FC = () => {
 
   // UHs efetivas: Erbon OU locais (com limpeza derivada do workflow interno)
   const effectiveRooms: RackRoom[] | null = useMemo(() => {
-    if (erbonConfigured) return rooms as RackRoom[] | null;
+    if (isErbon) return rooms as RackRoom[] | null;
     if (!localRooms) return null;
     return localRooms.map(r => ({
       ...r,
       idHousekeepingStatus: (workflows[wfKey(r)] === 'clean' ? 'CLEAN' : 'DIRTY') as 'CLEAN' | 'DIRTY',
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [erbonConfigured, rooms, localRooms, workflows]);
+  }, [isErbon, rooms, localRooms, workflows]);
 
-  const isLoading = erbonConfigured ? loading : (localLoading && !localRooms);
-  const handleRefresh = () => { if (erbonConfigured) refetch(); else loadLocalRack(); fetchWorkflows(); };
+  const isLoading = !modeResolved || (isErbon ? loading : (localLoading && !localRooms));
+  const handleRefresh = () => { if (isErbon) refetch(); else loadLocalRack(); fetchWorkflows(); };
 
   const stats = useMemo(() => {
     if (!effectiveRooms) return { total: 0, clean: 0, dirty: 0, occupied: 0, free: 0, maintenance: 0, checkin: 0 };
@@ -1643,7 +1659,7 @@ const RoomRack: React.FC = () => {
   const occPct = stats.total > 0 ? Math.round((stats.occupied / stats.total) * 100) : 0;
 
   // Sem Erbon E sem UHs locais cadastradas → orienta configurar
-  if (!erbonConfigured && !isLoading && localRooms !== null && localRooms.length === 0) {
+  if (!isErbon && modeResolved && !isLoading && localRooms !== null && localRooms.length === 0) {
     return (
       <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4 px-6 text-center">
         <BedDouble className="w-14 h-14 text-gray-700" />
@@ -1666,11 +1682,11 @@ const RoomRack: React.FC = () => {
           <div>
             <h1 className="text-3xl font-black text-white tracking-tight">Rack de UH's</h1>
             <p className="text-sm text-gray-500 mt-1">
-              {erbonConfigured ? 'Atualização automática' : 'Reservas internas'} · {stats.occupied}/{stats.total} ocupados
+              {isErbon ? 'Atualização automática' : 'Reservas internas'} · {stats.occupied}/{stats.total} ocupados
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {!erbonConfigured && (
+            {!isErbon && (
               <button onClick={() => setInternalModal({ booking: null })}
                 className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-sm">
                 <UserPlus className="w-4 h-4" /> Nova Reserva
@@ -1742,7 +1758,7 @@ const RoomRack: React.FC = () => {
           <StatCard label="Check-in Hoje" value={stats.checkin} icon={LogIn} color="text-violet-400" active={activeFilter === 'checkin'} onClick={() => setActiveFilter('checkin')} />
         </div>
 
-        {erbonConfigured && error && <p className="text-rose-400 mb-4 text-sm bg-rose-500/10 px-4 py-2 rounded-xl">{error}</p>}
+        {isErbon && error && <p className="text-rose-400 mb-4 text-sm bg-rose-500/10 px-4 py-2 rounded-xl">{error}</p>}
 
         {/* Room Grid */}
         {isLoading && !effectiveRooms ? (
@@ -1766,7 +1782,7 @@ const RoomRack: React.FC = () => {
                       workflowStatus={workflows[wfKey(room as RackRoom)]}
                       onSelect={() => {
                         const rr = room as RackRoom;
-                        if (erbonConfigured) setSelectedRoom(room);
+                        if (isErbon) setSelectedRoom(room);
                         else if (rr.internalBooking) setInternalModal({ booking: rr.internalBooking });
                         else setInternalModal({ booking: null, defaultRoomId: rr.localId });
                       }}
@@ -1803,7 +1819,7 @@ const RoomRack: React.FC = () => {
       )}
 
       {/* Reserva interna (hotel sem Erbon) — criar/editar pelo Rack */}
-      {internalModal && selectedHotel && !erbonConfigured && (
+      {internalModal && selectedHotel && !isErbon && (
         <InternalBookingModal
           hotelId={selectedHotel.id}
           rooms={(localRooms || []).map(r => ({ id: r.localId!, name: r.roomName, category: r.roomTypeDescription }))}
