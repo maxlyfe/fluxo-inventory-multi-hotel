@@ -1320,13 +1320,20 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {emittedEntries.has(e.id) ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[10px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded font-medium"
-                          title="Nota Fiscal emitida com sucesso"
+                        <button
+                          onClick={() => {
+                            const invId = emittedEntries.get(e.id);
+                            if (invId) {
+                              setViewInvoiceId(invId);
+                              setViewInvoiceTipo(isServiceEntry(e) ? 'nfse' : 'nfe');
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] bg-green-100 hover:bg-green-200 dark:bg-green-900/40 dark:hover:bg-green-900/60 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded font-medium transition-colors cursor-pointer"
+                          title="Clique para visualizar/reimprimir a Nota Fiscal"
                         >
                           <FileCheck2 className="w-3.5 h-3.5" />
                           NF Emitida
-                        </span>
+                        </button>
                       ) : e.isInvoiced ? (
                         <span className="text-[10px] bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded font-medium">Faturado</span>
                       ) : (
@@ -1357,15 +1364,19 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
 
       {/* Modal de Emissão de NF */}
       <NFInvoiceModal
-        isOpen={nfModalType !== null}
-        onClose={() => setNfModalType(null)}
-        tipo={nfModalType || 'nfse'}
+        isOpen={nfModalType !== null || viewInvoiceId !== null}
+        onClose={() => {
+          setNfModalType(null);
+          setViewInvoiceId(null);
+        }}
+        tipo={viewInvoiceId ? viewInvoiceTipo : (nfModalType || 'nfse')}
         hotelId={hotelId}
         booking={booking}
-        selectedEntries={entries.filter(e => selectedIds.has(e.id))}
+        selectedEntries={viewInvoiceId ? [] : entries.filter(e => selectedIds.has(e.id))}
         onSuccess={() => {
           loadData();
         }}
+        viewInvoiceId={viewInvoiceId}
       />
     </div>
   );

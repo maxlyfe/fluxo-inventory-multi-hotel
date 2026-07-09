@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Printer,
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import { nfService, type FiscalLineItem, type FiscalResolutionResult, type WCIGuestData } from '../../lib/nfService';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
@@ -40,6 +41,7 @@ interface NFInvoiceModalProps {
   booking: any;
   selectedEntries: CurrentAccountEntry[];
   onSuccess: () => void;
+  viewInvoiceId?: string | null;
 }
 
 // Helper to classify entries as service or product
@@ -113,6 +115,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   booking,
   selectedEntries,
   onSuccess,
+  viewInvoiceId = null,
 }) => {
   const { user } = useAuth();
   const { addNotification } = useNotification();
@@ -132,6 +135,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   // Emitted invoice (for print after emission)
   const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
+  const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
 
   // Inline error state (shown within the modal, not just toast)
   const [emitError, setEmitError] = useState<{ title: string; details: string; canRetry: boolean } | null>(null);
@@ -156,17 +160,60 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   // Derived from prop — available in render and effects
   const isProduct = tipo === 'nfe' || tipo === 'nfce';
 
+  // Reset step and items when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setStep(1);
+      setEmittedInvoice(null);
+      setInvoiceItems([]);
+    }
+  }, [isOpen]);
+
   // 1. Initialize items and prefill Tomador on mount/open
   useEffect(() => {
     if (!isOpen) return;
+    if (step === 4) return; // Não re-inicializar/preencher se já estiver exibindo a nota emitida
 
-    setStep(1);
     setFormErrors({});
     setSubmitting(false);
     setFiscalData(null);
 
     // Load NF config for print receipt header
     nfService.getConfig(hotelId).then(c => setNfConfig(c)).catch(() => {});
+
+    if (viewInvoiceId) {
+      setLoadingFiscal(true);
+      const fetchInvoiceData = async () => {
+        try {
+          // 1. Buscar a nota fiscal
+          const { data: inv, error: invErr } = await supabase
+            .from('nf_invoices')
+            .select('*')
+            .eq('id', viewInvoiceId)
+            .single();
+          if (invErr) throw invErr;
+
+          // 2. Buscar os itens da nota fiscal
+          const { data: items, error: itemsErr } = await supabase
+            .from('nf_invoice_items')
+            .select('*')
+            .eq('invoice_id', viewInvoiceId);
+          if (itemsErr) throw itemsErr;
+
+          setEmittedInvoice(inv);
+          setInvoiceItems(items || []);
+          setStep(4);
+        } catch (err) {
+          console.error('[NFInvoiceModal] Error loading invoice for view:', err);
+          addNotification('Erro ao carregar dados da nota fiscal emitida.', 'error');
+          onClose();
+        } finally {
+          setLoadingFiscal(false);
+        }
+      };
+      fetchInvoiceData();
+      return;
+    }
 
     // Classify entries
     const services = selectedEntries.filter(isServiceEntry);
@@ -266,7 +313,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorBairro('');
     setTomadorCidade('');
     setTomadorUf('');
-  }, [isOpen, tipo, booking, selectedEntries, hotelId]);
+  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, step]);
 
   if (!isOpen) return null;
 
@@ -571,7 +618,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
       return;
     }
 
-    if (isProduct && fiscalData?.hasErrors) {
+    if (isProduct && fiscalData?.hasErrors && nfConfig?.ambiente !== 'homologacao') {
       setEmitError({
         title: 'Dados fiscais com pendências',
         details: `Corrija os dados fiscais (NCM/tributação) antes de emitir a ${tipo === 'nfce' ? 'NFC-e' : 'NF-e'}. Verifique os itens marcados com alerta no Passo 1.`,
@@ -1140,7 +1187,11 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
               {isProduct && fiscalData?.hasErrors && !emitError && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span className="font-bold">Emissão bloqueada: corrija os dados fiscais (NCM/impostos) dos produtos antes de emitir.</span>
+                  <span className="font-bold">
+                    {nfConfig?.ambiente === 'homologacao' 
+                      ? 'Aviso: Há pendências fiscais (NCM/impostos), mas a emissão é permitida em modo de Homologação.'
+                      : 'Emissão bloqueada: corrija os dados fiscais (NCM/impostos) dos produtos antes de emitir.'}
+                  </span>
                 </div>
               )}
 
@@ -1194,64 +1245,69 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
           )}
 
           {/* STEP 4: EMITIDA - PRINT RECEIPT */}
-          {step === 4 && emittedInvoice && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
-                <CheckCircle className="w-8 h-8 text-emerald-500 flex-shrink-0" />
-                <div>
-                  <h4 className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
-                    {emittedInvoice.status === 'contingencia' ? 'Nota emitida em contingência' : 'Nota fiscal autorizada'}
-                  </h4>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                    {emittedInvoice.numero_nf ? `Nº ${emittedInvoice.numero_nf}` : ''}
-                    {emittedInvoice.numero_rps ? ` · RPS: ${emittedInvoice.numero_rps}` : ''}
-                    {emittedInvoice.status === 'contingencia' && ' · Retransmissão automática pendente'}
-                  </p>
-                </div>
-              </div>
+          {step === 4 && emittedInvoice && (() => {
+            const displayItems = viewInvoiceId
+              ? invoiceItems.map(it => ({ description: it.descricao, amount: Number(it.valor_total) }))
+              : finalItems;
 
-              {/* Inline receipt preview */}
-              <div className="bg-white border border-gray-200 dark:border-gray-700 rounded-xl p-4 font-mono text-[11px] text-gray-900 dark:text-gray-100 leading-relaxed mx-auto" style={{ maxWidth: '300px' }} id="nf-receipt-print">
-                <div className="text-center font-bold text-sm">{nfConfig?.nome_fantasia || 'Hotel'}</div>
-                {nfConfig?.razao_social && <div className="text-center text-[9px] text-gray-500">{nfConfig.razao_social}</div>}
-                {nfConfig?.cnpj && <div className="text-center text-[9px] text-gray-500">CNPJ: {nfConfig.cnpj}</div>}
-                {nfConfig?.endereco_logradouro && (
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                  <CheckCircle className="w-8 h-8 text-emerald-500 flex-shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
+                      {emittedInvoice.status === 'contingencia' ? 'Nota emitida em contingência' : 'Nota fiscal autorizada'}
+                    </h4>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                      {emittedInvoice.numero_nf ? `Nº ${emittedInvoice.numero_nf}` : ''}
+                      {emittedInvoice.numero_rps ? ` · RPS: ${emittedInvoice.numero_rps}` : ''}
+                      {emittedInvoice.status === 'contingencia' && ' · Retransmissão automática pendente'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Inline receipt preview */}
+                <div className="bg-white border border-gray-200 dark:border-gray-700 rounded-xl p-4 font-mono text-[11px] text-gray-900 dark:text-gray-100 leading-relaxed mx-auto" style={{ maxWidth: '300px' }} id="nf-receipt-print">
+                  <div className="text-center font-bold text-sm">{nfConfig?.nome_fantasia || 'Hotel'}</div>
+                  {nfConfig?.razao_social && <div className="text-center text-[9px] text-gray-500">{nfConfig.razao_social}</div>}
+                  {nfConfig?.cnpj && <div className="text-center text-[9px] text-gray-500">CNPJ: {nfConfig.cnpj}</div>}
+                  {nfConfig?.endereco_logradouro && (
+                    <div className="text-center text-[9px] text-gray-500">
+                      {[nfConfig.endereco_logradouro, nfConfig.endereco_numero, nfConfig.endereco_bairro, nfConfig.endereco_cidade, nfConfig.endereco_uf].filter(Boolean).join(', ')}
+                    </div>
+                  )}
+                  {nfConfig?.telefone && <div className="text-center text-[9px] text-gray-500">Tel: {nfConfig.telefone}</div>}
+
+                  <div className="border-t border-dashed border-gray-300 my-2" />
+
+                  <div className="text-center font-bold">
+                    {emittedInvoice.tipo === 'nfse' ? 'NFS-e' : emittedInvoice.tipo === 'nfce' ? 'NFC-e' : 'NF-e'} - {emittedInvoice.status === 'contingencia' ? 'CONTINGÊNCIA' : 'AUTORIZADA'}
+                  </div>
+                  {emittedInvoice.numero_nf && <div className="text-center text-[10px]">Nº {emittedInvoice.numero_nf} · Série {emittedInvoice.serie || '1'}</div>}
+                  {emittedInvoice.numero_rps && <div className="text-center text-[10px]">RPS: {emittedInvoice.numero_rps}</div>}
                   <div className="text-center text-[9px] text-gray-500">
-                    {[nfConfig.endereco_logradouro, nfConfig.endereco_numero, nfConfig.endereco_bairro, nfConfig.endereco_cidade, nfConfig.endereco_uf].filter(Boolean).join(', ')}
+                    {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                   </div>
-                )}
-                {nfConfig?.telefone && <div className="text-center text-[9px] text-gray-500">Tel: {nfConfig.telefone}</div>}
-
-                <div className="border-t border-dashed border-gray-300 my-2" />
-
-                <div className="text-center font-bold">
-                  {emittedInvoice.tipo === 'nfse' ? 'NFS-e' : emittedInvoice.tipo === 'nfce' ? 'NFC-e' : 'NF-e'} - {emittedInvoice.status === 'contingencia' ? 'CONTINGÊNCIA' : 'AUTORIZADA'}
-                </div>
-                {emittedInvoice.numero_nf && <div className="text-center text-[10px]">Nº {emittedInvoice.numero_nf} · Série {emittedInvoice.serie || '1'}</div>}
-                {emittedInvoice.numero_rps && <div className="text-center text-[10px]">RPS: {emittedInvoice.numero_rps}</div>}
-                <div className="text-center text-[9px] text-gray-500">
-                  {new Date().toLocaleDateString('pt-BR')} {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </div>
-                <div className="text-center text-[9px] text-gray-500">
-                  Reserva: {emittedInvoice.booking_number || '—'} · UH: {emittedInvoice.room_description || '—'}
-                </div>
-
-                <div className="border-t border-dashed border-gray-300 my-2" />
-
-                <div className="font-bold text-[10px]">DESTINATÁRIO</div>
-                <div>{emittedInvoice.tomador_nome}</div>
-                <div>{emittedInvoice.tomador_doc_tipo === 'passaporte' ? 'Passaporte' : emittedInvoice.tomador_doc_tipo === 'cnpj' ? 'CNPJ' : 'CPF'}: {emittedInvoice.tomador_cpf_cnpj}</div>
-                {emittedInvoice.tomador_email && <div className="text-[9px]">{emittedInvoice.tomador_email}</div>}
-
-                <div className="border-t border-dashed border-gray-300 my-2" />
-
-                <div className="font-bold text-[10px] mb-1">ITENS</div>
-                {finalItems.map((item, i) => (
-                  <div key={i} className="flex justify-between text-[10px]">
-                    <span className="truncate mr-2" style={{ maxWidth: '180px' }}>{item.description}</span>
-                    <span className="font-bold whitespace-nowrap">{item.amount.toFixed(2)}</span>
+                  <div className="text-center text-[9px] text-gray-500">
+                    Reserva: {emittedInvoice.booking_number || '—'} · UH: {emittedInvoice.room_description || '—'}
                   </div>
-                ))}
+
+                  <div className="border-t border-dashed border-gray-300 my-2" />
+
+                  <div className="font-bold text-[10px]">DESTINATÁRIO</div>
+                  <div>{emittedInvoice.tomador_nome}</div>
+                  <div>{emittedInvoice.tomador_doc_tipo === 'passaporte' ? 'Passaporte' : emittedInvoice.tomador_doc_tipo === 'cnpj' ? 'CNPJ' : 'CPF'}: {emittedInvoice.tomador_cpf_cnpj}</div>
+                  {emittedInvoice.tomador_email && <div className="text-[9px]">{emittedInvoice.tomador_email}</div>}
+
+                  <div className="border-t border-dashed border-gray-300 my-2" />
+
+                  <div className="font-bold text-[10px] mb-1">ITENS</div>
+                  {displayItems.map((item, i) => (
+                    <div key={i} className="flex justify-between text-[10px]">
+                      <span className="truncate mr-2" style={{ maxWidth: '180px' }}>{item.description}</span>
+                      <span className="font-bold whitespace-nowrap">{item.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
 
                 <div className="border-t border-dashed border-gray-300 my-2" />
 
@@ -1292,7 +1348,8 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                 <div className="text-center text-[8px] text-gray-400">LyFe Hoteles - Sistema de Gestão</div>
               </div>
             </div>
-          )}
+          );
+        })()}
         </div>
 
         {/* Modal Footer */}
@@ -1361,7 +1418,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                     </button>
                     <button
                       onClick={handleEmit}
-                      disabled={submitting || (isProduct && fiscalData?.hasErrors)}
+                      disabled={submitting || (isProduct && fiscalData?.hasErrors && nfConfig?.ambiente !== 'homologacao')}
                       className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50 ${
                         tipo === 'nfse'
                           ? 'bg-sky-600 hover:bg-sky-700'
