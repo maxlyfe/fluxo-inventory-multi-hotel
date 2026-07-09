@@ -583,18 +583,20 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
     printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cupom Fiscal</title><style>
 @page { margin: 2mm; size: 80mm auto; }
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padding: 2mm; color: #000; }
+* { margin: 0; padding: 0; box-sizing: border-box; color: #000 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; width: 76mm; padding: 2mm; color: #000; line-height: 1.35; }
 .text-center { text-align: center; }
-.font-bold { font-weight: bold; }
-.text-sm { font-size: 12px; }
-.text-\\[10px\\] { font-size: 10px; }
-.text-\\[9px\\] { font-size: 9px; }
-.text-\\[8px\\] { font-size: 8px; }
-.border-t { border-top: 1px dashed #000; }
+.font-bold { font-weight: 900; }
+.text-sm { font-size: 15px; }
+.text-\\[10px\\] { font-size: 12px; }
+.text-\\[9px\\] { font-size: 11px; }
+.text-\\[8px\\] { font-size: 10px; }
+.border-t { border-top: 2px dashed #000; }
 .border-dashed { border-style: dashed; }
-.my-2 { margin: 4px 0; }
-.mt-1 { margin-top: 2px; }
+.my-2 { margin: 6px 0; }
+.mt-1 { margin-top: 3px; }
+.mb-1 { margin-bottom: 3px; }
+svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !important; }
 .flex { display: flex; }
 .justify-between { justify-content: space-between; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
