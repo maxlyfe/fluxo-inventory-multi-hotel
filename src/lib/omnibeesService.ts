@@ -312,6 +312,56 @@ export const omnibeesService = {
   },
 
   /**
+   * RateDetailsNotif (OTA_HotelRateAmountNotifRQ) — envia PREÇOS por período
+   * para um plano tarifário/tipo de quarto JÁ MAPEADO na Omnibees.
+   * Regras da doc: período máx. 184 dias; para CRIAR um dia novo é preciso
+   * informar todas as ocupações configuradas do quarto (para atualizar, não).
+   */
+  async sendPrices(cfg: OmnibeesConfig, params: {
+    ratePlanCode: string;
+    invTypeCode: string;
+    start: string;              // yyyy-MM-dd
+    end: string;                // yyyy-MM-dd
+    currency?: string;
+    /** preços por ocupação de ADULTOS: [{ guests: 1, amount: 350 }, { guests: 2, amount: 420 }] */
+    adultPrices: { guests: number; amount: number }[];
+    /** preço de criança (opcional — AgeQualifyingCode 8) */
+    childAmount?: number | null;
+    /** allotment opcional (NumberOfUnits) */
+    numberOfUnits?: number | null;
+  }): Promise<void> {
+    const currency = params.currency || 'BRL';
+    const baseAmts = [
+      ...params.adultPrices
+        .filter(p => p.amount > 0)
+        .map(p => `<BaseByGuestAmt AgeQualifyingCode="10" NumberOfGuests="${p.guests}" AmountAfterTax="${p.amount.toFixed(2)}" />`),
+      ...(params.childAmount && params.childAmount > 0
+        ? [`<BaseByGuestAmt AgeQualifyingCode="8" NumberOfGuests="1" AmountAfterTax="${params.childAmount.toFixed(2)}" />`]
+        : []),
+    ].join('\n              ');
+    if (!baseAmts) throw new Error('Informe pelo menos um preço.');
+
+    const unitsAttr = params.numberOfUnits != null && params.numberOfUnits >= 0
+      ? ` NumberOfUnits="${params.numberOfUnits}"` : '';
+
+    const body = `<OTA_HotelRateAmountNotifRQ xmlns="${OTA_NS}" Version="3.0" TimeStamp="${nowStamp()}" EchoToken="${echoToken()}">
+      <RateAmountMessages HotelCode="${xmlEscape(cfg.hotel_code)}">
+        <RateAmountMessage LocatorID="1">
+          <StatusApplicationControl Start="${params.start}" End="${params.end}" RatePlanCode="${xmlEscape(params.ratePlanCode)}" InvTypeCode="${xmlEscape(params.invTypeCode)}" />
+          <Rates>
+            <Rate CurrencyCode="${xmlEscape(currency)}"${unitsAttr}>
+              <BaseByGuestAmts>
+              ${baseAmts}
+              </BaseByGuestAmts>
+            </Rate>
+          </Rates>
+        </RateAmountMessage>
+      </RateAmountMessages>
+    </OTA_HotelRateAmountNotifRQ>`;
+    await soapCall(cfg, 'RateDetailsNotif', body);
+  },
+
+  /**
    * Sincroniza: puxa reservas não entregues, grava em internal_bookings
    * (source='omnibees', dedupe por external_id) e confirma a entrega.
    * Retorna quantas reservas foram processadas.

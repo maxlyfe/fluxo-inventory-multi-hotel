@@ -111,6 +111,7 @@ import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 import PickupReport       from './pages/diretoria/PickupReport';
 import PerformanceReport  from './pages/diretoria/PerformanceReport';
 import DirectorPanel      from './pages/diretoria/DirectorPanel';
+import OmnibeesRates      from './pages/diretoria/OmnibeesRates';
 import Profile      from './pages/Profile';
 
 // ── Pages — Erbon PMS (Recepção / Reservas) ─────────────────────────────────
@@ -565,6 +566,11 @@ function App() {
                     <Route path="/diretoria/performance" element={
                       <PrivateRoute module="diretoria">
                         <PerformanceReport />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/diretoria/omnibees-rates" element={
+                      <PrivateRoute module="diretoria">
+                        <OmnibeesRates />
                       </PrivateRoute>
                     } />
 
