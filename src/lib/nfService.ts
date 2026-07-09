@@ -860,30 +860,32 @@ async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
 
 /**
  * Vínculo retroativo: casa notas recebidas ainda "novas" com compras já
- * registradas no histórico (mesmo número de NF e, quando disponível, mesmo
- * CNPJ do fornecedor). As casadas viram situacao='lancada' com purchase_id.
+ * registradas no histórico. Exige o mesmo número de NF E uma confirmação de
+ * fornecedor: CNPJ igual ao emitente ou, quando a compra não tem CNPJ
+ * cadastrado, nome do fornecedor semelhante ao emitente — número sozinho não
+ * basta (fornecedores diferentes repetem numeração).
+ * Também revalida vínculos automáticos anteriores e desfaz os incorretos.
  * Retorna quantas notas foram vinculadas.
  */
 async function linkReceivedToPurchases(hotelId: string): Promise<number> {
-  const { data: pending, error: pendErr } = await supabase
+  const { data: rows, error: pendErr } = await supabase
     .from('nf_received')
-    .select('id, numero_nf, emitente_cnpj')
+    .select('id, numero_nf, emitente_cnpj, emitente_nome, situacao, purchase_id')
     .eq('hotel_id', hotelId)
-    .eq('situacao', 'nova')
+    .in('situacao', ['nova', 'lancada'])
     .not('numero_nf', 'is', null);
   if (pendErr) throw pendErr;
-  if (!pending?.length) return 0;
+  if (!rows?.length) return 0;
 
   const { data: purchases, error: purErr } = await supabase
     .from('purchases')
-    .select('id, invoice_number, supplier_id')
+    .select('id, invoice_number, supplier_id, supplier')
     .eq('hotel_id', hotelId)
     .not('invoice_number', 'is', null);
   if (purErr) throw purErr;
-  if (!purchases?.length) return 0;
 
-  // CNPJs dos fornecedores das compras (para desempate quando disponível)
-  const supplierIds = [...new Set(purchases.map(p => p.supplier_id).filter(Boolean))] as string[];
+  // CNPJs dos fornecedores das compras
+  const supplierIds = [...new Set((purchases ?? []).map(p => p.supplier_id).filter(Boolean))] as string[];
   const supplierCnpj = new Map<string, string>();
   if (supplierIds.length > 0) {
     const { data: sups } = await supabase
@@ -897,32 +899,62 @@ async function linkReceivedToPurchases(hotelId: string): Promise<number> {
 
   // Número de NF normalizado: só dígitos, sem zeros à esquerda
   const normNum = (v: string | null) => (v || '').replace(/\D/g, '').replace(/^0+/, '');
+  // Nome normalizado para comparação: maiúsculas, sem acentos nem pontuação
+  const normName = (v: string | null) =>
+    (v || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const namesSimilar = (a: string | null, b: string | null) => {
+    const na = normName(a), nb = normName(b);
+    if (na.length < 4 || nb.length < 4) return false;
+    return na.includes(nb) || nb.includes(na);
+  };
 
-  const purchasesByNum = new Map<string, Array<{ id: string; cnpj: string | null }>>();
-  for (const p of purchases) {
+  interface Candidate { id: string; cnpj: string | null; supplierName: string | null }
+  const purchasesByNum = new Map<string, Candidate[]>();
+  const purchaseById = new Map<string, { num: string; cnpj: string | null; supplierName: string | null }>();
+  for (const p of purchases ?? []) {
     const n = normNum(p.invoice_number);
     if (!n) continue;
+    const cand: Candidate = {
+      id: p.id,
+      cnpj: p.supplier_id ? supplierCnpj.get(p.supplier_id) || null : null,
+      supplierName: p.supplier || null,
+    };
     const list = purchasesByNum.get(n) || [];
-    list.push({ id: p.id, cnpj: p.supplier_id ? supplierCnpj.get(p.supplier_id) || null : null });
+    list.push(cand);
     purchasesByNum.set(n, list);
+    purchaseById.set(p.id, { num: n, cnpj: cand.cnpj, supplierName: cand.supplierName });
   }
 
-  let linked = 0;
-  for (const nf of pending) {
-    const candidates = purchasesByNum.get(normNum(nf.numero_nf));
-    if (!candidates?.length) continue;
+  const isValidMatch = (nf: { emitente_cnpj: string | null; emitente_nome: string | null }, c: Candidate | { cnpj: string | null; supplierName: string | null }) => {
     const nfCnpj = (nf.emitente_cnpj || '').replace(/\D/g, '');
-    // Preferência: compra com CNPJ do fornecedor igual ao emitente;
-    // fallback: compra sem CNPJ cadastrado (match só pelo número).
-    const match = candidates.find(c => c.cnpj && nfCnpj && c.cnpj === nfCnpj)
-      || candidates.find(c => !c.cnpj);
-    if (!match) continue;
+    if (c.cnpj && nfCnpj) return c.cnpj === nfCnpj;
+    // Sem CNPJ dos dois lados para comparar → exige nome semelhante
+    return namesSimilar(c.supplierName, nf.emitente_nome);
+  };
 
-    const { error } = await supabase
-      .from('nf_received')
-      .update({ situacao: 'lancada', purchase_id: match.id, updated_at: new Date().toISOString() })
-      .eq('id', nf.id);
-    if (!error) linked++;
+  let linked = 0;
+  for (const nf of rows) {
+    if (nf.situacao === 'nova') {
+      const candidates = purchasesByNum.get(normNum(nf.numero_nf)) || [];
+      const match = candidates.find(c => c.cnpj && isValidMatch(nf, c))
+        || candidates.find(c => !c.cnpj && isValidMatch(nf, c));
+      if (!match) continue;
+      const { error } = await supabase
+        .from('nf_received')
+        .update({ situacao: 'lancada', purchase_id: match.id, updated_at: new Date().toISOString() })
+        .eq('id', nf.id);
+      if (!error) linked++;
+    } else if (nf.situacao === 'lancada' && nf.purchase_id) {
+      // Revalidação: desfaz vínculos automáticos que não passam na regra atual
+      const p = purchaseById.get(nf.purchase_id);
+      const stillValid = !!p && p.num === normNum(nf.numero_nf) && isValidMatch(nf, p);
+      if (!stillValid) {
+        await supabase
+          .from('nf_received')
+          .update({ situacao: 'nova', purchase_id: null, updated_at: new Date().toISOString() })
+          .eq('id', nf.id);
+      }
+    }
   }
 
   return linked;
