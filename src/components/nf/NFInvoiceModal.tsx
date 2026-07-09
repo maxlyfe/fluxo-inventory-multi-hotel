@@ -347,17 +347,11 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const handleNext = () => {
     if (step === 1) {
       if (checkedItemIds.size === 0) {
-        addNotification({
-          type: 'error',
-          message: 'Selecione pelo menos um item para emitir a nota fiscal.',
-        });
+        addNotification('Selecione pelo menos um item para emitir a nota fiscal.', 'error');
         return;
       }
       if ((tipo === 'nfe' || tipo === 'nfce') && loadingFiscal) {
-        addNotification({
-          type: 'error',
-          message: 'Aguarde a resolução dos dados fiscais.',
-        });
+        addNotification('Aguarde a resolução dos dados fiscais.', 'error');
         return;
       }
       setStep(2);
@@ -420,18 +414,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       };
 
       await nfService.createDraftInvoice(input);
-      addNotification({
-        type: 'success',
-        message: 'Rascunho da nota fiscal salvo com sucesso.',
-      });
+      addNotification('Rascunho da nota fiscal salvo com sucesso.', 'success');
       onSuccess();
       onClose();
     } catch (err: any) {
       console.error('[NFInvoiceModal] Save draft error:', err);
-      addNotification({
-        type: 'error',
-        message: `Erro ao salvar rascunho: ${err.message || err}`,
-      });
+      addNotification(`Erro ao salvar rascunho: ${err.message || err}`, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -517,7 +505,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
       if (result.success) {
         setEmittedInvoice(result.invoice);
-        addNotification({ type: 'success', message: result.message });
+        addNotification(result.message, 'success');
         onSuccess();
         setStep(4);
       } else {
@@ -630,7 +618,7 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
 
       if (emitRes.success) {
         setEmittedInvoice(emitRes.invoice);
-        addNotification({ type: 'success', message: emitRes.message });
+        addNotification(emitRes.message, 'success');
         onSuccess();
         setStep(4);
       } else {
