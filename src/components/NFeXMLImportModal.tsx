@@ -2,7 +2,7 @@
 // Modal de importação de XML NF-e para a tela de Nova Compra.
 // Fluxo: upload XML → parse → reconcilia via cEAN com inventário → confirma
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   FileText, Upload, CheckCircle2, PlusCircle, Sparkles,
   AlertCircle, ChevronDown, ChevronUp, X, Building2, Calendar,
@@ -72,6 +72,8 @@ interface NFeXMLImportModalProps {
   currentItems: CurrentItem[];
   hotelId: string;
   onConfirm: (result: NFeImportResult) => void;
+  /** XML pré-carregado (ex.: vindo de Financeiro → NF Recebidas) — pula a etapa de upload */
+  initialXml?: string;
 }
 
 // ── XML helpers ────────────────────────────────────────────────────────────────
@@ -158,7 +160,7 @@ const ACTION_LABELS = {
 } as const;
 
 export default function NFeXMLImportModal({
-  isOpen, onClose, currentItems, hotelId, onConfirm,
+  isOpen, onClose, currentItems, hotelId, onConfirm, initialXml,
 }: NFeXMLImportModalProps) {
   const [step, setStep]           = useState<'upload' | 'review'>('upload');
   const [dragging, setDragging]   = useState(false);
@@ -171,6 +173,18 @@ export default function NFeXMLImportModal({
   const reset = () => { setStep('upload'); setResult(null); setParseError(''); setExpanded(new Set()); };
 
   const handleClose = () => { reset(); onClose(); };
+
+  // XML pré-carregado: parseia e reconcilia direto, sem etapa de upload
+  const initialXmlProcessed = useRef(false);
+  useEffect(() => {
+    if (!isOpen) { initialXmlProcessed.current = false; return; }
+    if (!initialXml || initialXmlProcessed.current) return;
+    initialXmlProcessed.current = true;
+    const parsed = parseNFe(initialXml);
+    if (!parsed) { setParseError('Não foi possível ler o XML da nota recebida.'); return; }
+    if (parsed.items.length === 0) { setParseError('Nenhum item (det) encontrado no XML da nota recebida.'); return; }
+    reconcile(parsed);
+  }, [isOpen, initialXml, reconcile]);
 
   // ── Reconciliation ──────────────────────────────────────────────────────────
 

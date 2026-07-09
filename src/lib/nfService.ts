@@ -8,6 +8,7 @@ import type {
   NFEmittedEntry,
   NFTipo,
   NFDocTipo,
+  NFReceived,
 } from '../types/nf';
 
 const NF_PROXY = import.meta.env.PROD
@@ -766,6 +767,135 @@ async function lookupWCIGuest(
   return null;
 }
 
+// ─── NF Recebidas (Distribuição DF-e — notas emitidas contra o CNPJ) ─────────
+
+interface DFeSyncResult {
+  success: boolean;
+  message: string;
+  novas: number;
+}
+
+async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
+  const config = await getConfig(hotelId);
+  if (!config?.nf_recebidas_enabled) {
+    return { success: false, message: 'Consulta de NF recebidas não está habilitada nas configurações.', novas: 0 };
+  }
+  if (!config.certificado_base64 || !config.certificado_senha) {
+    return { success: false, message: 'Certificado digital A1 não configurado. Configure na aba Certificado.', novas: 0 };
+  }
+  if (!config.cnpj) {
+    return { success: false, message: 'CNPJ da empresa não configurado.', novas: 0 };
+  }
+
+  let ultNSU = config.dfe_ultimo_nsu || '0';
+  let novas = 0;
+  let lastMessage = '';
+
+  // A SEFAZ retorna até ~50 docs por lote — itera enquanto houver mais (limite de segurança)
+  for (let i = 0; i < 8; i++) {
+    const res = await fetch(NF_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-nf-action': 'dfe-consulta' },
+      body: JSON.stringify({
+        action: 'dfe-consulta',
+        certificado_base64: config.certificado_base64,
+        certificado_senha: config.certificado_senha,
+        cnpj: config.cnpj,
+        ambiente: config.ambiente,
+        ultNSU,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      return { success: false, message: result.error || 'Erro na consulta à SEFAZ', novas };
+    }
+
+    lastMessage = result.message || '';
+    ultNSU = result.ultNSU || ultNSU;
+
+    for (const doc of result.docs || []) {
+      const { error } = await supabase
+        .from('nf_received')
+        .upsert({
+          hotel_id: hotelId,
+          nsu: doc.nsu,
+          schema_doc: doc.schema,
+          tipo: doc.tipo,
+          chave_acesso: doc.chave_acesso,
+          numero_nf: doc.numero_nf,
+          serie: doc.serie,
+          emitente_nome: doc.emitente_nome,
+          emitente_cnpj: doc.emitente_cnpj,
+          valor_total: doc.valor_total,
+          data_emissao: doc.data_emissao,
+          xml: doc.xml,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'hotel_id,chave_acesso', ignoreDuplicates: false });
+      if (!error) novas++;
+    }
+
+    // Persiste progresso do NSU a cada lote
+    await supabase
+      .from('nf_hotel_config')
+      .update({ dfe_ultimo_nsu: ultNSU, dfe_ultima_consulta: new Date().toISOString() })
+      .eq('hotel_id', hotelId);
+
+    if (!result.hasMore) break;
+  }
+
+  return {
+    success: true,
+    message: novas > 0
+      ? `${novas} documento(s) sincronizado(s).`
+      : (lastMessage || 'Nenhum documento novo encontrado.'),
+    novas,
+  };
+}
+
+async function getReceivedNFs(
+  hotelId: string,
+  filters?: { situacao?: string; search?: string },
+): Promise<NFReceived[]> {
+  let query = supabase
+    .from('nf_received')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .order('data_emissao', { ascending: false, nullsFirst: false });
+
+  if (filters?.situacao) query = query.eq('situacao', filters.situacao);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  let rows = (data ?? []) as NFReceived[];
+  if (filters?.search) {
+    const q = filters.search.toLowerCase();
+    rows = rows.filter(r =>
+      (r.emitente_nome || '').toLowerCase().includes(q) ||
+      (r.emitente_cnpj || '').includes(q.replace(/\D/g, '') || q) ||
+      (r.numero_nf || '').includes(q) ||
+      r.chave_acesso.includes(q),
+    );
+  }
+  return rows;
+}
+
+async function updateReceivedSituacao(
+  id: string,
+  situacao: NFReceived['situacao'],
+  purchaseId?: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from('nf_received')
+    .update({
+      situacao,
+      ...(purchaseId !== undefined ? { purchase_id: purchaseId } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 // ─── Test Connection ─────────────────────────────────────────────────────────
 
 async function testConnection(
@@ -810,6 +940,9 @@ export const nfService = {
   retryContingencyInvoices,
   getContingencyCount,
   lookupWCIGuest,
+  syncNFRecebidas,
+  getReceivedNFs,
+  updateReceivedSituacao,
 };
 
 export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult };

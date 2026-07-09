@@ -4,8 +4,9 @@ import { useHotel } from '../context/HotelContext';
 import {
   DollarSign, Download, Filter, ChevronDown, ChevronUp,
   Building2, ArrowLeftRight, Calendar, Search, AlertTriangle,
-  Plus, X, RefreshCw, Loader2, Receipt
+  Plus, X, RefreshCw, Loader2, Receipt, Inbox
 } from 'lucide-react';
+import NFRecebidasTab from '../components/nf/NFRecebidasTab';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -45,7 +46,7 @@ interface Payment {
   };
 }
 
-type FinanceTab = 'transactions' | 'accounts_receivable';
+type FinanceTab = 'transactions' | 'accounts_receivable' | 'nf_recebidas';
 
 const FinancialManagement = () => {
   const { selectedHotel } = useHotel();
@@ -403,7 +404,25 @@ const FinancialManagement = () => {
             )}
           </div>
         </button>
+        <button
+          onClick={() => setActiveTab('nf_recebidas')}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'nf_recebidas'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Inbox className="w-4 h-4" />
+            NF Recebidas
+          </div>
+        </button>
       </div>
+
+      {/* ═══ TAB: NF Recebidas (Distribuição DF-e) ═══════════════════════ */}
+      {activeTab === 'nf_recebidas' && selectedHotel?.id && (
+        <NFRecebidasTab hotelId={selectedHotel.id} />
+      )}
 
       {/* ═══ TAB: Contas a Receber (Erbon) ═══════════════════════════════ */}
       {activeTab === 'accounts_receivable' && (

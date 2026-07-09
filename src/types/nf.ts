@@ -50,6 +50,10 @@ export interface NFHotelConfig {
   certificado_senha: string | null;
   certificado_validade: string | null;
 
+  nf_recebidas_enabled: boolean;
+  dfe_ultimo_nsu: string | null;
+  dfe_ultima_consulta: string | null;
+
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -126,6 +130,28 @@ export interface NFInvoiceItem {
   iss_valor: number | null;
 
   created_at: string;
+}
+
+export type NFReceivedSituacao = 'nova' | 'lancada' | 'ignorada';
+
+export interface NFReceived {
+  id: string;
+  hotel_id: string;
+  nsu: string | null;
+  schema_doc: string | null;
+  tipo: 'resumo' | 'completa';
+  chave_acesso: string;
+  numero_nf: string | null;
+  serie: string | null;
+  emitente_nome: string | null;
+  emitente_cnpj: string | null;
+  valor_total: number | null;
+  data_emissao: string | null;
+  xml: string | null;
+  situacao: NFReceivedSituacao;
+  purchase_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NFEmittedEntry {

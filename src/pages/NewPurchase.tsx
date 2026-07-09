@@ -13,6 +13,7 @@ import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
 import { supplierDisplayName, parseRate } from '../lib/accountingService';
 import NFeXMLImportModal, { type NFeImportResult } from '../components/NFeXMLImportModal';
+import { nfService } from '../lib/nfService';
 import SupplierQuickCreateModal from '../components/SupplierQuickCreateModal';
 import type { Supplier } from '../lib/supplierService';
 
@@ -412,6 +413,10 @@ const NewPurchase = () => {
   const budgetDataFromState: Budget | undefined = location.state?.budgetData;
   const budgetIdToUpdate = budgetDataFromState?.id;
 
+  // NF recebida (Financeiro → NF Recebidas): XML pré-carregado para importação
+  const nfeXmlFromState: string | undefined = location.state?.nfeXml;
+  const nfReceivedId: string | undefined = location.state?.nfReceivedId;
+
   // ── Products
   const [products,         setProducts]         = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
@@ -504,6 +509,11 @@ const NewPurchase = () => {
   }, [selectedHotel?.id]);
 
   // ── Effects ──────────────────────────────────────────────────────────────────
+
+  // Abre o modal de importação automaticamente quando chega XML de NF recebida
+  useEffect(() => {
+    if (nfeXmlFromState) setShowNFeModal(true);
+  }, [nfeXmlFromState]);
 
   useEffect(() => {
     if (location.state?.budgetData) {
@@ -962,6 +972,15 @@ const NewPurchase = () => {
       if (budgetIdToUpdate && selectedHotel?.id) {
         await supabase.from('budgets').update({ status: 'delivered' }).eq('id', budgetIdToUpdate).eq('hotel_id', selectedHotel.id);
         addNotification('Status do orçamento atualizado para Concluído.', 'info');
+      }
+
+      // Marca a NF recebida como lançada (fluxo Financeiro → NF Recebidas)
+      if (nfReceivedId) {
+        try {
+          await nfService.updateReceivedSituacao(nfReceivedId, 'lancada', purchase.id);
+        } catch (nfErr) {
+          console.error('[NewPurchase] marcar NF recebida como lançada:', nfErr);
+        }
       }
 
       addNotification('Compra registrada com sucesso!', 'success');
@@ -1700,6 +1719,7 @@ const NewPurchase = () => {
           currentItems={items}
           hotelId={selectedHotel.id}
           onConfirm={handleNFeConfirm}
+          initialXml={nfeXmlFromState}
         />
       )}
 

@@ -16,6 +16,7 @@ import {
   Save,
   Upload,
   AlertTriangle,
+  Inbox,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { nfService } from '../../lib/nfService';
@@ -27,7 +28,7 @@ const inputCls = 'w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 
 const labelCls = 'block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5';
 const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed';
 
-type TabId = 'empresa' | 'nfse' | 'nfe' | 'nfce' | 'certificado';
+type TabId = 'empresa' | 'nfse' | 'nfe' | 'nfce' | 'receber' | 'certificado';
 
 const EMPTY_FORM = {
   ambiente: 'homologacao' as NFAmbiente,
@@ -65,6 +66,7 @@ const EMPTY_FORM = {
   proximo_numero_nfce: 1,
   nfce_csc_id: '',
   nfce_csc_token: '',
+  nf_recebidas_enabled: false,
   certificado_base64: '',
   certificado_senha: '',
   certificado_validade: '',
@@ -144,6 +146,7 @@ const NFIntegration: React.FC = () => {
           proximo_numero_nfce: cfg.proximo_numero_nfce ?? 1,
           nfce_csc_id: cfg.nfce_csc_id || '',
           nfce_csc_token: cfg.nfce_csc_token || '',
+          nf_recebidas_enabled: cfg.nf_recebidas_enabled ?? false,
           certificado_base64: cfg.certificado_base64 || '',
           certificado_senha: cfg.certificado_senha || '',
           certificado_validade: cfg.certificado_validade || '',
@@ -234,6 +237,7 @@ const NFIntegration: React.FC = () => {
     { id: 'nfse',        label: 'NFS-e (Serviços)', icon: FileText },
     { id: 'nfe',         label: 'NF-e (Produtos)',  icon: Receipt },
     { id: 'nfce',        label: 'NFC-e (Consumidor)', icon: Receipt },
+    { id: 'receber',     label: 'Receber NF',         icon: Inbox },
     { id: 'certificado', label: 'Certificado',      icon: ShieldCheck },
   ];
 
@@ -622,6 +626,91 @@ const NFIntegration: React.FC = () => {
                 {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
                 Testar Conexão NFC-e
               </button>
+            </div>
+          )}
+
+          {/* ══════════════ TAB: RECEBER NF ══════════════ */}
+          {activeTab === 'receber' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Receber NF — Notas emitidas contra o CNPJ</h3>
+                <div className="flex items-center gap-3">
+                  {form.nf_recebidas_enabled ? (
+                    <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400 text-sm">
+                      <Wifi className="w-4 h-4" /> Habilitado
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-gray-400 text-sm">
+                      <WifiOff className="w-4 h-4" /> Desabilitado
+                    </span>
+                  )}
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.nf_recebidas_enabled}
+                      onChange={e => setForm(p => ({ ...p, nf_recebidas_enabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-500 -mt-2">
+                Consulta na SEFAZ (Distribuição DF-e, Ambiente Nacional) as NF-e emitidas por fornecedores contra o CNPJ da empresa.
+                As notas encontradas aparecem em <span className="font-semibold">Financeiro → NF Recebidas</span>, onde é possível baixar o XML ou lançá-lo como compra.
+              </p>
+
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-400 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  A consulta usa o <span className="font-semibold">CNPJ</span> da aba Empresa e o <span className="font-semibold">Certificado Digital A1</span> da aba Certificado —
+                  não é necessário CSC nem login da prefeitura. O ambiente (produção/homologação) também segue a aba Empresa.
+                </span>
+              </div>
+
+              {/* Pré-requisitos */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
+                  form.cnpj
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                }`}>
+                  {form.cnpj ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+                  {form.cnpj ? `CNPJ configurado: ${form.cnpj}` : 'CNPJ não configurado (aba Empresa)'}
+                </div>
+                <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
+                  form.certificado_base64 && !certVencido
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                }`}>
+                  {form.certificado_base64 && !certVencido ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+                  {!form.certificado_base64
+                    ? 'Certificado A1 não configurado (aba Certificado)'
+                    : certVencido
+                    ? 'Certificado A1 vencido — renove na aba Certificado'
+                    : 'Certificado A1 configurado e válido'}
+                </div>
+              </div>
+
+              {/* Estado da sincronização */}
+              {config && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Último NSU sincronizado</label>
+                    <input type="text" value={config.dfe_ultimo_nsu || '0'} readOnly className={inputCls + ' opacity-60 cursor-not-allowed'} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Última consulta</label>
+                    <input
+                      type="text"
+                      value={config.dfe_ultima_consulta ? new Date(config.dfe_ultima_consulta).toLocaleString('pt-BR') : 'Nunca consultado'}
+                      readOnly
+                      className={inputCls + ' opacity-60 cursor-not-allowed'}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
