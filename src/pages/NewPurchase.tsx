@@ -431,6 +431,8 @@ const NewPurchase = () => {
   const [budgetProcessed,  setBudgetProcessed]  = useState(false);
   const [showNFeModal,     setShowNFeModal]      = useState(false);
   const [showNewSupplier,  setShowNewSupplier]   = useState(false);
+  const [linkingIdx,       setLinkingIdx]        = useState<number | null>(null);
+  const [linkSearch,       setLinkSearch]        = useState('');
 
   const [newProduct, setNewProduct] = useState({
     name: '', category: '', description: '', supplier: '', image_url: '',
@@ -782,6 +784,23 @@ const NewPurchase = () => {
 
   const removeItem = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx));
 
+  // Vincula um item "novo" (sem correspondência no inventário) a um produto
+  // existente — ao salvar a compra o cEAN do XML é registrado nesse produto
+  const linkItemToProduct = (idx: number, product: Product) => {
+    if (items.some((i, j) => j !== idx && !i.isNew && i.product_id === product.id)) {
+      addNotification('Este produto já está na lista de compra.', 'warning');
+      return;
+    }
+    setItems(prev => prev.map((item, i) =>
+      i === idx
+        ? { ...item, isNew: false, product_id: product.id, product, newProduct: undefined }
+        : item
+    ));
+    setLinkingIdx(null);
+    setLinkSearch('');
+    addNotification(`Item vinculado a "${product.name}" — o cEAN será salvo na ficha do produto ao registrar a compra.`, 'success');
+  };
+
   // Retorna as taxas IBS/CBS do fornecedor atualmente selecionado
   const supplierTaxRates = () => {
     const s = suppList.find(x => x.id === purchaseData.supplier_id);
@@ -949,6 +968,26 @@ const NewPurchase = () => {
               .update({ ncm: item.ncm })
               .eq('id', productId)
               .eq('hotel_id', selectedHotel.id);
+          }
+
+          // Registra o cEAN na ficha do produto (novo ou vinculado) para que
+          // futuras importações de XML reconheçam o item automaticamente
+          const cleanEan = (item.cean || '').replace(/\D/g, '');
+          if (cleanEan) {
+            const { data: existingBc } = await supabase
+              .from('product_barcodes')
+              .select('product_id, products!inner(hotel_id)')
+              .eq('barcode', cleanEan)
+              .eq('products.hotel_id', selectedHotel.id)
+              .maybeSingle();
+            if (!existingBc) {
+              const { error: bcErr } = await supabase
+                .from('product_barcodes')
+                .insert({ product_id: productId, barcode: cleanEan });
+              if (!bcErr) {
+                addNotification(`cEAN ${cleanEan} cadastrado em '${item.product?.name || item.newProduct?.name}'.`, 'info', 4000);
+              }
+            }
           }
 
           if (!item.isNew || wasNewDuplicate) {
@@ -1591,8 +1630,51 @@ const NewPurchase = () => {
                           {item.isNew && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">NOVO</span>
                           )}
+                          {item.isNew && (
+                            <button
+                              type="button"
+                              onClick={() => { setLinkingIdx(linkingIdx === idx ? null : idx); setLinkSearch(''); }}
+                              title="Vincular a um produto já cadastrado em vez de criar um novo"
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors shrink-0"
+                            >
+                              {linkingIdx === idx ? 'Cancelar' : 'Vincular a existente'}
+                            </button>
+                          )}
                         </div>
                         <p className="text-xs text-slate-400">{category}</p>
+                        {item.isNew && linkingIdx === idx && (
+                          <div className="relative mt-1.5" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              autoFocus
+                              value={linkSearch}
+                              onChange={e => setLinkSearch(e.target.value)}
+                              placeholder="Buscar produto existente…"
+                              className="w-full max-w-xs px-2 py-1 text-xs rounded-lg border border-violet-300 dark:border-violet-700 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-400"
+                            />
+                            {linkSearch.trim() && (
+                              <div className="absolute z-30 mt-1 w-full max-w-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+                                {products
+                                  .filter(p => p.name.toLowerCase().includes(linkSearch.toLowerCase()))
+                                  .slice(0, 6)
+                                  .map(p => (
+                                    <button
+                                      key={p.id}
+                                      type="button"
+                                      onClick={() => linkItemToProduct(idx, p)}
+                                      className="w-full text-left px-3 py-2 text-xs hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+                                    >
+                                      <span className="font-semibold text-slate-800 dark:text-slate-100">{p.name}</span>
+                                      <span className="text-slate-400 ml-1.5">{p.category}</span>
+                                    </button>
+                                  ))}
+                                {products.filter(p => p.name.toLowerCase().includes(linkSearch.toLowerCase())).length === 0 && (
+                                  <p className="px-3 py-2 text-xs text-slate-400 text-center">Nenhum produto encontrado.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {/* cEAN + IBS/CBS */}
                         <div className="flex flex-wrap items-center gap-2 mt-1.5">
                           <div className="flex items-center gap-1">

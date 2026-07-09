@@ -56,12 +56,21 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Vínculo retroativo: casa notas "novas" com compras já registradas
+      // no histórico (nº da NF + CNPJ do fornecedor) antes de listar.
+      const linked = await nfService.linkReceivedToPurchases(hotelId).catch(err => {
+        console.error('[NFRecebidas] linkReceivedToPurchases:', err);
+        return 0;
+      });
       const [cfg, data] = await Promise.all([
         nfService.getConfig(hotelId),
         nfService.getReceivedNFs(hotelId),
       ]);
       setConfig(cfg);
       setRows(data);
+      if (linked > 0) {
+        setMessage({ type: 'success', text: `${linked} nota(s) vinculada(s) a compras já registradas no histórico.` });
+      }
     } catch (err) {
       console.error('[NFRecebidas] load:', err);
       setMessage({ type: 'error', text: 'Erro ao carregar notas recebidas.' });
@@ -291,9 +300,15 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
                         ? 'XML resumido — a nota completa ainda não foi disponibilizada pela SEFAZ'
                         : 'Lançar como compra com os dados do XML'
                     }
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className={
+                      nf.situacao === 'lancada'
+                        ? 'flex items-center gap-1.5 px-3 py-2 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-bold cursor-default'
+                        : 'flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+                    }
                   >
-                    <ShoppingCart className="w-3.5 h-3.5" /> Lançar compra
+                    {nf.situacao === 'lancada'
+                      ? <><CheckCircle className="w-3.5 h-3.5" /> Compra lançada</>
+                      : <><ShoppingCart className="w-3.5 h-3.5" /> Lançar compra</>}
                   </button>
 
                   {nf.situacao === 'ignorada' ? (
