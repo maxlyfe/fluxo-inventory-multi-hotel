@@ -174,18 +174,6 @@ export default function NFeXMLImportModal({
 
   const handleClose = () => { reset(); onClose(); };
 
-  // XML pré-carregado: parseia e reconcilia direto, sem etapa de upload
-  const initialXmlProcessed = useRef(false);
-  useEffect(() => {
-    if (!isOpen) { initialXmlProcessed.current = false; return; }
-    if (!initialXml || initialXmlProcessed.current) return;
-    initialXmlProcessed.current = true;
-    const parsed = parseNFe(initialXml);
-    if (!parsed) { setParseError('Não foi possível ler o XML da nota recebida.'); return; }
-    if (parsed.items.length === 0) { setParseError('Nenhum item (det) encontrado no XML da nota recebida.'); return; }
-    reconcile(parsed);
-  }, [isOpen, initialXml, reconcile]);
-
   // ── Reconciliation ──────────────────────────────────────────────────────────
 
   const reconcile = useCallback(async (parsed: ReturnType<typeof parseNFe>) => {
@@ -320,6 +308,19 @@ export default function NFeXMLImportModal({
       setParsing(false);
     }
   }, [currentItems, hotelId]);
+
+  // XML pré-carregado (Financeiro → NF Recebidas): parseia e reconcilia direto,
+  // sem etapa de upload. Precisa vir depois da declaração de `reconcile`.
+  const initialXmlProcessed = useRef(false);
+  useEffect(() => {
+    if (!isOpen) { initialXmlProcessed.current = false; return; }
+    if (!initialXml || initialXmlProcessed.current) return;
+    initialXmlProcessed.current = true;
+    const parsed = parseNFe(initialXml);
+    if (!parsed) { setParseError('Não foi possível ler o XML da nota recebida.'); return; }
+    if (parsed.items.length === 0) { setParseError('Nenhum item (det) encontrado no XML da nota recebida.'); return; }
+    reconcile(parsed);
+  }, [isOpen, initialXml, reconcile]);
 
   // ── File handling ───────────────────────────────────────────────────────────
 
