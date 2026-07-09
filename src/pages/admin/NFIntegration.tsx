@@ -665,7 +665,8 @@ const NFIntegration: React.FC = () => {
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>
                   A consulta usa o <span className="font-semibold">CNPJ</span> da aba Empresa e o <span className="font-semibold">Certificado Digital A1</span> da aba Certificado —
-                  não é necessário CSC nem login da prefeitura. O ambiente (produção/homologação) também segue a aba Empresa.
+                  não é necessário CSC nem login da prefeitura. A consulta é feita sempre no <span className="font-semibold">ambiente de produção</span> da SEFAZ
+                  (as notas reais dos fornecedores só existem lá), independente do ambiente de emissão.
                 </span>
               </div>
 

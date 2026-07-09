@@ -801,7 +801,10 @@ async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
         certificado_base64: config.certificado_base64,
         certificado_senha: config.certificado_senha,
         cnpj: config.cnpj,
-        ambiente: config.ambiente,
+        // NF-e reais de fornecedores só existem no ambiente de produção da
+        // SEFAZ — o ambiente de homologação (usado para testar emissão) não
+        // distribui documentos reais e é instável.
+        ambiente: 'producao',
         ultNSU,
       }),
     });
