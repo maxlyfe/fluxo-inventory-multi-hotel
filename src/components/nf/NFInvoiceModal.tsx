@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Printer,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
 import { nfService, type FiscalLineItem, type FiscalResolutionResult, type WCIGuestData } from '../../lib/nfService';
 import { useNotification } from '../../context/NotificationContext';
@@ -1336,9 +1337,8 @@ body { font-family: 'Courier New', monospace; font-size: 10px; width: 76mm; padd
                     <div className="font-bold text-[9px] text-center">CONSULTE PELA CHAVE DE ACESSO EM</div>
                     <div className="text-[8px] text-center text-blue-600 break-all">{emittedInvoice.url_consulta || emittedInvoice.qrcode_url}</div>
                     <div className="text-center mt-1">
-                      <div className="inline-block border border-gray-300 p-2 rounded bg-gray-50">
-                        <div className="text-[8px] text-gray-500">[ QR Code ]</div>
-                        <div className="text-[7px] text-gray-400 break-all" style={{ maxWidth: '200px' }}>{emittedInvoice.qrcode_url}</div>
+                      <div className="inline-block bg-white p-1">
+                        <QRCodeSVG value={emittedInvoice.qrcode_url} size={110} level="M" />
                       </div>
                     </div>
                   </>
