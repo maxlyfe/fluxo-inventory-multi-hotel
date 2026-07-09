@@ -19,7 +19,7 @@ import InternalBookingModal, { InternalBooking } from './InternalBookingModal';
 import { omnibeesService } from '../../lib/omnibeesService';
 import Modal from '../../components/Modal';
 import { nfService } from '../../lib/nfService';
-import { NFInvoiceModal } from '../../components/nf/NFInvoiceModal';
+import { NFInvoiceModal, isServiceEntry } from '../../components/nf/NFInvoiceModal';
 import { CheckCircle2, FileCheck2, ShoppingBag, Receipt as ReceiptIcon } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -1137,6 +1137,8 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
   const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [nfModalType, setNfModalType] = useState<'nfse' | 'nfe' | 'nfce' | null>(null);
+  const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
+  const [viewInvoiceTipo, setViewInvoiceTipo] = useState<'nfse' | 'nfe' | 'nfce'>('nfse');
 
   // Usa o bookingInternalID do booking (quando carregado) ou do próprio room como fallback
   const bookingInternalId = booking?.bookingInternalID ?? room.currentBookingID;
