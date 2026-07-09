@@ -37,6 +37,22 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   const [search, setSearch] = useState('');
   const [situacaoFilter, setSituacaoFilter] = useState<string>('');
 
+  // Cooldown da SEFAZ: após "nenhum documento" ou rejeição 656 (consumo
+  // indevido), é obrigatório aguardar 1 hora antes de nova consulta.
+  const cooldownKey = `dfe_cooldown_${hotelId}`;
+  const [cooldownUntil, setCooldownUntil] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(`dfe_cooldown_${hotelId}`) || 0);
+    return saved > Date.now() ? saved : 0;
+  });
+  const cooldownActive = cooldownUntil > Date.now();
+  const cooldownMinutes = cooldownActive ? Math.ceil((cooldownUntil - Date.now()) / 60000) : 0;
+
+  function startCooldown() {
+    const until = Date.now() + 60 * 60 * 1000;
+    localStorage.setItem(cooldownKey, String(until));
+    setCooldownUntil(until);
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -64,11 +80,20 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   }, [message]);
 
   async function handleSync() {
+    if (cooldownUntil > Date.now()) {
+      const min = Math.ceil((cooldownUntil - Date.now()) / 60000);
+      setMessage({ type: 'error', text: `A SEFAZ exige aguardar 1 hora entre consultas sem documentos novos. Tente novamente em ~${min} min.` });
+      return;
+    }
     setSyncing(true);
     setMessage(null);
     try {
       const result = await nfService.syncNFRecebidas(hotelId);
       setMessage({ type: result.success ? 'success' : 'error', text: result.message });
+      // Sem documentos novos ou rejeição 656 → SEFAZ manda aguardar 1 hora
+      if ((result.success && result.novas === 0) || /656/.test(result.message)) {
+        startCooldown();
+      }
       if (result.success) await load();
     } catch (err) {
       console.error('[NFRecebidas] sync:', err);
@@ -159,11 +184,12 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
         </select>
         <button
           onClick={handleSync}
-          disabled={syncing}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50"
+          disabled={syncing || cooldownActive}
+          title={cooldownActive ? `A SEFAZ exige 1 hora de espera entre consultas sem documentos novos (~${cooldownMinutes} min restantes)` : undefined}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {syncing ? 'Consultando SEFAZ…' : 'Buscar novas notas'}
+          {syncing ? 'Consultando SEFAZ…' : cooldownActive ? `Aguarde ~${cooldownMinutes} min (SEFAZ)` : 'Buscar novas notas'}
         </button>
       </div>
 
