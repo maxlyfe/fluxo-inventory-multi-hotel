@@ -9,6 +9,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X, Loader2, Users, CalendarRange, BedDouble, Wallet, UserPlus, Trash2,
   QrCode, Link2, Search, RefreshCw, CheckCircle2, ArrowDownCircle, ArrowUpCircle,
+  Receipt as ReceiptIcon, ShoppingBag, FileCheck2,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { format, parseISO, differenceInCalendarDays } from 'date-fns';
@@ -17,6 +18,8 @@ import { erbonService, ErbonBooking, ErbonGuest } from '../../lib/erbonService';
 import { createWCISession, WebCheckinGuest } from '../webcheckin/webCheckinService';
 import { ensureHotelWciCode } from '../../lib/wciCode';
 import { useNotification } from '../../context/NotificationContext';
+import { nfService } from '../../lib/nfService';
+import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
 
 interface BookingDetailModalProps {
   hotelId: string;
@@ -62,6 +65,24 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   }
   const [account, setAccount] = useState<AccountEntry[] | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(false);
+
+  // Emissão de NF a partir da conta corrente
+  const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [nfModalType, setNfModalType] = useState<'nfse' | 'nfe' | 'nfce' | null>(null);
+  const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
+  const [viewInvoiceTipo, setViewInvoiceTipo] = useState<'nfse' | 'nfe' | 'nfce'>('nfse');
+
+  const loadEmittedEntries = useCallback(async () => {
+    try {
+      const map = await nfService.getEmittedEntries(hotelId);
+      setEmittedEntries(map);
+    } catch { /* badge de NF é best-effort */ }
+  }, [hotelId]);
+
+  useEffect(() => {
+    if (tab === 'conta') loadEmittedEntries();
+  }, [tab, loadEmittedEntries]);
 
   // Hóspedes — ações
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -436,6 +457,29 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                   <p className={`text-xl font-black ${balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtBRL(balance)}</p>
                 </div>
 
+                {/* Barra de emissão de NF */}
+                <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 p-3 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                    {selectedIds.size > 0
+                      ? `${selectedIds.size} ${selectedIds.size === 1 ? 'lançamento selecionado' : 'lançamentos selecionados'} para faturamento`
+                      : 'Selecione lançamentos abaixo para emitir a nota fiscal'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setNfModalType('nfse')} disabled={selectedIds.size === 0}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed">
+                      <ReceiptIcon className="w-3.5 h-3.5" /> NF Serviços
+                    </button>
+                    <button onClick={() => setNfModalType('nfe')} disabled={selectedIds.size === 0}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed">
+                      <ShoppingBag className="w-3.5 h-3.5" /> NF Consumo
+                    </button>
+                    <button onClick={() => setNfModalType('nfce')} disabled={selectedIds.size === 0}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed">
+                      <ReceiptIcon className="w-3.5 h-3.5" /> NFC-e
+                    </button>
+                  </div>
+                </div>
+
                 {/* Débitos (consumos) */}
                 <div>
                   <p className="flex items-center gap-1.5 text-xs font-bold text-red-500 uppercase tracking-wider mb-2">
@@ -445,9 +489,38 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                     <p className="text-xs text-gray-400">Sem consumos.</p>
                   ) : (
                     <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800">
-                      {debits.map((e: any, i: number) => (
+                      {debits.map((e: any, i: number) => {
+                        const entryId = typeof e.id === 'number' ? e.id : Number(e.id);
+                        const selectable = Number.isFinite(entryId) && !emittedEntries.has(entryId);
+                        return (
                         <div key={e.id || i} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
-                          <div className="min-w-0">
+                          <div className="shrink-0 w-5 flex justify-center">
+                            {emittedEntries.has(entryId) ? (
+                              <button
+                                onClick={() => {
+                                  const invId = emittedEntries.get(entryId);
+                                  if (invId) {
+                                    setViewInvoiceId(invId);
+                                    setViewInvoiceTipo(isServiceEntry(e) ? 'nfse' : 'nfe');
+                                  }
+                                }}
+                                title="NF já emitida · clique para visualizar/reimprimir"
+                                className="text-green-600 dark:text-green-400 hover:scale-110 transition-transform">
+                                <FileCheck2 className="w-4 h-4" />
+                              </button>
+                            ) : selectable ? (
+                              <input type="checkbox" checked={selectedIds.has(entryId)}
+                                onChange={() => {
+                                  const next = new Set(selectedIds);
+                                  if (next.has(entryId)) next.delete(entryId); else next.add(entryId);
+                                  setSelectedIds(next);
+                                }}
+                                className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer" />
+                            ) : (
+                              <span className="text-gray-300 dark:text-gray-600">—</span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
                             <p className="text-gray-700 dark:text-gray-200 truncate">{e.description}</p>
                             {(e.date || e.department || e.quantity > 1 || e.source) && (
                               <p className="text-[11px] text-gray-400 truncate">
@@ -462,7 +535,8 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                           </div>
                           <span className="font-semibold text-red-500 whitespace-nowrap">{fmtBRL(e.amount)}</span>
                         </div>
-                      ))}
+                        );
+                      })}
                       <div className="flex items-center justify-between px-3 py-2 text-sm bg-red-50/60 dark:bg-red-900/10">
                         <span className="font-bold text-gray-500 text-xs uppercase">Total</span>
                         <span className="font-black text-red-600">{fmtBRL(totalDebit)}</span>
@@ -509,6 +583,37 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
             )
           )}
         </div>
+      </div>
+
+      {/* ── Modal de emissão/reimpressão de NF ── */}
+      <div onClick={e => e.stopPropagation()}>
+      <NFInvoiceModal
+        isOpen={nfModalType !== null || viewInvoiceId !== null}
+        onClose={() => {
+          setNfModalType(null);
+          setViewInvoiceId(null);
+        }}
+        tipo={viewInvoiceId ? viewInvoiceTipo : (nfModalType || 'nfse')}
+        hotelId={hotelId}
+        booking={booking}
+        selectedEntries={viewInvoiceId ? [] : (account || [])
+          .filter((e) => selectedIds.has(typeof e.id === 'number' ? e.id : Number(e.id)))
+          .map((e): CurrentAccountEntry => ({
+            id: typeof e.id === 'number' ? e.id : Number(e.id),
+            description: e.description,
+            amount: e.amount,
+            isDebit: e.isDebit,
+            isCredit: e.isCredit,
+            currency: 'BRL',
+            isInvoiced: false,
+            idDepartment: 0,
+          }))}
+        onSuccess={() => {
+          setSelectedIds(new Set());
+          loadEmittedEntries();
+        }}
+        viewInvoiceId={viewInvoiceId}
+      />
       </div>
 
       {/* ── Sub-modal: QR do web-checkin ── */}
