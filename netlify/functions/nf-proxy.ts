@@ -40,10 +40,26 @@ const handler: Handler = async (event: HandlerEvent) => {
     return jsonResponse(405, { error: 'Método não permitido' });
   }
 
-  const action = (event.headers['x-nf-action'] || '').toLowerCase();
+  // Ler action do header OU do body (fallback — CDN pode remover headers custom)
+  let action = (event.headers['x-nf-action'] || '').toLowerCase();
+
+  if (!action && event.body) {
+    try {
+      const parsed = JSON.parse(event.body);
+      action = (parsed.action || '').toLowerCase();
+    } catch {
+      // body não é JSON válido — ignorar
+    }
+  }
 
   if (!action) {
-    return jsonResponse(400, { error: 'Header x-nf-action ausente' });
+    return jsonResponse(400, {
+      error: 'Header x-nf-action ausente e campo "action" não encontrado no body',
+      debug: {
+        receivedHeaders: Object.keys(event.headers),
+        hasBody: !!event.body,
+      },
+    });
   }
 
   // ─── Test Connection (stub) ──────────────────────────────────────────────

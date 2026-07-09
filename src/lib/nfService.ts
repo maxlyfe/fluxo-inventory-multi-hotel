@@ -491,7 +491,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         'Content-Type': 'application/json',
         'x-nf-action': proxyAction,
       },
-      body: JSON.stringify({ invoiceId, hotelId }),
+      body: JSON.stringify({ action: proxyAction, invoiceId, hotelId }),
     });
 
     const result = await res.json();
@@ -557,7 +557,7 @@ async function cancelInvoice(
         'Content-Type': 'application/json',
         'x-nf-action': 'cancel',
       },
-      body: JSON.stringify({ invoiceId, motivo }),
+      body: JSON.stringify({ action: 'cancel', invoiceId, motivo }),
     });
 
     const result = await res.json();
@@ -604,7 +604,7 @@ async function emitContingencia(
         'Content-Type': 'application/json',
         'x-nf-action': 'contingencia',
       },
-      body: JSON.stringify({ invoiceId, hotelId, motivo }),
+      body: JSON.stringify({ action: 'contingencia', invoiceId, hotelId, motivo }),
     });
 
     const result = await res.json();
@@ -773,13 +773,14 @@ async function testConnection(
   config: Partial<NFHotelConfig>,
 ): Promise<{ success: boolean; message: string }> {
   try {
+    const actionName = tipo === 'nfse' ? 'test-nfse' : 'test-nfe';
     const res = await fetch(NF_PROXY, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-nf-action': tipo === 'nfse' ? 'test-nfse' : 'test-nfe',
+        'x-nf-action': actionName,
       },
-      body: JSON.stringify(config),
+      body: JSON.stringify({ action: actionName, ...config }),
     });
     const result = await res.json();
     return {
