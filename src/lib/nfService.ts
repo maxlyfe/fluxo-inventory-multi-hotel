@@ -788,6 +788,7 @@ async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
   }
 
   let ultNSU = config.dfe_ultimo_nsu || '0';
+  let maxNSU = '';
   let novas = 0;
   let lastMessage = '';
 
@@ -815,6 +816,7 @@ async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
 
     lastMessage = result.message || '';
     ultNSU = result.ultNSU || ultNSU;
+    maxNSU = result.maxNSU || maxNSU;
 
     for (const doc of result.docs || []) {
       const { error } = await supabase
@@ -846,13 +848,23 @@ async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
     if (!result.hasMore) break;
   }
 
+  const nsuInfo = maxNSU ? ` (NSU ${Number(ultNSU)} de ${Number(maxNSU)})` : '';
   return {
     success: true,
     message: novas > 0
-      ? `${novas} documento(s) sincronizado(s).`
-      : (lastMessage || 'Nenhum documento novo encontrado.'),
+      ? `${novas} documento(s) sincronizado(s)${nsuInfo}.`
+      : `${lastMessage || 'Nenhum documento novo encontrado'}${nsuInfo}.`,
     novas,
   };
+}
+
+/** Zera o NSU para reconsultar todo o histórico (90 dias) na próxima busca. */
+async function resetDFeNSU(hotelId: string): Promise<void> {
+  const { error } = await supabase
+    .from('nf_hotel_config')
+    .update({ dfe_ultimo_nsu: '0', updated_at: new Date().toISOString() })
+    .eq('hotel_id', hotelId);
+  if (error) throw error;
 }
 
 async function getReceivedNFs(
@@ -946,6 +958,7 @@ export const nfService = {
   syncNFRecebidas,
   getReceivedNFs,
   updateReceivedSituacao,
+  resetDFeNSU,
 };
 
 export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult };

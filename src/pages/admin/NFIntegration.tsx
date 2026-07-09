@@ -84,6 +84,7 @@ const NFIntegration: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [resettingNSU, setResettingNSU] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [config, setConfig] = useState<NFHotelConfig | null>(null);
@@ -206,6 +207,24 @@ const NFIntegration: React.FC = () => {
       setTestResult({ success: false, message: 'Erro ao testar conexão' });
     } finally {
       setTesting(false);
+    }
+  }
+
+  // ── Reset NSU (Receber NF) ────────────────────────────────────────────────
+
+  async function handleResetNSU() {
+    if (!selectedHotel) return;
+    setResettingNSU(true);
+    setError(null);
+    try {
+      await nfService.resetDFeNSU(selectedHotel.id);
+      setConfig(prev => (prev ? { ...prev, dfe_ultimo_nsu: '0' } : prev));
+      setSuccess('NSU zerado — a próxima busca reconsultará os últimos 90 dias.');
+    } catch (err) {
+      console.error('[NFIntegration] resetNSU:', err);
+      setError('Erro ao zerar o NSU.');
+    } finally {
+      setResettingNSU(false);
     }
   }
 
@@ -710,6 +729,25 @@ const NFIntegration: React.FC = () => {
                       className={inputCls + ' opacity-60 cursor-not-allowed'}
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Zerar NSU — reconsultar os 90 dias de histórico */}
+              {config && config.dfe_ultimo_nsu && config.dfe_ultimo_nsu !== '0' && (
+                <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="flex-1 text-xs text-amber-700 dark:text-amber-400">
+                    Se a busca diz "nenhum documento novo" mas existem notas que nunca apareceram, o contador NSU pode estar à frente do real
+                    (ex.: consulta feita em homologação). Zere o contador para reconsultar todo o histórico de 90 dias na próxima busca.
+                    <span className="block mt-0.5 opacity-80">Atenção: respeite o intervalo de 1 hora entre consultas exigido pela SEFAZ.</span>
+                  </div>
+                  <button
+                    onClick={handleResetNSU}
+                    disabled={resettingNSU}
+                    className="px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    {resettingNSU ? 'Zerando…' : 'Zerar NSU'}
+                  </button>
                 </div>
               )}
             </div>
