@@ -901,12 +901,15 @@ const NewPurchase = () => {
         let wasNewDuplicate = false;
 
         if (item.isNew && item.newProduct) {
+          // Produto novo nasce ZERADO: o trigger do banco
+          // (update_product_prices_after_purchase) soma a quantidade comprada
+          // ao inserir o purchase_item — criar já com quantity duplicava o estoque
           const { data: np, error: ne } = await supabase.from('products').insert({
             name: item.newProduct.name, category: item.newProduct.category,
             description: item.newProduct.description || null,
             supplier: item.newProduct.supplier || purchaseData.supplier,
             image_url: item.newProduct.image_url || null,
-            hotel_id: selectedHotel.id, quantity: item.quantity,
+            hotel_id: selectedHotel.id, quantity: 0,
           }).select().single();
 
           if (ne) {
