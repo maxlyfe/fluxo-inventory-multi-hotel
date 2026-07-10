@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X, Loader2, Users, CalendarRange, Wallet, QrCode, Link2, CheckCircle2,
-  LogIn, LogOut, Ban, Plus, Trash2,
+  LogIn, LogOut, Ban, Plus, Trash2, ConciergeBell, Receipt,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { format, parseISO, differenceInCalendarDays } from 'date-fns';
@@ -17,6 +17,8 @@ import { createManualSession } from '../webcheckin/webCheckinService';
 import { ensureHotelWciCode } from '../../lib/wciCode';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
+import { serviceCatalogService, type HotelService } from '../../lib/serviceCatalogService';
+import { NFInvoiceModal, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -62,7 +64,18 @@ interface InternalBookingModalProps {
   onClose: () => void;
 }
 
-type Tab = 'dados' | 'pagamentos' | 'hospedes';
+type Tab = 'dados' | 'pagamentos' | 'consumos' | 'hospedes';
+
+interface BookingCharge {
+  id: string;
+  service_id: string | null;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
+  invoice_id: string | null;
+  created_at: string;
+}
 
 const fmtBRL = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -132,6 +145,99 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
 
   const totalPaid = (payments || []).reduce((s, p) => s + (p.amount || 0), 0);
   const rateNum = parseFloat(totalRate) || 0;
+
+  // ── Consumos / Serviços (catálogo) ──
+  const [charges, setCharges] = useState<BookingCharge[] | null>(null);
+  const [services, setServices] = useState<HotelService[]>([]);
+  const [chargeServiceId, setChargeServiceId] = useState('');
+  const [chargeQty, setChargeQty] = useState('1');
+  const [chargePrice, setChargePrice] = useState('');
+  const [addingCharge, setAddingCharge] = useState(false);
+  const [nfOpen, setNfOpen] = useState(false);
+
+  const loadCharges = useCallback(async () => {
+    if (!booking) { setCharges([]); return; }
+    const [{ data: rows }, svcs] = await Promise.all([
+      supabase
+        .from('internal_booking_charges')
+        .select('id, service_id, description, quantity, unit_price, total, invoice_id, created_at')
+        .eq('booking_id', booking.id)
+        .order('created_at', { ascending: false }),
+      serviceCatalogService.list(hotelId).catch(() => [] as HotelService[]),
+    ]);
+    setCharges((rows || []) as BookingCharge[]);
+    setServices(svcs);
+  }, [booking?.id, hotelId]);
+
+  useEffect(() => { if (tab === 'consumos' && charges === null) loadCharges(); }, [tab]);
+
+  const selectedService = services.find(s => s.id === chargeServiceId);
+
+  // Serviço de preço fixo pré-preenche o valor; variável fica em aberto
+  useEffect(() => {
+    if (selectedService?.pricing_mode === 'fixed' && selectedService.price != null) {
+      setChargePrice(String(selectedService.price));
+    }
+  }, [chargeServiceId]);
+
+  const handleAddCharge = async () => {
+    if (!booking || !selectedService) return;
+    const qty = parseFloat(chargeQty.replace(',', '.')) || 1;
+    const price = parseFloat(chargePrice.replace(',', '.'));
+    if (!Number.isFinite(price) || price < 0) {
+      addNotification('Informe o valor do serviço.', 'error');
+      return;
+    }
+    setAddingCharge(true);
+    try {
+      const { error } = await supabase.from('internal_booking_charges').insert({
+        hotel_id: hotelId,
+        booking_id: booking.id,
+        service_id: selectedService.id,
+        description: selectedService.name,
+        quantity: qty,
+        unit_price: price,
+        total: Math.round(qty * price * 100) / 100,
+        created_by: user?.id || null,
+      });
+      if (error) throw error;
+      setChargeServiceId(''); setChargeQty('1'); setChargePrice('');
+      await loadCharges();
+    } catch (err) {
+      console.error('[InternalBookingModal] addCharge:', err);
+      addNotification('Erro ao lançar o serviço.', 'error');
+    } finally {
+      setAddingCharge(false);
+    }
+  };
+
+  const handleDeleteCharge = async (c: BookingCharge) => {
+    if (c.invoice_id) { addNotification('Lançamento já faturado — não pode ser excluído.', 'warning'); return; }
+    await supabase.from('internal_booking_charges').delete().eq('id', c.id);
+    await loadCharges();
+  };
+
+  // Lançamentos ainda não faturados → itens da NFS-e (IDs locais negativos
+  // para nunca colidir com IDs de lançamentos Erbon)
+  const unbilledCharges = (charges || []).filter(c => !c.invoice_id);
+  const nfGenericItems: GenericNFItem[] = unbilledCharges.map((c, i) => ({
+    id: -(i + 1),
+    description: c.quantity !== 1 ? `${c.description} (${c.quantity}x)` : c.description,
+    amount: c.total,
+    service_id: c.service_id,
+  }));
+
+  const handleNfSuccess = async (invoiceId?: string) => {
+    if (!invoiceId) return;
+    // Vincula a nota aos lançamentos faturados (evita faturar duas vezes)
+    await supabase
+      .from('internal_booking_charges')
+      .update({ invoice_id: invoiceId })
+      .in('id', unbilledCharges.map(c => c.id));
+    await loadCharges();
+  };
+
+  const totalCharges = (charges || []).reduce((s, c) => s + (c.total || 0), 0);
 
   // ── Web-checkin ──
   const [wciUrl, setWciUrl] = useState<string | null>(null);
@@ -320,6 +426,7 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
         <div className="flex border-b border-gray-100 dark:border-gray-800 shrink-0">
           {tabBtn('dados', 'Dados', <CalendarRange className="w-3.5 h-3.5" />)}
           {tabBtn('pagamentos', 'Pagamentos', <Wallet className="w-3.5 h-3.5" />, isNew)}
+          {tabBtn('consumos', 'Consumos', <ConciergeBell className="w-3.5 h-3.5" />, isNew)}
           {tabBtn('hospedes', 'Hóspedes', <Users className="w-3.5 h-3.5" />, isNew)}
         </div>
 
@@ -476,6 +583,89 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
             </div>
           )}
 
+          {/* ── CONSUMOS / SERVIÇOS ── */}
+          {tab === 'consumos' && !isNew && (
+            <div className="space-y-4">
+              {/* Lançar serviço do catálogo */}
+              <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-3 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Lançar serviço</p>
+                {services.length === 0 && charges !== null ? (
+                  <p className="text-xs text-gray-400">
+                    Nenhum serviço cadastrado no catálogo. Crie em Gerência → Serviços.
+                  </p>
+                ) : (
+                  <>
+                    <select value={chargeServiceId} onChange={e => setChargeServiceId(e.target.value)} className={inputCls}>
+                      <option value="">Selecione o serviço...</option>
+                      {services.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}{s.pricing_mode === 'fixed' && s.price != null ? ` — ${fmtBRL(s.price)}` : ' — valor variável'}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex gap-2">
+                      <input type="number" min={0.01} step="0.01" value={chargeQty} onChange={e => setChargeQty(e.target.value)}
+                        placeholder="Qtd" className={`${inputCls} w-24`} />
+                      <input type="number" min={0} step="0.01" value={chargePrice} onChange={e => setChargePrice(e.target.value)}
+                        placeholder={selectedService?.pricing_mode === 'variable' ? 'Valor unitário (variável)' : 'Valor unitário'}
+                        readOnly={selectedService?.pricing_mode === 'fixed'}
+                        className={`${inputCls} flex-1 ${selectedService?.pricing_mode === 'fixed' ? 'opacity-60' : ''}`} />
+                    </div>
+                    <button onClick={handleAddCharge} disabled={addingCharge || !chargeServiceId || !chargePrice}
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors disabled:opacity-50">
+                      {addingCharge ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Lançar
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Lista de lançamentos */}
+              {charges === null ? (
+                <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>
+              ) : charges.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">Nenhum consumo lançado.</p>
+              ) : (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800">
+                  {charges.map(c => (
+                    <div key={c.id} className="flex items-center gap-3 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+                          {c.description}{c.quantity !== 1 ? ` · ${c.quantity}x` : ''}
+                        </p>
+                        <p className="text-[11px] text-gray-400">
+                          {fmtBRL(c.total)} · {format(parseISO(c.created_at), 'dd/MM HH:mm')}
+                        </p>
+                      </div>
+                      {c.invoice_id ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 shrink-0">
+                          Faturado
+                        </span>
+                      ) : (
+                        <button onClick={() => handleDeleteCharge(c)}
+                          className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800/60">
+                    <span className="text-[11px] font-bold uppercase text-gray-400">Total</span>
+                    <span className="text-sm font-black text-gray-800 dark:text-white">{fmtBRL(totalCharges)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Emitir NFS-e dos lançamentos pendentes */}
+              {unbilledCharges.length > 0 && (
+                <button onClick={() => setNfOpen(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-colors">
+                  <Receipt className="w-3.5 h-3.5" />
+                  Emitir NFS-e ({unbilledCharges.length} lançamento{unbilledCharges.length > 1 ? 's' : ''} · {fmtBRL(unbilledCharges.reduce((s, c) => s + c.total, 0))})
+                </button>
+              )}
+            </div>
+          )}
+
           {/* ── HÓSPEDES (web-checkin) ── */}
           {tab === 'hospedes' && !isNew && (
             <div className="space-y-4">
@@ -526,6 +716,27 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
           </div>
         )}
       </div>
+
+      {/* ── Sub-modal: emissão de NFS-e dos consumos ── */}
+      {nfOpen && booking && (
+        <div onClick={e => e.stopPropagation()}>
+          <NFInvoiceModal
+            isOpen={nfOpen}
+            onClose={() => setNfOpen(false)}
+            tipo="nfse"
+            hotelId={hotelId}
+            booking={{
+              guestList: [{ name: booking.guest_name, email: booking.guest_email || undefined }],
+              erbonNumber: null,
+              bookingInternalID: null,
+              roomDescription: rooms.find(r => r.id === booking.room_id)?.name || null,
+            }}
+            selectedEntries={[]}
+            genericItems={nfGenericItems}
+            onSuccess={handleNfSuccess}
+          />
+        </div>
+      )}
 
       {/* ── Sub-modal: QR web-checkin ── */}
       {wciUrl && (

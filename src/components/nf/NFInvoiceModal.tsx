@@ -34,6 +34,16 @@ export interface CurrentAccountEntry {
   idDepartment: number;
 }
 
+/** Item genérico (fora da Erbon): lançamentos de reservas internas/Omnibees */
+export interface GenericNFItem {
+  /** ID local apenas para a UI (use negativos para não colidir com IDs Erbon) */
+  id: number;
+  description: string;
+  amount: number;
+  /** Serviço do catálogo — resolve a tributação diretamente, sem heurística */
+  service_id?: string | null;
+}
+
 interface NFInvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -41,7 +51,10 @@ interface NFInvoiceModalProps {
   hotelId: string;
   booking: any;
   selectedEntries: CurrentAccountEntry[];
-  onSuccess: () => void;
+  /** Se informado, substitui selectedEntries (fluxo de reservas internas) */
+  genericItems?: GenericNFItem[];
+  /** invoiceId da nota criada é passado quando disponível */
+  onSuccess: (invoiceId?: string) => void;
   viewInvoiceId?: string | null;
 }
 
@@ -115,9 +128,11 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   hotelId,
   booking,
   selectedEntries,
+  genericItems,
   onSuccess,
   viewInvoiceId = null,
 }) => {
+  const isGeneric = !!genericItems?.length;
   const { user } = useAuth();
   const { addNotification } = useNotification();
   const [nfConfig, setNfConfig] = useState<NFHotelConfig | null>(null);
@@ -220,12 +235,24 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       return;
     }
 
-    // Classify entries
-    const services = selectedEntries.filter(isServiceEntry);
-    const products = selectedEntries.filter((e) => !isServiceEntry(e));
+    // Classify entries. Itens genéricos (reservas internas) não passam pela
+    // heurística Erbon: entram todos como ativos, do tipo pedido.
+    const genericEntries: CurrentAccountEntry[] = (genericItems ?? []).map(g => ({
+      id: g.id,
+      description: g.description,
+      amount: g.amount,
+      isDebit: true,
+      isCredit: false,
+      currency: 'BRL',
+      isInvoiced: false,
+      idDepartment: 0,
+    }));
+
+    const services = isGeneric ? genericEntries : selectedEntries.filter(isServiceEntry);
+    const products = isGeneric ? genericEntries : selectedEntries.filter((e) => !isServiceEntry(e));
 
     const active = isProduct ? products : services;
-    const ignored = isProduct ? services : products;
+    const ignored = isGeneric ? [] : (isProduct ? services : products);
 
     setActiveItems(active);
     setIgnoredItems(ignored);
@@ -247,11 +274,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       });
     }
 
-    // For NFS-e, resolve tributação por serviço do catálogo (mapeamento Erbon)
+    // For NFS-e, resolve tributação por serviço do catálogo (mapeamento Erbon
+    // ou service_id direto nos itens genéricos)
     if (tipo === 'nfse' && services.length > 0) {
+      const genericServiceIds = new Map((genericItems ?? []).map(g => [g.id, g.service_id ?? null]));
       nfService.resolveServiceFiscalData(
         hotelId,
-        services.map(e => ({ id: e.id, description: e.description, amount: e.amount }))
+        services.map(e => ({ id: e.id, description: e.description, amount: e.amount, service_id: genericServiceIds.get(e.id) ?? null }))
       ).then(result => {
         setServiceFiscal(result);
       }).catch(err => {
@@ -449,7 +478,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
       const svc = serviceFiscal?.items.find(s => s.erbon_entry_id === e.id);
       return {
-        erbon_entry_id: e.id,
+        // Itens genéricos usam IDs locais que NÃO podem ser gravados como
+        // erbon_entry_id (colidiriam com lançamentos reais da Erbon)
+        erbon_entry_id: isGeneric ? null : e.id,
         descricao: e.description,
         quantidade: 1,
         valor_unitario: e.amount,
@@ -489,9 +520,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         emitido_por: user?.id || null,
       };
 
-      await nfService.createDraftInvoice(input);
+      const draft = await nfService.createDraftInvoice(input);
       addNotification('Rascunho da nota fiscal salvo com sucesso.', 'success');
-      onSuccess();
+      onSuccess(draft.id);
       onClose();
     } catch (err: any) {
       console.error('[NFInvoiceModal] Save draft error:', err);
@@ -574,7 +605,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       if (result.success) {
         setEmittedInvoice(result.invoice);
         addNotification(result.message, 'success');
-        onSuccess();
+        onSuccess(draft.id);
         setStep(4);
       } else {
         setEmitError({
@@ -674,7 +705,7 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
       if (emitRes.success) {
         setEmittedInvoice(emitRes.invoice);
         addNotification(emitRes.message, 'success');
-        onSuccess();
+        onSuccess(draft.id);
         setStep(4);
       } else {
         setEmitError({

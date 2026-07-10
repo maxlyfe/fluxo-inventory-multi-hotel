@@ -347,9 +347,20 @@ export interface ServiceFiscalResult {
 
 async function resolveServiceFiscalData(
   hotelId: string,
-  entries: Array<{ id: number; description: string; amount: number }>,
+  entries: Array<{ id: number; description: string; amount: number; service_id?: string | null }>,
 ): Promise<ServiceFiscalResult> {
   const globalWarnings: string[] = [];
+
+  // Serviços apontados diretamente (lançamentos internos já trazem service_id)
+  const directIds = [...new Set(entries.map(e => e.service_id).filter(Boolean))] as string[];
+  const directServices = new Map<string, { id: string; name: string; description: string | null; lc116_code: string | null; iss_rate: number | null; iss_retained: boolean }>();
+  if (directIds.length > 0) {
+    const { data: svcs } = await supabase
+      .from('services')
+      .select('id, name, description, lc116_code, iss_rate, iss_retained')
+      .in('id', directIds);
+    (svcs ?? []).forEach((s: any) => directServices.set(s.id, s));
+  }
 
   // Mapeamentos Erbon → serviço do catálogo (com a tributação do serviço)
   const { data: mappings, error: mapErr } = await supabase
@@ -383,18 +394,20 @@ async function resolveServiceFiscalData(
   }));
 
   const items: ServiceFiscalItem[] = entries.map(entry => {
-    // Match por descrição — o CurrentAccountEntry não expõe erbon_service_id
-    // (mesma heurística da resolução de produtos)
+    // 1º: serviço apontado diretamente pelo lançamento (reservas internas)
+    const direct = entry.service_id ? directServices.get(entry.service_id) : undefined;
+    // 2º: match por descrição — o CurrentAccountEntry da Erbon não expõe
+    // erbon_service_id (mesma heurística da resolução de produtos)
     const entryDesc = entry.description.toLowerCase();
-    const match = mapped.find(m =>
+    const match = direct ? null : mapped.find(m =>
       m.service?.is_active && m.desc && (
         entryDesc.includes(m.desc.toLowerCase()) ||
         m.desc.toLowerCase() === entryDesc
       )
     );
 
-    if (match?.service) {
-      const s = match.service;
+    if (direct || match?.service) {
+      const s = (direct || match!.service)!;
       const w: string[] = [];
       if (!s.lc116_code) w.push(`Serviço "${s.name}" sem código LC 116 cadastrado`);
       if (s.iss_rate == null) w.push(`Serviço "${s.name}" sem alíquota ISS cadastrada`);
@@ -527,7 +540,7 @@ interface CreateInvoiceInput {
   tomador_email: string | null;
   tomador_endereco: string | null;
   items: Array<{
-    erbon_entry_id: number;
+    erbon_entry_id: number | null;
     descricao: string;
     quantidade: number;
     valor_unitario: number;
