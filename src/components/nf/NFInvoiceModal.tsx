@@ -19,6 +19,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
 import { nfService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData } from '../../lib/nfService';
+import { printNFA4 } from './NFPrintA4';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import type { NFTipo, NFDocTipo, NFHotelConfig } from '../../types/nf';
@@ -656,6 +657,21 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
 .break-all { word-break: break-all; }
 </style></head><body>${content.innerHTML}<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/script></body></html>`);
     printWindow.document.close();
+  };
+
+  // Impressão A4 (NFS-e e DANFE); NFC-e continua no cupom 80mm (handlePrint)
+  const handlePrintA4 = async () => {
+    if (!emittedInvoice) return;
+    let items = invoiceItems;
+    if (!items?.length && emittedInvoice.id) {
+      const { data } = await supabase
+        .from('nf_invoice_items')
+        .select('*')
+        .eq('invoice_id', emittedInvoice.id);
+      items = data || [];
+      setInvoiceItems(items);
+    }
+    printNFA4(emittedInvoice, items || [], nfConfig);
   };
 
   const handleEmit = async () => {
@@ -1414,12 +1430,25 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
                 >
                   Fechar
                 </button>
+                {tipo !== 'nfce' && (
+                  <button
+                    onClick={handlePrintA4}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-bold shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Imprimir A4
+                  </button>
+                )}
                 <button
                   onClick={handlePrint}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-bold shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"
+                  className={
+                    tipo === 'nfce'
+                      ? 'flex items-center gap-2 px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-bold shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100 transition-all'
+                      : 'flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold transition-all'
+                  }
                 >
                   <Printer className="w-4 h-4" />
-                  Imprimir
+                  {tipo === 'nfce' ? 'Imprimir' : 'Cupom'}
                 </button>
               </div>
             </React.Fragment>
