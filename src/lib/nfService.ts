@@ -322,6 +322,115 @@ async function resolveEntryFiscalData(
   return { items, warnings: globalWarnings, hasErrors };
 }
 
+// ─── Resolução fiscal de SERVIÇOS: entry → serviço do catálogo ───────────────
+// Usa os mapeamentos Erbon (erbon_product_mappings.service_id) para atrelar o
+// lançamento da conta corrente a um serviço do catálogo e obter a tributação
+// NFS-e por item. Sem mapeamento → fallback para nf_hotel_config.
+
+export interface ServiceFiscalItem {
+  erbon_entry_id: number;
+  service_id: string | null;
+  service_name: string | null;
+  /** Discriminação padrão do serviço (usada na nota se existir) */
+  descricao_padrao: string | null;
+  codigo_servico: string | null;   // item LC 116
+  iss_aliquota: number | null;
+  iss_retained: boolean;
+  source: 'service' | 'fallback';
+  warnings: string[];
+}
+
+export interface ServiceFiscalResult {
+  items: ServiceFiscalItem[];
+  warnings: string[];
+}
+
+async function resolveServiceFiscalData(
+  hotelId: string,
+  entries: Array<{ id: number; description: string; amount: number }>,
+): Promise<ServiceFiscalResult> {
+  const globalWarnings: string[] = [];
+
+  // Mapeamentos Erbon → serviço do catálogo (com a tributação do serviço)
+  const { data: mappings, error: mapErr } = await supabase
+    .from('erbon_product_mappings')
+    .select(`
+      erbon_service_id,
+      erbon_service_description,
+      service_id,
+      services (
+        id, name, description, lc116_code, iss_rate, iss_retained, is_active
+      )
+    `)
+    .eq('hotel_id', hotelId)
+    .not('service_id', 'is', null);
+  if (mapErr) throw mapErr;
+
+  // Fallback: tributação única do hotel
+  const { data: cfg } = await supabase
+    .from('nf_hotel_config')
+    .select('codigo_servico, aliquota_iss')
+    .eq('hotel_id', hotelId)
+    .maybeSingle();
+
+  interface MappedService {
+    desc: string | null;
+    service: { id: string; name: string; description: string | null; lc116_code: string | null; iss_rate: number | null; iss_retained: boolean; is_active: boolean } | null;
+  }
+  const mapped: MappedService[] = (mappings ?? []).map((m: any) => ({
+    desc: m.erbon_service_description,
+    service: m.services ?? null,
+  }));
+
+  const items: ServiceFiscalItem[] = entries.map(entry => {
+    // Match por descrição — o CurrentAccountEntry não expõe erbon_service_id
+    // (mesma heurística da resolução de produtos)
+    const entryDesc = entry.description.toLowerCase();
+    const match = mapped.find(m =>
+      m.service?.is_active && m.desc && (
+        entryDesc.includes(m.desc.toLowerCase()) ||
+        m.desc.toLowerCase() === entryDesc
+      )
+    );
+
+    if (match?.service) {
+      const s = match.service;
+      const w: string[] = [];
+      if (!s.lc116_code) w.push(`Serviço "${s.name}" sem código LC 116 cadastrado`);
+      if (s.iss_rate == null) w.push(`Serviço "${s.name}" sem alíquota ISS cadastrada`);
+      if (w.length) globalWarnings.push(...w);
+      return {
+        erbon_entry_id: entry.id,
+        service_id: s.id,
+        service_name: s.name,
+        descricao_padrao: s.description,
+        codigo_servico: s.lc116_code,
+        iss_aliquota: s.iss_rate,
+        iss_retained: s.iss_retained,
+        source: 'service' as const,
+        warnings: w,
+      };
+    }
+
+    // Fallback para a config do hotel
+    const w = [`"${entry.description}" sem serviço do catálogo mapeado — usando tributação padrão do hotel`];
+    globalWarnings.push(...w);
+    return {
+      erbon_entry_id: entry.id,
+      service_id: null,
+      service_name: null,
+      descricao_padrao: null,
+      codigo_servico: cfg?.codigo_servico ?? null,
+      iss_aliquota: cfg?.aliquota_iss ?? null,
+      iss_retained: false,
+      source: 'fallback' as const,
+      warnings: w,
+    };
+  });
+
+  return { items, warnings: globalWarnings };
+}
+
 // ─── Config CRUD ─────────────────────────────────────────────────────────────
 
 async function getConfig(hotelId: string): Promise<NFHotelConfig | null> {
@@ -1053,6 +1162,7 @@ export const nfService = {
   cancelInvoice,
   testConnection,
   resolveEntryFiscalData,
+  resolveServiceFiscalData,
   emitContingencia,
   retryContingencyInvoices,
   getContingencyCount,

@@ -73,6 +73,7 @@ export interface ErbonProductMapping {
   hotel_id: string;
   product_id: string | null;
   dish_id?: string | null;
+  service_id?: string | null;
   erbon_service_id: number;
   erbon_service_description: string | null;
 }
@@ -788,12 +789,20 @@ export const erbonService = {
     hotel_id: string;
     product_id?: string | null;
     dish_id?: string | null;
+    service_id?: string | null;
     erbon_service_id: number;
     erbon_service_description?: string;
   }): Promise<void> {
+    // Alvos mutuamente exclusivos: produto OU ficha técnica OU serviço
+    const payload = {
+      ...mapping,
+      product_id: mapping.product_id ?? null,
+      dish_id: mapping.dish_id ?? null,
+      service_id: mapping.service_id ?? null,
+    };
     const { error } = await supabase
       .from('erbon_product_mappings')
-      .upsert(mapping, { onConflict: 'hotel_id,erbon_service_id' });
+      .upsert(payload, { onConflict: 'hotel_id,erbon_service_id' });
     if (error) throw error;
   },
 

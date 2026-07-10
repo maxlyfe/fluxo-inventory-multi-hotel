@@ -19,6 +19,7 @@ import {
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
   MessageCircle, Bot, Radio, Receipt, Truck, Calculator, Globe,
+  ConciergeBell,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -135,7 +136,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Gerência',
     icon: BarChart2,
     module: 'management',
-    activePrefixes: ['/management', '/reports'],
+    activePrefixes: ['/management', '/reports', '/gerencia'],
     items: [
       { module: 'management',      label: 'Gerência',      href: '/management',                icon: BarChart3,         iconName: 'BarChart3',         color: '#22c55e' },
       { module: 'reports',         label: 'Relatórios',    href: '/reports',                   icon: FileText,          iconName: 'FileText',          color: '#0ea5e9' },
@@ -143,6 +144,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'webcheckin_mgmt', label: 'Web Check-in',  href: '/management/webcheckin',     icon: MonitorSmartphone, iconName: 'MonitorSmartphone', color: '#0085ae' },
       { module: 'weekly_control',  label: 'Controle Semanal', href: '/weekly-control',         icon: Calendar,          iconName: 'Calendar',          color: '#8b5cf6' },
       { module: 'governance',      label: 'Gestão de UHs',    href: '/governance/rooms',       icon: LayoutGrid,        iconName: 'LayoutGrid',        color: '#8b5cf6' },
+      { module: 'servicos',        label: 'Serviços',         href: '/gerencia/servicos',      icon: ConciergeBell,     iconName: 'ConciergeBell',     color: '#10b981' },
     ],
   },
   {

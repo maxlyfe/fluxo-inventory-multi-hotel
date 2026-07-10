@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
-import { nfService, type FiscalLineItem, type FiscalResolutionResult, type WCIGuestData } from '../../lib/nfService';
+import { nfService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData } from '../../lib/nfService';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import type { NFTipo, NFDocTipo, NFHotelConfig } from '../../types/nf';
@@ -129,6 +129,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [fiscalData, setFiscalData] = useState<FiscalResolutionResult | null>(null);
   const [loadingFiscal, setLoadingFiscal] = useState(false);
 
+  // Fiscal resolution for NFS-e (serviços do catálogo mapeados via Erbon)
+  const [serviceFiscal, setServiceFiscal] = useState<ServiceFiscalResult | null>(null);
+
   // Classify selected items
   const [activeItems, setActiveItems] = useState<CurrentAccountEntry[]>([]);
   const [ignoredItems, setIgnoredItems] = useState<CurrentAccountEntry[]>([]);
@@ -178,6 +181,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setFormErrors({});
     setSubmitting(false);
     setFiscalData(null);
+    setServiceFiscal(null);
 
     // Load NF config for print receipt header
     nfService.getConfig(hotelId).then(c => setNfConfig(c)).catch(() => {});
@@ -240,6 +244,19 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         setFiscalData({ items: [], warnings: ['Erro ao resolver dados fiscais dos produtos'], hasErrors: true });
       }).finally(() => {
         setLoadingFiscal(false);
+      });
+    }
+
+    // For NFS-e, resolve tributação por serviço do catálogo (mapeamento Erbon)
+    if (tipo === 'nfse' && services.length > 0) {
+      nfService.resolveServiceFiscalData(
+        hotelId,
+        services.map(e => ({ id: e.id, description: e.description, amount: e.amount }))
+      ).then(result => {
+        setServiceFiscal(result);
+      }).catch(err => {
+        console.error('[NFInvoiceModal] Service fiscal resolution error:', err);
+        setServiceFiscal(null);
       });
     }
 
@@ -425,6 +442,32 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     }, ${tomadorBairro}, ${tomadorCidade} - ${tomadorUf}, CEP ${tomadorCep}`;
   };
 
+  // Monta os itens da nota com os dados fiscais resolvidos:
+  // produtos → NCM/CFOP/ICMS; serviços (NFS-e) → código de serviço/ISS por item
+  const buildInvoiceItems = () =>
+    finalItems.map((e) => {
+      const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
+      const svc = serviceFiscal?.items.find(s => s.erbon_entry_id === e.id);
+      return {
+        erbon_entry_id: e.id,
+        descricao: e.description,
+        quantidade: 1,
+        valor_unitario: e.amount,
+        valor_total: e.amount,
+        ...(isProduct && fiscal ? {
+          ncm: fiscal.ncm || null,
+          cfop: '5102',
+          icms_aliquota: fiscal.tax_percentage ?? null,
+          icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+        } : {}),
+        ...(tipo === 'nfse' && svc ? {
+          codigo_servico: svc.codigo_servico ?? null,
+          iss_aliquota: svc.iss_aliquota ?? null,
+          iss_valor: svc.iss_aliquota != null ? Math.round(e.amount * svc.iss_aliquota) / 100 : null,
+        } : {}),
+      };
+    });
+
   // Action handlers
   const handleSaveDraft = async () => {
     if (submitting) return;
@@ -442,22 +485,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
-        items: finalItems.map((e) => {
-          const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
-          return {
-            erbon_entry_id: e.id,
-            descricao: e.description,
-            quantidade: 1,
-            valor_unitario: e.amount,
-            valor_total: e.amount,
-            ...(isProduct && fiscal ? {
-              ncm: fiscal.ncm || null,
-              cfop: '5102',
-              icms_aliquota: fiscal.tax_percentage ?? null,
-              icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
-            } : {}),
-          };
-        }),
+        items: buildInvoiceItems(),
         emitido_por: user?.id || null,
       };
 
@@ -489,7 +517,14 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     if (tipo === 'nfse') {
       if (!nfConfig.nfse_enabled) errors.push('Emissão de NFS-e está desabilitada nas configurações.');
       if (!nfConfig.inscricao_municipal) errors.push('Inscrição Municipal não cadastrada (obrigatória para NFS-e).');
-      if (!nfConfig.codigo_servico) errors.push('Código de serviço não cadastrado.');
+      // Código de serviço: aceito quando todos os itens têm serviço do catálogo
+      // com LC 116 resolvido; senão o código global da config é obrigatório
+      const allItemsResolved = finalItems.length > 0 && finalItems.every(e =>
+        serviceFiscal?.items.find(s => s.erbon_entry_id === e.id)?.codigo_servico
+      );
+      if (!nfConfig.codigo_servico && !allItemsResolved) {
+        errors.push('Código de serviço não cadastrado (configure na aba NFS-e ou mapeie os itens a serviços do catálogo).');
+      }
     } else if (tipo === 'nfce') {
       if (!nfConfig.nfce_enabled) errors.push('Emissão de NFC-e está desabilitada nas configurações.');
       if (!nfConfig.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (compartilhada com NF-e).');
@@ -529,22 +564,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
-        items: finalItems.map((e) => {
-          const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
-          return {
-            erbon_entry_id: e.id,
-            descricao: e.description,
-            quantidade: 1,
-            valor_unitario: e.amount,
-            valor_total: e.amount,
-            ...(isProduct && fiscal ? {
-              ncm: fiscal.ncm || null,
-              cfop: '5102',
-              icms_aliquota: fiscal.tax_percentage ?? null,
-              icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
-            } : {}),
-          };
-        }),
+        items: buildInvoiceItems(),
         emitido_por: user?.id || null,
       };
 
@@ -644,22 +664,7 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
-        items: finalItems.map((e) => {
-          const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
-          return {
-            erbon_entry_id: e.id,
-            descricao: e.description,
-            quantidade: 1,
-            valor_unitario: e.amount,
-            valor_total: e.amount,
-            ...(isProduct && fiscal ? {
-              ncm: fiscal.ncm || null,
-              cfop: '5102',
-              icms_aliquota: fiscal.tax_percentage ?? null,
-              icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
-            } : {}),
-          };
-        }),
+        items: buildInvoiceItems(),
         emitido_por: user?.id || null,
       };
 
@@ -749,6 +754,7 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
                   <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden divide-y divide-gray-100 dark:divide-gray-800">
                     {activeItems.map((item) => {
                       const fiscalItem = fiscalData?.items.find(f => f.erbon_entry_id === item.id);
+                      const svcItem = tipo === 'nfse' ? serviceFiscal?.items.find(s => s.erbon_entry_id === item.id) : undefined;
                       return (
                         <label
                           key={item.id}
@@ -788,6 +794,17 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
                                 )}
                                 {isProduct && loadingFiscal && (
                                   <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
+                                )}
+                                {svcItem && (
+                                  svcItem.source === 'service' ? (
+                                    <span className="text-[10px] bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 px-1.5 py-0.5 rounded">
+                                      {svcItem.service_name} · LC116 {svcItem.codigo_servico || '—'} · ISS {svcItem.iss_aliquota ?? '—'}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                                      Tributação padrão do hotel {svcItem.codigo_servico ? `(${svcItem.codigo_servico} · ${svcItem.iss_aliquota ?? '—'}%)` : '(incompleta)'}
+                                    </span>
+                                  )
                                 )}
                               </div>
                               {isProduct && fiscalItem?.warnings && fiscalItem.warnings.length > 0 && (

@@ -46,6 +46,7 @@ export const MODULES: Module[] = [
   { key: 'directors_dashboard',  label: 'Dashboard Diretoria',  description: 'KPIs consolidados e comparativo de hotéis', group: 'Área Administrativa', icon: 'BarChart3'     },
   { key: 'webcheckin_mgmt',      label: 'Gestão Web Check-in',  description: 'Monitoramento e config de web check-in',   group: 'Área Administrativa', icon: 'MonitorSmartphone' },
   { key: 'weekly_control',       label: 'Controle Semanal',     description: 'Lançamentos semanais de consumo e quebra', group: 'Área Administrativa', icon: 'Calendar'       },
+  { key: 'servicos',             label: 'Serviços',             description: 'Catálogo de serviços com tributação NFS-e', group: 'Área Administrativa', icon: 'ConciergeBell'  },
   { key: 'breakfast',            label: 'Café da Manhã',        description: 'Checklist salão e dashboard cozinha',      group: 'Área Administrativa', icon: 'Coffee'         },
   { key: 'whatsapp_inbox',       label: 'Mensagens WhatsApp',   description: 'Inbox de conversas, disparos e auto-respostas', group: 'Área Administrativa', icon: 'MessageCircle' },
   { key: 'internal_messages',   label: 'Chat Interno',         description: 'Mensagens internas entre colaboradores do grupo', group: 'Área Administrativa', icon: 'MessageSquare' },

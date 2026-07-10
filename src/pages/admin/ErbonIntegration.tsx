@@ -23,6 +23,7 @@ import {
   Save,
   X,
   Zap,
+  ConciergeBell,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { supabase } from '../../lib/supabase';
@@ -34,6 +35,7 @@ import {
   ErbonSectorMapping,
 } from '../../lib/erbonService';
 import { getProductsWithPrices, upsertProductPrice } from '../../lib/pdvService';
+import { serviceCatalogService, type HotelService } from '../../lib/serviceCatalogService';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 
 // ── Interfaces locais ───────────────────────────────────────────────────────
@@ -56,7 +58,7 @@ const labelCls = 'block text-xs font-bold text-gray-500 dark:text-gray-400 upper
 const btnPrimary = 'flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed';
 const btnDanger = 'p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors';
 
-type TabId = 'config' | 'products' | 'dishes' | 'sectors' | 'prices';
+type TabId = 'config' | 'products' | 'dishes' | 'services' | 'sectors' | 'prices';
 
 interface PDVPriceRow {
   product_id: string;
@@ -109,6 +111,10 @@ const ErbonIntegration: React.FC = () => {
   const [sectorMappings, setSectorMappings] = useState<ErbonSectorMapping[]>([]);
   const [loadingSectors, setLoadingSectors] = useState(false);
 
+  // ── Services (catálogo) mapping state ───────────────────────────────────
+  const [fluxoServices, setFluxoServices] = useState<HotelService[]>([]);
+  const [serviceSearch, setServiceSearch] = useState('');
+
   // ── Dishes mapping state ───────────────────────────────────────────────
   const [fluxoDishes, setFluxoDishes] = useState<FluxoDish[]>([]);
   const [dishSearch, setDishSearch] = useState('');
@@ -136,6 +142,7 @@ const ErbonIntegration: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'products' && config?.is_active) loadProductMappings();
     if (activeTab === 'dishes' && config?.is_active) loadDishMappings();
+    if (activeTab === 'services' && config?.is_active) loadServiceMappings();
     if (activeTab === 'sectors' && config?.is_active) loadSectorMappings();
     if (activeTab === 'prices') loadPdvPrices();
   }, [activeTab, config]);
@@ -305,6 +312,30 @@ const ErbonIntegration: React.FC = () => {
     } catch (err: any) { setError(err.message); }
   };
 
+  // ── Service (catálogo) Mappings ─────────────────────────────────────────
+
+  const loadServiceMappings = async () => {
+    try {
+      const [mappings, services] = await Promise.all([
+        erbonService.getProductMappings(selectedHotel!.id),
+        serviceCatalogService.list(selectedHotel!.id),
+      ]);
+      setProductMappings(mappings);
+      setFluxoServices(services);
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleMapService = async (serviceId: string, erbonProduct: ErbonProduct) => {
+    try {
+      await erbonService.saveProductMapping({
+        hotel_id: selectedHotel!.id, service_id: serviceId,
+        erbon_service_id: erbonProduct.id, erbon_service_description: erbonProduct.description,
+      });
+      await loadServiceMappings();
+      setSuccess(`Serviço mapeado: ${erbonProduct.description}`);
+    } catch (err: any) { setError(err.message); }
+  };
+
   const handleSaveSeasonConfig = async () => {
     try {
       const threshold = parseFloat(seasonThreshold.replace(',', '.')) || 40;
@@ -456,6 +487,7 @@ const ErbonIntegration: React.FC = () => {
     { id: 'config', label: 'Configuração', icon: Settings },
     { id: 'products', label: 'Produtos', icon: Package, disabled: !config?.is_active },
     { id: 'dishes', label: 'Pratos', icon: ChefHat, disabled: !config?.is_active },
+    { id: 'services', label: 'Serviços', icon: ConciergeBell, disabled: !config?.is_active },
     { id: 'sectors', label: 'Setores', icon: Utensils, disabled: !config?.is_active },
     { id: 'prices', label: 'Preços PDV', icon: ShoppingCart },
   ];
@@ -916,6 +948,137 @@ const ErbonIntegration: React.FC = () => {
                 <div className="text-center py-12 text-gray-400">
                   <ChefHat className="w-12 h-12 mx-auto mb-3 opacity-40" />
                   <p>Clique em "Carregar Produtos Erbon" para ver os produtos disponíveis.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════ TAB: SERVIÇOS (catálogo) ══════════════ */}
+          {activeTab === 'services' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Mapeamento de Serviços (Tributação NFS-e)
+                </h3>
+                <button
+                  onClick={loadErbonProducts}
+                  disabled={loadingProducts}
+                  className={btnPrimary}
+                >
+                  {loadingProducts ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Carregar Produtos Erbon
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-500 -mt-3">
+                Vincule serviços lançados pela Erbon (diárias, taxas, massagens…) a um serviço do seu
+                catálogo — na emissão da NFS-e o sistema usa o código de serviço e a alíquota ISS do
+                serviço vinculado. Cadastre os serviços em Gerência → Serviços.
+              </p>
+
+              {fluxoServices.length === 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>Nenhum serviço cadastrado no catálogo deste hotel. Crie primeiro em Gerência → Serviços.</span>
+                </div>
+              )}
+
+              {/* Mapeamentos de serviços existentes */}
+              {productMappings.filter(m => m.service_id).length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">
+                    Mapeamentos de Serviços Ativos ({productMappings.filter(m => m.service_id).length})
+                  </h4>
+                  <div className="space-y-2">
+                    {productMappings.filter(m => m.service_id).map(mapping => {
+                      const svc = fluxoServices.find(s => s.id === mapping.service_id);
+                      return (
+                        <div
+                          key={mapping.id}
+                          className="flex items-center justify-between p-3 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800 rounded-lg"
+                        >
+                          <div className="flex items-center gap-4 min-w-0">
+                            <span className="text-sm font-medium text-gray-900 dark:text-white shrink-0">
+                              {svc?.name || mapping.service_id}
+                              {svc && (
+                                <span className="ml-2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                  LC116 {svc.lc116_code || '—'} · ISS {svc.iss_rate ?? '—'}%
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-gray-400">&harr;</span>
+                            <span className="text-sm text-emerald-700 dark:text-emerald-400 truncate">
+                              {mapping.erbon_service_description} (ID: {mapping.erbon_service_id})
+                            </span>
+                          </div>
+                          <button onClick={() => handleDeleteProductMapping(mapping.id)} className={btnDanger}>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Criar novo mapeamento de serviço */}
+              {erbonProducts.length > 0 && fluxoServices.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">
+                    Criar Novo Mapeamento de Serviço
+                  </h4>
+
+                  <div className="mb-3 relative">
+                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={serviceSearch}
+                      onChange={e => setServiceSearch(e.target.value)}
+                      placeholder="Buscar serviço Erbon..."
+                      className={inputCls + ' pl-9'}
+                    />
+                  </div>
+
+                  <div className="grid gap-2 max-h-[500px] overflow-y-auto pr-1">
+                    {(serviceSearch
+                      ? erbonProducts.filter(p =>
+                          p.description.toLowerCase().includes(serviceSearch.toLowerCase()) ||
+                          p.code.toLowerCase().includes(serviceSearch.toLowerCase())
+                        )
+                      : erbonProducts
+                    ).filter(p => !productMappings.some(m => m.service_id && m.erbon_service_id === p.id)).map(erbonProd => (
+                      <div
+                        key={erbonProd.id}
+                        className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {erbonProd.description}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            Código {erbonProd.code} · ID {erbonProd.id} · R${erbonProd.priceSale?.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="w-full lg:w-72 shrink-0">
+                          <SearchableSelect
+                            placeholder="Vincular a serviço..."
+                            onSelect={value => handleMapService(value, erbonProd)}
+                            options={fluxoServices.map(s => ({
+                              value: s.id,
+                              label: `${s.name} (LC116 ${s.lc116_code || '—'} · ISS ${s.iss_rate ?? '—'}%)`,
+                            }))}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {erbonProducts.length === 0 && (
+                <div className="text-center py-12 text-gray-400">
+                  <ConciergeBell className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                  <p>Clique em "Carregar Produtos Erbon" para ver os serviços disponíveis.</p>
                 </div>
               )}
             </div>

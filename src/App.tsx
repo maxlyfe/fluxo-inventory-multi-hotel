@@ -30,6 +30,7 @@ import BudgetHistory         from './pages/BudgetHistory';
 import BudgetDetail          from './pages/BudgetDetail';
 import FinancialManagement   from './pages/FinancialManagement';
 import FornecedoresPage      from './pages/financial/FornecedoresPage';
+import ServicosPage          from './pages/gerencia/ServicosPage';
 import IbsCbsPage           from './pages/accounting/IbsCbsPage';
 import AuthorizationsPage    from './pages/AuthorizationsPage';
 import ReportsPage           from './pages/ReportsPage';
@@ -816,6 +817,13 @@ function App() {
                     <Route path="/authorizations" element={
                       <PrivateRoute module="authorizations">
                         <AuthorizationsPage />
+                      </PrivateRoute>
+                    } />
+
+                    {/* ── Serviços (catálogo com tributação NFS-e) ─────────── */}
+                    <Route path="/gerencia/servicos" element={
+                      <PrivateRoute module="servicos">
+                        <ServicosPage />
                       </PrivateRoute>
                     } />
 
