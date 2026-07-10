@@ -114,6 +114,9 @@ const ErbonIntegration: React.FC = () => {
   // ── Services (catálogo) mapping state ───────────────────────────────────
   const [fluxoServices, setFluxoServices] = useState<HotelService[]>([]);
   const [serviceSearch, setServiceSearch] = useState('');
+  // Lista completa da Erbon (onlyProducts=false — inclui diárias, taxas etc.)
+  const [erbonServiceItems, setErbonServiceItems] = useState<ErbonProduct[]>([]);
+  const [loadingErbonServices, setLoadingErbonServices] = useState(false);
 
   // ── Dishes mapping state ───────────────────────────────────────────────
   const [fluxoDishes, setFluxoDishes] = useState<FluxoDish[]>([]);
@@ -323,6 +326,19 @@ const ErbonIntegration: React.FC = () => {
       setProductMappings(mappings);
       setFluxoServices(services);
     } catch (err: any) { setError(err.message); }
+  };
+
+  const loadErbonServiceItems = async () => {
+    setLoadingErbonServices(true);
+    try {
+      const items = await erbonService.fetchErbonProducts(selectedHotel!.id, false);
+      setErbonServiceItems(items);
+      setSuccess(`${items.length} itens (produtos e serviços) carregados da Erbon!`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingErbonServices(false);
+    }
   };
 
   const handleMapService = async (serviceId: string, erbonProduct: ErbonProduct) => {
@@ -961,12 +977,12 @@ const ErbonIntegration: React.FC = () => {
                   Mapeamento de Serviços (Tributação NFS-e)
                 </h3>
                 <button
-                  onClick={loadErbonProducts}
-                  disabled={loadingProducts}
+                  onClick={loadErbonServiceItems}
+                  disabled={loadingErbonServices}
                   className={btnPrimary}
                 >
-                  {loadingProducts ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  Carregar Produtos Erbon
+                  {loadingErbonServices ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Carregar Serviços Erbon
                 </button>
               </div>
 
@@ -1022,7 +1038,7 @@ const ErbonIntegration: React.FC = () => {
               )}
 
               {/* Criar novo mapeamento de serviço */}
-              {erbonProducts.length > 0 && fluxoServices.length > 0 && (
+              {erbonServiceItems.length > 0 && fluxoServices.length > 0 && (
                 <div>
                   <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">
                     Criar Novo Mapeamento de Serviço
@@ -1041,11 +1057,11 @@ const ErbonIntegration: React.FC = () => {
 
                   <div className="grid gap-2 max-h-[500px] overflow-y-auto pr-1">
                     {(serviceSearch
-                      ? erbonProducts.filter(p =>
+                      ? erbonServiceItems.filter(p =>
                           p.description.toLowerCase().includes(serviceSearch.toLowerCase()) ||
                           p.code.toLowerCase().includes(serviceSearch.toLowerCase())
                         )
-                      : erbonProducts
+                      : erbonServiceItems
                     ).filter(p => !productMappings.some(m => m.service_id && m.erbon_service_id === p.id)).map(erbonProd => (
                       <div
                         key={erbonProd.id}
@@ -1075,10 +1091,10 @@ const ErbonIntegration: React.FC = () => {
                 </div>
               )}
 
-              {erbonProducts.length === 0 && (
+              {erbonServiceItems.length === 0 && (
                 <div className="text-center py-12 text-gray-400">
                   <ConciergeBell className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                  <p>Clique em "Carregar Produtos Erbon" para ver os serviços disponíveis.</p>
+                  <p>Clique em "Carregar Serviços Erbon" para ver produtos e serviços disponíveis.</p>
                 </div>
               )}
             </div>

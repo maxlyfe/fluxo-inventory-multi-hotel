@@ -539,7 +539,7 @@ export const erbonService = {
 
   // ── Fetch Erbon Products ────────────────────────────────────────────────
 
-  async fetchErbonProducts(hotelId: string): Promise<ErbonProduct[]> {
+  async fetchErbonProducts(hotelId: string, onlyProducts = true): Promise<ErbonProduct[]> {
     const config = await this.getConfig(hotelId);
     if (!config) throw new Error('Configuração Erbon não encontrada');
 
@@ -551,7 +551,8 @@ export const erbonService = {
       {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'onlyProducts': 'true',
+          // false = inclui também SERVIÇOS (diárias, taxas…), não só produtos
+          'onlyProducts': onlyProducts ? 'true' : 'false',
           ...proxyHeaders(config.erbon_base_url, productsPath),
         },
       }
