@@ -45,6 +45,12 @@ CREATE INDEX IF NOT EXISTS idx_services_hotel ON services(hotel_id, is_active);
 ALTER TABLE erbon_product_mappings
   ADD COLUMN IF NOT EXISTS service_id UUID REFERENCES services(id) ON DELETE SET NULL;
 
+-- A constraint antiga exigia product_id OU dish_id; agora serviço também vale
+ALTER TABLE erbon_product_mappings DROP CONSTRAINT IF EXISTS chk_mapping_target;
+ALTER TABLE erbon_product_mappings
+  ADD CONSTRAINT chk_mapping_target
+  CHECK (product_id IS NOT NULL OR dish_id IS NOT NULL OR service_id IS NOT NULL);
+
 -- 3. Lançamentos de consumo/serviço em reservas internas/Omnibees
 CREATE TABLE IF NOT EXISTS internal_booking_charges (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
