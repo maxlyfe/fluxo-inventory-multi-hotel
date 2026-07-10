@@ -686,6 +686,8 @@ const NFIntegration: React.FC = () => {
                   A consulta usa o <span className="font-semibold">CNPJ</span> da aba Empresa e o <span className="font-semibold">Certificado Digital A1</span> da aba Certificado —
                   não é necessário CSC nem login da prefeitura. A consulta é feita sempre no <span className="font-semibold">ambiente de produção</span> da SEFAZ
                   (as notas reais dos fornecedores só existem lá), independente do ambiente de emissão.
+                  Com esta opção habilitada, o sistema também consulta <span className="font-semibold">automaticamente a cada 2 horas</span> —
+                  as notas novas aparecem sozinhas em Financeiro → NF Recebidas.
                 </span>
               </div>
 
