@@ -133,6 +133,7 @@ export interface NFInvoiceItem {
 }
 
 export type NFReceivedSituacao = 'nova' | 'lancada' | 'ignorada';
+export type TipoManifestacao = '210210' | '210200' | '210220' | '210240';
 
 export interface NFReceived {
   id: string;
@@ -150,6 +151,9 @@ export interface NFReceived {
   xml: string | null;
   situacao: NFReceivedSituacao;
   purchase_id: string | null;
+  manifestacao: TipoManifestacao | null;
+  manifestacao_at: string | null;
+  manifestacao_protocolo: string | null;
   created_at: string;
   updated_at: string;
 }

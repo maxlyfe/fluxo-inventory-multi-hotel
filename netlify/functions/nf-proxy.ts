@@ -3,7 +3,8 @@
 // STUB: retorna respostas simuladas enquanto a integração real não é implementada
 
 import type { Handler, HandlerEvent } from '@netlify/functions';
-import { consultaDFe } from './lib/dfe';
+import { consultaDFe, manifestarNFe } from './lib/dfe';
+import type { TipoManifestacao } from './lib/dfe';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -194,6 +195,71 @@ const handler: Handler = async (event: HandlerEvent) => {
         ? 'Senha do certificado incorreta ou arquivo .pfx inválido.'
         : msg;
       return jsonResponse(502, { error: `Falha na consulta à SEFAZ: ${friendly}` });
+    }
+  }
+
+  // ─── Manifestação do Destinatário ─────────────────────────────────────────
+
+  if (action === 'dfe-manifestar') {
+    let payload: {
+      certificado_base64?: string;
+      certificado_senha?: string;
+      cnpj?: string;
+      chaveAcesso?: string;
+      tipoEvento?: string;
+      nSeqEvento?: string;
+      xJust?: string;
+      ambiente?: string;
+    };
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch {
+      return jsonResponse(400, { error: 'Body JSON inválido' });
+    }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+    if (!payload.cnpj || payload.cnpj.replace(/\D/g, '').length !== 14) {
+      return jsonResponse(400, { error: 'CNPJ inválido ou ausente.' });
+    }
+    if (!payload.chaveAcesso || payload.chaveAcesso.replace(/\D/g, '').length !== 44) {
+      return jsonResponse(400, { error: 'Chave de acesso inválida (deve ter 44 dígitos).' });
+    }
+    const validEvents = ['210210', '210200', '210220', '210240'];
+    if (!payload.tipoEvento || !validEvents.includes(payload.tipoEvento)) {
+      return jsonResponse(400, { error: 'Tipo de evento inválido.' });
+    }
+    if (payload.tipoEvento === '210240' && !payload.xJust) {
+      return jsonResponse(400, { error: 'Justificativa obrigatória para Operação não Realizada.' });
+    }
+
+    try {
+      const result = await manifestarNFe({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        cnpj: payload.cnpj,
+        chNFe: payload.chaveAcesso,
+        tpEvento: payload.tipoEvento as TipoManifestacao,
+        nSeqEvento: payload.nSeqEvento,
+        xJust: payload.xJust,
+        ambiente: payload.ambiente === 'homologacao' ? 'homologacao' : 'producao',
+      });
+
+      const ok = result.cStat === '135' || result.cStat === '573';
+      return jsonResponse(ok ? 200 : 502, {
+        success: ok,
+        cStat: result.cStat,
+        message: result.xMotivo,
+        nProt: result.nProt,
+        error: ok ? undefined : `SEFAZ: ${result.cStat} — ${result.xMotivo}`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      const friendly = /mac verify|invalid password|pkcs/i.test(msg)
+        ? 'Senha do certificado incorreta ou arquivo .pfx inválido.'
+        : msg;
+      return jsonResponse(502, { error: `Falha na manifestação: ${friendly}` });
     }
   }
 

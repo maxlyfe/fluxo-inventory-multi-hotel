@@ -6,10 +6,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Inbox, RefreshCw, Search, Download, ShoppingCart, EyeOff, RotateCcw,
-  Loader2, AlertCircle, CheckCircle, FileText,
+  Loader2, AlertCircle, CheckCircle, FileText, Bell, CheckCheck, XCircle, HelpCircle,
 } from 'lucide-react';
 import { nfService } from '../../lib/nfService';
-import type { NFReceived, NFHotelConfig } from '../../types/nf';
+import type { NFReceived, NFHotelConfig, TipoManifestacao } from '../../types/nf';
 
 interface Props {
   hotelId: string;
@@ -19,6 +19,13 @@ const SITUACAO_BADGE: Record<NFReceived['situacao'], { label: string; cls: strin
   nova:     { label: 'Nova',      cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' },
   lancada:  { label: 'Lançada',   cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' },
   ignorada: { label: 'Ignorada',  cls: 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400' },
+};
+
+const MANIFESTACAO_BADGE: Record<string, { label: string; cls: string }> = {
+  '210210': { label: 'Ciência',            cls: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' },
+  '210200': { label: 'Confirmada',         cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' },
+  '210220': { label: 'Desconhecida',       cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' },
+  '210240': { label: 'Op. não Realizada',  cls: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400' },
 };
 
 function formatCnpj(cnpj: string | null): string {
@@ -36,6 +43,9 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [situacaoFilter, setSituacaoFilter] = useState<string>('');
+  const [manifestando, setManifestando] = useState<Record<string, boolean>>({});
+  const [justModal, setJustModal] = useState<{ nfId: string; chave: string } | null>(null);
+  const [justText, setJustText] = useState('');
 
   // Cooldown da SEFAZ: após "nenhum documento" ou rejeição 656 (consumo
   // indevido), é obrigatório aguardar 1 hora antes de nova consulta.
@@ -128,6 +138,31 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
     navigate('/inventory/new-purchase', {
       state: { nfeXml: nf.xml, nfReceivedId: nf.id },
     });
+  }
+
+  async function handleManifestar(nf: NFReceived, tipo: TipoManifestacao, xJust?: string) {
+    setManifestando(prev => ({ ...prev, [nf.id]: true }));
+    try {
+      const result = await nfService.manifestarNFe(hotelId, nf.chave_acesso, tipo, xJust);
+      if (result.success) {
+        setRows(prev => prev.map(r =>
+          r.id === nf.id ? { ...r, manifestacao: tipo, manifestacao_at: new Date().toISOString() } : r
+        ));
+        setMessage({ type: 'success', text: result.message });
+        if (tipo === '210210') {
+          setMessage({
+            type: 'success',
+            text: `${result.message} — O XML completo será disponibilizado na próxima sincronização.`,
+          });
+        }
+      } else {
+        setMessage({ type: 'error', text: result.message });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Erro ao enviar manifestação.' });
+    } finally {
+      setManifestando(prev => ({ ...prev, [nf.id]: false }));
+    }
   }
 
   async function handleSituacao(nf: NFReceived, situacao: NFReceived['situacao']) {
@@ -262,6 +297,11 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
                           Resumo
                         </span>
                       )}
+                      {nf.manifestacao && MANIFESTACAO_BADGE[nf.manifestacao] && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${MANIFESTACAO_BADGE[nf.manifestacao].cls}`}>
+                          {MANIFESTACAO_BADGE[nf.manifestacao].label}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">
                       CNPJ {formatCnpj(nf.emitente_cnpj)}
@@ -280,6 +320,54 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
                       ? `R$ ${nf.valor_total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
                       : '—'}
                   </p>
+
+                  {/* Manifestação */}
+                  {!nf.manifestacao && (
+                    <button
+                      onClick={() => handleManifestar(nf, '210210')}
+                      disabled={manifestando[nf.id]}
+                      title="Enviar Ciência da Operação para liberar o download do XML completo"
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                        nf.tipo === 'resumo'
+                          ? 'bg-yellow-500 hover:bg-yellow-600 text-white shadow-sm'
+                          : 'border border-yellow-400 dark:border-yellow-600 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
+                      }`}
+                    >
+                      {manifestando[nf.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+                      Ciência
+                    </button>
+                  )}
+                  {nf.manifestacao === '210210' && (
+                    <>
+                      <button
+                        onClick={() => handleManifestar(nf, '210200')}
+                        disabled={manifestando[nf.id]}
+                        title="Confirmar operação"
+                        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-green-300 dark:border-green-700 text-xs font-bold text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors disabled:opacity-50"
+                      >
+                        {manifestando[nf.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                        Confirmar
+                      </button>
+                      <button
+                        onClick={() => handleManifestar(nf, '210220')}
+                        disabled={manifestando[nf.id]}
+                        title="Desconhecer operação"
+                        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-red-300 dark:border-red-700 text-xs font-bold text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        Desconhecer
+                      </button>
+                      <button
+                        onClick={() => { setJustModal({ nfId: nf.id, chave: nf.chave_acesso }); setJustText(''); }}
+                        disabled={manifestando[nf.id]}
+                        title="Operação não realizada (requer justificativa)"
+                        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-bold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                      >
+                        <HelpCircle className="w-3.5 h-3.5" />
+                        Não realiz.
+                      </button>
+                    </>
+                  )}
 
                   <button
                     onClick={() => handleDownloadXml(nf)}
@@ -332,6 +420,48 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal de justificativa para Op. não Realizada (210240) */}
+      {justModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-md space-y-4">
+            <h3 className="font-bold text-gray-900 dark:text-white">Operação não Realizada</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Informe a justificativa (15 a 255 caracteres):
+            </p>
+            <textarea
+              value={justText}
+              onChange={e => setJustText(e.target.value)}
+              maxLength={255}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Ex.: Mercadoria não recebida, NF emitida por engano…"
+            />
+            <p className="text-xs text-gray-400">{justText.length}/255 caracteres</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setJustModal(null)}
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  const nf = rows.find(r => r.id === justModal.nfId);
+                  if (nf) {
+                    handleManifestar(nf, '210240', justText);
+                    setJustModal(null);
+                  }
+                }}
+                disabled={justText.length < 15}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

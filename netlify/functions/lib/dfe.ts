@@ -6,11 +6,36 @@
 
 import https from 'https';
 import zlib from 'zlib';
+import crypto from 'crypto';
+import forge from 'node-forge';
+import { SignedXml } from 'xml-crypto';
 
 const DFE_HOSTS = {
   producao: 'www1.nfe.fazenda.gov.br',
   homologacao: 'hom1.nfe.fazenda.gov.br',
 } as const;
+
+const EVENTO_HOSTS = {
+  producao: 'www.nfe.fazenda.gov.br',
+  homologacao: 'hom1.nfe.fazenda.gov.br',
+} as const;
+
+const EVENTO_DESC: Record<string, string> = {
+  '210210': 'Ciencia da Operacao',
+  '210200': 'Confirmacao da Operacao',
+  '210220': 'Desconhecimento da Operacao',
+  '210240': 'Operacao nao Realizada',
+};
+
+export type TipoManifestacao = '210210' | '210200' | '210220' | '210240';
+
+export interface ManifestacaoResult {
+  cStat: string;
+  xMotivo: string;
+  nProt: string | null;
+  chNFe: string;
+  tpEvento: string;
+}
 
 export interface DFeDoc {
   nsu: string;
@@ -145,4 +170,142 @@ export async function consultaDFe(params: {
   }
 
   return { cStat, xMotivo, ultNSU: newUltNSU, maxNSU, docs };
+}
+
+// ─── Manifestação do Destinatário (nfeRecepcaoEvento) ──────────────────────
+
+function extractPemFromPfx(pfxBase64: string, passphrase: string): { key: string; cert: string } {
+  const pfxDer = forge.util.decode64(pfxBase64);
+  const asn1 = forge.asn1.fromDer(pfxDer);
+  const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, passphrase);
+
+  let privateKey: forge.pki.PrivateKey | null = null;
+  let certificate: forge.pki.Certificate | null = null;
+
+  for (const safeContent of p12.safeContents) {
+    for (const bag of safeContent.safeBags) {
+      if (bag.type === forge.pki.oids.pkcs8ShroudedKeyBag && bag.key) {
+        privateKey = bag.key;
+      } else if (bag.type === forge.pki.oids.certBag && bag.cert) {
+        certificate = bag.cert;
+      }
+    }
+  }
+
+  if (!privateKey || !certificate) {
+    throw new Error('Não foi possível extrair chave/certificado do arquivo .pfx');
+  }
+
+  return {
+    key: forge.pki.privateKeyToPem(privateKey),
+    cert: forge.pki.certificateToPem(certificate),
+  };
+}
+
+function certToDerBase64(pemCert: string): string {
+  const lines = pemCert.split('\n').filter(l => !l.startsWith('-----')).join('');
+  return lines.trim();
+}
+
+export async function manifestarNFe(params: {
+  certificado_base64: string;
+  certificado_senha: string;
+  cnpj: string;
+  chNFe: string;
+  tpEvento: TipoManifestacao;
+  nSeqEvento?: string;
+  xJust?: string;
+  ambiente: 'producao' | 'homologacao';
+}): Promise<ManifestacaoResult> {
+  const cnpj = params.cnpj.replace(/\D/g, '');
+  const tpAmb = params.ambiente === 'producao' ? '1' : '2';
+  const nSeq = params.nSeqEvento || '1';
+  const eventId = `ID${params.tpEvento}${params.chNFe}${nSeq.padStart(2, '0')}`;
+  const dhEvento = new Date().toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  const descEvento = EVENTO_DESC[params.tpEvento];
+
+  let detEventoInner = `<descEvento>${descEvento}</descEvento>`;
+  if (params.tpEvento === '210240' && params.xJust) {
+    detEventoInner += `<xJust>${params.xJust}</xJust>`;
+  }
+
+  const infEventoXml =
+    `<infEvento Id="${eventId}">` +
+    `<cOrgao>91</cOrgao>` +
+    `<tpAmb>${tpAmb}</tpAmb>` +
+    `<CNPJ>${cnpj}</CNPJ>` +
+    `<chNFe>${params.chNFe}</chNFe>` +
+    `<dhEvento>${dhEvento}</dhEvento>` +
+    `<tpEvento>${params.tpEvento}</tpEvento>` +
+    `<nSeqEvento>${nSeq}</nSeqEvento>` +
+    `<verEvento>1.00</verEvento>` +
+    `<detEvento versao="1.00">${detEventoInner}</detEvento>` +
+    `</infEvento>`;
+
+  const eventoUnsigned =
+    `<evento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">` +
+    infEventoXml +
+    `</evento>`;
+
+  const { key, cert } = extractPemFromPfx(params.certificado_base64, params.certificado_senha);
+  const certDerB64 = certToDerBase64(cert);
+
+  const sig = new SignedXml({ canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#' });
+  sig.signatureAlgorithm = 'http://www.w3.org/2000/09/xmldsig#rsa-sha1';
+  sig.privateKey = crypto.createPrivateKey(key);
+  sig.addReference({
+    xpath: `//*[@Id='${eventId}']`,
+    digestAlgorithm: 'http://www.w3.org/2000/09/xmldsig#sha1',
+    transforms: [
+      'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
+      'http://www.w3.org/2001/10/xml-exc-c14n#',
+    ],
+  });
+  sig.keyInfoProvider = {
+    getKeyInfo: () => `<X509Data><X509Certificate>${certDerB64}</X509Certificate></X509Data>`,
+  };
+  sig.computeSignature(eventoUnsigned, {
+    location: { reference: '//*[local-name()="evento"]', action: 'append' },
+  });
+  const eventoSigned = sig.getSignedXml();
+
+  const idLote = Date.now().toString();
+  const envEvento =
+    `<envEvento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">` +
+    `<idLote>${idLote}</idLote>` +
+    eventoSigned +
+    `</envEvento>`;
+
+  const envelope =
+    `<?xml version="1.0" encoding="utf-8"?>` +
+    `<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
+    `<soap12:Body>` +
+    `<nfeRecepcaoEvento xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">` +
+    `<nfeDadosMsg>${envEvento}</nfeDadosMsg>` +
+    `</nfeRecepcaoEvento>` +
+    `</soap12:Body></soap12:Envelope>`;
+
+  const res = await httpsPost({
+    host: EVENTO_HOSTS[params.ambiente],
+    path: '/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
+    method: 'POST',
+    pfx: Buffer.from(params.certificado_base64, 'base64'),
+    passphrase: params.certificado_senha,
+    headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' },
+  }, envelope);
+
+  if (res.status !== 200) {
+    throw new Error(`SEFAZ respondeu HTTP ${res.status}: ${res.body.slice(0, 300)}`);
+  }
+
+  const retEvento = xmlTag(res.body, 'retEvento') ?? res.body;
+  const infEvento = xmlTag(retEvento, 'infEvento') ?? retEvento;
+
+  return {
+    cStat: xmlTag(infEvento, 'cStat') ?? '',
+    xMotivo: xmlTag(infEvento, 'xMotivo') ?? '',
+    nProt: xmlTag(infEvento, 'nProt') ?? null,
+    chNFe: params.chNFe,
+    tpEvento: params.tpEvento,
+  };
 }

@@ -9,6 +9,7 @@ import type {
   NFTipo,
   NFDocTipo,
   NFReceived,
+  TipoManifestacao,
 } from '../types/nf';
 
 const NF_PROXY = import.meta.env.PROD
@@ -1135,6 +1136,56 @@ async function updateReceivedSituacao(
   if (error) throw error;
 }
 
+// ─── Manifestação do Destinatário ────────────────────────────────────────────
+
+async function manifestarNFe(
+  hotelId: string,
+  chaveAcesso: string,
+  tipoEvento: TipoManifestacao,
+  xJust?: string,
+): Promise<{ success: boolean; message: string }> {
+  const config = await getConfig(hotelId);
+  if (!config?.certificado_base64 || !config?.certificado_senha) {
+    return { success: false, message: 'Certificado digital A1 não configurado.' };
+  }
+  if (!config.cnpj) {
+    return { success: false, message: 'CNPJ da empresa não configurado.' };
+  }
+
+  const res = await fetch(NF_PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-nf-action': 'dfe-manifestar' },
+    body: JSON.stringify({
+      action: 'dfe-manifestar',
+      certificado_base64: config.certificado_base64,
+      certificado_senha: config.certificado_senha,
+      cnpj: config.cnpj,
+      chaveAcesso,
+      tipoEvento,
+      xJust,
+      ambiente: 'producao',
+    }),
+  });
+  const result = await res.json();
+
+  if (res.ok && result.success) {
+    await supabase
+      .from('nf_received')
+      .update({
+        manifestacao: tipoEvento,
+        manifestacao_at: new Date().toISOString(),
+        manifestacao_protocolo: result.nProt || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('hotel_id', hotelId)
+      .eq('chave_acesso', chaveAcesso);
+
+    return { success: true, message: result.message };
+  }
+
+  return { success: false, message: result.error || 'Erro na manifestação.' };
+}
+
 // ─── Test Connection ─────────────────────────────────────────────────────────
 
 async function testConnection(
@@ -1185,6 +1236,7 @@ export const nfService = {
   updateReceivedSituacao,
   resetDFeNSU,
   linkReceivedToPurchases,
+  manifestarNFe,
 };
 
 export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult };
