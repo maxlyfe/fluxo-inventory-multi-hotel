@@ -15,8 +15,11 @@ const DFE_HOSTS = {
   homologacao: 'hom1.nfe.fazenda.gov.br',
 } as const;
 
+// www1 (mesmo host da Distribuição DF-e): o www.nfe.fazenda.gov.br entrega uma
+// cadeia TLS que o runtime do Netlify não valida ("unable to get local issuer
+// certificate"); o www1 atende o mesmo serviço com cadeia válida.
 const EVENTO_HOSTS = {
-  producao: 'www.nfe.fazenda.gov.br',
+  producao: 'www1.nfe.fazenda.gov.br',
   homologacao: 'hom1.nfe.fazenda.gov.br',
 } as const;
 
