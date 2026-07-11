@@ -179,21 +179,31 @@ function extractPemFromPfx(pfxBase64: string, passphrase: string): { key: string
   const asn1 = forge.asn1.fromDer(pfxDer);
   const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, passphrase);
 
-  let privateKey: forge.pki.PrivateKey | null = null;
-  let certificate: forge.pki.Certificate | null = null;
+  let privateKey: forge.pki.rsa.PrivateKey | null = null;
+  const certs: forge.pki.Certificate[] = [];
 
   for (const safeContent of p12.safeContents) {
     for (const bag of safeContent.safeBags) {
       if (bag.type === forge.pki.oids.pkcs8ShroudedKeyBag && bag.key) {
-        privateKey = bag.key;
+        privateKey = bag.key as forge.pki.rsa.PrivateKey;
       } else if (bag.type === forge.pki.oids.certBag && bag.cert) {
-        certificate = bag.cert;
+        certs.push(bag.cert);
       }
     }
   }
 
-  if (!privateKey || !certificate) {
+  if (!privateKey || certs.length === 0) {
     throw new Error('Não foi possível extrair chave/certificado do arquivo .pfx');
+  }
+
+  // O .pfx traz a cadeia inteira (AC raiz, intermediárias e o certificado da
+  // empresa) — seleciona o certificado cuja chave pública casa com a privada.
+  const keyModulus = privateKey.n.toString(16);
+  const certificate = certs.find(c =>
+    (c.publicKey as forge.pki.rsa.PublicKey).n?.toString(16) === keyModulus,
+  );
+  if (!certificate) {
+    throw new Error('Certificado correspondente à chave privada não encontrado no .pfx');
   }
 
   return {
@@ -247,8 +257,9 @@ export async function manifestarNFe(params: {
 
   const { key, cert } = extractPemFromPfx(params.certificado_base64, params.certificado_senha);
 
+  // O schema de assinatura da NF-e exige C14N clássica (não exclusiva)
   const sig = new SignedXml({
-    canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#',
+    canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     signatureAlgorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
     privateKey: crypto.createPrivateKey(key),
     publicCert: cert,
@@ -258,7 +269,7 @@ export async function manifestarNFe(params: {
     digestAlgorithm: 'http://www.w3.org/2000/09/xmldsig#sha1',
     transforms: [
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
-      'http://www.w3.org/2001/10/xml-exc-c14n#',
+      'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     ],
   });
   sig.computeSignature(eventoUnsigned, {
@@ -277,9 +288,9 @@ export async function manifestarNFe(params: {
     `<?xml version="1.0" encoding="utf-8"?>` +
     `<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
     `<soap12:Body>` +
-    `<nfeRecepcaoEvento xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">` +
-    `<nfeDadosMsg>${envEvento}</nfeDadosMsg>` +
-    `</nfeRecepcaoEvento>` +
+    // Document/literal: o WSDL declara nfeDadosMsg como elemento direto do
+    // body (sem wrapper de operação, diferente da Distribuição DF-e).
+    `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">${envEvento}</nfeDadosMsg>` +
     `</soap12:Body></soap12:Envelope>`;
 
   const res = await httpsPost({
@@ -288,7 +299,10 @@ export async function manifestarNFe(params: {
     method: 'POST',
     pfx: Buffer.from(params.certificado_base64, 'base64'),
     passphrase: params.certificado_senha,
-    headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' },
+    headers: {
+      // Este serviço exige o "action" no Content-Type (SOAP 1.2)
+      'Content-Type': 'application/soap+xml; charset=utf-8; action="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4/nfeRecepcaoEventoNF"',
+    },
   }, envelope);
 
   if (res.status !== 200) {
