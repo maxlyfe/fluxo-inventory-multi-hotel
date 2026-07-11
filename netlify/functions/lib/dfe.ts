@@ -202,11 +202,6 @@ function extractPemFromPfx(pfxBase64: string, passphrase: string): { key: string
   };
 }
 
-function certToDerBase64(pemCert: string): string {
-  const lines = pemCert.split('\n').filter(l => !l.startsWith('-----')).join('');
-  return lines.trim();
-}
-
 export async function manifestarNFe(params: {
   certificado_base64: string;
   certificado_senha: string;
@@ -221,7 +216,10 @@ export async function manifestarNFe(params: {
   const tpAmb = params.ambiente === 'producao' ? '1' : '2';
   const nSeq = params.nSeqEvento || '1';
   const eventId = `ID${params.tpEvento}${params.chNFe}${nSeq.padStart(2, '0')}`;
-  const dhEvento = new Date().toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  // Horário de Brasília (UTC-3) no formato exigido: AAAA-MM-DDThh:mm:ss-03:00
+  const dhEvento = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, '-03:00');
   const descEvento = EVENTO_DESC[params.tpEvento];
 
   let detEventoInner = `<descEvento>${descEvento}</descEvento>`;
@@ -248,11 +246,13 @@ export async function manifestarNFe(params: {
     `</evento>`;
 
   const { key, cert } = extractPemFromPfx(params.certificado_base64, params.certificado_senha);
-  const certDerB64 = certToDerBase64(cert);
 
-  const sig = new SignedXml({ canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#' });
-  sig.signatureAlgorithm = 'http://www.w3.org/2000/09/xmldsig#rsa-sha1';
-  sig.privateKey = crypto.createPrivateKey(key);
+  const sig = new SignedXml({
+    canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#',
+    signatureAlgorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
+    privateKey: crypto.createPrivateKey(key),
+    publicCert: cert,
+  });
   sig.addReference({
     xpath: `//*[@Id='${eventId}']`,
     digestAlgorithm: 'http://www.w3.org/2000/09/xmldsig#sha1',
@@ -261,9 +261,6 @@ export async function manifestarNFe(params: {
       'http://www.w3.org/2001/10/xml-exc-c14n#',
     ],
   });
-  sig.keyInfoProvider = {
-    getKeyInfo: () => `<X509Data><X509Certificate>${certDerB64}</X509Certificate></X509Data>`,
-  };
   sig.computeSignature(eventoUnsigned, {
     location: { reference: '//*[local-name()="evento"]', action: 'append' },
   });
