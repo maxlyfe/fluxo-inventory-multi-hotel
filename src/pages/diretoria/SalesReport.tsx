@@ -36,7 +36,8 @@ interface UnifiedBooking {
   roomNights: number; // diárias vendidas (linhas de hospedagem no período)
   total: number;     // receita de hospedagem da reserva
   paxs: number;      // total hóspedes (adultos + crianças)
-  channel: string;
+  channel: string;      // origem detalhada (agente: BOOKING, DECOLAR…)
+  channelGroup: string; // canal Erbon (Omnibees, E-mail, Telefone, Balcão…)
   origin: 'erbon' | 'omnibees' | 'internal';
 }
 
@@ -85,7 +86,7 @@ function daysInMonth(year: number, month0: number): number {
 
 /** Agrupa linhas do /hospedagem (uma por reserva por dia) em reservas unificadas. */
 function groupHospedagem(rows: any[]): UnifiedBooking[] {
-  const byRes = new Map<number, { checkin: string; checkout: string; total: number; roomNights: number; paxs: number; channel: string }>();
+  const byRes = new Map<number, { checkin: string; checkout: string; total: number; roomNights: number; paxs: number; channel: string; channelGroup: string }>();
   for (const r of rows) {
     if (!r || r.status === 'CANCELED') continue;
     const cur = byRes.get(r.iD_RESERVA);
@@ -101,7 +102,11 @@ function groupHospedagem(rows: any[]): UnifiedBooking[] {
         total: Number(r.diaria) || 0,
         roomNights: 1,
         paxs: pax,
-        channel: r.canal || r.agente || 'Direto',
+        // Origem detalhada como no relatório Erbon: `agente` traz o parceiro
+        // real (BOOKING, DECOLAR, HOTELBEDS…); `canal` agrupa quase tudo
+        // em "Omnibees" e só serve de fallback.
+        channel: String(r.agente || r.canal || 'Direto').trim() || 'Direto',
+        channelGroup: String(r.canal ?? '').trim(),
       });
     }
   }
@@ -114,6 +119,7 @@ function groupHospedagem(rows: any[]): UnifiedBooking[] {
     total: b.total,
     paxs: b.paxs,
     channel: b.channel,
+    channelGroup: b.channelGroup,
     origin: 'erbon' as const,
   }));
 }
@@ -194,6 +200,7 @@ async function loadInternalBookings(hotelId: string, from: string, to: string): 
       total: Number(b.total_rate) || 0,
       paxs: (Number(b.adults) || 1) + (Number(b.children) || 0),
       channel: b.channel || (b.source === 'omnibees' ? 'Omnibees' : 'Direto'),
+      channelGroup: b.source === 'omnibees' ? 'Omnibees' : '',
       origin: (b.source === 'omnibees' ? 'omnibees' : 'internal') as UnifiedBooking['origin'],
     };
   });
@@ -612,12 +619,13 @@ export default function SalesReport() {
   const avgADR     = totNights > 0 ? totRevenue / totNights : 0;
 
   // Canais do período (reservas cuja data-chave cai no período) — estrutura do relatório Erbon
-  const chanMap = new Map<string, { count: number; roomNights: number; paxs: number; revenue: number }>();
+  const chanMap = new Map<string, { channelGroup: string; count: number; roomNights: number; paxs: number; revenue: number }>();
   for (const b of bookings) {
     const d = b[dateKey];
     if (!d || d < dateFrom || d > dateTo) continue;
-    const cur = chanMap.get(b.channel) ?? { count: 0, roomNights: 0, paxs: 0, revenue: 0 };
+    const cur = chanMap.get(b.channel) ?? { channelGroup: b.channelGroup, count: 0, roomNights: 0, paxs: 0, revenue: 0 };
     chanMap.set(b.channel, {
+      channelGroup: cur.channelGroup || b.channelGroup,
       count: cur.count + 1,
       roomNights: cur.roomNights + b.roomNights,
       paxs: cur.paxs + b.paxs,
@@ -873,6 +881,7 @@ export default function SalesReport() {
                         <thead>
                           <tr style={{ color: textMute, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                             <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Origem</th>
+                            <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Canal</th>
                             <th style={{ textAlign: 'right', padding: '0.5rem' }}>Reservas</th>
                             <th style={{ textAlign: 'right', padding: '0.5rem' }}>Diárias</th>
                             <th style={{ textAlign: 'right', padding: '0.5rem' }}>PAXs</th>
@@ -884,6 +893,7 @@ export default function SalesReport() {
                           {channels.map(c => (
                             <tr key={c.channel} className="sv-row" style={{ borderTop: `1px solid ${cardBdr}` }}>
                               <td style={{ padding: '0.55rem 0.5rem', fontWeight: 700 }}>{c.channel}</td>
+                              <td style={{ padding: '0.55rem 0.5rem', color: textSub }}>{c.channelGroup && c.channelGroup !== c.channel ? c.channelGroup : '—'}</td>
                               <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.count}</td>
                               <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.roomNights.toLocaleString('pt-BR')}</td>
                               <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.paxs.toLocaleString('pt-BR')}</td>
@@ -893,6 +903,7 @@ export default function SalesReport() {
                           ))}
                           <tr style={{ borderTop: `2px solid ${cardBdr}`, fontWeight: 900 }}>
                             <td style={{ padding: '0.55rem 0.5rem' }}>Total</td>
+                            <td style={{ padding: '0.55rem 0.5rem' }} />
                             <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.count}</td>
                             <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.roomNights.toLocaleString('pt-BR')}</td>
                             <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.paxs.toLocaleString('pt-BR')}</td>
