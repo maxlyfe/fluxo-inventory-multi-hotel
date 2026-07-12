@@ -127,8 +127,9 @@ function groupHospedagem(rows: any[]): UnifiedBooking[] {
 /**
  * Erbon (tempo real): /hospedagem em blocos MENSAIS com concorrência 3.
  * Pedir o ano inteiro de uma vez estoura o timeout de 26s do proxy (502).
+ * Retorna também as linhas brutas para regravar no cache do banco.
  */
-async function loadErbonBookings(hotelId: string, from: string, to: string): Promise<UnifiedBooking[]> {
+async function loadErbonBookings(hotelId: string, from: string, to: string): Promise<{ list: UnifiedBooking[]; raw: any[] }> {
   const start = addDaysStr(from, -60);
   const end   = addDaysStr(to, 60);
   const months: string[] = [];
@@ -151,7 +152,55 @@ async function loadErbonBookings(hotelId: string, from: string, to: string): Pro
     }
   }
   await Promise.all([worker(), worker(), worker()]);
-  return groupHospedagem(allRows);
+  return { list: groupHospedagem(allRows), raw: allRows };
+}
+
+/**
+ * Regrava o snapshot de hoje em erbon_hospedagem_daily com o resultado do
+ * refresh — o próximo acesso pinta o painel direto do banco, sem esperar a
+ * Erbon. Roda em segundo plano (não bloqueia a navegação).
+ */
+async function saveHospedagemCache(hotelId: string, raw: any[]): Promise<void> {
+  if (!raw.length) return;
+  const today = todayStr();
+  try {
+    // Snapshot de hoje é substituído por completo (mesma idempotência do job)
+    await supabase.from('erbon_hospedagem_daily')
+      .delete()
+      .eq('hotel_id', hotelId)
+      .eq('snapshot_date', today);
+    const rows = raw.map(item => ({
+      hotel_id:            hotelId,
+      snapshot_date:       today,
+      stay_date:           String(item.datA_HOSPEDAGEM ?? '').split('T')[0] || null,
+      booking_internal_id: Number(item.iD_RESERVA) || null,
+      daily_rate:          Number(item.diaria) || 0,
+      status:              item.status ?? null,
+      payload:             item,
+    }));
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const { error } = await supabase.from('erbon_hospedagem_daily').insert(rows.slice(i, i + CHUNK));
+      if (error) { console.warn('[Vendas] cache de hospedagem:', error.message); return; }
+    }
+  } catch (e: any) {
+    console.warn('[Vendas] cache de hospedagem:', e?.message);
+  }
+}
+
+/**
+ * TTL de frescor por sessão: se acabamos de atualizar da Erbon, a navegação
+ * seguinte usa só o banco — sem refazer as chamadas lentas.
+ */
+const FRESH_TTL_MS = 10 * 60 * 1000;
+function isFresh(key: string): boolean {
+  try {
+    const t = Number(localStorage.getItem(`sv-fresh:${key}`));
+    return t > 0 && Date.now() - t < FRESH_TTL_MS;
+  } catch { return false; }
+}
+function markFresh(key: string): void {
+  try { localStorage.setItem(`sv-fresh:${key}`, String(Date.now())); } catch { /* storage cheio/indisponível */ }
 }
 
 /**
@@ -168,15 +217,25 @@ async function loadErbonBookingsCache(hotelId: string): Promise<{ list: UnifiedB
   const snap = (last as any)?.[0]?.snapshot_date;
   if (!snap) return null;
 
-  const { data, error } = await supabase
-    .from('erbon_hospedagem_daily')
-    .select('payload')
-    .eq('hotel_id', hotelId)
-    .eq('snapshot_date', snap)
-    .limit(20000);
-  if (error || !data?.length) return null;
+  // PostgREST limita cada resposta a 1000 linhas — paginamos até o fim,
+  // senão o snapshot do ano (9k+ linhas) vem truncado.
+  const PAGE = 1000;
+  const rows: any[] = [];
+  for (let fromIdx = 0; ; fromIdx += PAGE) {
+    const { data, error } = await supabase
+      .from('erbon_hospedagem_daily')
+      .select('payload')
+      .eq('hotel_id', hotelId)
+      .eq('snapshot_date', snap)
+      .order('id', { ascending: true })
+      .range(fromIdx, fromIdx + PAGE - 1);
+    if (error) return rows.length ? { list: groupHospedagem(rows.map((r: any) => r.payload)), snapshotDate: String(snap) } : null;
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+  if (!rows.length) return null;
 
-  return { list: groupHospedagem(data.map((r: any) => r.payload)), snapshotDate: String(snap) };
+  return { list: groupHospedagem(rows.map((r: any) => r.payload)), snapshotDate: String(snap) };
 }
 
 /** Sem Erbon: reservas próprias + Omnibees gravadas em internal_bookings. */
@@ -493,7 +552,7 @@ export default function SalesReport() {
 
         setSource('erbon'); setHasOmnibees(false);
 
-        // 1. Cache do job diário: pinta o painel na hora
+        // 1. Cache mais recente do banco: pinta o painel na hora
         const cached = await loadErbonBookingsCache(hotelId);
         if (cancelled) return;
         if (cached) {
@@ -503,14 +562,23 @@ export default function SalesReport() {
           setLoading(true);
         }
 
-        // 2. Refresh em tempo real na Erbon
+        // 2. Refresh em tempo real na Erbon — só se o cache não for recente.
+        //    Após atualizar, regrava no banco: a próxima navegação abre direto
+        //    do banco sem esperar a Erbon.
+        const freshKey = `hosp|${hotelId}|${dateFrom}|${dateTo}`;
+        if (cached && isFresh(freshKey)) {
+          setLastSync(nowTime());
+          return;
+        }
         setRefreshing(true);
         try {
           const live = await loadErbonBookings(hotelId, dateFrom, dateTo);
           if (!cancelled) {
-            setBookings(live);
+            setBookings(live.list);
             setLastSync(nowTime());
           }
+          markFresh(freshKey);
+          void saveHospedagemCache(hotelId, live.raw);
         } catch (e: any) {
           if (!cancelled) {
             if (cached) setRefreshNote(`Erbon indisponível — dados salvos de ${fmtFullDate(cached.snapshotDate)}`);
@@ -576,7 +644,13 @@ export default function SalesReport() {
           setLoading(true);
         }
 
-        // 2. Refresh em tempo real na Erbon (12 blocos mensais)
+        // 2. Refresh em tempo real na Erbon (12 blocos mensais) — pulado se o
+        //    cache acabou de ser atualizado nesta sessão
+        const freshKey = `occ|${hotelId}|${occYear}`;
+        if (hasCache && isFresh(freshKey)) {
+          setLastSync(nowTime());
+          return;
+        }
         setRefreshing(true);
         try {
           const currLive = await fetchOccYearLive(hotelId, occYear);
@@ -593,6 +667,7 @@ export default function SalesReport() {
             ));
             setLastSync(nowTime());
           }
+          markFresh(freshKey);
           upsertOccCache(hotelId, currLive);
         } catch (e: any) {
           if (!cancelled) {
