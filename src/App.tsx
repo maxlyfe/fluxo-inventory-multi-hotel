@@ -111,6 +111,7 @@ import WCICompanionEntry     from './pages/webcheckin/WCICompanionEntry';
 // ── Pages — Diretoria ────────────────────────────────────────────────────────
 import PickupReport       from './pages/diretoria/PickupReport';
 import PerformanceReport  from './pages/diretoria/PerformanceReport';
+import SalesReport        from './pages/diretoria/SalesReport';
 import DirectorPanel      from './pages/diretoria/DirectorPanel';
 import OmnibeesRates      from './pages/diretoria/OmnibeesRates';
 import Profile      from './pages/Profile';
@@ -562,6 +563,11 @@ function App() {
                     <Route path="/diretoria/pickup" element={
                       <PrivateRoute module="diretoria">
                         <PickupReport />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/diretoria/vendas" element={
+                      <PrivateRoute module="diretoria">
+                        <SalesReport />
                       </PrivateRoute>
                     } />
                     <Route path="/diretoria/performance" element={
