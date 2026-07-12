@@ -62,18 +62,25 @@ async function erbonGetToken(cfg: {
   erbon_username: string; erbon_password: string;
 }): Promise<string> {
   const base = cfg.erbon_base_url.replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
-  const path = `/hotel/${cfg.erbon_hotel_id}/auth/token`;
-  const res = await fetch(`${base}${path}`, {
-    method: 'GET',
-    headers: {
-      'username': cfg.erbon_username,
-      'password': cfg.erbon_password,
-    },
+  // Autenticação: POST /auth/login com body JSON → { bearerToken }
+  // (mesmo fluxo do erbonService.authenticate do frontend)
+  const res = await fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: cfg.erbon_username, password: cfg.erbon_password }),
   });
   if (!res.ok) throw new Error(`Erbon auth failed: ${res.status}`);
-  const data = await res.json() as { access_token?: string };
-  if (!data.access_token) throw new Error('Erbon: access_token missing');
-  return data.access_token;
+  const raw = await res.text();
+  try {
+    const parsed = JSON.parse(raw);
+    const token = typeof parsed === 'string'
+      ? parsed
+      : (parsed.bearerToken ?? parsed.token ?? parsed.access_token);
+    if (token) return token;
+  } catch {
+    if (raw.length > 20) return raw.trim(); // API pode devolver o token como string pura
+  }
+  throw new Error('Erbon: token missing in /auth/login response');
 }
 
 async function erbonSearchBookings(

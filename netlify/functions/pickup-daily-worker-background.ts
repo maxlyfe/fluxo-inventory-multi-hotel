@@ -170,7 +170,8 @@ function monthLastDay(month: string): string {
  */
 async function syncOccupancy(
   db: ReturnType<typeof createClient>,
-  hotelId: string, cfg: ErbonCfg, token: string, today: string
+  hotelId: string, cfg: ErbonCfg, token: string, today: string,
+  hospRows?: any[]
 ): Promise<number> {
   const backfillStart = `${Number(today.slice(0, 4)) - 1}-01-01`;
   const rolling = monthsBetween(addDays(today, -45), addDays(today, 90));
@@ -221,6 +222,39 @@ async function syncOccupancy(
       console.warn(`[Pickup Daily] ${hotelId} — ocupação ${month} falhou: ${e.message}`);
     }
   }
+
+  // Suplementa receita futura via hospedagem já capturada
+  if (hospRows?.length) {
+    const revByDay = new Map<string, number>();
+    for (const r of hospRows) {
+      if (!r || r.status === 'CANCELED') continue;
+      const d = String(r.datA_HOSPEDAGEM ?? '').split('T')[0];
+      if (d >= today) revByDay.set(d, (revByDay.get(d) || 0) + (Number(r.diaria) || 0));
+    }
+    if (revByDay.size) {
+      const { data: zeroRevRows } = await db.from('erbon_occupancy_daily')
+        .select('date, rooms_sold')
+        .eq('hotel_id', hotelId)
+        .gte('date', today)
+        .eq('room_revenue', 0)
+        .gt('rooms_sold', 0);
+      const patches = (zeroRevRows ?? [])
+        .filter((r: any) => revByDay.has(r.date))
+        .map((r: any) => ({
+          hotel_id:     hotelId,
+          date:         r.date,
+          room_revenue: revByDay.get(r.date)!,
+          adr:          r.rooms_sold > 0 ? revByDay.get(r.date)! / r.rooms_sold : 0,
+          synced_at:    new Date().toISOString(),
+        }));
+      if (patches.length) {
+        await db.from('erbon_occupancy_daily')
+          .upsert(patches, { onConflict: 'hotel_id,date' });
+        console.log(`[Pickup Daily] ${hotelId} — receita futura patcheada: ${patches.length} dias`);
+      }
+    }
+  }
+
   return total;
 }
 
@@ -350,7 +384,7 @@ const handler: Handler = async (event) => {
 
       // 4. Ocupação diária: cache do dashboard anual/mensal (Vendas & Ocupação)
       try {
-        const occRows = await syncOccupancy(db, hotelId, cfg, token, today);
+        const occRows = await syncOccupancy(db, hotelId, cfg, token, today, hosp);
         console.log(`[Pickup Daily] ${hotelId} — ocupação: ${occRows} dias sincronizados`);
       } catch (e: any) {
         console.warn(`[Pickup Daily] ${hotelId} — sync de ocupação falhou: ${e.message}`);

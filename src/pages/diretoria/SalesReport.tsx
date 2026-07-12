@@ -119,13 +119,33 @@ function groupHospedagem(rows: any[]): UnifiedBooking[] {
 }
 
 /**
- * Erbon (tempo real): /hospedagem devolve uma linha por reserva por dia.
- * Buscamos com folga de 60 dias em cada ponta para que reservas que atravessam
- * o período tenham todas as suas diárias somadas, e agrupamos por iD_RESERVA.
+ * Erbon (tempo real): /hospedagem em blocos MENSAIS com concorrência 3.
+ * Pedir o ano inteiro de uma vez estoura o timeout de 26s do proxy (502).
  */
 async function loadErbonBookings(hotelId: string, from: string, to: string): Promise<UnifiedBooking[]> {
-  const rows = await erbonService.fetchHospedagem(hotelId, addDaysStr(from, -60), addDaysStr(to, 60));
-  return groupHospedagem(rows);
+  const start = addDaysStr(from, -60);
+  const end   = addDaysStr(to, 60);
+  const months: string[] = [];
+  let cur = start.slice(0, 7);
+  const last = end.slice(0, 7);
+  while (cur <= last) { months.push(cur); const [y, m] = cur.split('-').map(Number); cur = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; }
+
+  const allRows: any[] = [];
+  const queue = [...months];
+  async function worker() {
+    while (queue.length) {
+      const mo = queue.shift()!;
+      const mStart = `${mo}-01`;
+      const [yy, mm] = mo.split('-').map(Number);
+      const mEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().split('T')[0];
+      try {
+        const rows = await erbonService.fetchHospedagem(hotelId, mStart, mEnd);
+        allRows.push(...rows);
+      } catch { /* mês indisponível */ }
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  return groupHospedagem(allRows);
 }
 
 /**
@@ -238,6 +258,9 @@ async function loadOccCache(hotelId: string, year: number): Promise<OccDaily[]> 
  * pedir o ano inteiro numa chamada só estoura o timeout do proxy (502), e
  * 12 chamadas simultâneas derrubam parte delas (a API da Erbon degrada).
  * Medido ao vivo: 12/12 meses em ~28s com 3 workers.
+ *
+ * Para datas futuras onde /occupancy/withpension retorna totalDailyRate=0
+ * (comportamento confirmado da Erbon), complementa a receita via /hospedagem.
  */
 async function fetchOccYearLive(hotelId: string, year: number): Promise<OccDaily[]> {
   const out: OccDaily[] = [];
@@ -271,7 +294,58 @@ async function fetchOccYearLive(hotelId: string, year: number): Promise<OccDaily
 
   await Promise.all([worker(), worker(), worker()]);
   if (okCount === 0) throw new Error('Erbon não respondeu para nenhum mês');
+
+  // Suplementa receita futura via /hospedagem onde occupancy retorna R$0
+  const today = todayStr();
+  const futureMissing = out.filter(d => d.date >= today && d.roomRevenue === 0 && d.roomsSold > 0);
+  if (futureMissing.length) {
+    const revByDay = await fetchHospedagemRevByDay(hotelId, today, `${year}-12-31`);
+    for (const d of out) {
+      if (d.date >= today && d.roomRevenue === 0 && revByDay.has(d.date)) {
+        d.roomRevenue = revByDay.get(d.date)!;
+      }
+    }
+  }
+
   return out;
+}
+
+/**
+ * Busca /hospedagem em blocos mensais (concorrência 3) e retorna a receita
+ * agregada por dia (soma de `diaria` excluindo CANCELED).
+ */
+async function fetchHospedagemRevByDay(hotelId: string, from: string, to: string): Promise<Map<string, number>> {
+  const months: string[] = [];
+  let cur = from.slice(0, 7);
+  const last = to.slice(0, 7);
+  while (cur <= last) {
+    months.push(cur);
+    const [y, m] = cur.split('-').map(Number);
+    cur = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  }
+
+  const revMap = new Map<string, number>();
+  const queue = [...months];
+  async function worker() {
+    while (queue.length) {
+      const mo = queue.shift()!;
+      const mStart = `${mo}-01`;
+      const [yy, mm] = mo.split('-').map(Number);
+      const mEnd = new Date(Date.UTC(yy, mm, 0)).toISOString().split('T')[0];
+      try {
+        const rows = await erbonService.fetchHospedagem(hotelId, mStart, mEnd);
+        for (const r of rows) {
+          if (r.status === 'CANCELED') continue;
+          const d = String(r.datA_HOSPEDAGEM ?? '').split('T')[0];
+          if (d >= from && d <= to) {
+            revMap.set(d, (revMap.get(d) || 0) + (Number(r.diaria) || 0));
+          }
+        }
+      } catch { /* mês indisponível */ }
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  return revMap;
 }
 
 /** Grava o resultado do refresh no cache — o próximo acesso abre instantâneo. */
