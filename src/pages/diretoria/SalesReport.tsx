@@ -684,6 +684,16 @@ export default function SalesReport() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         .fade-up { animation: fadeUp 0.4s ease; }
+        .sv-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+        .sv-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; color: ${textMute}; padding: 0.65rem 0.75rem; white-space: nowrap; }
+        .sv-table td { font-size: 13px; padding: 0.6rem 0.75rem; white-space: nowrap; }
+        .sv-table tbody tr { border-top: 1px solid ${cardBdr}; }
+        .sv-table tbody tr:nth-child(even) td { background: ${isDark ? 'rgba(148,163,184,0.03)' : 'rgba(100,116,139,0.03)'}; }
+        .sv-scroll { overflow: auto; }
+        .sv-scroll thead th { position: sticky; top: 0; background: ${isDark ? '#0b1424' : '#fff'}; z-index: 2; box-shadow: inset 0 -1px 0 ${cardBdr}; }
+        .sv-scroll tfoot td { position: sticky; bottom: 0; background: ${isDark ? '#0b1424' : '#fff'}; box-shadow: inset 0 2px 0 ${cardBdr}; }
+        .sv-total td { font-weight: 900; font-size: 13px; padding: 0.65rem 0.75rem; white-space: nowrap; }
+        @media (prefers-reduced-motion: reduce) { .fade-up { animation: none; } }
       `}</style>
 
       {/* ── Header ── */}
@@ -808,13 +818,17 @@ export default function SalesReport() {
             {activeTab !== 'occupancy' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {/* Gráfico receita + reservas por dia */}
-                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem' }}>
-                  <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>
-                    Receita por data de {activeTab === 'checkin' ? 'check-in' : 'check-out'}
-                  </h3>
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '1.25rem 1.5rem', borderBottom: `1px solid ${cardBdr}`, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>
+                      Receita por data de {activeTab === 'checkin' ? 'check-in' : 'check-out'}
+                    </h3>
+                    <span style={{ fontSize: 12, color: textSub, fontWeight: 600 }}>{fmtFullDate(dateFrom)} → {fmtFullDate(dateTo)}</span>
+                  </div>
                   {buckets.length === 0 ? (
-                    <p style={{ color: textSub, fontSize: 13, padding: '2rem', textAlign: 'center' }}>Nenhuma reserva no período selecionado.</p>
+                    <p style={{ color: textSub, fontSize: 13, padding: '2.5rem', textAlign: 'center', margin: 0 }}>Nenhuma reserva no período selecionado.</p>
                   ) : (
+                    <div style={{ padding: '1.25rem 1.5rem 1.5rem' }}>
                     <ResponsiveContainer width="100%" height={320}>
                       <ComposedChart data={buckets.map(b => ({ ...b, label: fmtShortDate(b.date) }))}>
                         <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -827,93 +841,121 @@ export default function SalesReport() {
                         <Line yAxisId="cnt" dataKey="count" name="Reservas" stroke="#0ea5e9" strokeWidth={2.5} dot={{ r: 3 }} />
                       </ComposedChart>
                     </ResponsiveContainer>
+                    </div>
                   )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.5rem' }}>
-                  {/* Tabela por dia */}
-                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem', overflowX: 'auto', maxHeight: 480, overflowY: 'auto' }}>
-                    <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800, position: 'sticky', top: 0, background: cardBg, paddingBottom: 4 }}>
-                      Detalhe por data de {activeTab === 'checkin' ? 'check-in' : 'check-out'}
-                    </h3>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ color: textMute, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                          <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Data</th>
-                          <th style={{ textAlign: 'right', padding: '0.5rem' }}>Reservas</th>
-                          <th style={{ textAlign: 'right', padding: '0.5rem' }}>Noites</th>
-                          <th style={{ textAlign: 'right', padding: '0.5rem' }}>Receita</th>
-                          <th style={{ textAlign: 'right', padding: '0.5rem' }}>ADR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {buckets.map(b => (
-                          <tr key={b.date} className="sv-row" style={{ borderTop: `1px solid ${cardBdr}` }}>
-                            <td style={{ padding: '0.55rem 0.5rem', fontWeight: 700 }}>{fmtFullDate(b.date)}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{b.count}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{b.nights}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(b.revenue)}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{fmtBRL(b.adr)}</td>
-                          </tr>
-                        ))}
-                        {buckets.length > 0 && (
-                          <tr style={{ borderTop: `2px solid ${cardBdr}`, fontWeight: 900 }}>
-                            <td style={{ padding: '0.55rem 0.5rem' }}>Total</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{totCount}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{totNights}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', color: '#10b981' }}>{fmtBRL(totRevenue)}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{fmtBRL(avgADR)}</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Canais — tabela estilo relatório Erbon */}
-                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem', overflowX: 'auto' }}>
-                    <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>
+                {/* Canais — relatório principal estilo Erbon, largura total */}
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '1.25rem 1.5rem', borderBottom: `1px solid ${cardBdr}`, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>
                       Venda por canal — {activeTab === 'checkin' ? 'check-in' : 'check-out'}
                     </h3>
-                    {channels.length === 0 ? (
-                      <p style={{ color: textSub, fontSize: 13, padding: '1rem', textAlign: 'center' }}>Sem dados no período.</p>
-                    ) : (
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <span style={{ fontSize: 12, color: textSub, fontWeight: 600 }}>{channels.length} origens · ordenado por receita</span>
+                  </div>
+                  {channels.length === 0 ? (
+                    <p style={{ color: textSub, fontSize: 13, padding: '2.5rem', textAlign: 'center', margin: 0 }}>Sem dados no período.</p>
+                  ) : (
+                    <div className="sv-scroll" style={{ maxHeight: 520 }}>
+                      <table className="sv-table">
                         <thead>
-                          <tr style={{ color: textMute, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                            <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Origem</th>
-                            <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Canal</th>
-                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>Reservas</th>
-                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>Diárias</th>
-                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>PAXs</th>
-                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>DM</th>
-                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>Receita</th>
+                          <tr>
+                            <th style={{ textAlign: 'left'  }}>Origem</th>
+                            <th style={{ textAlign: 'left'  }}>Canal</th>
+                            <th style={{ textAlign: 'right' }}>Reservas</th>
+                            <th style={{ textAlign: 'right' }}>Diárias</th>
+                            <th style={{ textAlign: 'right' }}>PAXs</th>
+                            <th style={{ textAlign: 'right' }}>DM</th>
+                            <th style={{ textAlign: 'right' }}>Receita</th>
+                            <th style={{ textAlign: 'left', width: 160 }}>Participação</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {channels.map(c => (
-                            <tr key={c.channel} className="sv-row" style={{ borderTop: `1px solid ${cardBdr}` }}>
-                              <td style={{ padding: '0.55rem 0.5rem', fontWeight: 700 }}>{c.channel}</td>
-                              <td style={{ padding: '0.55rem 0.5rem', color: textSub }}>{c.channelGroup && c.channelGroup !== c.channel ? c.channelGroup : '—'}</td>
-                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.count}</td>
-                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.roomNights.toLocaleString('pt-BR')}</td>
-                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.paxs.toLocaleString('pt-BR')}</td>
-                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{fmtBRL(c.adr)}</td>
-                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(c.revenue)}</td>
+                          {channels.map(c => {
+                            const share = chanTotals.revenue > 0 ? (c.revenue / chanTotals.revenue) * 100 : 0;
+                            return (
+                              <tr key={c.channel} className="sv-row">
+                                <td style={{ fontWeight: 700 }}>{c.channel}</td>
+                                <td style={{ color: textSub }}>{c.channelGroup && c.channelGroup !== c.channel ? c.channelGroup : '—'}</td>
+                                <td style={{ textAlign: 'right' }}>{c.count.toLocaleString('pt-BR')}</td>
+                                <td style={{ textAlign: 'right' }}>{c.roomNights.toLocaleString('pt-BR')}</td>
+                                <td style={{ textAlign: 'right' }}>{c.paxs.toLocaleString('pt-BR')}</td>
+                                <td style={{ textAlign: 'right' }}>{fmtBRL(c.adr)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(c.revenue)}</td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ flex: 1, height: 6, borderRadius: 3, background: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(100,116,139,0.12)', overflow: 'hidden', minWidth: 60 }}>
+                                      <div style={{ width: `${Math.max(share, 1)}%`, height: '100%', borderRadius: 3, background: 'linear-gradient(90deg, #10b981, #34d399)' }} />
+                                    </div>
+                                    <span style={{ fontSize: 11.5, fontWeight: 700, color: textSub, width: 42, textAlign: 'right' }}>{share.toFixed(1)}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="sv-total">
+                            <td>Total</td>
+                            <td />
+                            <td style={{ textAlign: 'right' }}>{chanTotals.count.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right' }}>{chanTotals.roomNights.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right' }}>{chanTotals.paxs.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right' }}>{chanTotals.roomNights > 0 ? fmtBRL(chanTotals.revenue / chanTotals.roomNights) : 'R$ 0'}</td>
+                            <td style={{ textAlign: 'right', color: '#10b981' }}>{fmtBRL(chanTotals.revenue)}</td>
+                            <td style={{ fontWeight: 700, color: textSub }}>100%</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Detalhe por dia — largura total, rolagem interna com cabeçalho e total fixos */}
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '1.25rem 1.5rem', borderBottom: `1px solid ${cardBdr}`, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>
+                      Detalhe por data de {activeTab === 'checkin' ? 'check-in' : 'check-out'}
+                    </h3>
+                    <span style={{ fontSize: 12, color: textSub, fontWeight: 600 }}>{buckets.length} dias com movimento</span>
+                  </div>
+                  {buckets.length === 0 ? (
+                    <p style={{ color: textSub, fontSize: 13, padding: '2.5rem', textAlign: 'center', margin: 0 }}>Nenhuma reserva no período selecionado.</p>
+                  ) : (
+                    <div className="sv-scroll" style={{ maxHeight: 520 }}>
+                      <table className="sv-table">
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left'  }}>Data</th>
+                            <th style={{ textAlign: 'right' }}>Reservas</th>
+                            <th style={{ textAlign: 'right' }}>Noites</th>
+                            <th style={{ textAlign: 'right' }}>Receita</th>
+                            <th style={{ textAlign: 'right' }}>ADR</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {buckets.map(b => (
+                            <tr key={b.date} className="sv-row">
+                              <td style={{ fontWeight: 700 }}>{fmtFullDate(b.date)}</td>
+                              <td style={{ textAlign: 'right' }}>{b.count}</td>
+                              <td style={{ textAlign: 'right' }}>{b.nights}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(b.revenue)}</td>
+                              <td style={{ textAlign: 'right' }}>{fmtBRL(b.adr)}</td>
                             </tr>
                           ))}
-                          <tr style={{ borderTop: `2px solid ${cardBdr}`, fontWeight: 900 }}>
-                            <td style={{ padding: '0.55rem 0.5rem' }}>Total</td>
-                            <td style={{ padding: '0.55rem 0.5rem' }} />
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.count}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.roomNights.toLocaleString('pt-BR')}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.paxs.toLocaleString('pt-BR')}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.roomNights > 0 ? fmtBRL(chanTotals.revenue / chanTotals.roomNights) : 'R$ 0'}</td>
-                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', color: '#10b981' }}>{fmtBRL(chanTotals.revenue)}</td>
-                          </tr>
                         </tbody>
+                        <tfoot>
+                          <tr className="sv-total">
+                            <td>Total</td>
+                            <td style={{ textAlign: 'right' }}>{totCount.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right' }}>{totNights.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right', color: '#10b981' }}>{fmtBRL(totRevenue)}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtBRL(avgADR)}</td>
+                          </tr>
+                        </tfoot>
                       </table>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -922,10 +964,12 @@ export default function SalesReport() {
             {activeTab === 'occupancy' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {/* Ocupação mensal (com comparação ano anterior) */}
-                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem' }}>
-                  <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>
-                    Ocupação mensal {occYear} <span style={{ color: textMute, fontWeight: 500 }}>vs {occYear - 1}</span>
-                  </h3>
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '1.25rem 1.5rem', borderBottom: `1px solid ${cardBdr}`, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>Ocupação mensal — {occYear}</h3>
+                    <span style={{ fontSize: 12, color: textSub, fontWeight: 600 }}>comparado com {occYear - 1}</span>
+                  </div>
+                  <div style={{ padding: '1.25rem 1.5rem 1.5rem' }}>
                   <ResponsiveContainer width="100%" height={340}>
                     <ComposedChart data={monthlyOcc}>
                       <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -939,11 +983,16 @@ export default function SalesReport() {
                       <Line dataKey="prevOcc" name={`Ocupação ${occYear - 1}`} stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
                     </ComposedChart>
                   </ResponsiveContainer>
+                  </div>
                 </div>
 
                 {/* Receita + ADR mensal */}
-                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem' }}>
-                  <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>Receita de hospedagem e ADR por mês — {occYear}</h3>
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '1.25rem 1.5rem', borderBottom: `1px solid ${cardBdr}`, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>Receita de hospedagem e ADR — {occYear}</h3>
+                    <span style={{ fontSize: 12, color: textSub, fontWeight: 600 }}>mensal</span>
+                  </div>
+                  <div style={{ padding: '1.25rem 1.5rem 1.5rem' }}>
                   <ResponsiveContainer width="100%" height={300}>
                     <ComposedChart data={monthlyOcc}>
                       <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -956,35 +1005,51 @@ export default function SalesReport() {
                       <Line yAxisId="adr" dataKey="adr" name="ADR" stroke="#0ea5e9" strokeWidth={2.5} dot={{ r: 3 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
+                  </div>
                 </div>
 
                 {/* Tabela mensal */}
-                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem', overflowX: 'auto' }}>
-                  <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>Resumo mensal — {occYear}</h3>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ color: textMute, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Mês</th>
-                        <th style={{ textAlign: 'right', padding: '0.5rem' }}>Ocupação</th>
-                        <th style={{ textAlign: 'right', padding: '0.5rem' }}>{occYear - 1}</th>
-                        <th style={{ textAlign: 'right', padding: '0.5rem' }}>Diárias</th>
-                        <th style={{ textAlign: 'right', padding: '0.5rem' }}>Receita</th>
-                        <th style={{ textAlign: 'right', padding: '0.5rem' }}>ADR</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthlyOcc.map(m => (
-                        <tr key={m.month} className="sv-row" style={{ borderTop: `1px solid ${cardBdr}` }}>
-                          <td style={{ padding: '0.55rem 0.5rem', fontWeight: 700 }}>{m.month}</td>
-                          <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', fontWeight: 800, color: '#8b5cf6' }}>{m.occ.toFixed(1)}%</td>
-                          <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', color: textSub }}>{m.prevOcc !== null ? `${m.prevOcc.toFixed(1)}%` : '—'}</td>
-                          <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{m.roomNights.toLocaleString('pt-BR')}</td>
-                          <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(m.revenue)}</td>
-                          <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{fmtBRL(m.adr)}</td>
+                <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '1.25rem 1.5rem', borderBottom: `1px solid ${cardBdr}`, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>Resumo mensal — {occYear}</h3>
+                    <span style={{ fontSize: 12, color: textSub, fontWeight: 600 }}>ocupação comparada com {occYear - 1}</span>
+                  </div>
+                  <div className="sv-scroll">
+                    <table className="sv-table">
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left'  }}>Mês</th>
+                          <th style={{ textAlign: 'right' }}>Ocupação</th>
+                          <th style={{ textAlign: 'right' }}>{occYear - 1}</th>
+                          <th style={{ textAlign: 'right' }}>Diárias</th>
+                          <th style={{ textAlign: 'right' }}>Receita</th>
+                          <th style={{ textAlign: 'right' }}>ADR</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {monthlyOcc.map(m => (
+                          <tr key={m.month} className="sv-row">
+                            <td style={{ fontWeight: 700 }}>{m.month}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 800, color: '#8b5cf6' }}>{m.occ.toFixed(1)}%</td>
+                            <td style={{ textAlign: 'right', color: textSub }}>{m.prevOcc !== null ? `${m.prevOcc.toFixed(1)}%` : '—'}</td>
+                            <td style={{ textAlign: 'right' }}>{m.roomNights.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(m.revenue)}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtBRL(m.adr)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="sv-total">
+                          <td>Ano</td>
+                          <td style={{ textAlign: 'right', color: '#8b5cf6' }}>{yearAvgOcc.toFixed(1)}%</td>
+                          <td />
+                          <td style={{ textAlign: 'right' }}>{yearRoomNights.toLocaleString('pt-BR')}</td>
+                          <td style={{ textAlign: 'right', color: '#10b981' }}>{fmtBRL(yearRevenue)}</td>
+                          <td style={{ textAlign: 'right' }}>{fmtBRL(yearADR)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
