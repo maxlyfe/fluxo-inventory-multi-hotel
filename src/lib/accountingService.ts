@@ -29,6 +29,8 @@ export interface PurchaseCreditRow {
   ibs_credit: number;    // soma de purchase_items.ibs (ou fallback taxa×total)
   cbs_credit: number;
   ncm_codes: string[];
+  nf_numero: string | null;      // NF recebida vinculada (situacao = lancada)
+  nf_chave: string | null;
 }
 
 export interface PeriodSummary {
@@ -81,7 +83,7 @@ export const accountingService = {
     const lastDay = new Date(year, month, 0).getDate();
     const end   = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    const [{ data: purchases, error: pe }, { data: usages, error: ue }] = await Promise.all([
+    const [{ data: purchases, error: pe }, { data: nfs, error: ne }, { data: usages, error: ue }] = await Promise.all([
       supabase
         .from('purchases')
         .select(`
@@ -94,6 +96,12 @@ export const accountingService = {
         .lte('purchase_date', end)
         .not('supplier_id', 'is', null),
       supabase
+        .from('nf_received')
+        .select('purchase_id, numero_nf, chave_acesso')
+        .eq('hotel_id', hotelId)
+        .eq('situacao', 'lancada')
+        .not('purchase_id', 'is', null),
+      supabase
         .from('accounting_ibs_cbs_usage')
         .select('*')
         .eq('hotel_id', hotelId)
@@ -103,9 +111,17 @@ export const accountingService = {
     ]);
 
     if (pe) throw pe;
+    if (ne) throw ne;
     if (ue) throw ue;
 
-    const rows: PurchaseCreditRow[] = (purchases || []).map((p: any) => {
+    // Apenas compras com NF recebida sincronizada e lançada geram crédito
+    const nfByPurchase = new Map<string, { numero_nf: string | null; chave_acesso: string | null }>();
+    (nfs || []).forEach((n: any) => { nfByPurchase.set(n.purchase_id, n); });
+
+    const rows: PurchaseCreditRow[] = (purchases || [])
+      .filter((p: any) => nfByPurchase.has(p.id))
+      .map((p: any) => {
+      const nf      = nfByPurchase.get(p.id)!;
       const sup     = p.suppliers;
       const ibsRate = parseRate(sup?.ibs);
       const cbsRate = parseRate(sup?.cbs);
@@ -133,6 +149,8 @@ export const accountingService = {
         ibs_credit,
         cbs_credit,
         ncm_codes: ncmCodes,
+        nf_numero: nf.numero_nf,
+        nf_chave:  nf.chave_acesso,
       };
     });
 
@@ -156,11 +174,11 @@ export const accountingService = {
   },
 
   async getYearlySummary(hotelId: string, year: number): Promise<YearlyMonth[]> {
-    const [{ data: purchases }, { data: usages }] = await Promise.all([
+    const [{ data: purchases }, { data: nfs }, { data: usages }] = await Promise.all([
       supabase
         .from('purchases')
         .select(`
-          purchase_date, total_amount,
+          id, purchase_date, total_amount,
           purchase_items ( ibs, cbs ),
           suppliers:supplier_id ( ibs, cbs )
         `)
@@ -168,6 +186,12 @@ export const accountingService = {
         .gte('purchase_date', `${year}-01-01`)
         .lte('purchase_date', `${year}-12-31`)
         .not('supplier_id', 'is', null),
+      supabase
+        .from('nf_received')
+        .select('purchase_id')
+        .eq('hotel_id', hotelId)
+        .eq('situacao', 'lancada')
+        .not('purchase_id', 'is', null),
       supabase
         .from('accounting_ibs_cbs_usage')
         .select('period_month, ibs_used, cbs_used')
@@ -180,7 +204,9 @@ export const accountingService = {
       monthly[m] = { month: m, ibs_credit: 0, cbs_credit: 0, ibs_used: 0, cbs_used: 0 };
     }
 
-    (purchases || []).forEach((p: any) => {
+    const launchedIds = new Set((nfs || []).map((n: any) => n.purchase_id));
+
+    (purchases || []).filter((p: any) => launchedIds.has(p.id)).forEach((p: any) => {
       const m = parseInt(p.purchase_date.split('-')[1], 10);
       const items = (p.purchase_items || []) as Array<{ ibs?: number; cbs?: number }>;
       const itemsIbs = items.reduce((s: number, i) => s + (Number(i.ibs) || 0), 0);

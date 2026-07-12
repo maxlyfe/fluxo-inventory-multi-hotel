@@ -494,16 +494,16 @@ export default function IbsCbsPage() {
                 {!summary || summary.rows.length === 0 ? (
                   <div className="py-14 text-center">
                     <Info className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Nenhuma compra com crédito neste período.</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Nenhuma NF lançada com crédito neste período.</p>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                      Para gerar créditos, vincule o fornecedor cadastrado na compra e informe as alíquotas IBS/CBS no cadastro do fornecedor.
+                      Só entram no cálculo as entradas de mercadoria sincronizadas com uma NF recebida marcada como "lançada". Vincule o fornecedor na compra e informe as alíquotas IBS/CBS no cadastro do fornecedor.
                     </p>
                   </div>
                 ) : (
                   <table className="w-full text-sm min-w-[560px]">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-900/40 text-left">
-                        {['Data','Fornecedor','CNPJ','Valor Compra','Créd. IBS','Créd. CBS'].map(h => (
+                        {['Data','NF','Fornecedor','CNPJ','Valor Compra','Créd. IBS','Créd. CBS'].map(h => (
                           <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap">
                             {h}
                           </th>
@@ -514,6 +514,11 @@ export default function IbsCbsPage() {
                       {summary.rows.map((row: PurchaseCreditRow) => (
                         <tr key={row.purchase_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                           <td className="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">{fmtDate(row.purchase_date)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {row.nf_numero
+                              ? <span className="text-xs font-mono text-gray-700 dark:text-gray-300" title={row.nf_chave || undefined}>{row.nf_numero}</span>
+                              : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                          </td>
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900 dark:text-white truncate max-w-[180px]">{row.supplier_name}</p>
                             {row.supplier_razao && row.supplier_razao !== row.supplier_name && (
@@ -541,7 +546,7 @@ export default function IbsCbsPage() {
                     {summary.rows.length > 1 && (
                       <tfoot>
                         <tr className="bg-gray-50 dark:bg-gray-900/40 font-semibold">
-                          <td colSpan={3} className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                          <td colSpan={4} className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                             Total — {summary.rows.length} compras
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-gray-900 dark:text-white">
