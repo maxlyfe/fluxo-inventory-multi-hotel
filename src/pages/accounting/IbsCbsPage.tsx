@@ -10,6 +10,7 @@ import { ptBR } from 'date-fns/locale';
 import {
   accountingService, PeriodSummary, PurchaseCreditRow, IbsCbsUsage,
 } from '../../lib/accountingService';
+import { nfService } from '../../lib/nfService';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
 import { formatCnpj } from '../../lib/supplierService';
@@ -285,6 +286,7 @@ export default function IbsCbsPage() {
   const [tab,      setTab]      = useState<Tab>('credits');
   const [modal,    setModal]    = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [linking,  setLinking]  = useState(false);
 
   const load = useCallback(async () => {
     if (!selectedHotel?.id) return;
@@ -310,6 +312,23 @@ export default function IbsCbsPage() {
     if (month === 12) { setMonth(1); setYear(y => y + 1); }
     else setMonth(m => m + 1);
   }
+
+  const handleRetroCheck = async () => {
+    if (!selectedHotel?.id || linking) return;
+    setLinking(true);
+    try {
+      const linked = await nfService.linkReceivedToPurchases(selectedHotel.id);
+      addNotification(
+        linked > 0
+          ? `${linked} NF(s) vinculada(s) retroativamente às compras.`
+          : 'Nenhuma NF nova para vincular — tudo já sincronizado.',
+        'success',
+      );
+      await load();
+    } catch (err: any) {
+      addNotification(err.message ?? 'Erro na verificação retroativa', 'error');
+    } finally { setLinking(false); }
+  };
 
   const handleDelete = async (usage: IbsCbsUsage) => {
     if (!window.confirm('Remover este registro de uso?')) return;
@@ -360,9 +379,20 @@ export default function IbsCbsPage() {
             ))}
           </select>
         </div>
-        <button onClick={load} disabled={loading} className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRetroCheck}
+            disabled={linking || loading}
+            title="Vincula NFs recebidas às compras já registradas e atualiza os créditos"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white dark:bg-gray-800 border dark:border-gray-700 text-teal-700 dark:text-teal-300 rounded-xl hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors shadow-sm disabled:opacity-50"
+          >
+            {linking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Receipt className="w-3.5 h-3.5" />}
+            Verificação Retroativa
+          </button>
+          <button onClick={load} disabled={loading} className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {error && (
