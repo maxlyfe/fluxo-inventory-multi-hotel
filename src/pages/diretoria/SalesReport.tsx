@@ -33,7 +33,9 @@ interface UnifiedBooking {
   checkin: string;   // yyyy-mm-dd
   checkout: string;  // yyyy-mm-dd
   nights: number;
+  roomNights: number; // diárias vendidas (linhas de hospedagem no período)
   total: number;     // receita de hospedagem da reserva
+  paxs: number;      // total hóspedes (adultos + crianças)
   channel: string;
   origin: 'erbon' | 'omnibees' | 'internal';
 }
@@ -83,18 +85,22 @@ function daysInMonth(year: number, month0: number): number {
 
 /** Agrupa linhas do /hospedagem (uma por reserva por dia) em reservas unificadas. */
 function groupHospedagem(rows: any[]): UnifiedBooking[] {
-  const byRes = new Map<number, { checkin: string; checkout: string; total: number; channel: string }>();
+  const byRes = new Map<number, { checkin: string; checkout: string; total: number; roomNights: number; paxs: number; channel: string }>();
   for (const r of rows) {
     if (!r || r.status === 'CANCELED') continue;
     const cur = byRes.get(r.iD_RESERVA);
     const checkin  = String(r.datA_ENTRADA ?? '').split('T')[0];
     const checkout = String(r.datA_SAIDA   ?? '').split('T')[0];
+    const pax = (Number(r.qtD_ADL) || 0) + (Number(r.qtD_CHD) || 0) + (Number(r.qtD_CHD_FREE) || 0);
     if (cur) {
       cur.total += Number(r.diaria) || 0;
+      cur.roomNights++;
     } else {
       byRes.set(r.iD_RESERVA, {
         checkin, checkout,
         total: Number(r.diaria) || 0,
+        roomNights: 1,
+        paxs: pax,
         channel: r.canal || r.agente || 'Direto',
       });
     }
@@ -104,7 +110,9 @@ function groupHospedagem(rows: any[]): UnifiedBooking[] {
     checkin: b.checkin,
     checkout: b.checkout,
     nights: nightsBetween(b.checkin, b.checkout),
+    roomNights: b.roomNights,
     total: b.total,
+    paxs: b.paxs,
     channel: b.channel,
     origin: 'erbon' as const,
   }));
@@ -149,21 +157,26 @@ async function loadErbonBookingsCache(hotelId: string): Promise<{ list: UnifiedB
 async function loadInternalBookings(hotelId: string, from: string, to: string): Promise<UnifiedBooking[]> {
   const { data, error } = await supabase
     .from('internal_bookings')
-    .select('id, checkin, checkout, total_rate, status, source, channel')
+    .select('id, checkin, checkout, total_rate, status, source, channel, adults, children')
     .eq('hotel_id', hotelId)
     .neq('status', 'cancelled')
     .gte('checkout', addDaysStr(from, -60))
     .lte('checkin', addDaysStr(to, 60));
   if (error) throw error;
-  return (data ?? []).map((b: any) => ({
-    id: b.id,
-    checkin: b.checkin,
-    checkout: b.checkout,
-    nights: nightsBetween(b.checkin, b.checkout),
-    total: Number(b.total_rate) || 0,
-    channel: b.channel || (b.source === 'omnibees' ? 'Omnibees' : 'Direto'),
-    origin: (b.source === 'omnibees' ? 'omnibees' : 'internal') as UnifiedBooking['origin'],
-  }));
+  return (data ?? []).map((b: any) => {
+    const n = nightsBetween(b.checkin, b.checkout);
+    return {
+      id: b.id,
+      checkin: b.checkin,
+      checkout: b.checkout,
+      nights: n,
+      roomNights: n,
+      total: Number(b.total_rate) || 0,
+      paxs: (Number(b.adults) || 1) + (Number(b.children) || 0),
+      channel: b.channel || (b.source === 'omnibees' ? 'Omnibees' : 'Direto'),
+      origin: (b.source === 'omnibees' ? 'omnibees' : 'internal') as UnifiedBooking['origin'],
+    };
+  });
 }
 
 /** Agrupa reservas por uma data-chave (checkin ou checkout) dentro do período. */
@@ -363,9 +376,9 @@ export default function SalesReport() {
   const [refreshNote, setRefreshNote] = useState('');
   const [lastSync,    setLastSync]    = useState('');
 
-  // Período das abas de vendas (padrão: mês corrente)
-  const [dateFrom, setDateFrom] = useState(monthStart());
-  const [dateTo,   setDateTo]   = useState(monthEnd());
+  // Período das abas de vendas (padrão: ano corrente como no relatório Erbon)
+  const [dateFrom, setDateFrom] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [dateTo,   setDateTo]   = useState(() => `${new Date().getFullYear()}-12-31`);
 
   // Ano do dashboard de ocupação
   const [occYear, setOccYear] = useState<number>(() => new Date().getFullYear());
@@ -524,17 +537,26 @@ export default function SalesReport() {
   const totRevenue = buckets.reduce((s, b) => s + b.revenue, 0);
   const avgADR     = totNights > 0 ? totRevenue / totNights : 0;
 
-  // Canais do período (reservas cuja data-chave cai no período)
-  const chanMap = new Map<string, { count: number; revenue: number }>();
+  // Canais do período (reservas cuja data-chave cai no período) — estrutura do relatório Erbon
+  const chanMap = new Map<string, { count: number; roomNights: number; paxs: number; revenue: number }>();
   for (const b of bookings) {
     const d = b[dateKey];
     if (!d || d < dateFrom || d > dateTo) continue;
-    const cur = chanMap.get(b.channel) ?? { count: 0, revenue: 0 };
-    chanMap.set(b.channel, { count: cur.count + 1, revenue: cur.revenue + b.total });
+    const cur = chanMap.get(b.channel) ?? { count: 0, roomNights: 0, paxs: 0, revenue: 0 };
+    chanMap.set(b.channel, {
+      count: cur.count + 1,
+      roomNights: cur.roomNights + b.roomNights,
+      paxs: cur.paxs + b.paxs,
+      revenue: cur.revenue + b.total,
+    });
   }
   const channels = Array.from(chanMap.entries())
-    .map(([channel, v]) => ({ channel, ...v }))
+    .map(([channel, v]) => ({ channel, ...v, adr: v.roomNights > 0 ? v.revenue / v.roomNights : 0 }))
     .sort((a, b) => b.revenue - a.revenue);
+  const chanTotals = channels.reduce((t, c) => ({
+    count: t.count + c.count, roomNights: t.roomNights + c.roomNights,
+    paxs: t.paxs + c.paxs, revenue: t.revenue + c.revenue,
+  }), { count: 0, roomNights: 0, paxs: 0, revenue: 0 });
 
   // KPIs da ocupação
   const yearAvgOcc     = monthlyOcc.length ? monthlyOcc.reduce((s, m) => s + m.occ, 0) / 12 : 0;
@@ -565,10 +587,10 @@ export default function SalesReport() {
         { label: 'ADR médio',                  val: fmtBRL(yearADR),     icon: <BarChart2 size={18} />,  color: '#f59e0b' },
       ]
     : [
-        { label: 'Reservas',        val: totCount.toLocaleString('pt-BR'),  icon: <Users size={18} />,      color: '#0ea5e9' },
-        { label: 'Noites vendidas', val: totNights.toLocaleString('pt-BR'), icon: <BedDouble size={18} />,  color: '#8b5cf6' },
-        { label: 'Receita',         val: fmtBRL(totRevenue),                icon: <DollarSign size={18} />, color: '#10b981' },
-        { label: 'ADR médio',       val: fmtBRL(avgADR),                    icon: <BarChart2 size={18} />,  color: '#f59e0b' },
+        { label: 'Reservas',        val: chanTotals.count.toLocaleString('pt-BR'),      icon: <Users size={18} />,      color: '#0ea5e9' },
+        { label: 'Total diárias',   val: chanTotals.roomNights.toLocaleString('pt-BR'), icon: <BedDouble size={18} />,  color: '#8b5cf6' },
+        { label: 'Receita',         val: fmtBRL(chanTotals.revenue),                    icon: <DollarSign size={18} />, color: '#10b981' },
+        { label: 'DM (ADR)',        val: fmtBRL(chanTotals.roomNights > 0 ? chanTotals.revenue / chanTotals.roomNights : 0), icon: <BarChart2 size={18} />, color: '#f59e0b' },
       ];
 
   return (
@@ -728,8 +750,8 @@ export default function SalesReport() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.5rem' }}>
                   {/* Tabela por dia */}
-                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem', overflowX: 'auto' }}>
-                    <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>
+                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem', overflowX: 'auto', maxHeight: 480, overflowY: 'auto' }}>
+                    <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800, position: 'sticky', top: 0, background: cardBg, paddingBottom: 4 }}>
                       Detalhe por data de {activeTab === 'checkin' ? 'check-in' : 'check-out'}
                     </h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -765,25 +787,47 @@ export default function SalesReport() {
                     </table>
                   </div>
 
-                  {/* Canais */}
-                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem' }}>
-                    <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>Por canal de venda</h3>
+                  {/* Canais — tabela estilo relatório Erbon */}
+                  <div style={{ background: cardBg, border: `1px solid ${cardBdr}`, borderRadius: 20, padding: '1.5rem', overflowX: 'auto' }}>
+                    <h3 style={{ margin: '0 0 1rem', fontSize: 14, fontWeight: 800 }}>
+                      Venda por canal — {activeTab === 'checkin' ? 'check-in' : 'check-out'}
+                    </h3>
                     {channels.length === 0 ? (
                       <p style={{ color: textSub, fontSize: 13, padding: '1rem', textAlign: 'center' }}>Sem dados no período.</p>
-                    ) : channels.map(c => {
-                      const pct = totRevenue > 0 ? (c.revenue / totRevenue) * 100 : 0;
-                      return (
-                        <div key={c.channel} style={{ marginBottom: 12 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>
-                            <span>{c.channel} <span style={{ color: textMute, fontWeight: 500 }}>({c.count})</span></span>
-                            <span style={{ color: '#10b981' }}>{fmtBRL(c.revenue)}</span>
-                          </div>
-                          <div style={{ height: 7, borderRadius: 4, background: isDark ? 'rgba(148,163,184,0.12)' : 'rgba(203,213,225,0.4)' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #10b981, #0ea5e9)' }} />
-                          </div>
-                        </div>
-                      );
-                    })}
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ color: textMute, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            <th style={{ textAlign: 'left',  padding: '0.5rem' }}>Origem</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>Reservas</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>Diárias</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>PAXs</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>DM</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem' }}>Receita</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {channels.map(c => (
+                            <tr key={c.channel} className="sv-row" style={{ borderTop: `1px solid ${cardBdr}` }}>
+                              <td style={{ padding: '0.55rem 0.5rem', fontWeight: 700 }}>{c.channel}</td>
+                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.count}</td>
+                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.roomNights.toLocaleString('pt-BR')}</td>
+                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{c.paxs.toLocaleString('pt-BR')}</td>
+                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{fmtBRL(c.adr)}</td>
+                              <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtBRL(c.revenue)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ borderTop: `2px solid ${cardBdr}`, fontWeight: 900 }}>
+                            <td style={{ padding: '0.55rem 0.5rem' }}>Total</td>
+                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.count}</td>
+                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.roomNights.toLocaleString('pt-BR')}</td>
+                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.paxs.toLocaleString('pt-BR')}</td>
+                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right' }}>{chanTotals.roomNights > 0 ? fmtBRL(chanTotals.revenue / chanTotals.roomNights) : 'R$ 0'}</td>
+                            <td style={{ padding: '0.55rem 0.5rem', textAlign: 'right', color: '#10b981' }}>{fmtBRL(chanTotals.revenue)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 </div>
               </div>
