@@ -176,6 +176,57 @@ export interface ErbonOTB {
   netOtherRevenueTransient: number;
 }
 
+/** Uma linha por reserva por dia de estadia (GET /hotel/{id}/hospedagem) */
+export interface ErbonHospedagemDia {
+  iD_EMPRESA: number;
+  iD_RESERVA: number;
+  datA_HOSPEDAGEM: string;  // dia da diária
+  datA_ENTRADA: string;
+  datA_SAIDA: string;
+  diaria: number;           // valor da diária deste dia
+  iD_UH: number | null;
+  iD_TIPO_UH: number | null;
+  tipO_UH: string | null;
+  qtD_ADL: number;
+  qtD_CHD: number;
+  qtD_CHD_FREE: number;
+  cidade: string | null;
+  estado: string | null;
+  pais: string | null;
+  iD_CANAL: number | null;
+  canal: string | null;
+  iD_AGENTE: number | null;
+  agente: string | null;
+  datA_CRIACAO: string | null;
+  datA_CONFIRMACAO: string | null;
+  datA_CANCELAMENTO: string | null;
+  motivO_CANCELAMENTO: string | null;
+  status: string;           // BOOKING | CHECKIN | CHECKOUT | CANCELED ...
+  tipO_PENSAO: string | null;
+  valoR_PENSAO: number | null;
+  tipO_RESERVA: string | null;
+  iD_GRUPO: number | null;
+  grupo: string | null;
+  iD_USUARIO: number | null;
+  usuario: string | null;
+  iD_HOSPEDE: number | null;
+}
+
+/** Uma linha por reserva por dia com segmento/origem (GET /hotel/{id}/booking/segmentsview) */
+export interface ErbonSegmentsViewDia {
+  bookingID: number;
+  bookingNumber: number;
+  stayDate: string;
+  checkInDate: string;
+  checkOutDate: string;
+  dailyRate: number;
+  segment: string | null;
+  source: string | null;
+  adultQuantity: number;
+  childrenQuantity: number;
+  babyQuantity: number;
+}
+
 export interface ErbonOccupancyPension {
   date: string;
   occupancy: number;
@@ -1254,6 +1305,57 @@ export const erbonService = {
     });
     if (!res.ok) throw new Error(`Erro ao buscar ocupação (${res.status})`);
     return await res.json();
+  },
+
+  // ── Hospedagem (diária a diária de cada reserva) ──────────────────────
+
+  /**
+   * GET /hotel/{hotelID}/hospedagem
+   * Uma linha por reserva por dia de estadia, com o valor da diária
+   * (`diaria`), canal, agente, pensão e status — inclusive datas FUTURAS.
+   * Headers: stayDateStart / stayDateEnd (+ status opcional).
+   */
+  async fetchHospedagem(hotelId: string, stayDateStart: string, stayDateEnd: string): Promise<ErbonHospedagemDia[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/hospedagem`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'stayDateStart': stayDateStart,
+        'stayDateEnd': stayDateEnd,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar hospedagem (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  },
+
+  // ── Segments View (diária + segmento/origem por dia) ──────────────────
+
+  /**
+   * GET /hotel/{hotelID}/booking/segmentsview
+   * Uma linha por reserva por dia com dailyRate, segment e source.
+   * Headers: startDate / endDate.
+   */
+  async fetchSegmentsView(hotelId: string, startDate: string, endDate: string): Promise<ErbonSegmentsViewDia[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/booking/segmentsview`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'startDate': startDate,
+        'endDate': endDate,
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar segments view (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   },
 
   // ── Availability Inventory ────────────────────────────────────────────

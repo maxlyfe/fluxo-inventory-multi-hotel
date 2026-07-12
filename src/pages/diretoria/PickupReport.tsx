@@ -248,22 +248,47 @@ export default function PickupReport() {
       return false; // já existia
     }
 
-    // ── 1. OTB futuro: próximos 90 dias ──────────────────────────────────────
-    const endDate  = addDays(today, 90);
-    const otbData  = await erbonService.fetchOTB(hId, today, endDate);
-
-    const futureRows = otbData.map(d => {
-      const rooms = (d.totalRoomsDeductedTransient ?? 0) + (d.totalRoomsDeductedBlocks ?? 0);
-      const rev   = (d.netRoomRevenueTransient   ?? 0) + (d.netRoomRevenueBlocks   ?? 0);
-      return {
+    // ── 1. OTB futuro: próximos 90 dias via /hospedagem ──────────────────────
+    // Uma linha por reserva por dia com o valor REAL da diária (campo `diaria`),
+    // inclusive datas futuras — o /sales/otb não traz receita futura confiável.
+    const endDate = addDays(today, 90);
+    interface SnapRow { hotel_id: string; snapshot_date: string; stay_date: string; rooms_otb: number; net_room_revenue: number; adr: number; }
+    let futureRows: SnapRow[] = [];
+    try {
+      const hosp = await erbonService.fetchHospedagem(hId, today, endDate);
+      const byDay = new Map<string, { rooms: number; rev: number }>();
+      for (const h of hosp) {
+        if (h.status === 'CANCELED') continue;
+        const day = String(h.datA_HOSPEDAGEM ?? '').split('T')[0];
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+        const cur = byDay.get(day) ?? { rooms: 0, rev: 0 };
+        byDay.set(day, { rooms: cur.rooms + 1, rev: cur.rev + (Number(h.diaria) || 0) });
+      }
+      futureRows = Array.from(byDay.entries()).sort().map(([day, v]) => ({
         hotel_id:         hId,
         snapshot_date:    today,
-        stay_date:        d.stayDate.split('T')[0],
-        rooms_otb:        rooms,
-        net_room_revenue: rev,
-        adr:              rooms > 0 ? rev / rooms : 0,
-      };
-    });
+        stay_date:        day,
+        rooms_otb:        v.rooms,
+        net_room_revenue: v.rev,
+        adr:              v.rooms > 0 ? v.rev / v.rooms : 0,
+      }));
+    } catch { /* hospedagem indisponível — cai no fallback OTB abaixo */ }
+
+    if (!futureRows.length) {
+      const otbData = await erbonService.fetchOTB(hId, today, endDate);
+      futureRows = otbData.map(d => {
+        const rooms = (d.totalRoomsDeductedTransient ?? 0) + (d.totalRoomsDeductedBlocks ?? 0);
+        const rev   = (d.netRoomRevenueTransient   ?? 0) + (d.netRoomRevenueBlocks   ?? 0);
+        return {
+          hotel_id:         hId,
+          snapshot_date:    today,
+          stay_date:        d.stayDate.split('T')[0],
+          rooms_otb:        rooms,
+          net_room_revenue: rev,
+          adr:              rooms > 0 ? rev / rooms : 0,
+        };
+      });
+    }
 
     // ── 2. Actuals passados: últimos 30 dias via fetchOccupancyWithPension ───
     // totalDailyRate = receita líquida de quartos; adr já calculado pela API
@@ -827,7 +852,7 @@ export default function PickupReport() {
                       <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 3, background: isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)', color: '#10b981' }}>ACTUAL</span>
                       receita/ADR real &nbsp;|&nbsp;
                       <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 3, background: isDark ? 'rgba(14,165,233,0.15)' : 'rgba(14,165,233,0.1)', color: '#0ea5e9' }}>OTB</span>
-                      receita indisponível no Erbon para datas futuras
+                      receita futura = soma das diárias vendidas (Erbon /hospedagem)
                     </span>
                   </div>
 

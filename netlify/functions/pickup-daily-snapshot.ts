@@ -1,15 +1,19 @@
 // netlify/functions/pickup-daily-snapshot.ts
 // Job diário: captura o snapshot OTB do Pick-up Report para TODOS os hotéis com
 // Erbon ativo, sem depender de alguém abrir a tela /grupo/<slug>/diretoria/pickup.
-// Também captura /hotel/{hotelID}/hospedagem (dia a dia, valores e características
-// de cada reserva) em erbon_hospedagem_daily para análise futura das diárias vendidas.
+//
+// Receita futura vem de GET /hotel/{id}/hospedagem — uma linha por reserva por
+// dia de estadia com o VALOR REAL da diária (campo `diaria`), o que o /sales/otb
+// não fornece para datas futuras. Também captura /booking/segmentsview
+// (diária + segmento + origem) para análises futuras.
+//
 // Executa às 11:00 UTC = 08:00 BRT (UTC-3)
 
 import { schedule } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL         = process.env.SUPABASE_URL         || process.env.VITE_SUPABASE_URL || '';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 function getDb() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -42,15 +46,26 @@ function erbonBase(cfg: ErbonCfg): string {
   return cfg.erbon_base_url.replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
 }
 
+// Autenticação: POST /auth/login com body JSON → { bearerToken }
+// (mesmo fluxo do erbonService.authenticate do frontend)
 async function erbonGetToken(cfg: ErbonCfg): Promise<string> {
-  const res = await fetch(`${erbonBase(cfg)}/hotel/${cfg.erbon_hotel_id}/auth/token`, {
-    method: 'GET',
-    headers: { 'username': cfg.erbon_username, 'password': cfg.erbon_password },
+  const res = await fetch(`${erbonBase(cfg)}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: cfg.erbon_username, password: cfg.erbon_password }),
   });
   if (!res.ok) throw new Error(`Erbon auth failed: ${res.status}`);
-  const data = await res.json() as { access_token?: string };
-  if (!data.access_token) throw new Error('Erbon: access_token missing');
-  return data.access_token;
+  const raw = await res.text();
+  try {
+    const parsed = JSON.parse(raw);
+    const token = typeof parsed === 'string'
+      ? parsed
+      : (parsed.bearerToken ?? parsed.token ?? parsed.access_token);
+    if (token) return token;
+  } catch {
+    if (raw.length > 20) return raw.trim(); // API pode devolver o token como string pura
+  }
+  throw new Error('Erbon: token missing in /auth/login response');
 }
 
 async function erbonGet(cfg: ErbonCfg, token: string, path: string, extraHeaders: Record<string, string>): Promise<any> {
@@ -61,23 +76,39 @@ async function erbonGet(cfg: ErbonCfg, token: string, path: string, extraHeaders
   return await res.json();
 }
 
-// ── Snapshot OTB (mesma lógica do ensureSnapshot da tela PickupReport) ───────
+// ── Snapshot OTB ──────────────────────────────────────────────────────────────
 
 interface SnapshotRow {
   hotel_id: string; snapshot_date: string; stay_date: string;
   rooms_otb: number; net_room_revenue: number; adr: number;
 }
 
-async function captureSnapshot(
-  db: ReturnType<typeof createClient>,
-  hotelId: string, cfg: ErbonCfg, token: string, today: string
-): Promise<number> {
-  // 1. OTB futuro: hoje → +90 dias
+/** Futuro: agrega as diárias do /hospedagem por dia de estadia (exclui canceladas). */
+function aggregateHospedagem(hotelId: string, today: string, hosp: any[]): SnapshotRow[] {
+  const byDay = new Map<string, { rooms: number; rev: number }>();
+  for (const h of hosp) {
+    if (h.status === 'CANCELED') continue;
+    const day = String(h.datA_HOSPEDAGEM ?? '').split('T')[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const cur = byDay.get(day) ?? { rooms: 0, rev: 0 };
+    byDay.set(day, { rooms: cur.rooms + 1, rev: cur.rev + (Number(h.diaria) || 0) });
+  }
+  return Array.from(byDay.entries()).sort().map(([day, v]) => ({
+    hotel_id:         hotelId,
+    snapshot_date:    today,
+    stay_date:        day,
+    rooms_otb:        v.rooms,
+    net_room_revenue: v.rev,
+    adr:              v.rooms > 0 ? v.rev / v.rooms : 0,
+  }));
+}
+
+/** Fallback: OTB agregado (sem receita futura confiável, mas mantém quartos). */
+async function fetchOTBRows(hotelId: string, cfg: ErbonCfg, token: string, today: string): Promise<SnapshotRow[]> {
   const otbData: any[] = await erbonGet(cfg, token, `/hotel/${cfg.erbon_hotel_id}/sales/otb`, {
     dateFrom: today, dateTo: addDays(today, 90),
   });
-
-  const futureRows: SnapshotRow[] = (Array.isArray(otbData) ? otbData : []).map(d => {
+  return (Array.isArray(otbData) ? otbData : []).map(d => {
     const rooms = (d.totalRoomsDeductedTransient ?? 0) + (d.totalRoomsDeductedBlocks ?? 0);
     const rev   = (d.netRoomRevenueTransient   ?? 0) + (d.netRoomRevenueBlocks   ?? 0);
     return {
@@ -89,87 +120,43 @@ async function captureSnapshot(
       adr:              rooms > 0 ? rev / rooms : 0,
     };
   });
-
-  // 2. Actuals passados: últimos 30 dias (receita real de quartos)
-  let pastRows: SnapshotRow[] = [];
-  try {
-    const occData: any[] = await erbonGet(cfg, token, `/hotel/${cfg.erbon_hotel_id}/occupancy/withpension`, {
-      dateFrom: addDays(today, -30), dateTo: addDays(today, -1), currency: '0',
-    });
-    pastRows = (Array.isArray(occData) ? occData : []).map(o => {
-      const rooms = o.roomSalledConfirmed ?? 0;
-      const rev   = o.totalDailyRate      ?? 0;
-      return {
-        hotel_id:         hotelId,
-        snapshot_date:    today,
-        stay_date:        String(o.date).split('T')[0],
-        rooms_otb:        rooms,
-        net_room_revenue: rev,
-        adr:              rooms > 0 ? rev / rooms : (o.adr ?? 0),
-      };
-    });
-  } catch (e: any) {
-    console.warn(`[Pickup] ${hotelId} — actuals indisponíveis: ${e.message}`);
-  }
-
-  const allRows = [...pastRows, ...futureRows];
-  if (!allRows.length) return 0;
-
-  const { error } = await db
-    .from('diretoria_pickup_snapshots')
-    .upsert(allRows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
-  if (error) throw error;
-  return allRows.length;
 }
 
-// ── Hospedagem diária (/hotel/{hotelID}/hospedagem) ──────────────────────────
-
-function pickStayDate(item: any): string | null {
-  const raw = item?.stayDate ?? item?.date ?? item?.day ?? item?.dataDiaria ?? null;
-  if (!raw) return null;
-  const s = String(raw).split('T')[0];
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-}
-
-function pickBookingId(item: any): number | null {
-  const raw = item?.bookingInternalID ?? item?.bookingInternalId ?? item?.bookingID ?? item?.bookingId ?? null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-async function captureHospedagem(
-  db: ReturnType<typeof createClient>,
-  hotelId: string, cfg: ErbonCfg, token: string, today: string
-): Promise<number> {
-  const data = await erbonGet(cfg, token, `/hotel/${cfg.erbon_hotel_id}/hospedagem`, {
-    dateFrom: today, dateTo: addDays(today, 90),
+/** Passado: receita real de quartos dos últimos 30 dias. */
+async function fetchPastRows(hotelId: string, cfg: ErbonCfg, token: string, today: string): Promise<SnapshotRow[]> {
+  const occData: any[] = await erbonGet(cfg, token, `/hotel/${cfg.erbon_hotel_id}/occupancy/withpension`, {
+    dateFrom: addDays(today, -30), dateTo: addDays(today, -1), currency: '0',
   });
-  const items: any[] = Array.isArray(data) ? data : data ? [data] : [];
-  if (!items.length) return 0;
+  return (Array.isArray(occData) ? occData : []).map(o => {
+    const rooms = o.roomSalledConfirmed ?? 0;
+    const rev   = o.totalDailyRate      ?? 0;
+    return {
+      hotel_id:         hotelId,
+      snapshot_date:    today,
+      stay_date:        String(o.date).split('T')[0],
+      rooms_otb:        rooms,
+      net_room_revenue: rev,
+      adr:              rooms > 0 ? rev / rooms : (o.adr ?? 0),
+    };
+  });
+}
 
+// ── Persistência das capturas brutas ─────────────────────────────────────────
+
+async function replaceDailyRows(
+  db: ReturnType<typeof createClient>,
+  table: string, hotelId: string, today: string, rows: Record<string, unknown>[]
+): Promise<void> {
   // Idempotência: remove a captura de hoje antes de regravar
-  const { error: delErr } = await db
-    .from('erbon_hospedagem_daily')
-    .delete()
-    .eq('hotel_id', hotelId)
-    .eq('snapshot_date', today);
+  const { error: delErr } = await db.from(table).delete()
+    .eq('hotel_id', hotelId).eq('snapshot_date', today);
   if (delErr) throw delErr;
 
-  const rows = items.map(item => ({
-    hotel_id:            hotelId,
-    snapshot_date:       today,
-    stay_date:           pickStayDate(item),
-    booking_internal_id: pickBookingId(item),
-    payload:             item,
-  }));
-
-  // Insere em lotes para não estourar o limite de payload do PostgREST
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const { error } = await db.from('erbon_hospedagem_daily').insert(rows.slice(i, i + CHUNK));
+    const { error } = await db.from(table).insert(rows.slice(i, i + CHUNK));
     if (error) throw error;
   }
-  return rows.length;
 }
 
 // ── Handler principal ─────────────────────────────────────────────────────────
@@ -186,6 +173,7 @@ const handler = schedule('0 11 * * *', async () => {
   }
 
   const today = todayBRT();
+  const horizon = addDays(today, 90);
 
   const { data: configs, error: cfgErr } = await db
     .from('erbon_hotel_config')
@@ -203,16 +191,71 @@ const handler = schedule('0 11 * * *', async () => {
     try {
       const token = await erbonGetToken(cfg);
 
-      const snapRows = await captureSnapshot(db, hotelId, cfg, token, today);
-      console.log(`[Pickup Daily] ${hotelId} — snapshot OTB: ${snapRows} linhas`);
-
+      // 1. Hospedagem: diária a diária de cada reserva (hoje → +90d)
+      let hosp: any[] = [];
       try {
-        const hospRows = await captureHospedagem(db, hotelId, cfg, token, today);
-        console.log(`[Pickup Daily] ${hotelId} — hospedagem: ${hospRows} registros`);
+        const data = await erbonGet(cfg, token, `/hotel/${cfg.erbon_hotel_id}/hospedagem`, {
+          stayDateStart: today, stayDateEnd: horizon,
+        });
+        hosp = Array.isArray(data) ? data : [];
+        await replaceDailyRows(db, 'erbon_hospedagem_daily', hotelId, today, hosp.map(item => ({
+          hotel_id:            hotelId,
+          snapshot_date:       today,
+          stay_date:           String(item.datA_HOSPEDAGEM ?? '').split('T')[0] || null,
+          booking_internal_id: Number(item.iD_RESERVA) || null,
+          daily_rate:          Number(item.diaria) || 0,
+          status:              item.status ?? null,
+          payload:             item,
+        })));
+        console.log(`[Pickup Daily] ${hotelId} — hospedagem: ${hosp.length} registros`);
       } catch (e: any) {
-        // Endpoint pode não existir em todas as versões da Erbon — não bloqueia o snapshot
         console.warn(`[Pickup Daily] ${hotelId} — hospedagem falhou: ${e.message}`);
       }
+
+      // 2. Segments view: diária + segmento + origem (hoje → +90d)
+      try {
+        const data = await erbonGet(cfg, token, `/hotel/${cfg.erbon_hotel_id}/booking/segmentsview`, {
+          startDate: today, endDate: horizon,
+        });
+        const seg: any[] = Array.isArray(data) ? data : [];
+        await replaceDailyRows(db, 'erbon_segmentsview_daily', hotelId, today, seg.map(item => ({
+          hotel_id:      hotelId,
+          snapshot_date: today,
+          stay_date:     String(item.stayDate ?? '').split('T')[0] || null,
+          booking_id:    Number(item.bookingID) || null,
+          daily_rate:    Number(item.dailyRate) || 0,
+          segment:       item.segment ?? null,
+          source:        item.source ?? null,
+          payload:       item,
+        })));
+        console.log(`[Pickup Daily] ${hotelId} — segmentsview: ${seg.length} registros`);
+      } catch (e: any) {
+        console.warn(`[Pickup Daily] ${hotelId} — segmentsview falhou: ${e.message}`);
+      }
+
+      // 3. Snapshot OTB: futuro pela hospedagem (receita real por diária);
+      //    fallback /sales/otb se a hospedagem vier vazia
+      let futureRows = aggregateHospedagem(hotelId, today, hosp);
+      if (!futureRows.length) {
+        console.warn(`[Pickup Daily] ${hotelId} — sem hospedagem, usando fallback /sales/otb`);
+        futureRows = await fetchOTBRows(hotelId, cfg, token, today);
+      }
+
+      let pastRows: SnapshotRow[] = [];
+      try {
+        pastRows = await fetchPastRows(hotelId, cfg, token, today);
+      } catch (e: any) {
+        console.warn(`[Pickup Daily] ${hotelId} — actuals indisponíveis: ${e.message}`);
+      }
+
+      const allRows = [...pastRows, ...futureRows];
+      if (allRows.length) {
+        const { error } = await db
+          .from('diretoria_pickup_snapshots')
+          .upsert(allRows, { onConflict: 'hotel_id,snapshot_date,stay_date' });
+        if (error) throw error;
+      }
+      console.log(`[Pickup Daily] ${hotelId} — snapshot OTB: ${allRows.length} linhas (${futureRows.length} futuras)`);
     } catch (e: any) {
       console.error(`[Pickup Daily] ${hotelId} — ERRO: ${e.message}`);
     }

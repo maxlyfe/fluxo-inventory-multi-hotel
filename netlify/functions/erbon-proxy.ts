@@ -35,6 +35,10 @@ const ERBON_CUSTOM_HEADERS: Record<string, string> = {
   'guestexternalid': 'guestExternalId',
   'guestcontact': 'guestContact',
   'idguest': 'idGuest',
+  'staydatestart': 'stayDateStart',
+  'staydateend': 'stayDateEnd',
+  'startdate': 'startDate',
+  'enddate': 'endDate',
 };
 
 const handler: Handler = async (event: HandlerEvent) => {
