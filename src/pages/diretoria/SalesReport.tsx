@@ -81,16 +81,11 @@ function daysInMonth(year: number, month0: number): number {
 
 // ── Carregamento de reservas unificadas ──────────────────────────────────────
 
-/**
- * Erbon: /hospedagem devolve uma linha por reserva por dia. Buscamos com folga
- * de 60 dias em cada ponta para que reservas que atravessam o período tenham
- * todas as suas diárias somadas, e agrupamos por iD_RESERVA.
- */
-async function loadErbonBookings(hotelId: string, from: string, to: string): Promise<UnifiedBooking[]> {
-  const rows = await erbonService.fetchHospedagem(hotelId, addDaysStr(from, -60), addDaysStr(to, 60));
+/** Agrupa linhas do /hospedagem (uma por reserva por dia) em reservas unificadas. */
+function groupHospedagem(rows: any[]): UnifiedBooking[] {
   const byRes = new Map<number, { checkin: string; checkout: string; total: number; channel: string }>();
   for (const r of rows) {
-    if (r.status === 'CANCELED') continue;
+    if (!r || r.status === 'CANCELED') continue;
     const cur = byRes.get(r.iD_RESERVA);
     const checkin  = String(r.datA_ENTRADA ?? '').split('T')[0];
     const checkout = String(r.datA_SAIDA   ?? '').split('T')[0];
@@ -113,6 +108,41 @@ async function loadErbonBookings(hotelId: string, from: string, to: string): Pro
     channel: b.channel,
     origin: 'erbon' as const,
   }));
+}
+
+/**
+ * Erbon (tempo real): /hospedagem devolve uma linha por reserva por dia.
+ * Buscamos com folga de 60 dias em cada ponta para que reservas que atravessam
+ * o período tenham todas as suas diárias somadas, e agrupamos por iD_RESERVA.
+ */
+async function loadErbonBookings(hotelId: string, from: string, to: string): Promise<UnifiedBooking[]> {
+  const rows = await erbonService.fetchHospedagem(hotelId, addDaysStr(from, -60), addDaysStr(to, 60));
+  return groupHospedagem(rows);
+}
+
+/**
+ * Erbon (cache): captura mais recente do job diário em erbon_hospedagem_daily.
+ * Renderiza o painel na hora enquanto o refresh em tempo real roda por trás.
+ */
+async function loadErbonBookingsCache(hotelId: string): Promise<{ list: UnifiedBooking[]; snapshotDate: string } | null> {
+  const { data: last } = await supabase
+    .from('erbon_hospedagem_daily')
+    .select('snapshot_date')
+    .eq('hotel_id', hotelId)
+    .order('snapshot_date', { ascending: false })
+    .limit(1);
+  const snap = (last as any)?.[0]?.snapshot_date;
+  if (!snap) return null;
+
+  const { data, error } = await supabase
+    .from('erbon_hospedagem_daily')
+    .select('payload')
+    .eq('hotel_id', hotelId)
+    .eq('snapshot_date', snap)
+    .limit(20000);
+  if (error || !data?.length) return null;
+
+  return { list: groupHospedagem(data.map((r: any) => r.payload)), snapshotDate: String(snap) };
 }
 
 /** Sem Erbon: reservas próprias + Omnibees gravadas em internal_bookings. */
@@ -152,22 +182,96 @@ function bucketByDate(bookings: UnifiedBooking[], key: 'checkin' | 'checkout', f
 
 // ── Ocupação mensal/anual ────────────────────────────────────────────────────
 
-async function loadErbonOccupancy(hotelId: string, year: number): Promise<{ occ: number[]; roomNights: number[]; revenue: number[] }> {
+interface OccAgg   { occ: number[]; roomNights: number[]; revenue: number[] }
+interface OccDaily { date: string; occupancy: number; roomsSold: number; roomRevenue: number }
+
+/** Agrega dias em médias/somas mensais do ano. */
+function aggOccMonthly(days: OccDaily[], year: number): OccAgg {
   const occ = Array(12).fill(0) as number[];
   const cnt = Array(12).fill(0) as number[];
   const roomNights = Array(12).fill(0) as number[];
   const revenue = Array(12).fill(0) as number[];
-  const data = await erbonService.fetchOccupancyWithPension(hotelId, `${year}-01-01`, `${year}-12-31`);
-  for (const d of data) {
-    const day = String(d.date).split('T')[0];
-    const m = Number(day.split('-')[1]) - 1;
+  for (const d of days) {
+    if (!d.date.startsWith(`${year}-`)) continue;
+    const m = Number(d.date.split('-')[1]) - 1;
     if (m < 0 || m > 11) continue;
-    occ[m] += d.occupancy ?? 0;
+    occ[m] += d.occupancy;
     cnt[m]++;
-    roomNights[m] += d.roomSalledConfirmed ?? 0;
-    revenue[m]    += d.totalDailyRate ?? 0;
+    roomNights[m] += d.roomsSold;
+    revenue[m]    += d.roomRevenue;
   }
   return { occ: occ.map((s, i) => (cnt[i] ? s / cnt[i] : 0)), roomNights, revenue };
+}
+
+/** Cache: ocupação diária gravada pelo job das 8h (erbon_occupancy_daily). */
+async function loadOccCache(hotelId: string, year: number): Promise<OccDaily[]> {
+  const { data, error } = await supabase
+    .from('erbon_occupancy_daily')
+    .select('date, occupancy, rooms_sold, room_revenue')
+    .eq('hotel_id', hotelId)
+    .gte('date', `${year}-01-01`)
+    .lte('date', `${year}-12-31`);
+  if (error) return [];
+  return (data ?? []).map((r: any) => ({
+    date:        String(r.date),
+    occupancy:   Number(r.occupancy)    || 0,
+    roomsSold:   Number(r.rooms_sold)   || 0,
+    roomRevenue: Number(r.room_revenue) || 0,
+  }));
+}
+
+/**
+ * Tempo real: busca o ano na Erbon em 12 blocos MENSAIS com concorrência 3 —
+ * pedir o ano inteiro numa chamada só estoura o timeout do proxy (502), e
+ * 12 chamadas simultâneas derrubam parte delas (a API da Erbon degrada).
+ * Medido ao vivo: 12/12 meses em ~28s com 3 workers.
+ */
+async function fetchOccYearLive(hotelId: string, year: number): Promise<OccDaily[]> {
+  const out: OccDaily[] = [];
+  let okCount = 0;
+  const queue = Array.from({ length: 12 }, (_, m) => m);
+
+  async function worker() {
+    while (queue.length) {
+      const m = queue.shift()!;
+      const from = `${year}-${String(m + 1).padStart(2, '0')}-01`;
+      const to   = new Date(Date.UTC(year, m + 1, 0)).toISOString().split('T')[0];
+      try {
+        const data = await erbonService.fetchOccupancyWithPension(hotelId, from, to);
+        okCount++;
+        for (const o of data) {
+          const rooms = o.roomSalledConfirmed ?? 0;
+          out.push({
+            date:        String(o.date).split('T')[0],
+            occupancy:   o.occupancy ?? 0,
+            roomsSold:   rooms,
+            roomRevenue: o.totalDailyRate ?? 0,
+          });
+        }
+      } catch { /* mês indisponível — segue os demais */ }
+    }
+  }
+
+  await Promise.all([worker(), worker(), worker()]);
+  if (okCount === 0) throw new Error('Erbon não respondeu para nenhum mês');
+  return out;
+}
+
+/** Grava o resultado do refresh no cache — o próximo acesso abre instantâneo. */
+function upsertOccCache(hotelId: string, days: OccDaily[]): void {
+  if (!days.length) return;
+  const rows = days.map(d => ({
+    hotel_id:     hotelId,
+    date:         d.date,
+    occupancy:    d.occupancy,
+    rooms_sold:   d.roomsSold,
+    room_revenue: d.roomRevenue,
+    adr:          d.roomsSold > 0 ? d.roomRevenue / d.roomsSold : 0,
+    synced_at:    new Date().toISOString(),
+  }));
+  supabase.from('erbon_occupancy_daily')
+    .upsert(rows, { onConflict: 'hotel_id,date' })
+    .then(({ error }) => { if (error) console.warn('[Vendas] cache de ocupação:', error.message); });
 }
 
 async function loadInternalOccupancy(hotelId: string, year: number): Promise<{ occ: number[]; roomNights: number[]; revenue: number[] }> {
@@ -250,6 +354,11 @@ export default function SalesReport() {
   const [source,    setSource]    = useState<DataSource>('none');
   const [hasOmnibees, setHasOmnibees] = useState(false);
 
+  // Estado do refresh em tempo real (cache abre na hora; Erbon atualiza por trás)
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [refreshNote, setRefreshNote] = useState('');
+  const [lastSync,    setLastSync]    = useState('');
+
   // Período das abas de vendas (padrão: mês corrente)
   const [dateFrom, setDateFrom] = useState(monthStart());
   const [dateTo,   setDateTo]   = useState(monthEnd());
@@ -260,68 +369,142 @@ export default function SalesReport() {
   const [bookings,   setBookings]   = useState<UnifiedBooking[]>([]);
   const [monthlyOcc, setMonthlyOcc] = useState<MonthOcc[]>([]);
 
-  // ── Resolução da fonte + carga de reservas ─────────────────────────────────
+  // ── Resolução da fonte + carga de reservas (cache primeiro, Erbon por trás) ─
 
-  const loadBookings = useCallback(async (hId: string, from: string, to: string) => {
-    const cfg = await erbonService.getConfig(hId).catch(() => null);
-    if (cfg && (cfg as any).is_active) {
-      setSource('erbon');
-      setHasOmnibees(false);
-      return await loadErbonBookings(hId, from, to);
-    }
-    const list = await loadInternalBookings(hId, from, to);
-    setSource('internal');
-    setHasOmnibees(list.some(b => b.origin === 'omnibees'));
-    return list;
-  }, []);
+  const nowTime = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   useEffect(() => {
     if (!hotelId || activeTab === 'occupancy') return;
     let cancelled = false;
     (async () => {
-      setLoading(true); setError('');
+      setError(''); setRefreshNote('');
       try {
-        const list = await loadBookings(hotelId, dateFrom, dateTo);
-        if (!cancelled) setBookings(list);
+        const cfg = await erbonService.getConfig(hotelId).catch(() => null);
+        const isErbon = !!(cfg && (cfg as any).is_active);
+
+        if (!isErbon) {
+          // Dados próprios/Omnibees: o banco já é a fonte — leitura direta
+          setSource('internal'); setLoading(true);
+          const list = await loadInternalBookings(hotelId, dateFrom, dateTo);
+          if (cancelled) return;
+          setHasOmnibees(list.some(b => b.origin === 'omnibees'));
+          setBookings(list);
+          setLastSync(nowTime());
+          return;
+        }
+
+        setSource('erbon'); setHasOmnibees(false);
+
+        // 1. Cache do job diário: pinta o painel na hora
+        const cached = await loadErbonBookingsCache(hotelId);
+        if (cancelled) return;
+        if (cached) {
+          setBookings(cached.list);
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
+
+        // 2. Refresh em tempo real na Erbon
+        setRefreshing(true);
+        try {
+          const live = await loadErbonBookings(hotelId, dateFrom, dateTo);
+          if (!cancelled) {
+            setBookings(live);
+            setLastSync(nowTime());
+          }
+        } catch (e: any) {
+          if (!cancelled) {
+            if (cached) setRefreshNote(`Erbon indisponível — dados salvos de ${fmtFullDate(cached.snapshotDate)}`);
+            else setError('Erro ao carregar reservas: ' + e.message);
+          }
+        }
       } catch (e: any) {
         if (!cancelled) setError('Erro ao carregar reservas: ' + e.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setLoading(false); setRefreshing(false); }
       }
     })();
     return () => { cancelled = true; };
-  }, [hotelId, dateFrom, dateTo, activeTab, loadBookings]);
+  }, [hotelId, dateFrom, dateTo, activeTab]);
 
   // ── Carga da ocupação ──────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!hotelId || activeTab !== 'occupancy') return;
     let cancelled = false;
+
+    const build = (curr: OccAgg, prev: OccAgg | null): MonthOcc[] => MONTH_LABELS.map((label, i) => ({
+      month: label,
+      occ:        Number(curr.occ[i].toFixed(1)),
+      prevOcc:    prev ? Number(prev.occ[i].toFixed(1)) : null,
+      roomNights: curr.roomNights[i],
+      revenue:    curr.revenue[i],
+      adr:        curr.roomNights[i] > 0 ? curr.revenue[i] / curr.roomNights[i] : 0,
+    }));
+
     (async () => {
-      setLoading(true); setError('');
+      setError(''); setRefreshNote('');
       try {
         const cfg = await erbonService.getConfig(hotelId).catch(() => null);
         const isErbon = !!(cfg && (cfg as any).is_active);
         setSource(isErbon ? 'erbon' : 'internal');
 
-        const loader = isErbon ? loadErbonOccupancy : loadInternalOccupancy;
-        const [curr, prev] = await Promise.all([
-          loader(hotelId, occYear),
-          loader(hotelId, occYear - 1).catch(() => null),
+        if (!isErbon) {
+          // Dados próprios: o banco já é a fonte — leitura direta
+          setLoading(true);
+          const [curr, prev] = await Promise.all([
+            loadInternalOccupancy(hotelId, occYear),
+            loadInternalOccupancy(hotelId, occYear - 1).catch(() => null),
+          ]);
+          if (!cancelled) { setMonthlyOcc(build(curr, prev)); setLastSync(nowTime()); }
+          return;
+        }
+
+        // 1. Cache do job diário: pinta o dashboard na hora
+        const [currCache, prevCache] = await Promise.all([
+          loadOccCache(hotelId, occYear),
+          loadOccCache(hotelId, occYear - 1),
         ]);
         if (cancelled) return;
-        setMonthlyOcc(MONTH_LABELS.map((label, i) => ({
-          month: label,
-          occ:        Number(curr.occ[i].toFixed(1)),
-          prevOcc:    prev ? Number(prev.occ[i].toFixed(1)) : null,
-          roomNights: curr.roomNights[i],
-          revenue:    curr.revenue[i],
-          adr:        curr.roomNights[i] > 0 ? curr.revenue[i] / curr.roomNights[i] : 0,
-        })));
+        const hasCache = currCache.length > 0;
+        if (hasCache) {
+          setMonthlyOcc(build(
+            aggOccMonthly(currCache, occYear),
+            prevCache.length ? aggOccMonthly(prevCache, occYear - 1) : null,
+          ));
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
+
+        // 2. Refresh em tempo real na Erbon (12 blocos mensais)
+        setRefreshing(true);
+        try {
+          const currLive = await fetchOccYearLive(hotelId, occYear);
+          let prevDays = prevCache;
+          if (!prevDays.length) {
+            prevDays = await fetchOccYearLive(hotelId, occYear - 1).catch(() => []);
+            if (prevDays.length) upsertOccCache(hotelId, prevDays);
+          }
+          if (!cancelled) {
+            setMonthlyOcc(build(
+              aggOccMonthly(currLive, occYear),
+              prevDays.length ? aggOccMonthly(prevDays, occYear - 1) : null,
+            ));
+            setLastSync(nowTime());
+          }
+          upsertOccCache(hotelId, currLive);
+        } catch (e: any) {
+          if (!cancelled) {
+            if (hasCache) setRefreshNote('Erbon indisponível — exibindo dados salvos');
+            else setError('Erro ao carregar ocupação: ' + e.message);
+          }
+        }
       } catch (e: any) {
         if (!cancelled) setError('Erro ao carregar ocupação: ' + e.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setLoading(false); setRefreshing(false); }
       }
     })();
     return () => { cancelled = true; };
@@ -410,10 +593,28 @@ export default function SalesReport() {
               </div>
             </div>
 
-            {/* Badge da fonte de dados */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.9rem', background: isDark ? 'rgba(30,41,59,0.6)' : '#f1f5f9', borderRadius: 10, fontSize: 12, fontWeight: 700, color: sourceBadge.color, border: `1px solid ${sourceBadge.color}30` }}>
-              <Database size={13} />
-              Fonte: {sourceBadge.label}
+            {/* Badges: fonte de dados + estado da atualização */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.9rem', background: isDark ? 'rgba(30,41,59,0.6)' : '#f1f5f9', borderRadius: 10, fontSize: 12, fontWeight: 700, color: sourceBadge.color, border: `1px solid ${sourceBadge.color}30` }}>
+                <Database size={13} />
+                Fonte: {sourceBadge.label}
+              </div>
+              {refreshing ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.9rem', background: isDark ? 'rgba(14,165,233,0.12)' : 'rgba(14,165,233,0.08)', borderRadius: 10, fontSize: 12, fontWeight: 700, color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.3)' }}>
+                  <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                  Atualizando da fonte...
+                </div>
+              ) : refreshNote ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.9rem', background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.08)', borderRadius: 10, fontSize: 12, fontWeight: 700, color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                  <AlertCircle size={13} />
+                  {refreshNote}
+                </div>
+              ) : lastSync ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.45rem 0.9rem', background: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)', borderRadius: 10, fontSize: 12, fontWeight: 700, color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981' }} />
+                  Atualizado {lastSync}
+                </div>
+              ) : null}
             </div>
           </div>
 
