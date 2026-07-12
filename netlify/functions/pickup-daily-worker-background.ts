@@ -193,12 +193,17 @@ async function syncOccupancy(
         dateFrom: `${month}-01`, dateTo: monthLastDay(month), currency: '0',
       });
       const rows = (Array.isArray(data) ? data : []).map(o => {
-        const rooms = o.roomSalledConfirmed ?? 0;
-        const rev   = o.totalDailyRate      ?? 0;
+        const rooms = (o.roomSalledConfirmed ?? 0) + (o.roomSalledRateDefault ?? 0)
+          + (o.roomSalledPending ?? 0) + (o.roomSalledInvited ?? 0)
+          + (o.roomSalledHouseUse ?? 0) + (o.roomSalledPermut ?? 0)
+          + (o.roomSalledCrewMember ?? 0) + (o.roomSalledDayUse ?? 0);
+        const sellable = rooms + (o.roomAvailable ?? 0);
+        const occ = sellable > 0 ? (rooms / sellable) * 100 : 0;
+        const rev = o.totalDailyRate ?? 0;
         return {
           hotel_id:     hotelId,
           date:         String(o.date).split('T')[0],
-          occupancy:    o.occupancy ?? 0,
+          occupancy:    Number(occ.toFixed(1)),
           rooms_sold:   rooms,
           room_revenue: rev,
           adr:          rooms > 0 ? rev / rooms : (o.adr ?? 0),

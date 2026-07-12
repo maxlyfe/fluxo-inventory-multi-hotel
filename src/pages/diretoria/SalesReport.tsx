@@ -240,10 +240,14 @@ async function fetchOccYearLive(hotelId: string, year: number): Promise<OccDaily
         const data = await erbonService.fetchOccupancyWithPension(hotelId, from, to);
         okCount++;
         for (const o of data) {
-          const rooms = o.roomSalledConfirmed ?? 0;
+          const rooms = (o.roomSalledConfirmed ?? 0) + (o.roomSalledRateDefault ?? 0)
+            + (o.roomSalledPending ?? 0) + (o.roomSalledInvited ?? 0)
+            + (o.roomSalledHouseUse ?? 0) + (o.roomSalledPermut ?? 0)
+            + (o.roomSalledCrewMember ?? 0) + (o.roomSalledDayUse ?? 0);
+          const sellable = rooms + (o.roomAvailable ?? 0);
           out.push({
             date:        String(o.date).split('T')[0],
-            occupancy:   o.occupancy ?? 0,
+            occupancy:   sellable > 0 ? (rooms / sellable) * 100 : 0,
             roomsSold:   rooms,
             roomRevenue: o.totalDailyRate ?? 0,
           });
@@ -482,7 +486,8 @@ export default function SalesReport() {
         setRefreshing(true);
         try {
           const currLive = await fetchOccYearLive(hotelId, occYear);
-          let prevDays = prevCache;
+          const prevHasRealData = prevCache.some(d => d.occupancy > 0);
+          let prevDays = prevHasRealData ? prevCache : [];
           if (!prevDays.length) {
             prevDays = await fetchOccYearLive(hotelId, occYear - 1).catch(() => []);
             if (prevDays.length) upsertOccCache(hotelId, prevDays);
