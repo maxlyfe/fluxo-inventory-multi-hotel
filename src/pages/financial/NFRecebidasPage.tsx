@@ -16,7 +16,7 @@ export default function NFRecebidasPage() {
         <FileSearch className="h-8 w-8 text-blue-500" />
         <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">NF Recebidas</h1>
       </div>
-      <NFRecebidasTab />
+      <NFRecebidasTab hotelId={selectedHotel.id} />
     </div>
   );
 }
