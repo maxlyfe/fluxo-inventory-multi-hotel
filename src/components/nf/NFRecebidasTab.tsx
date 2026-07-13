@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Inbox, RefreshCw, Search, Download, ShoppingCart, EyeOff, RotateCcw,
   Loader2, AlertCircle, CheckCircle, FileText, Bell, CheckCheck, XCircle, HelpCircle,
+  ChevronDown, ChevronUp, Package, CreditCard, Building2, Hash, MapPin, Calendar,
 } from 'lucide-react';
 import { nfService } from '../../lib/nfService';
 import type { NFReceived, NFHotelConfig, TipoManifestacao } from '../../types/nf';
@@ -34,6 +35,314 @@ function formatCnpj(cnpj: string | null): string {
   return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
 }
 
+function fmtBRL(v: number) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function fmtDateBR(iso: string | null | undefined) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// ── XML Detail Parser ────────────────────────────────────────────────────────
+
+function xmlText(parent: Element | Document, tag: string): string {
+  const el = parent.getElementsByTagName(tag)[0]
+    ?? parent.getElementsByTagNameNS('http://www.portalfiscal.inf.br/nfe', tag)[0];
+  return el?.textContent?.trim() ?? '';
+}
+
+interface NFeDetail {
+  emit: { nome: string; fantasia: string; cnpj: string; ie: string; uf: string; municipio: string; endereco: string; cep: string };
+  ide: { nNF: string; serie: string; dhEmi: string; natOp: string; tpNF: string; modFrete: string };
+  items: { nItem: number; xProd: string; cEAN: string; ncm: string; cfop: string; uCom: string; qCom: number; vUnCom: number; vProd: number; ibs: number; cbs: number }[];
+  totais: { vProd: number; vFrete: number; vSeg: number; vDesc: number; vOutro: number; vNF: number; vICMS: number; vPIS: number; vCOFINS: number; vIPI: number; vIBS: number; vCBS: number };
+  dups: { nDup: string; dVenc: string; vDup: number }[];
+  infAdic: string;
+  transp: { nome: string; cnpj: string };
+}
+
+function parseNFeDetail(xml: string): NFeDetail | null {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) return null;
+
+    const emitEl = doc.getElementsByTagName('emit')[0];
+    const enderEmit = emitEl?.getElementsByTagName('enderEmit')[0];
+    const emit = {
+      nome: xmlText(doc, 'xNome'),
+      fantasia: emitEl ? xmlText(emitEl, 'xFant') : '',
+      cnpj: emitEl ? xmlText(emitEl, 'CNPJ') : '',
+      ie: emitEl ? xmlText(emitEl, 'IE') : '',
+      uf: enderEmit ? xmlText(enderEmit, 'UF') : '',
+      municipio: enderEmit ? xmlText(enderEmit, 'xMun') : '',
+      endereco: enderEmit ? `${xmlText(enderEmit, 'xLgr')}, ${xmlText(enderEmit, 'nro')}${xmlText(enderEmit, 'xCpl') ? ' - ' + xmlText(enderEmit, 'xCpl') : ''}, ${xmlText(enderEmit, 'xBairro')}` : '',
+      cep: enderEmit ? xmlText(enderEmit, 'CEP').replace(/(\d{5})(\d{3})/, '$1-$2') : '',
+    };
+
+    const ide = {
+      nNF: xmlText(doc, 'nNF'),
+      serie: xmlText(doc, 'serie'),
+      dhEmi: xmlText(doc, 'dhEmi') || xmlText(doc, 'dEmi'),
+      natOp: xmlText(doc, 'natOp'),
+      tpNF: xmlText(doc, 'tpNF'),
+      modFrete: xmlText(doc, 'modFrete'),
+    };
+
+    const detNodes = doc.getElementsByTagName('det');
+    const items = Array.from(detNodes).map((det, idx) => {
+      const prod = det.getElementsByTagName('prod')[0];
+      if (!prod) return null;
+      const imposto = det.getElementsByTagName('imposto')[0];
+      return {
+        nItem: idx + 1,
+        xProd: xmlText(prod, 'xProd'),
+        cEAN: xmlText(prod, 'cEAN'),
+        ncm: xmlText(prod, 'NCM'),
+        cfop: xmlText(prod, 'CFOP'),
+        uCom: xmlText(prod, 'uCom') || xmlText(prod, 'uTrib'),
+        qCom: parseFloat(xmlText(prod, 'qCom') || '0'),
+        vUnCom: parseFloat(xmlText(prod, 'vUnCom') || '0'),
+        vProd: parseFloat(xmlText(prod, 'vProd') || '0'),
+        ibs: imposto ? parseFloat(xmlText(imposto, 'vIBS') || '0') : 0,
+        cbs: imposto ? parseFloat(xmlText(imposto, 'vCBS') || '0') : 0,
+      };
+    }).filter(Boolean) as NFeDetail['items'];
+
+    const totalEl = doc.getElementsByTagName('ICMSTot')[0];
+    const totais = {
+      vProd: parseFloat(totalEl ? xmlText(totalEl, 'vProd') : '0'),
+      vFrete: parseFloat(totalEl ? xmlText(totalEl, 'vFrete') : '0'),
+      vSeg: parseFloat(totalEl ? xmlText(totalEl, 'vSeg') : '0'),
+      vDesc: parseFloat(totalEl ? xmlText(totalEl, 'vDesc') : '0'),
+      vOutro: parseFloat(totalEl ? xmlText(totalEl, 'vOutro') : '0'),
+      vNF: parseFloat(totalEl ? xmlText(totalEl, 'vNF') : '0'),
+      vICMS: parseFloat(totalEl ? xmlText(totalEl, 'vICMS') : '0'),
+      vPIS: parseFloat(totalEl ? xmlText(totalEl, 'vPIS') : '0'),
+      vCOFINS: parseFloat(totalEl ? xmlText(totalEl, 'vCOFINS') : '0'),
+      vIPI: parseFloat(totalEl ? xmlText(totalEl, 'vIPI') : '0'),
+      vIBS: parseFloat(totalEl ? xmlText(totalEl, 'vIBS') : '0'),
+      vCBS: parseFloat(totalEl ? xmlText(totalEl, 'vCBS') : '0'),
+    };
+
+    const dupNodes = doc.getElementsByTagName('dup');
+    const dups = Array.from(dupNodes).map(dup => ({
+      nDup: xmlText(dup, 'nDup'),
+      dVenc: xmlText(dup, 'dVenc'),
+      vDup: parseFloat(xmlText(dup, 'vDup') || '0'),
+    })).filter(d => d.dVenc);
+
+    const infAdic = xmlText(doc, 'infCpl');
+    const transpEl = doc.getElementsByTagName('transporta')[0];
+    const transp = {
+      nome: transpEl ? xmlText(transpEl, 'xNome') : '',
+      cnpj: transpEl ? xmlText(transpEl, 'CNPJ') : '',
+    };
+
+    return { emit, ide, items, totais, dups, infAdic, transp };
+  } catch {
+    return null;
+  }
+}
+
+const FRETE_LABELS: Record<string, string> = {
+  '0': 'Emitente', '1': 'Destinatário', '2': 'Terceiros', '9': 'Sem frete',
+};
+
+// ── Expanded Detail Panel ────────────────────────────────────────────────────
+
+function NFDetailPanel({ nf }: { nf: NFReceived }) {
+  const detail = nf.xml ? parseNFeDetail(nf.xml) : null;
+
+  if (!detail) {
+    return (
+      <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+        <p className="font-medium">XML completo indisponível</p>
+        <p className="text-xs mt-1">Envie a "Ciência da Operação" para que a SEFAZ libere o XML completo na próxima sincronização.</p>
+      </div>
+    );
+  }
+
+  const { emit, ide, items, totais, dups, infAdic, transp } = detail;
+
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
+      {/* ── Header: Emitter + NF Info ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-gray-200 dark:bg-gray-700">
+        {/* Emitente */}
+        <div className="bg-white dark:bg-gray-800 p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Emitente</h4>
+          </div>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">{emit.nome}</p>
+          {emit.fantasia && emit.fantasia !== emit.nome && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">Nome fantasia: {emit.fantasia}</p>
+          )}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+            <span><span className="text-gray-400">CNPJ:</span> {formatCnpj(emit.cnpj)}</span>
+            <span><span className="text-gray-400">IE:</span> {emit.ie || '—'}</span>
+            {emit.endereco && <span className="col-span-2"><span className="text-gray-400">Endereço:</span> {emit.endereco}</span>}
+            <span><span className="text-gray-400">Município:</span> {emit.municipio}/{emit.uf}</span>
+            {emit.cep && <span><span className="text-gray-400">CEP:</span> {emit.cep}</span>}
+          </div>
+        </div>
+
+        {/* Dados da NF */}
+        <div className="bg-white dark:bg-gray-800 p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+              <Hash className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            </div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Dados da Nota</h4>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-gray-600 dark:text-gray-300">
+            <span><span className="text-gray-400">Número:</span> <span className="font-semibold text-gray-900 dark:text-white">{ide.nNF}</span>{ide.serie ? ` / série ${ide.serie}` : ''}</span>
+            <span><span className="text-gray-400">Emissão:</span> {fmtDateBR(ide.dhEmi)}</span>
+            <span className="col-span-2"><span className="text-gray-400">Nat. Operação:</span> {ide.natOp || '—'}</span>
+            <span><span className="text-gray-400">Frete:</span> {FRETE_LABELS[ide.modFrete] ?? ide.modFrete ?? '—'}</span>
+            {transp.nome && <span><span className="text-gray-400">Transportadora:</span> {transp.nome}</span>}
+          </div>
+          <p className="text-[10px] text-gray-400 font-mono break-all pt-1" title="Chave de acesso">{nf.chave_acesso}</p>
+        </div>
+      </div>
+
+      {/* ── Items Table ── */}
+      <div className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+            <Package className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            Itens ({items.length})
+          </h4>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+          <table className="w-full text-xs min-w-[700px]">
+            <thead>
+              <tr className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 uppercase text-[10px] tracking-wider">
+                <th className="text-left px-3 py-2 w-8">#</th>
+                <th className="text-left px-3 py-2">Produto</th>
+                <th className="text-left px-3 py-2 w-20">NCM</th>
+                <th className="text-left px-3 py-2 w-14">CFOP</th>
+                <th className="text-right px-3 py-2 w-14">Qtd</th>
+                <th className="text-left px-3 py-2 w-10">Un</th>
+                <th className="text-right px-3 py-2 w-24">Unit.</th>
+                <th className="text-right px-3 py-2 w-24">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {items.map(it => (
+                <tr key={it.nItem} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <td className="px-3 py-2 text-gray-400 font-mono">{it.nItem}</td>
+                  <td className="px-3 py-2 text-gray-800 dark:text-gray-200 font-medium">
+                    {it.xProd}
+                    {it.cEAN && it.cEAN !== 'SEM GTIN' && (
+                      <span className="text-[10px] text-gray-400 ml-1.5 font-mono">EAN {it.cEAN}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-gray-500 font-mono">{it.ncm}</td>
+                  <td className="px-3 py-2 text-gray-500 font-mono">{it.cfop}</td>
+                  <td className="px-3 py-2 text-right font-mono">{it.qCom.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
+                  <td className="px-3 py-2 text-gray-500">{it.uCom}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtBRL(it.vUnCom)}</td>
+                  <td className="px-3 py-2 text-right font-semibold font-mono">{fmtBRL(it.vProd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Totais + Cobrança ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-gray-200 dark:bg-gray-700">
+        {/* Totais */}
+        <div className="bg-white dark:bg-gray-800 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-1.5 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+              <CreditCard className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            </div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Totais</h4>
+          </div>
+          <div className="space-y-1 text-xs">
+            {[
+              ['Produtos', totais.vProd],
+              ['Frete', totais.vFrete],
+              ['Seguro', totais.vSeg],
+              ['Outras despesas', totais.vOutro],
+              ['Desconto', totais.vDesc],
+            ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
+              <div key={label as string} className="flex justify-between text-gray-600 dark:text-gray-300">
+                <span>{label}</span><span className="font-mono">{fmtBRL(val as number)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700 font-bold text-sm text-gray-900 dark:text-white">
+              <span>Total NF-e</span><span className="font-mono">{fmtBRL(totais.vNF)}</span>
+            </div>
+            {/* Tax summary */}
+            {(totais.vICMS > 0 || totais.vPIS > 0 || totais.vCOFINS > 0 || totais.vIPI > 0 || totais.vIBS > 0 || totais.vCBS > 0) && (
+              <div className="pt-2 mt-2 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Impostos destacados</p>
+                {[
+                  ['ICMS', totais.vICMS], ['PIS', totais.vPIS], ['COFINS', totais.vCOFINS],
+                  ['IPI', totais.vIPI], ['IBS', totais.vIBS], ['CBS', totais.vCBS],
+                ].filter(([, v]) => (v as number) > 0).map(([label, val]) => (
+                  <div key={label as string} className="flex justify-between text-gray-500 dark:text-gray-400">
+                    <span>{label}</span><span className="font-mono">{fmtBRL(val as number)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Cobrança / Duplicatas */}
+        <div className="bg-white dark:bg-gray-800 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-1.5 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+              <Calendar className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+            </div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Cobrança {dups.length > 0 && `(${dups.length} parcela${dups.length > 1 ? 's' : ''})`}
+            </h4>
+          </div>
+          {dups.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">Sem dados de cobrança na NF-e.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {dups.map((d, i) => (
+                <div key={i} className="flex items-center justify-between bg-gray-50 dark:bg-gray-900/40 rounded-lg px-3 py-2 text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-700 dark:text-orange-400 font-bold text-[10px]">
+                      {d.nDup || (i + 1)}
+                    </span>
+                    <span className="text-gray-600 dark:text-gray-300">{fmtDateBR(d.dVenc)}</span>
+                  </div>
+                  <span className="font-semibold text-gray-900 dark:text-white font-mono">{fmtBRL(d.vDup)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Inf. adicional */}
+          {infAdic && (
+            <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Informações Adicionais</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line break-words max-h-32 overflow-y-auto leading-relaxed">
+                {infAdic}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState<NFReceived[]>([]);
@@ -46,6 +355,7 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   const [manifestando, setManifestando] = useState<Record<string, boolean>>({});
   const [justModal, setJustModal] = useState<{ nfId: string; chave: string } | null>(null);
   const [justText, setJustText] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Cooldown da SEFAZ: após "nenhum documento" ou rejeição 656 (consumo
   // indevido), é obrigatório aguardar 1 hora antes de nova consulta.
@@ -277,18 +587,29 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
         <div className="space-y-2">
           {filtered.map(nf => {
             const badge = SITUACAO_BADGE[nf.situacao];
+            const isExpanded = expandedId === nf.id;
             return (
               <div
                 key={nf.id}
-                className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm p-4 flex flex-col md:flex-row md:items-center gap-3"
+                className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden"
               >
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg shrink-0">
+                <div className="p-4 flex flex-col md:flex-row md:items-center gap-3">
+                <div
+                  className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer group"
+                  onClick={() => setExpandedId(isExpanded ? null : nf.id)}
+                >
+                  <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg shrink-0 relative">
                     <FileText className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                    <div className="absolute -bottom-0.5 -right-0.5 bg-white dark:bg-gray-800 rounded-full">
+                      {isExpanded
+                        ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                        : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                      }
+                    </div>
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold text-sm text-gray-900 dark:text-white truncate">
+                      <p className="font-bold text-sm text-gray-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                         {nf.emitente_nome || 'Emitente não identificado'}
                       </p>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badge.cls}`}>{badge.label}</span>
@@ -417,6 +738,8 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
                     </button>
                   ) : null}
                 </div>
+                </div>
+                {isExpanded && <NFDetailPanel nf={nf} />}
               </div>
             );
           })}
