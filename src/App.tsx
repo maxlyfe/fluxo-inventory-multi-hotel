@@ -38,6 +38,7 @@ import FolhaPagamentoPage    from './pages/financial/FolhaPagamentoPage';
 import GastosRecorrentesPage from './pages/financial/GastosRecorrentesPage';
 import MovimentacoesPage     from './pages/financial/MovimentacoesPage';
 import NFRecebidasPage       from './pages/financial/NFRecebidasPage';
+import CartoesPage           from './pages/financial/CartoesPage';
 import ServicosPage          from './pages/gerencia/ServicosPage';
 import IbsCbsPage           from './pages/accounting/IbsCbsPage';
 import AuthorizationsPage    from './pages/AuthorizationsPage';
@@ -801,6 +802,11 @@ function App() {
                     <Route path="/finances" element={
                       <PrivateRoute module="finances">
                         <FinancialManagement />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/cartoes" element={
+                      <PrivateRoute module="finances">
+                        <CartoesPage />
                       </PrivateRoute>
                     } />
                     <Route path="/finances/fornecedores" element={

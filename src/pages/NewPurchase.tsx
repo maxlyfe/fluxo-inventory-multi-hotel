@@ -11,7 +11,10 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useHotel } from '../context/HotelContext';
+import { useGroup } from '../context/GroupContext';
 import { supplierDisplayName, parseRate } from '../lib/accountingService';
+import * as creditCardService from '../lib/creditCardService';
+import type { CreditCard as CreditCardType } from '../lib/creditCardService';
 import NFeXMLImportModal, { type NFeImportResult } from '../components/NFeXMLImportModal';
 import { nfService } from '../lib/nfService';
 import SupplierQuickCreateModal from '../components/SupplierQuickCreateModal';
@@ -409,6 +412,7 @@ const NewPurchase = () => {
   const location   = useLocation();
   const navigate   = useNavigate();
   const { selectedHotel }   = useHotel();
+  const { currentGroup }    = useGroup();
   const { addNotification } = useNotification();
 
   const budgetDataFromState: Budget | undefined = location.state?.budgetData;
@@ -468,6 +472,13 @@ const NewPurchase = () => {
     due_date: '',
     chart_account_sub_id: '',
   });
+
+  // ── Payment method + credit card
+  const [paymentMethod,    setPaymentMethod]    = useState('');
+  const [creditCardId,     setCreditCardId]     = useState('');
+  const [sourceHotelId,    setSourceHotelId]    = useState('');
+  const [cardList,         setCardList]         = useState<CreditCardType[]>([]);
+  const [showGroupCards,   setShowGroupCards]   = useState(false);
 
   // ── Supplier autocomplete
   const [suppList,       setSuppList]       = useState<SupplierSummary[]>([]);
@@ -561,6 +572,16 @@ const NewPurchase = () => {
     loadChartAccounts();
     loadDocTypes();
   }, [loadChartAccounts, loadDocTypes]);
+
+  useEffect(() => {
+    if (!selectedHotel?.id) return;
+    if (paymentMethod !== 'cartao') return;
+    if (showGroupCards && currentGroup?.id) {
+      creditCardService.listByGroup(currentGroup.id).then(setCardList).catch(() => setCardList([]));
+    } else {
+      creditCardService.list(selectedHotel.id).then(setCardList).catch(() => setCardList([]));
+    }
+  }, [selectedHotel?.id, currentGroup?.id, paymentMethod, showGroupCards]);
 
   // Pre-fill from budget
   useEffect(() => {
@@ -871,8 +892,16 @@ const NewPurchase = () => {
     if (total === 0 || installmentCount < 2) return;
     const base = Math.floor((total / installmentCount) * 100) / 100;
     const last = Math.round((total - base * (installmentCount - 1)) * 100) / 100;
+
+    const selectedCard = cardList.find(c => c.id === creditCardId);
+    const useCardDates = paymentMethod === 'cartao' && selectedCard && purchaseData.purchase_date;
+
     let firstDate: string;
-    if (purchaseData.document_type === 'Cartão de Crédito' && purchaseData.purchase_date) {
+    if (useCardDates) {
+      firstDate = creditCardService.calculateCardDueDate(
+        purchaseData.purchase_date, selectedCard.closing_day, selectedCard.due_day, 0,
+      );
+    } else if (purchaseData.document_type === 'Cartão de Crédito' && purchaseData.purchase_date) {
       firstDate = suggestDueDate(purchaseData.purchase_date);
     } else if (purchaseData.due_date) {
       firstDate = purchaseData.due_date;
@@ -881,10 +910,15 @@ const NewPurchase = () => {
     } else {
       firstDate = '';
     }
+
     setInstallments(
       Array.from({ length: installmentCount }, (_, i) => ({
         installment_number: i + 1,
-        due_date: firstDate ? addMonths(firstDate, i) : '',
+        due_date: useCardDates
+          ? creditCardService.calculateCardDueDate(
+              purchaseData.purchase_date, selectedCard.closing_day, selectedCard.due_day, i,
+            )
+          : (firstDate ? addMonths(firstDate, i) : ''),
         amount: i === installmentCount - 1 ? last : base,
       }))
     );
@@ -921,6 +955,20 @@ const NewPurchase = () => {
       if (!items.length)        throw new Error('Adicione pelo menos um item');
       if (!purchaseData.supplier) throw new Error('Fornecedor é obrigatório');
 
+      const selectedCard = paymentMethod === 'cartao' && creditCardId
+        ? cardList.find(c => c.id === creditCardId) : null;
+
+      let computedDueDate: string | null;
+      if (isInstallment) {
+        computedDueDate = installments[0]?.due_date || null;
+      } else if (selectedCard && purchaseData.purchase_date) {
+        computedDueDate = creditCardService.calculateCardDueDate(
+          purchaseData.purchase_date, selectedCard.closing_day, selectedCard.due_day, 0,
+        );
+      } else {
+        computedDueDate = purchaseData.due_date || null;
+      }
+
       const { data: purchase, error: pe } = await supabase.from('purchases').insert({
         invoice_number:      purchaseData.invoice_number || null,
         supplier:            purchaseData.supplier,
@@ -931,10 +979,13 @@ const NewPurchase = () => {
         hotel_id:            selectedHotel.id,
         document_type:       purchaseData.document_type || null,
         emission_date:       purchaseData.emission_date || null,
-        due_date:            isInstallment ? (installments[0]?.due_date || null) : (purchaseData.due_date || null),
+        due_date:            computedDueDate,
         chart_account_sub_id: purchaseData.chart_account_sub_id || null,
         is_installment:      isInstallment,
         installment_count:   isInstallment ? installments.length : null,
+        payment_method:      paymentMethod || null,
+        credit_card_id:      (paymentMethod === 'cartao' && creditCardId) || null,
+        source_hotel_id:     (paymentMethod === 'cartao' && sourceHotelId) || null,
       }).select().single();
       if (pe) throw pe;
 
@@ -1217,6 +1268,96 @@ const NewPurchase = () => {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Row 1b: Forma de Pagamento + Cartão */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                Forma de Pagamento
+              </label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <select
+                  value={paymentMethod}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setPaymentMethod(v);
+                    if (v !== 'cartao') { setCreditCardId(''); setSourceHotelId(''); }
+                  }}
+                  className={fieldCls + ' pl-9 pr-8 appearance-none'}>
+                  <option value="">Selecionar…</option>
+                  <option value="cartao">Cartão de Crédito</option>
+                  <option value="boleto">Boleto</option>
+                  <option value="pix">PIX</option>
+                  <option value="transferencia">Transferência</option>
+                  <option value="dinheiro">Dinheiro</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {paymentMethod === 'cartao' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                  Cartão
+                </label>
+                <div className="relative">
+                  <select
+                    value={creditCardId}
+                    onChange={e => {
+                      const cardId = e.target.value;
+                      setCreditCardId(cardId);
+                      const card = cardList.find(c => c.id === cardId);
+                      if (card && card.hotel_id !== selectedHotel?.id) {
+                        setSourceHotelId(card.hotel_id);
+                      } else {
+                        setSourceHotelId('');
+                      }
+                    }}
+                    className={fieldCls + ' pr-8 appearance-none'}>
+                    <option value="">Selecionar cartão…</option>
+                    {cardList.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} •••• {c.last_4_digits}
+                        {c.hotel_id !== selectedHotel?.id && c.hotels ? ` (${c.hotels.name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+                <label className="flex items-center gap-2 mt-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showGroupCards}
+                    onChange={e => setShowGroupCards(e.target.checked)}
+                    className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Mostrar cartões de outras unidades
+                  </span>
+                </label>
+                {sourceHotelId && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                    <Info className="w-3 h-3 shrink-0" />
+                    Cartão de outra unidade — gasto vinculado à origem
+                  </p>
+                )}
+                {creditCardId && purchaseData.purchase_date && !isInstallment && (() => {
+                  const card = cardList.find(c => c.id === creditCardId);
+                  if (!card) return null;
+                  const due = creditCardService.calculateCardDueDate(
+                    purchaseData.purchase_date, card.closing_day, card.due_day, 0,
+                  );
+                  return (
+                    <p className="text-xs text-blue-500 dark:text-blue-400 mt-1 flex items-center gap-1">
+                      <Info className="w-3 h-3 shrink-0" />
+                      Vencimento da fatura: {formatDateBR(due)}
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Row 2: Nº NF + Data da Compra + Data de Emissão */}

@@ -197,6 +197,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'finances', label: 'Gastos Recorrentes', href: '/finances/recorrentes',        icon: Repeat,       iconName: 'Repeat',       color: '#f97316' },
       { module: 'finances', label: 'Regras de Recebimento', href: '/finances/regras-recebimento', icon: SettingsIcon, iconName: 'Settings', color: '#6366f1' },
       { module: 'finances', label: 'Movimentações',      href: '/finances/movimentacoes',      icon: ArrowLeftRight, iconName: 'ArrowLeftRight', color: '#6366f1' },
+      { module: 'finances', label: 'Cartões de Crédito',  href: '/finances/cartoes',            icon: CreditCard,   iconName: 'CreditCard',   color: '#7c3aed' },
       { module: 'finances', label: 'NF Recebidas',       href: '/finances/nf-recebidas',       icon: FileSearch,   iconName: 'FileSearch',   color: '#3b82f6' },
       { module: 'finances', label: 'Fornecedores',       href: '/finances/fornecedores',       icon: Truck,        iconName: 'Truck',        color: '#059669' },
     ],
