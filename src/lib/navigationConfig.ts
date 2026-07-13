@@ -19,7 +19,7 @@ import {
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
   MessageCircle, Bot, Radio, Receipt, Truck, Calculator, Globe,
-  ConciergeBell,
+  ConciergeBell, HandCoins, Repeat, FileSearch, Wallet,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -189,8 +189,16 @@ export const NAV_GROUPS: NavGroup[] = [
     module: 'finances',
     activePrefixes: ['/finances'],
     items: [
-      { module: 'finances', label: 'Financeiro',   href: '/finances',               icon: DollarSign, iconName: 'DollarSign', color: '#10b981' },
-      { module: 'finances', label: 'Fornecedores', href: '/finances/fornecedores',  icon: Truck,      iconName: 'Truck',      color: '#059669' },
+      { module: 'finances', label: 'Painel Financeiro',   href: '/finances',                    icon: DollarSign,   iconName: 'DollarSign',   color: '#10b981' },
+      { module: 'finances', label: 'Contas a Pagar',     href: '/finances/contas-a-pagar',     icon: Wallet,       iconName: 'Wallet',       color: '#ef4444' },
+      { module: 'finances', label: 'Contas a Receber',   href: '/finances/contas-a-receber',   icon: CreditCard,   iconName: 'CreditCard',   color: '#22c55e' },
+      { module: 'finances', label: 'Outras Entradas',    href: '/finances/outras-entradas',    icon: HandCoins,    iconName: 'HandCoins',    color: '#14b8a6' },
+      { module: 'finances', label: 'Folha de Pagamento', href: '/finances/folha',              icon: Users,        iconName: 'Users',        color: '#a855f7' },
+      { module: 'finances', label: 'Gastos Recorrentes', href: '/finances/recorrentes',        icon: Repeat,       iconName: 'Repeat',       color: '#f97316' },
+      { module: 'finances', label: 'Regras de Recebimento', href: '/finances/regras-recebimento', icon: SettingsIcon, iconName: 'Settings', color: '#6366f1' },
+      { module: 'finances', label: 'Movimentações',      href: '/finances/movimentacoes',      icon: ArrowLeftRight, iconName: 'ArrowLeftRight', color: '#6366f1' },
+      { module: 'finances', label: 'NF Recebidas',       href: '/finances/nf-recebidas',       icon: FileSearch,   iconName: 'FileSearch',   color: '#3b82f6' },
+      { module: 'finances', label: 'Fornecedores',       href: '/finances/fornecedores',       icon: Truck,        iconName: 'Truck',        color: '#059669' },
     ],
   },
   {

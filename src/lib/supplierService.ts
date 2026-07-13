@@ -52,6 +52,7 @@ export interface Supplier {
   endereco_uf?: string;
 
   notes?: string;
+  default_chart_account_sub_id?: string | null;
   created_at?: string;
   updated_at?: string;
 

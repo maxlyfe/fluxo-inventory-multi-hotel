@@ -30,6 +30,14 @@ import BudgetHistory         from './pages/BudgetHistory';
 import BudgetDetail          from './pages/BudgetDetail';
 import FinancialManagement   from './pages/FinancialManagement';
 import FornecedoresPage      from './pages/financial/FornecedoresPage';
+import ContasAPagarPage      from './pages/financial/ContasAPagarPage';
+import ContasAReceberPage    from './pages/financial/ContasAReceberPage';
+import RegrasRecebimentoPage from './pages/financial/RegrasRecebimentoPage';
+import OutrasEntradasPage    from './pages/financial/OutrasEntradasPage';
+import FolhaPagamentoPage    from './pages/financial/FolhaPagamentoPage';
+import GastosRecorrentesPage from './pages/financial/GastosRecorrentesPage';
+import MovimentacoesPage     from './pages/financial/MovimentacoesPage';
+import NFRecebidasPage       from './pages/financial/NFRecebidasPage';
 import ServicosPage          from './pages/gerencia/ServicosPage';
 import IbsCbsPage           from './pages/accounting/IbsCbsPage';
 import AuthorizationsPage    from './pages/AuthorizationsPage';
@@ -798,6 +806,46 @@ function App() {
                     <Route path="/finances/fornecedores" element={
                       <PrivateRoute module="finances">
                         <FornecedoresPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/contas-a-pagar" element={
+                      <PrivateRoute module="finances">
+                        <ContasAPagarPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/contas-a-receber" element={
+                      <PrivateRoute module="finances">
+                        <ContasAReceberPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/regras-recebimento" element={
+                      <PrivateRoute module="finances">
+                        <RegrasRecebimentoPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/outras-entradas" element={
+                      <PrivateRoute module="finances">
+                        <OutrasEntradasPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/folha" element={
+                      <PrivateRoute module="finances">
+                        <FolhaPagamentoPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/recorrentes" element={
+                      <PrivateRoute module="finances">
+                        <GastosRecorrentesPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/movimentacoes" element={
+                      <PrivateRoute module="finances">
+                        <MovimentacoesPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/nf-recebidas" element={
+                      <PrivateRoute module="finances">
+                        <NFRecebidasPage />
                       </PrivateRoute>
                     } />
 

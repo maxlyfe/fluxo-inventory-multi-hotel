@@ -55,6 +55,7 @@ interface SupplierSummary {
   type: string;
   ibs: string | null;
   cbs: string | null;
+  default_chart_account_sub_id: string | null;
 }
 
 interface Budget {
@@ -532,7 +533,7 @@ const NewPurchase = () => {
       setSuppLoading(true);
       const [{ data: prods, error: fe }, { data: supps, error: suppErr }] = await Promise.all([
         supabase.from('products').select('*').eq('hotel_id', selectedHotel.id).order('name'),
-        supabase.from('suppliers').select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs')
+        supabase.from('suppliers').select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs, default_chart_account_sub_id')
           .eq('hotel_id', selectedHotel.id).eq('status', 'ativo').order('created_at', { ascending: false }),
       ]);
       if (fe) addNotification('Erro ao carregar produtos: ' + fe.message, 'error');
@@ -635,6 +636,18 @@ const NewPurchase = () => {
   const selectedSubName = selectedSub?.sub.name;
   const selectedAccName = selectedSub?.acc.name;
 
+  // Plano de contas padrão do fornecedor: auto-seleciona quando o campo está vazio
+  useEffect(() => {
+    if (!purchaseData.supplier_id || purchaseData.chart_account_sub_id) return;
+    const s = suppList.find(x => x.id === purchaseData.supplier_id);
+    if (s?.default_chart_account_sub_id) {
+      setPurchaseData(p => p.chart_account_sub_id
+        ? p
+        : { ...p, chart_account_sub_id: s.default_chart_account_sub_id });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchaseData.supplier_id, suppList]);
+
   const total = items.reduce((s, i) => s + i.total_price, 0);
 
   // ── NF-e XML import ───────────────────────────────────────────────────────────
@@ -651,7 +664,7 @@ const NewPurchase = () => {
     // Recarrega lista de fornecedores se um novo foi criado
     if (result.supplierId && selectedHotel?.id) {
       supabase.from('suppliers')
-        .select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs')
+        .select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs, default_chart_account_sub_id')
         .eq('hotel_id', selectedHotel.id).eq('status', 'ativo')
         .order('created_at', { ascending: false })
         .then(({ data }) => { if (data) setSuppList(data); });
@@ -749,7 +762,7 @@ const NewPurchase = () => {
     // Recarrega lista de fornecedores para incluir o recém-criado
     if (selectedHotel?.id) {
       supabase.from('suppliers')
-        .select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs')
+        .select('id, nome, nome_fantasia, razao_social, cnpj, type, ibs, cbs, default_chart_account_sub_id')
         .eq('hotel_id', selectedHotel.id).eq('status', 'ativo')
         .order('created_at', { ascending: false })
         .then(({ data }) => { if (data) setSuppList(data); });

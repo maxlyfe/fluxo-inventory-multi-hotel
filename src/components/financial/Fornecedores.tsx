@@ -10,6 +10,7 @@ import {
   Supplier, CnpjaResult, SupplierType,
 } from '../../lib/supplierService';
 import { useHotel } from '../../context/HotelContext';
+import ChartAccountSelect from './ChartAccountSelect';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -260,6 +261,15 @@ export function PFModal({ hotelId, initial, onClose, onSaved }: PFModalProps) {
             <div className="sm:col-span-2">
               <label className="label-sm">Observações</label>
               <textarea className="input-field resize-none" rows={2} value={form.notes ?? ''} onChange={e => set('notes', e.target.value)} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label-sm">Plano de contas padrão</label>
+              <ChartAccountSelect
+                hotelId={hotelId}
+                value={form.default_chart_account_sub_id}
+                onChange={v => set('default_chart_account_sub_id', v)}
+              />
+              <p className="text-[11px] text-gray-400 mt-1">Selecionado automaticamente ao lançar compras deste fornecedor.</p>
             </div>
             <div>
               <label className="label-sm">Status</label>
@@ -576,6 +586,18 @@ export function PJModal({ hotelId, initial, onClose, onSaved }: PJModalProps) {
                 <input className="input-field" value={form.endereco_bairro ?? ''} onChange={e => set('endereco_bairro', e.target.value)} />
               </div>
             </div>
+          </div>
+
+          {/* Plano de contas padrão */}
+          <div>
+            <SectionTitle>Plano de Contas</SectionTitle>
+            <label className="label-sm">Plano de contas padrão</label>
+            <ChartAccountSelect
+              hotelId={hotelId}
+              value={form.default_chart_account_sub_id}
+              onChange={v => set('default_chart_account_sub_id', v)}
+            />
+            <p className="text-[11px] text-gray-400 mt-1">Selecionado automaticamente ao lançar compras deste fornecedor.</p>
           </div>
 
           {/* Status + Obs */}

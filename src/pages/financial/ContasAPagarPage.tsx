@@ -1,0 +1,432 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ArrowDownCircle, Plus, Search, X, Loader2, AlertTriangle, RefreshCw,
+  Banknote, Trash2, Ban, ShoppingCart, Users, Repeat, HandCoins, FileText,
+} from 'lucide-react';
+import { useHotel } from '../../context/HotelContext';
+import {
+  apService, ApTitle, ApFilters, ApStatus, ApOrigin, PaymentMethod,
+  BankAccount, supplierDisplay,
+} from '../../lib/apService';
+import { supplierService, Supplier } from '../../lib/supplierService';
+import { ModalShell } from '../../components/financial/Fornecedores';
+import ChartAccountSelect from '../../components/financial/ChartAccountSelect';
+import {
+  fmtBRL, fmtDate, todayISO, FinStatusBadge, PeriodFilter, Period,
+  defaultPeriod, SummaryCard, PAYMENT_METHOD_LABELS,
+} from '../../components/financial/shared';
+
+const ORIGIN_META: Record<ApOrigin, { label: string; icon: React.ReactNode }> = {
+  purchase:  { label: 'Compra',      icon: <ShoppingCart className="w-3.5 h-3.5" /> },
+  manual:    { label: 'Manual',      icon: <FileText className="w-3.5 h-3.5" /> },
+  payroll:   { label: 'Folha',       icon: <Users className="w-3.5 h-3.5" /> },
+  recurring: { label: 'Recorrente',  icon: <Repeat className="w-3.5 h-3.5" /> },
+  loan:      { label: 'Empréstimo',  icon: <HandCoins className="w-3.5 h-3.5" /> },
+};
+
+// ─── Payment modal ────────────────────────────────────────────────────────────
+
+function PaymentModal({ title, hotelId, onClose, onSaved }: {
+  title: ApTitle; hotelId: string; onClose: () => void; onSaved: () => void;
+}) {
+  const remaining = title.amount - title.amount_paid;
+  const [amount, setAmount] = useState(String(remaining.toFixed(2)));
+  const [date, setDate] = useState(todayISO());
+  const [method, setMethod] = useState<PaymentMethod>('pix');
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [banks, setBanks] = useState<BankAccount[]>([]);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apService.listBankAccounts(hotelId).then(setBanks).catch(() => {});
+  }, [hotelId]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = parseFloat(amount);
+    if (!v || v <= 0) { setError('Valor inválido'); return; }
+    setSaving(true); setError('');
+    try {
+      await apService.registerPayment({
+        ap_title_id: title.id,
+        hotel_id: hotelId,
+        payment_date: date,
+        amount: v,
+        payment_method: method,
+        bank_account_id: bankAccountId || null,
+        notes: notes || null,
+      });
+      onSaved();
+    } catch (err: any) { setError(err.message ?? 'Erro ao registrar pagamento'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell onClose={onClose}>
+      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl my-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-700">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Banknote className="w-4 h-4 text-green-500" /> Registrar Pagamento
+          </h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSave} className="px-5 py-4 space-y-3">
+          <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 text-sm">
+            <p className="font-medium text-gray-800 dark:text-gray-200">{title.description}</p>
+            <p className="text-gray-500 mt-0.5">
+              Parcela {title.installment_number}/{title.installment_total} · Venc. {fmtDate(title.due_date)} ·
+              Em aberto: <span className="font-semibold">{fmtBRL(remaining)}</span>
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label-sm">Valor *</label>
+              <input className="input-field" type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label-sm">Data *</label>
+              <input className="input-field" type="date" value={date} onChange={e => setDate(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label-sm">Forma de pagamento</label>
+              <select className="input-field" value={method} onChange={e => setMethod(e.target.value as PaymentMethod)}>
+                {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label-sm">Conta / Banco</label>
+              <select className="input-field" value={bankAccountId} onChange={e => setBankAccountId(e.target.value)}>
+                <option value="">—</option>
+                {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="label-sm">Observações</label>
+              <input className="input-field" value={notes} onChange={e => setNotes(e.target.value)} />
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-600 flex items-center gap-1"><AlertTriangle className="w-4 h-4" />{error}</p>}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+            <button type="submit" disabled={saving} className="px-5 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />} Confirmar
+            </button>
+          </div>
+        </form>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Manual title modal ───────────────────────────────────────────────────────
+
+function ApTitleModal({ hotelId, onClose, onSaved }: {
+  hotelId: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [description, setDescription] = useState('');
+  const [supplierId, setSupplierId] = useState('');
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [chartSubId, setChartSubId] = useState<string | null>(null);
+  const [amount, setAmount] = useState('');
+  const [firstDue, setFirstDue] = useState(todayISO());
+  const [installments, setInstallments] = useState(1);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    supplierService.list(hotelId).then(setSuppliers).catch(() => {});
+  }, [hotelId]);
+
+  // Auto-seleciona plano de contas padrão do fornecedor
+  useEffect(() => {
+    if (!supplierId || chartSubId) return;
+    const s = suppliers.find(x => x.id === supplierId);
+    if (s?.default_chart_account_sub_id) setChartSubId(s.default_chart_account_sub_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierId, suppliers]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = parseFloat(amount);
+    if (!description.trim()) { setError('Descrição obrigatória'); return; }
+    if (!v || v <= 0) { setError('Valor inválido'); return; }
+    setSaving(true); setError('');
+    try {
+      await apService.createManual({
+        hotel_id: hotelId,
+        description: description.trim(),
+        supplier_id: supplierId || null,
+        chart_account_sub_id: chartSubId,
+        amount: v,
+        first_due_date: firstDue,
+        installments: Math.max(1, installments),
+        notes: notes || null,
+      });
+      onSaved();
+    } catch (err: any) { setError(err.message ?? 'Erro ao salvar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell onClose={onClose}>
+      <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-2xl shadow-2xl my-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-700">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <ArrowDownCircle className="w-4 h-4 text-red-500" /> Nova Conta a Pagar
+          </h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSave} className="px-5 py-4 space-y-3">
+          <div>
+            <label className="label-sm">Descrição *</label>
+            <input className="input-field" value={description} onChange={e => setDescription(e.target.value)} required />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label-sm">Fornecedor</label>
+              <select className="input-field" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+                <option value="">—</option>
+                {suppliers.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.nome_fantasia || s.razao_social || s.nome || '—'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label-sm">Plano de contas</label>
+              <ChartAccountSelect hotelId={hotelId} value={chartSubId} onChange={setChartSubId} />
+            </div>
+            <div>
+              <label className="label-sm">Valor total *</label>
+              <input className="input-field" type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label-sm">1º vencimento *</label>
+              <input className="input-field" type="date" value={firstDue} onChange={e => setFirstDue(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label-sm">Parcelas</label>
+              <input className="input-field" type="number" min="1" max="120" value={installments} onChange={e => setInstallments(parseInt(e.target.value) || 1)} />
+            </div>
+            <div>
+              <label className="label-sm">Observações</label>
+              <input className="input-field" value={notes} onChange={e => setNotes(e.target.value)} />
+            </div>
+          </div>
+          {installments > 1 && parseFloat(amount) > 0 && (
+            <p className="text-xs text-gray-500">
+              {installments}x de aprox. {fmtBRL(parseFloat(amount) / installments)} — vencimentos mensais a partir de {fmtDate(firstDue)}
+            </p>
+          )}
+          {error && <p className="text-sm text-red-600 flex items-center gap-1"><AlertTriangle className="w-4 h-4" />{error}</p>}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">Cancelar</button>
+            <button type="submit" disabled={saving} className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function ContasAPagarPage() {
+  const { selectedHotel } = useHotel();
+  const [titles, setTitles] = useState<ApTitle[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [period, setPeriod] = useState<Period>(defaultPeriod());
+  const [status, setStatus] = useState<'' | ApStatus | 'vencido'>('');
+  const [origin, setOrigin] = useState<'' | ApOrigin>('');
+  const [search, setSearch] = useState('');
+  const [payModal, setPayModal] = useState<ApTitle | null>(null);
+  const [newModal, setNewModal] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!selectedHotel?.id) return;
+    setLoading(true); setError('');
+    try {
+      const filters: ApFilters = { from: period.from, to: period.to };
+      if (status) filters.status = status as any;
+      if (origin) filters.origin = origin as ApOrigin;
+      setTitles(await apService.list(selectedHotel.id, filters));
+    } catch (err: any) { setError(err.message ?? 'Erro ao carregar'); }
+    finally { setLoading(false); }
+  }, [selectedHotel?.id, period, status, origin]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = titles.filter(t => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return t.description.toLowerCase().includes(q) || supplierDisplay(t).toLowerCase().includes(q);
+  });
+
+  const today = todayISO();
+  const open = filtered.filter(t => t.status === 'aberto' || t.status === 'parcial');
+  const totalOpen = open.reduce((s, t) => s + (t.amount - t.amount_paid), 0);
+  const totalOverdue = open.filter(t => t.due_date < today).reduce((s, t) => s + (t.amount - t.amount_paid), 0);
+  const totalPaid = filtered.reduce((s, t) => s + t.amount_paid, 0);
+
+  const handleCancel = async (t: ApTitle) => {
+    if (!window.confirm('Cancelar este título?')) return;
+    try { await apService.cancel(t.id); load(); } catch (err: any) { setError(err.message); }
+  };
+
+  const handleDelete = async (t: ApTitle) => {
+    if (!window.confirm('Excluir este título? Esta ação não pode ser desfeita.')) return;
+    try { await apService.delete(t.id); load(); } catch (err: any) { setError(err.message); }
+  };
+
+  if (!selectedHotel?.id) {
+    return <div className="max-w-7xl mx-auto px-4 py-20 text-center text-gray-500">Selecione um hotel.</div>;
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex items-center gap-3">
+          <ArrowDownCircle className="h-8 w-8 text-red-500" />
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">Contas a Pagar</h1>
+        </div>
+        <button onClick={() => setNewModal(true)} className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          <Plus className="w-4 h-4" /> Nova conta
+        </button>
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <SummaryCard label="Em aberto no período" value={fmtBRL(totalOpen)} color="text-blue-600 dark:text-blue-400" />
+        <SummaryCard label="Vencido" value={fmtBRL(totalOverdue)} color="text-red-600 dark:text-red-400" />
+        <SummaryCard label="Pago no período" value={fmtBRL(totalPaid)} color="text-green-600 dark:text-green-400" />
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <PeriodFilter period={period} onChange={setPeriod} />
+        <select className="input-field !w-auto text-sm" value={status} onChange={e => setStatus(e.target.value as any)}>
+          <option value="">Todos os status</option>
+          <option value="aberto">Aberto</option>
+          <option value="parcial">Parcial</option>
+          <option value="vencido">Vencido</option>
+          <option value="pago">Pago</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+        <select className="input-field !w-auto text-sm" value={origin} onChange={e => setOrigin(e.target.value as any)}>
+          <option value="">Todas as origens</option>
+          {Object.entries(ORIGIN_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..."
+            className="w-full pl-9 pr-3 py-2 text-sm bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <button onClick={load} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />{error}
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[860px]">
+            <thead className="bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-3">Descrição</th>
+                <th className="text-left px-4 py-3">Fornecedor</th>
+                <th className="text-left px-4 py-3">Origem</th>
+                <th className="text-center px-4 py-3">Parcela</th>
+                <th className="text-left px-4 py-3">Vencimento</th>
+                <th className="text-right px-4 py-3">Valor</th>
+                <th className="text-right px-4 py-3">Pago</th>
+                <th className="text-center px-4 py-3">Status</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={9} className="py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" /></td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={9} className="py-12 text-center text-gray-500">Nenhum título encontrado no período.</td></tr>
+              ) : filtered.map(t => (
+                <tr key={t.id} className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-gray-800 dark:text-gray-200 line-clamp-1">{t.description}</p>
+                    {t.chart_of_accounts_sub && (
+                      <p className="text-xs text-gray-400">
+                        {t.chart_of_accounts_sub.chart_of_accounts?.name} › {t.chart_of_accounts_sub.name}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{supplierDisplay(t)}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                      {ORIGIN_META[t.origin].icon}{ORIGIN_META[t.origin].label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center text-gray-500">{t.installment_number}/{t.installment_total}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{fmtDate(t.due_date)}</td>
+                  <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{fmtBRL(t.amount)}</td>
+                  <td className="px-4 py-3 text-right text-gray-500 whitespace-nowrap">{t.amount_paid > 0 ? fmtBRL(t.amount_paid) : '—'}</td>
+                  <td className="px-4 py-3 text-center"><FinStatusBadge status={t.status} dueDate={t.due_date} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      {(t.status === 'aberto' || t.status === 'parcial') && (
+                        <button onClick={() => setPayModal(t)} title="Registrar pagamento"
+                          className="p-1.5 text-gray-400 hover:text-green-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <Banknote className="w-4 h-4" />
+                        </button>
+                      )}
+                      {t.status !== 'cancelado' && t.status !== 'pago' && (
+                        <button onClick={() => handleCancel(t)} title="Cancelar"
+                          className="p-1.5 text-gray-400 hover:text-amber-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <Ban className="w-4 h-4" />
+                        </button>
+                      )}
+                      {t.origin === 'manual' && t.amount_paid === 0 && (
+                        <button onClick={() => handleDelete(t)} title="Excluir"
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {payModal && (
+        <PaymentModal
+          title={payModal} hotelId={selectedHotel.id}
+          onClose={() => setPayModal(null)}
+          onSaved={() => { setPayModal(null); load(); }}
+        />
+      )}
+      {newModal && (
+        <ApTitleModal
+          hotelId={selectedHotel.id}
+          onClose={() => setNewModal(false)}
+          onSaved={() => { setNewModal(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
