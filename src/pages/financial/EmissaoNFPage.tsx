@@ -287,16 +287,18 @@ export default function EmissaoNFPage() {
     if (r.source === 'erbon' && r.bookingInternalId) {
       try {
         const account = await erbonService.fetchBookingAccount(hotelId, r.bookingInternalId);
-        entries = (account || []).map((e: any) => ({
-          id: e.id,
-          description: e.description || 'Item',
-          amount: e.amount ?? 0,
-          isDebit: !!e.isDebit,
-          isCredit: !!e.isCredit,
-          currency: e.currency || 'BRL',
-          isInvoiced: !!e.isInvoiced,
-          idDepartment: e.idDepartment ?? 0,
-        }));
+        entries = (account || [])
+          .filter((e: any) => e.isDebit)
+          .map((e: any) => ({
+            id: e.id,
+            description: e.description || 'Item',
+            amount: e.amount ?? 0,
+            isDebit: true,
+            isCredit: false,
+            currency: e.currency || 'BRL',
+            isInvoiced: !!e.isInvoiced,
+            idDepartment: e.idDepartment ?? 0,
+          }));
       } catch { /* conta corrente pode não estar disponível */ }
     }
     setInvoiceModal({ booking: r, entries });
