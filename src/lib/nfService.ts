@@ -717,12 +717,15 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
 
     const result = await res.json();
 
-    if (!res.ok) {
+    if (!res.ok || result.success === false) {
       await supabase
         .from('nf_invoices')
-        .update({ status: 'rejeitada' })
+        .update({
+          status: 'rejeitada',
+          xml_retorno: result.xml_retorno || null,
+        })
         .eq('id', invoiceId);
-      return { success: false, message: result.error || 'Erro ao emitir nota fiscal' };
+      return { success: false, message: result.message || result.error || 'Erro ao emitir nota fiscal' };
     }
 
     const updateData: Record<string, unknown> = {

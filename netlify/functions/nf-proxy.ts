@@ -138,6 +138,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     }
 
     try {
+      console.log('[NFS-e Prefeitura] Emitindo RPS', numero_rps, 'para CNPJ', cnpj, 'ambiente:', ambiente);
       const result = await emitirNfsePrefeitura({
         prestador: { cnpj, inscricao_municipal },
         tomador: {
@@ -171,6 +172,12 @@ const handler: Handler = async (event: HandlerEvent) => {
         numeroRps: numero_rps || 1,
         serieRps: serie_rps || 'RPS',
       });
+
+      console.log('[NFS-e Prefeitura] Resultado:', result.success ? 'SUCESSO' : 'FALHA',
+        '| NF:', result.numero_nf, '| Msg:', result.message);
+      if (!result.success) {
+        console.log('[NFS-e Prefeitura] XML retorno (primeiros 2000 chars):', result.xml_retorno?.slice(0, 2000));
+      }
 
       return jsonResponse(200, {
         success: result.success,

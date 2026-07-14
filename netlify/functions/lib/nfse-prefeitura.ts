@@ -37,19 +37,32 @@ function xmlTag(xml: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
-function soapEnvelope(operation: string, cabecMsg: string, dadosMsg: string): string {
+function soapEnvelope(operation: string, _cabecMsg: string, dadosMsg: string): string {
+  // E&L (Modernização Pública) uses a simpler SOAP envelope:
+  // <nfse:operationName><xml><![CDATA[...]]></xml></nfse:operationName>
+  // NOT the CabecMsg/DadosMsg pattern used by Betha/Ginfes.
+  const opName = operationSoapName(operation);
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="${SOAP_NS}" xmlns:nfse="${NFSE_ACTION_NS}">` +
     `<soapenv:Header/>` +
     `<soapenv:Body>` +
-    `<nfse:${operation}Request>` +
-    `<nfseCabecMsg><![CDATA[${cabecMsg}]]></nfseCabecMsg>` +
-    `<nfseDadosMsg><![CDATA[${dadosMsg}]]></nfseDadosMsg>` +
-    `</nfse:${operation}Request>` +
+    `<nfse:${opName}>` +
+    `<xml><![CDATA[${dadosMsg}]]></xml>` +
+    `</nfse:${opName}>` +
     `</soapenv:Body>` +
     `</soapenv:Envelope>`
   );
+}
+
+function operationSoapName(operation: string): string {
+  const map: Record<string, string> = {
+    GerarNfse: 'gerarNfse',
+    CancelarNfse: 'cancelarNfse',
+    ConsultarNfsePorRps: 'consultarNfsePorRps',
+    ConsultarNfseServicoPrestado: 'consultarNfseServicoPrestado',
+  };
+  return map[operation] || operation;
 }
 
 function cabecalhoXml(): string {
@@ -271,6 +284,7 @@ export async function emitirNfsePrefeitura(params: {
   const envelope = soapEnvelope('GerarNfse', cabecalhoXml(), rpsXml);
 
   // 4. Enviar via mTLS
+  console.log('[NFS-e SOAP] Envelope enviado (primeiros 2000 chars):', envelope.slice(0, 2000));
   const pfxBuffer = Buffer.from(config.certificado_base64, 'base64');
   const res = await httpsPost({
     host: NFSE_HOSTS[config.ambiente],
@@ -297,6 +311,8 @@ export async function emitirNfsePrefeitura(params: {
 
   // 5. Parsear resposta SOAP
   const respBody = res.body;
+  console.log('[NFS-e SOAP] Status HTTP:', res.status);
+  console.log('[NFS-e SOAP] Resposta (primeiros 3000 chars):', respBody.slice(0, 3000));
 
   // Verificar erros ABRASF
   const codigoErro = xmlTag(respBody, 'Codigo');
