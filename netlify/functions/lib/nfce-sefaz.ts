@@ -148,12 +148,15 @@ async function sefazPost(params: {
 
   const envelope = soap12(wsdlNs, action, params.xml);
 
+  // rejectUnauthorized: false — a cadeia TLS do SVRS não é validada
+  // pelo runtime do Netlify (ICP-Brasil CA ausente), mesmo padrão de dfe.ts.
   return httpsPost({
     host,
     path,
     method: 'POST',
     pfx: Buffer.from(params.pfxBase64, 'base64'),
     passphrase: params.pfxSenha,
+    rejectUnauthorized: false,
     headers: {
       'Content-Type': `application/soap+xml; charset=utf-8; action="${action}"`,
     },
