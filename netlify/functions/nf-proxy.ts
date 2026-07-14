@@ -1,10 +1,21 @@
 // netlify/functions/nf-proxy.ts
-// Proxy server-side para emissão de NF-e (SEFAZ-RJ) e NFS-e (Prefeitura Búzios)
-// STUB: retorna respostas simuladas enquanto a integração real não é implementada
+// Proxy server-side para emissão de NF-e (SEFAZ-RJ), NFS-e (Prefeitura Búzios)
+// e NFS-e via ADN (Governo Federal / Receita Federal / Serpro).
 
 import type { Handler, HandlerEvent } from '@netlify/functions';
 import { consultaDFe, manifestarNFe } from './lib/dfe';
 import type { TipoManifestacao } from './lib/dfe';
+import {
+  emitirDPS,
+  consultarNFSe,
+  registrarEvento,
+  buscarDANFSE,
+  testarConexaoADN,
+  buildDPS,
+  type DPSConfig,
+  type DPSTomador,
+  type DPSItem,
+} from './lib/adn-nfse';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -260,6 +271,237 @@ const handler: Handler = async (event: HandlerEvent) => {
         ? 'Senha do certificado incorreta ou arquivo .pfx inválido.'
         : msg;
       return jsonResponse(502, { error: `Falha na manifestação: ${friendly}` });
+    }
+  }
+
+  // ─── ADN: Teste de Conexão ─────────────────────────────────────────────────
+
+  if (action === 'test-nfse-adn') {
+    let payload: {
+      certificado_base64?: string;
+      certificado_senha?: string;
+      ambiente?: string;
+    };
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch {
+      return jsonResponse(400, { error: 'Body JSON inválido' });
+    }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+
+    const result = await testarConexaoADN({
+      certificado_base64: payload.certificado_base64,
+      certificado_senha: payload.certificado_senha,
+      ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+    });
+
+    return jsonResponse(result.success ? 200 : 502, {
+      success: result.success,
+      message: result.mensagem,
+    });
+  }
+
+  // ─── ADN: Emissão de NFS-e (DPS) ─────────────────────────────────────────
+
+  if (action === 'emit-nfse-adn') {
+    let payload: {
+      certificado_base64?: string;
+      certificado_senha?: string;
+      ambiente?: string;
+      config?: DPSConfig;
+      tomador?: DPSTomador;
+      items?: DPSItem[];
+      serie?: string;
+      numeroDPS?: number;
+    };
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch {
+      return jsonResponse(400, { error: 'Body JSON inválido' });
+    }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+    if (!payload.config || !payload.tomador || !payload.items?.length) {
+      return jsonResponse(400, { error: 'config, tomador e items são obrigatórios.' });
+    }
+
+    const ambiente = payload.ambiente === 'producao' ? 'producao' as const : 'homologacao' as const;
+
+    try {
+      const dps = buildDPS(
+        payload.config,
+        payload.tomador,
+        payload.items,
+        payload.serie || 'NFS',
+        payload.numeroDPS || 1,
+        ambiente,
+      );
+
+      const result = await emitirDPS({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        dps,
+        ambiente,
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        numero_nf: result.numeroNFSe,
+        chave_acesso: result.chaveAcesso,
+        numero_protocolo: result.protocolo,
+        codigo_verificacao: result.codigoVerificacao,
+        xml_retorno: result.xmlRetorno,
+        xml_dps: JSON.stringify(dps),
+        message: result.mensagem,
+        error: result.success ? undefined : result.mensagem,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      const friendly = /mac verify|invalid password|pkcs/i.test(msg)
+        ? 'Senha do certificado incorreta ou arquivo .pfx inválido.'
+        : msg;
+      return jsonResponse(502, { error: `Falha na emissão ADN: ${friendly}` });
+    }
+  }
+
+  // ─── ADN: Cancelamento de NFS-e ───────────────────────────────────────────
+
+  if (action === 'cancel-nfse-adn') {
+    let payload: {
+      certificado_base64?: string;
+      certificado_senha?: string;
+      chaveAcesso?: string;
+      motivo?: string;
+      codigoCancelamento?: string;
+      ambiente?: string;
+    };
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch {
+      return jsonResponse(400, { error: 'Body JSON inválido' });
+    }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+    if (!payload.chaveAcesso) {
+      return jsonResponse(400, { error: 'Chave de acesso da NFS-e é obrigatória.' });
+    }
+    if (!payload.motivo) {
+      return jsonResponse(400, { error: 'Motivo do cancelamento é obrigatório.' });
+    }
+
+    try {
+      const result = await registrarEvento({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        chaveAcesso: payload.chaveAcesso,
+        tipoEvento: 'cancelamento',
+        codigoCancelamento: payload.codigoCancelamento,
+        motivo: payload.motivo,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        protocolo: result.protocolo,
+        message: result.mensagem,
+        xml_cancelamento: result.success ? JSON.stringify({ protocolo: result.protocolo }) : undefined,
+        error: result.success ? undefined : result.mensagem,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      return jsonResponse(502, { error: `Falha no cancelamento ADN: ${msg}` });
+    }
+  }
+
+  // ─── ADN: Consulta NFS-e por chave ────────────────────────────────────────
+
+  if (action === 'consulta-nfse-adn') {
+    let payload: {
+      certificado_base64?: string;
+      certificado_senha?: string;
+      chaveAcesso?: string;
+      ambiente?: string;
+    };
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch {
+      return jsonResponse(400, { error: 'Body JSON inválido' });
+    }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+    if (!payload.chaveAcesso) {
+      return jsonResponse(400, { error: 'Chave de acesso da NFS-e é obrigatória.' });
+    }
+
+    try {
+      const result = await consultarNFSe({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        chaveAcesso: payload.chaveAcesso,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        data: result.data,
+        message: result.mensagem,
+        error: result.success ? undefined : result.mensagem,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      return jsonResponse(502, { error: `Falha na consulta ADN: ${msg}` });
+    }
+  }
+
+  // ─── ADN: Buscar DANFSE (PDF) ─────────────────────────────────────────────
+
+  if (action === 'danfse-adn') {
+    let payload: {
+      certificado_base64?: string;
+      certificado_senha?: string;
+      chaveAcesso?: string;
+      ambiente?: string;
+    };
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch {
+      return jsonResponse(400, { error: 'Body JSON inválido' });
+    }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+    if (!payload.chaveAcesso) {
+      return jsonResponse(400, { error: 'Chave de acesso da NFS-e é obrigatória.' });
+    }
+
+    try {
+      const result = await buscarDANFSE({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        chaveAcesso: payload.chaveAcesso,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        pdfBase64: result.pdfBase64,
+        contentType: result.contentType,
+        message: result.mensagem,
+        error: result.success ? undefined : result.mensagem,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      return jsonResponse(502, { error: `Falha ao obter DANFSE: ${msg}` });
     }
   }
 

@@ -606,8 +606,71 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
 
 async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ success: boolean; message: string; invoice?: NFInvoice }> {
   try {
-    const { data: inv } = await supabase.from('nf_invoices').select('tipo').eq('id', invoiceId).single();
-    const proxyAction = inv?.tipo === 'nfce' ? 'emit-nfce' : 'emit';
+    const { data: inv } = await supabase
+      .from('nf_invoices')
+      .select('tipo, tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email, tomador_endereco')
+      .eq('id', invoiceId)
+      .single();
+
+    const config = await getConfig(hotelId);
+    const useADN = inv?.tipo === 'nfse' && config?.nfse_provider === 'adn';
+
+    let proxyAction: string;
+    let bodyPayload: Record<string, unknown>;
+
+    if (useADN) {
+      const { data: items } = await supabase
+        .from('nf_invoice_items')
+        .select('*')
+        .eq('invoice_id', invoiceId);
+
+      proxyAction = 'emit-nfse-adn';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config!.certificado_base64,
+        certificado_senha: config!.certificado_senha,
+        ambiente: config!.adn_ambiente || 'homologacao',
+        config: {
+          cnpj: config!.cnpj,
+          inscricao_municipal: config!.inscricao_municipal,
+          razao_social: config!.razao_social,
+          nome_fantasia: config!.nome_fantasia,
+          endereco_logradouro: config!.endereco_logradouro,
+          endereco_numero: config!.endereco_numero,
+          endereco_complemento: config!.endereco_complemento,
+          endereco_bairro: config!.endereco_bairro,
+          endereco_cidade: config!.endereco_cidade,
+          endereco_uf: config!.endereco_uf,
+          endereco_cep: config!.endereco_cep,
+          endereco_codigo_municipio: config!.endereco_codigo_municipio,
+          telefone: config!.telefone,
+          email: config!.email,
+          regime_tributario_nfse: config!.regime_tributario_nfse,
+          codigo_servico: config!.codigo_servico,
+          aliquota_iss: config!.aliquota_iss,
+        },
+        tomador: {
+          nome: inv!.tomador_nome,
+          doc_tipo: inv!.tomador_doc_tipo,
+          doc_numero: inv!.tomador_cpf_cnpj,
+          email: inv!.tomador_email,
+          endereco: inv!.tomador_endereco,
+        },
+        items: (items || []).map((i: NFInvoiceItem) => ({
+          descricao: i.descricao,
+          quantidade: i.quantidade,
+          valor_unitario: i.valor_unitario,
+          valor_total: i.valor_total,
+          codigo_servico: i.codigo_servico,
+          iss_aliquota: i.iss_aliquota,
+        })),
+        serie: config!.serie_nfse || 'NFS',
+        numeroDPS: config!.proximo_numero_nfse || 1,
+      };
+    } else {
+      proxyAction = inv?.tipo === 'nfce' ? 'emit-nfce' : 'emit';
+      bodyPayload = { action: proxyAction, invoiceId, hotelId };
+    }
 
     const res = await fetch(NF_PROXY, {
       method: 'POST',
@@ -615,7 +678,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         'Content-Type': 'application/json',
         'x-nf-action': proxyAction,
       },
-      body: JSON.stringify({ action: proxyAction, invoiceId, hotelId }),
+      body: JSON.stringify(bodyPayload),
     });
 
     const result = await res.json();
@@ -628,24 +691,41 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
       return { success: false, message: result.error || 'Erro ao emitir nota fiscal' };
     }
 
+    const updateData: Record<string, unknown> = {
+      status: 'autorizada',
+      numero_nf: result.numero_nf || null,
+      serie: result.serie || null,
+      chave_acesso: result.chave_acesso || null,
+      numero_protocolo: result.numero_protocolo || null,
+      codigo_verificacao: result.codigo_verificacao || null,
+      xml_retorno: result.xml_retorno || null,
+      pdf_url: result.pdf_url || null,
+      qrcode_url: result.qrcode_url || null,
+      url_consulta: result.url_consulta || null,
+    };
+
+    if (useADN) {
+      updateData.nfse_provider = 'adn';
+      updateData.xml_dps = result.xml_dps || null;
+    } else {
+      updateData.nfse_provider = inv?.tipo === 'nfse' ? 'prefeitura' : null;
+    }
+
     const { data: updated, error } = await supabase
       .from('nf_invoices')
-      .update({
-        status: 'autorizada',
-        numero_nf: result.numero_nf || null,
-        serie: result.serie || null,
-        chave_acesso: result.chave_acesso || null,
-        numero_protocolo: result.numero_protocolo || null,
-        codigo_verificacao: result.codigo_verificacao || null,
-        xml_retorno: result.xml_retorno || null,
-        pdf_url: result.pdf_url || null,
-        qrcode_url: result.qrcode_url || null,
-        url_consulta: result.url_consulta || null,
-      })
+      .update(updateData)
       .eq('id', invoiceId)
       .select()
       .single();
     if (error) throw error;
+
+    // Incrementar proximo_numero se ADN
+    if (useADN && config) {
+      await supabase
+        .from('nf_hotel_config')
+        .update({ proximo_numero_nfse: (config.proximo_numero_nfse || 1) + 1 })
+        .eq('hotel_id', hotelId);
+    }
 
     // Marcar entries como emitidas
     const { data: items } = await supabase
@@ -675,13 +755,35 @@ async function cancelInvoice(
   canceladoPor: string | null,
 ): Promise<{ success: boolean; message: string }> {
   try {
+    const { data: inv } = await supabase
+      .from('nf_invoices')
+      .select('nfse_provider, chave_acesso, hotel_id')
+      .eq('id', invoiceId)
+      .single();
+
+    let proxyAction = 'cancel';
+    let bodyPayload: Record<string, unknown> = { action: 'cancel', invoiceId, motivo };
+
+    if (inv?.nfse_provider === 'adn' && inv.chave_acesso) {
+      const config = await getConfig(inv.hotel_id);
+      proxyAction = 'cancel-nfse-adn';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config?.certificado_base64,
+        certificado_senha: config?.certificado_senha,
+        chaveAcesso: inv.chave_acesso,
+        motivo,
+        ambiente: config?.adn_ambiente || 'homologacao',
+      };
+    }
+
     const res = await fetch(NF_PROXY, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-nf-action': 'cancel',
+        'x-nf-action': proxyAction,
       },
-      body: JSON.stringify({ action: 'cancel', invoiceId, motivo }),
+      body: JSON.stringify(bodyPayload),
     });
 
     const result = await res.json();
@@ -712,6 +814,100 @@ async function cancelInvoice(
     const message = err instanceof Error ? err.message : 'Erro desconhecido';
     return { success: false, message };
   }
+}
+
+// ─── DANFSE (PDF do ADN) ───────────────────────────────────────────────────
+
+async function fetchDANFSE(
+  invoiceId: string,
+): Promise<{ success: boolean; pdfBase64?: string; message: string }> {
+  try {
+    const { data: inv } = await supabase
+      .from('nf_invoices')
+      .select('chave_acesso, hotel_id, nfse_provider')
+      .eq('id', invoiceId)
+      .single();
+
+    if (!inv?.chave_acesso || inv.nfse_provider !== 'adn') {
+      return { success: false, message: 'DANFSE disponível apenas para NFS-e emitidas via ADN.' };
+    }
+
+    const config = await getConfig(inv.hotel_id);
+    if (!config?.certificado_base64) {
+      return { success: false, message: 'Certificado digital não configurado.' };
+    }
+
+    const res = await fetch(NF_PROXY, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-nf-action': 'danfse-adn',
+      },
+      body: JSON.stringify({
+        action: 'danfse-adn',
+        certificado_base64: config.certificado_base64,
+        certificado_senha: config.certificado_senha,
+        chaveAcesso: inv.chave_acesso,
+        ambiente: config.adn_ambiente || 'homologacao',
+      }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.success) {
+      return { success: false, message: result.error || 'Erro ao obter DANFSE.' };
+    }
+
+    return { success: true, pdfBase64: result.pdfBase64, message: 'DANFSE obtido com sucesso.' };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Erro desconhecido';
+    return { success: false, message };
+  }
+}
+
+// ─── Emissão em lote ────────────────────────────────────────────────────────
+
+export interface BatchEmissionProgress {
+  total: number;
+  current: number;
+  successes: number;
+  failures: number;
+  currentLabel: string;
+}
+
+async function batchEmitInvoices(
+  invoiceIds: string[],
+  hotelId: string,
+  onProgress?: (progress: BatchEmissionProgress) => void,
+  delayMs = 1000,
+): Promise<{ successes: string[]; failures: Array<{ invoiceId: string; error: string }> }> {
+  const successes: string[] = [];
+  const failures: Array<{ invoiceId: string; error: string }> = [];
+
+  for (let i = 0; i < invoiceIds.length; i++) {
+    const invoiceId = invoiceIds[i];
+    onProgress?.({
+      total: invoiceIds.length,
+      current: i + 1,
+      successes: successes.length,
+      failures: failures.length,
+      currentLabel: `Emitindo nota ${i + 1} de ${invoiceIds.length}...`,
+    });
+
+    const result = await emitInvoice(invoiceId, hotelId);
+    if (result.success) {
+      successes.push(invoiceId);
+    } else {
+      failures.push({ invoiceId, error: result.message });
+    }
+
+    // Delay entre emissões para respeitar rate limits
+    if (i < invoiceIds.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return { successes, failures };
 }
 
 // ─── Contingência ───────────────────────────────────────────────────────────
@@ -1237,6 +1433,8 @@ export const nfService = {
   resetDFeNSU,
   linkReceivedToPurchases,
   manifestarNFe,
+  fetchDANFSE,
+  batchEmitInvoices,
 };
 
-export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult };
+export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult, BatchEmissionProgress };

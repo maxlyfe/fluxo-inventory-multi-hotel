@@ -20,7 +20,9 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { nfService } from '../../lib/nfService';
-import type { NFHotelConfig, NFAmbiente } from '../../types/nf';
+import { supabase } from '../../lib/supabase';
+import type { NFHotelConfig, NFAmbiente, NFSEProvider } from '../../types/nf';
+import { ImageIcon, Globe, Landmark } from 'lucide-react';
 
 // ── CSS helpers ──────────────────────────────────────────────────────────────
 
@@ -66,6 +68,9 @@ const EMPTY_FORM = {
   proximo_numero_nfce: 1,
   nfce_csc_id: '',
   nfce_csc_token: '',
+  nfse_provider: 'prefeitura' as NFSEProvider,
+  adn_ambiente: 'homologacao' as NFAmbiente,
+  logo_url: '',
   nf_recebidas_enabled: false,
   certificado_base64: '',
   certificado_senha: '',
@@ -147,6 +152,9 @@ const NFIntegration: React.FC = () => {
           proximo_numero_nfce: cfg.proximo_numero_nfce ?? 1,
           nfce_csc_id: cfg.nfce_csc_id || '',
           nfce_csc_token: cfg.nfce_csc_token || '',
+          nfse_provider: cfg.nfse_provider || 'prefeitura',
+          adn_ambiente: cfg.adn_ambiente || 'homologacao',
+          logo_url: cfg.logo_url || '',
           nf_recebidas_enabled: cfg.nf_recebidas_enabled ?? false,
           certificado_base64: cfg.certificado_base64 || '',
           certificado_senha: cfg.certificado_senha || '',
@@ -239,6 +247,64 @@ const NFIntegration: React.FC = () => {
       setForm(p => ({ ...p, certificado_base64: base64 }));
     };
     reader.readAsDataURL(file);
+  }
+
+  // ── Logo Upload ───────────────────────────────────────────────────────────
+
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !selectedHotel) return;
+    if (file.size > 500 * 1024) {
+      setError('Logo deve ter no máximo 500KB.');
+      return;
+    }
+    setUploadingLogo(true);
+    setError(null);
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const path = `${selectedHotel.id}/logo.${ext}`;
+      const { error: upErr } = await supabase.storage.from('nf-logos').upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from('nf-logos').getPublicUrl(path);
+      const logoUrl = urlData.publicUrl + '?t=' + Date.now();
+      setForm(p => ({ ...p, logo_url: logoUrl }));
+      setSuccess('Logo atualizada com sucesso!');
+    } catch (err) {
+      console.error('[NFIntegration] logoUpload:', err);
+      setError('Erro ao fazer upload da logo.');
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
+  // ── ADN Test Connection ──────────────────────────────────────────────────
+
+  async function handleTestADN() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(
+        import.meta.env.PROD ? '/.netlify/functions/nf-proxy' : '/.netlify/functions/nf-proxy',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-nf-action': 'test-nfse-adn' },
+          body: JSON.stringify({
+            action: 'test-nfse-adn',
+            certificado_base64: form.certificado_base64,
+            certificado_senha: form.certificado_senha,
+            ambiente: form.adn_ambiente,
+          }),
+        },
+      );
+      const data = await res.json();
+      setTestResult({ success: data.success, message: data.message || data.error || 'Erro desconhecido' });
+    } catch {
+      setTestResult({ success: false, message: 'Erro ao testar conexão com ADN' });
+    } finally {
+      setTesting(false);
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -359,6 +425,42 @@ const NFIntegration: React.FC = () => {
                 </select>
               </div>
 
+              {/* Logo upload */}
+              <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50/50 dark:bg-gray-900/30">
+                <label className={labelCls}>Logo da Unidade (impressa na NF)</label>
+                <div className="flex items-center gap-4 mt-2">
+                  <div className="w-24 h-16 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center overflow-hidden bg-white dark:bg-gray-800">
+                    {form.logo_url ? (
+                      <img src={form.logo_url} alt="Logo" className="max-h-14 max-w-20 object-contain" />
+                    ) : (
+                      <ImageIcon className="w-8 h-8 text-gray-300 dark:text-gray-600" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:border-blue-400 transition-colors text-sm text-gray-600 dark:text-gray-400">
+                      <Upload className="w-4 h-4" />
+                      {uploadingLogo ? 'Enviando...' : form.logo_url ? 'Trocar logo' : 'Selecionar logo'}
+                      <input
+                        type="file"
+                        accept=".png,.jpg,.jpeg,.webp"
+                        onChange={handleLogoUpload}
+                        disabled={uploadingLogo}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1">PNG, JPG ou WebP. Máximo 500KB.</p>
+                  </div>
+                  {form.logo_url && (
+                    <button
+                      onClick={() => setForm(p => ({ ...p, logo_url: '' }))}
+                      className="text-xs text-red-500 hover:text-red-600"
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Razão Social</label>
@@ -447,65 +549,185 @@ const NFIntegration: React.FC = () => {
                 </div>
               </div>
 
-              <p className="text-sm text-gray-500 -mt-2">
-                Integração com a Prefeitura de Armação dos Búzios (padrão ABRASF) para emissão de notas de serviço (diárias, taxas).
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>Inscrição Municipal</label>
-                  <input type="text" value={form.inscricao_municipal} onChange={upd('inscricao_municipal')} className={inputCls} placeholder="Número da IM" />
-                </div>
-                <div>
-                  <label className={labelCls}>Regime Tributário</label>
-                  <select value={form.regime_tributario_nfse} onChange={upd('regime_tributario_nfse')} className={inputCls}>
-                    <option value="">Nenhum / Regime Normal (Lucro Presumido ou Lucro Real)</option>
-                    <option value="1">Microempresa Municipal</option>
-                    <option value="2">Estimativa</option>
-                    <option value="3">Sociedade de Profissionais</option>
-                    <option value="4">Cooperativa</option>
-                    <option value="5">MEI</option>
-                    <option value="6">ME/EPP — Simples Nacional</option>
-                  </select>
-                </div>
-                <div>
-                  <label className={labelCls}>Código de Serviço (LC 116)</label>
-                  <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
-                </div>
-                <div>
-                  <label className={labelCls}>Alíquota ISS (%)</label>
-                  <input type="number" value={form.aliquota_iss} onChange={upd('aliquota_iss')} className={inputCls} step="0.01" min="0" max="100" />
-                </div>
-                <div>
-                  <label className={labelCls}>Série</label>
-                  <input type="text" value={form.serie_nfse} onChange={upd('serie_nfse')} className={inputCls} placeholder="NFS" />
-                </div>
-                <div>
-                  <label className={labelCls}>Próximo Número</label>
-                  <input type="number" value={form.proximo_numero_nfse} onChange={upd('proximo_numero_nfse')} className={inputCls} min="1" />
-                </div>
+              {/* Provider toggle */}
+              <div className="flex rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <button
+                  onClick={() => setForm(p => ({ ...p, nfse_provider: 'prefeitura' }))}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm font-bold transition-colors ${
+                    form.nfse_provider === 'prefeitura'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-50 dark:bg-gray-900/50 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <Landmark className="w-4 h-4" />
+                  Prefeitura (Municipal)
+                </button>
+                <button
+                  onClick={() => setForm(p => ({ ...p, nfse_provider: 'adn' }))}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm font-bold transition-colors ${
+                    form.nfse_provider === 'adn'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-50 dark:bg-gray-900/50 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <Globe className="w-4 h-4" />
+                  Governo Federal / ADN
+                </button>
               </div>
 
-              <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 pt-2">Credenciais da Prefeitura</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>Login / Usuário</label>
-                  <input type="text" value={form.prefeitura_login} onChange={upd('prefeitura_login')} className={inputCls} placeholder="Usuário da prefeitura" />
-                </div>
-                <div>
-                  <label className={labelCls}>Senha</label>
-                  <input type="password" value={form.prefeitura_senha} onChange={upd('prefeitura_senha')} className={inputCls} placeholder="••••••••" />
-                </div>
-              </div>
+              {form.nfse_provider === 'prefeitura' ? (
+                <>
+                  <p className="text-sm text-gray-500">
+                    Integração com a Prefeitura de Armação dos Búzios (padrão ABRASF) para emissão de notas de serviço (diárias, taxas).
+                  </p>
 
-              <button
-                onClick={() => handleTestConnection('nfse')}
-                disabled={testing}
-                className={btnPrimary}
-              >
-                {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-                Testar Conexão NFS-e
-              </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Inscrição Municipal</label>
+                      <input type="text" value={form.inscricao_municipal} onChange={upd('inscricao_municipal')} className={inputCls} placeholder="Número da IM" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Regime Tributário</label>
+                      <select value={form.regime_tributario_nfse} onChange={upd('regime_tributario_nfse')} className={inputCls}>
+                        <option value="">Nenhum / Regime Normal (Lucro Presumido ou Lucro Real)</option>
+                        <option value="1">Microempresa Municipal</option>
+                        <option value="2">Estimativa</option>
+                        <option value="3">Sociedade de Profissionais</option>
+                        <option value="4">Cooperativa</option>
+                        <option value="5">MEI</option>
+                        <option value="6">ME/EPP — Simples Nacional</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código de Serviço (LC 116)</label>
+                      <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Alíquota ISS (%)</label>
+                      <input type="number" value={form.aliquota_iss} onChange={upd('aliquota_iss')} className={inputCls} step="0.01" min="0" max="100" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Série</label>
+                      <input type="text" value={form.serie_nfse} onChange={upd('serie_nfse')} className={inputCls} placeholder="NFS" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Próximo Número</label>
+                      <input type="number" value={form.proximo_numero_nfse} onChange={upd('proximo_numero_nfse')} className={inputCls} min="1" />
+                    </div>
+                  </div>
+
+                  <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 pt-2">Credenciais da Prefeitura</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Login / Usuário</label>
+                      <input type="text" value={form.prefeitura_login} onChange={upd('prefeitura_login')} className={inputCls} placeholder="Usuário da prefeitura" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Senha</label>
+                      <input type="password" value={form.prefeitura_senha} onChange={upd('prefeitura_senha')} className={inputCls} placeholder="••••••••" />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleTestConnection('nfse')}
+                    disabled={testing}
+                    className={btnPrimary}
+                  >
+                    {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                    Testar Conexão NFS-e (Prefeitura)
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-500">
+                    Emissão via ADN (Ambiente de Dados Nacional) — sistema do Governo Federal gerenciado pela Receita Federal / Serpro.
+                    A autenticação utiliza o certificado digital A1 configurado na aba Certificado.
+                  </p>
+
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-400 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>
+                      O ADN utiliza autenticação mTLS com o <span className="font-semibold">Certificado Digital A1</span> (aba Certificado).
+                      Não são necessários login ou senha adicionais. Configure o certificado primeiro.
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Ambiente ADN</label>
+                      <select value={form.adn_ambiente} onChange={upd('adn_ambiente') as any} className={inputCls}>
+                        <option value="homologacao">🧪 Produção Restrita (Homologação)</option>
+                        <option value="producao">🟢 Produção</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Inscrição Municipal</label>
+                      <input type="text" value={form.inscricao_municipal} onChange={upd('inscricao_municipal')} className={inputCls} placeholder="Número da IM" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Regime Tributário</label>
+                      <select value={form.regime_tributario_nfse} onChange={upd('regime_tributario_nfse')} className={inputCls}>
+                        <option value="">Nenhum / Regime Normal</option>
+                        <option value="1">Microempresa Municipal</option>
+                        <option value="2">Estimativa</option>
+                        <option value="3">Sociedade de Profissionais</option>
+                        <option value="4">Cooperativa</option>
+                        <option value="5">MEI</option>
+                        <option value="6">ME/EPP — Simples Nacional</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código de Serviço (Tributação Nacional)</label>
+                      <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="01.01 — Hospedagem" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Alíquota ISS (%)</label>
+                      <input type="number" value={form.aliquota_iss} onChange={upd('aliquota_iss')} className={inputCls} step="0.01" min="0" max="100" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Série</label>
+                      <input type="text" value={form.serie_nfse} onChange={upd('serie_nfse')} className={inputCls} placeholder="NFS" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Próximo Número DPS</label>
+                      <input type="number" value={form.proximo_numero_nfse} onChange={upd('proximo_numero_nfse')} className={inputCls} min="1" />
+                    </div>
+                  </div>
+
+                  {/* Pré-requisitos ADN */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
+                      form.certificado_base64 && !certVencido
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                        : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                    }`}>
+                      {form.certificado_base64 && !certVencido ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+                      {!form.certificado_base64
+                        ? 'Certificado A1 não configurado (aba Certificado)'
+                        : certVencido
+                        ? 'Certificado A1 vencido — renove na aba Certificado'
+                        : 'Certificado A1 configurado e válido'}
+                    </div>
+                    <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
+                      form.cnpj
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                        : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                    }`}>
+                      {form.cnpj ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+                      {form.cnpj ? `CNPJ: ${form.cnpj}` : 'CNPJ não configurado (aba Empresa)'}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleTestADN}
+                    disabled={testing || !form.certificado_base64}
+                    className={btnPrimary}
+                  >
+                    {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                    Testar Conexão ADN
+                  </button>
+                </>
+              )}
             </div>
           )}
 

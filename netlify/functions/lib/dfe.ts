@@ -67,7 +67,7 @@ function xmlTag(xml: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
-function httpsPost(options: https.RequestOptions, body: string): Promise<{ status: number; body: string }> {
+export function httpsPost(options: https.RequestOptions, body: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(options, res => {
       const chunks: Buffer[] = [];
@@ -177,7 +177,7 @@ export async function consultaDFe(params: {
 
 // ─── Manifestação do Destinatário (nfeRecepcaoEvento) ──────────────────────
 
-function extractPemFromPfx(pfxBase64: string, passphrase: string): { key: string; cert: string } {
+export function extractPemFromPfx(pfxBase64: string, passphrase: string): { key: string; cert: string } {
   const pfxDer = forge.util.decode64(pfxBase64);
   const asn1 = forge.asn1.fromDer(pfxDer);
   const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, passphrase);

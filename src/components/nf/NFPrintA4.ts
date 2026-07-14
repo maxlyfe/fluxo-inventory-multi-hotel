@@ -79,10 +79,19 @@ function headerPrestador(config: NFHotelConfig | null): string {
   const endereco = [config.endereco_logradouro, config.endereco_numero, config.endereco_bairro,
     config.endereco_cidade, config.endereco_uf, config.endereco_cep && `CEP ${config.endereco_cep}`]
     .filter(Boolean).join(', ');
+  const logoHtml = config.logo_url
+    ? `<img src="${esc(config.logo_url)}" style="max-height:60px;max-width:120px;object-fit:contain;flex-shrink:0" />`
+    : '';
+
   return `
     <div class="box">
-      <div style="font-size:16px;font-weight:900">${esc(config.nome_fantasia || config.razao_social || '')}</div>
-      ${config.razao_social ? `<div class="val" style="font-weight:400">${esc(config.razao_social)}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:12px">
+        ${logoHtml}
+        <div style="flex:1">
+          <div style="font-size:16px;font-weight:900">${esc(config.nome_fantasia || config.razao_social || '')}</div>
+          ${config.razao_social ? `<div class="val" style="font-weight:400">${esc(config.razao_social)}</div>` : ''}
+        </div>
+      </div>
       <div class="grid3" style="margin-top:6px">
         <div><span class="lbl">CNPJ</span><br/><span class="val">${esc(config.cnpj || '—')}</span></div>
         ${config.inscricao_municipal ? `<div><span class="lbl">Inscrição Municipal</span><br/><span class="val">${esc(config.inscricao_municipal)}</span></div>` : ''}

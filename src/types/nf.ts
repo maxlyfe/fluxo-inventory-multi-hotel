@@ -2,6 +2,7 @@ export type NFTipo = 'nfse' | 'nfe' | 'nfce';
 export type NFStatus = 'rascunho' | 'emitida' | 'autorizada' | 'rejeitada' | 'cancelada' | 'contingencia';
 export type NFAmbiente = 'homologacao' | 'producao';
 export type NFDocTipo = 'cpf' | 'cnpj' | 'passaporte';
+export type NFSEProvider = 'prefeitura' | 'adn';
 
 export interface NFHotelConfig {
   id: string;
@@ -49,6 +50,10 @@ export interface NFHotelConfig {
   certificado_base64: string | null;
   certificado_senha: string | null;
   certificado_validade: string | null;
+
+  nfse_provider: NFSEProvider;
+  adn_ambiente: NFAmbiente;
+  logo_url: string | null;
 
   nf_recebidas_enabled: boolean;
   dfe_ultimo_nsu: string | null;
@@ -104,6 +109,10 @@ export interface NFInvoice {
   contingencia_em: string | null;
   retransmitido_em: string | null;
   retry_count: number;
+
+  nfse_provider: NFSEProvider | null;
+  xml_dps: string | null;
+  danfse_url: string | null;
 
   emitido_por: string | null;
   cancelado_por: string | null;

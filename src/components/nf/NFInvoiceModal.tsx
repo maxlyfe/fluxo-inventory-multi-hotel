@@ -1335,6 +1335,11 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
 
                 {/* Inline receipt preview */}
                 <div className="bg-white border border-gray-200 dark:border-gray-700 rounded-xl p-4 font-mono text-[11px] text-gray-900 dark:text-gray-100 leading-relaxed mx-auto" style={{ maxWidth: '300px' }} id="nf-receipt-print">
+                  {nfConfig?.logo_url && (
+                    <div className="text-center mb-2">
+                      <img src={nfConfig.logo_url} alt="" className="mx-auto" style={{ maxHeight: '40px', maxWidth: '120px', objectFit: 'contain' }} />
+                    </div>
+                  )}
                   <div className="text-center font-bold text-sm">{nfConfig?.nome_fantasia || 'Hotel'}</div>
                   {nfConfig?.razao_social && <div className="text-center text-[9px] text-gray-500">{nfConfig.razao_social}</div>}
                   {nfConfig?.cnpj && <div className="text-center text-[9px] text-gray-500">CNPJ: {nfConfig.cnpj}</div>}
