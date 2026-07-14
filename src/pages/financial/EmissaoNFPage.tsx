@@ -10,7 +10,7 @@ import { supabase } from '../../lib/supabase';
 import { erbonService, type ErbonBooking } from '../../lib/erbonService';
 import { nfService, type BatchEmissionProgress } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
-import NFInvoiceModal, { type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
+import { NFInvoiceModal, type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 
