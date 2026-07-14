@@ -288,14 +288,14 @@ export default function EmissaoNFPage() {
       try {
         const account = await erbonService.fetchBookingAccount(hotelId, r.bookingInternalId);
         entries = (account || []).map((e: any) => ({
-          id: e.id || e.internalID,
-          description: e.description || e.descricao || 'Item',
-          amount: Math.abs(e.value || e.valor || 0),
-          isDebit: (e.value || e.valor || 0) > 0,
-          isCredit: (e.value || e.valor || 0) < 0,
-          currency: 'BRL',
-          isInvoiced: false,
-          idDepartment: e.departmentID || 0,
+          id: e.id,
+          description: e.description || 'Item',
+          amount: e.amount ?? 0,
+          isDebit: !!e.isDebit,
+          isCredit: !!e.isCredit,
+          currency: e.currency || 'BRL',
+          isInvoiced: !!e.isInvoiced,
+          idDepartment: e.idDepartment ?? 0,
         }));
       } catch { /* conta corrente pode não estar disponível */ }
     }
