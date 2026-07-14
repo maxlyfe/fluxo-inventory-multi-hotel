@@ -701,8 +701,56 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         numero_rps: config!.proximo_numero_nfse || 1,
         serie_rps: config!.serie_nfse || 'RPS',
       };
+    } else if (inv?.tipo === 'nfce') {
+      const { data: items } = await supabase
+        .from('nf_invoice_items')
+        .select('*')
+        .eq('invoice_id', invoiceId);
+
+      proxyAction = 'emit-nfce';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config!.certificado_base64,
+        certificado_senha: config!.certificado_senha,
+        ambiente: config!.ambiente || 'homologacao',
+        cnpj: config!.cnpj,
+        razao_social: config!.razao_social,
+        nome_fantasia: config!.nome_fantasia,
+        inscricao_estadual: config!.inscricao_estadual,
+        crt: config!.crt || 1,
+        endereco_logradouro: config!.endereco_logradouro,
+        endereco_numero: config!.endereco_numero,
+        endereco_bairro: config!.endereco_bairro,
+        endereco_cidade: config!.endereco_cidade,
+        endereco_uf: config!.endereco_uf,
+        endereco_cep: config!.endereco_cep,
+        endereco_codigo_municipio: config!.endereco_codigo_municipio,
+        telefone: config!.telefone,
+        tomador_nome: inv.tomador_nome,
+        tomador_cpf_cnpj: inv.tomador_cpf_cnpj,
+        tomador_doc_tipo: inv.tomador_doc_tipo,
+        items: (items || []).map((i: NFInvoiceItem) => ({
+          description: i.descricao,
+          quantidade: i.quantidade,
+          valor_unitario: i.valor_unitario,
+          valor_total: i.valor_total,
+          ncm: i.ncm || '00000000',
+          cfop: i.cfop || '5102',
+          icms_orig: '0',
+          icms_csosn: (config!.crt === 1 || config!.crt === 2) ? '102' : undefined,
+          icms_cst: (config!.crt === 3) ? '00' : undefined,
+          icms_vBC: (config!.crt === 3) ? i.valor_total : 0,
+          icms_pICMS: (config!.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
+          icms_vICMS: (config!.crt === 3) ? (i.icms_valor ?? 0) : 0,
+        })),
+        serie_nfce: config!.serie_nfce || '1',
+        nfce_csc_id: config!.nfce_csc_id,
+        nfce_csc_token: config!.nfce_csc_token,
+        numero_nfce: config!.proximo_numero_nfce || 1,
+        tPag: '01',
+      };
     } else {
-      proxyAction = inv?.tipo === 'nfce' ? 'emit-nfce' : 'emit';
+      proxyAction = 'emit';
       bodyPayload = { action: proxyAction, invoiceId, hotelId };
     }
 
@@ -756,12 +804,19 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
       .single();
     if (error) throw error;
 
-    // Incrementar proximo_numero_nfse (ADN ou Prefeitura)
-    if (inv?.tipo === 'nfse' && config && result.success) {
-      await supabase
-        .from('nf_hotel_config')
-        .update({ proximo_numero_nfse: (config.proximo_numero_nfse || 1) + 1 })
-        .eq('hotel_id', hotelId);
+    // Incrementar próximo número
+    if (config && result.success) {
+      if (inv?.tipo === 'nfse') {
+        await supabase
+          .from('nf_hotel_config')
+          .update({ proximo_numero_nfse: (config.proximo_numero_nfse || 1) + 1 })
+          .eq('hotel_id', hotelId);
+      } else if (inv?.tipo === 'nfce') {
+        await supabase
+          .from('nf_hotel_config')
+          .update({ proximo_numero_nfce: (config.proximo_numero_nfce || 1) + 1 })
+          .eq('hotel_id', hotelId);
+      }
     }
 
     // Marcar entries como emitidas
@@ -1444,7 +1499,7 @@ async function testConnection(
   config: Partial<NFHotelConfig>,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const actionName = tipo === 'nfse' ? 'test-nfse' : 'test-nfe';
+    const actionName = tipo === 'nfse' ? 'test-nfse' : tipo === 'nfce' ? 'test-nfce' : 'test-nfe';
     const res = await fetch(NF_PROXY, {
       method: 'POST',
       headers: {
@@ -1455,8 +1510,8 @@ async function testConnection(
     });
     const result = await res.json();
     return {
-      success: res.ok,
-      message: result.message || (res.ok ? 'Conexão bem-sucedida' : 'Falha na conexão'),
+      success: result.success ?? res.ok,
+      message: result.message || (result.success ? 'Conexão bem-sucedida' : 'Falha na conexão'),
     };
   } catch {
     return { success: false, message: 'Erro de rede ao testar conexão' };

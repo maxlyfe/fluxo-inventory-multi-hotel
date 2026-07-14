@@ -860,12 +860,12 @@ const NFIntegration: React.FC = () => {
               </div>
 
               <button
-                onClick={() => handleTestConnection('nfe')}
+                onClick={() => handleTestConnection('nfce')}
                 disabled={testing}
                 className={btnPrimary}
               >
                 {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-                Testar Conexão NFC-e
+                Testar Conexão NFC-e (SEFAZ)
               </button>
             </div>
           )}

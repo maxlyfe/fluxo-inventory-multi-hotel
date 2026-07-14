@@ -22,6 +22,11 @@ import {
   consultarNfsePorRps,
   testarConexaoPrefeitura,
 } from './lib/nfse-prefeitura';
+import {
+  emitirNFCe,
+  cancelarNFCe,
+  statusServicoNFCe,
+} from './lib/nfce-sefaz';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -213,27 +218,163 @@ const handler: Handler = async (event: HandlerEvent) => {
     });
   }
 
-  // ─── Emit NFC-e (stub — modelo 65, QR Code) ──────────────────────────────
+  // ─── Emit NFC-e (integração real SEFAZ via SVRS) ─────────────────────────
 
   if (action === 'emit-nfce') {
-    const mockNumber = generateMockNFNumber();
-    const mockKey = generateMockKey();
-    const mockProtocol = `${Date.now()}`;
-    const qrCode = `https://www.nfce.fazenda.rj.gov.br/consulta?chave=${mockKey}`;
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
 
-    return jsonResponse(200, {
-      success: true,
-      numero_nf: mockNumber,
-      serie: '1',
-      chave_acesso: mockKey,
-      numero_protocolo: mockProtocol,
-      codigo_verificacao: mockKey.substring(0, 8),
-      qrcode_url: qrCode,
-      url_consulta: 'https://www.nfce.fazenda.rj.gov.br/consulta',
-      xml_retorno: `<nfce_stub>autorizada numero="${mockNumber}" modelo="65"</nfce_stub>`,
-      pdf_url: null,
-      message: `[STUB] NFC-e ${mockNumber} autorizada (simulação). Integração real pendente.`,
+    const {
+      certificado_base64, certificado_senha, ambiente,
+      cnpj, razao_social, nome_fantasia, inscricao_estadual, crt,
+      endereco_logradouro, endereco_numero, endereco_bairro,
+      endereco_cidade, endereco_uf, endereco_cep, endereco_codigo_municipio,
+      telefone,
+      tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo,
+      items, serie_nfce, nfce_csc_id, nfce_csc_token,
+      numero_nfce, tPag,
+    } = payload;
+
+    if (!certificado_base64 || !certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado e senha são obrigatórios' });
+    }
+    if (!cnpj || !inscricao_estadual) {
+      return jsonResponse(400, { error: 'CNPJ e IE são obrigatórios para NFC-e' });
+    }
+    if (!nfce_csc_id || !nfce_csc_token) {
+      return jsonResponse(400, { error: 'CSC ID e Token são obrigatórios para NFC-e' });
+    }
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return jsonResponse(400, { error: 'Itens da nota são obrigatórios' });
+    }
+
+    try {
+      const result = await emitirNFCe({
+        emitente: {
+          cnpj,
+          razao_social: razao_social || 'Empresa',
+          nome_fantasia: nome_fantasia || undefined,
+          inscricao_estadual,
+          crt: crt || 1,
+          endereco_logradouro: endereco_logradouro || '',
+          endereco_numero: endereco_numero || 'S/N',
+          endereco_bairro: endereco_bairro || '',
+          endereco_cidade: endereco_cidade || '',
+          endereco_uf: endereco_uf || 'RJ',
+          endereco_cep: endereco_cep || '',
+          endereco_codigo_municipio: endereco_codigo_municipio || '3300233',
+          telefone: telefone || undefined,
+        },
+        destinatario: {
+          cpf_cnpj: tomador_cpf_cnpj || null,
+          doc_tipo: tomador_doc_tipo || null,
+          nome: tomador_nome || null,
+        },
+        items: items.map((it: any, idx: number) => ({
+          nItem: idx + 1,
+          cProd: it.cProd || String(idx + 1),
+          xProd: it.description || it.xProd || 'Produto',
+          ncm: it.ncm || '00000000',
+          cfop: it.cfop || '5102',
+          uCom: it.uCom || 'UN',
+          qCom: it.quantidade ?? it.qCom ?? 1,
+          vUnCom: it.valor_unitario ?? it.vUnCom ?? 0,
+          vProd: it.valor_total ?? it.vProd ?? 0,
+          icms_orig: it.icms_orig || '0',
+          icms_cst: it.icms_cst || undefined,
+          icms_csosn: it.icms_csosn || undefined,
+          icms_vBC: it.icms_vBC ?? 0,
+          icms_pICMS: it.icms_pICMS ?? 0,
+          icms_vICMS: it.icms_vICMS ?? 0,
+        })),
+        config: {
+          certificado_base64,
+          certificado_senha,
+          ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
+          serie: serie_nfce || '1',
+          csc_id: nfce_csc_id,
+          csc_token: nfce_csc_token,
+        },
+        nNF: numero_nfce || 1,
+        tPag: tPag || '01',
+      });
+
+      console.log('[NFC-e] Resultado:', result.success ? 'SUCESSO' : 'FALHA',
+        '| NF:', result.numero_nf, '| Chave:', result.chave_acesso, '| Msg:', result.message);
+
+      return jsonResponse(200, {
+        success: result.success,
+        numero_nf: result.numero_nf,
+        serie: result.serie,
+        chave_acesso: result.chave_acesso,
+        numero_protocolo: result.numero_protocolo,
+        codigo_verificacao: result.codigo_verificacao,
+        qrcode_url: result.qrcode_url,
+        url_consulta: result.url_consulta,
+        xml_retorno: result.xml_retorno,
+        pdf_url: null,
+        message: result.message,
+      });
+    } catch (err: any) {
+      console.error('[NFC-e] Erro:', err.message);
+      return jsonResponse(500, {
+        success: false,
+        numero_nf: null, serie: null, chave_acesso: null,
+        numero_protocolo: null, codigo_verificacao: null,
+        qrcode_url: null, url_consulta: null,
+        xml_retorno: '', pdf_url: null,
+        message: `Erro na emissão NFC-e: ${err.message}`,
+      });
+    }
+  }
+
+  // ─── Test NFC-e (Status do Serviço SEFAZ) ────────────────────────────────
+
+  if (action === 'test-nfce') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    const { certificado_base64, certificado_senha, ambiente } = payload;
+    if (!certificado_base64 || !certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado e senha são obrigatórios' });
+    }
+
+    const result = await statusServicoNFCe({
+      certificado_base64,
+      certificado_senha,
+      ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
     });
+
+    return jsonResponse(200, result);
+  }
+
+  // ─── Cancel NFC-e (integração real SEFAZ) ────────────────────────────────
+
+  if (action === 'cancel-nfce') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    const { certificado_base64, certificado_senha, ambiente, cnpj, chave_acesso, numero_protocolo, motivo } = payload;
+
+    if (!certificado_base64 || !certificado_senha || !chave_acesso || !numero_protocolo) {
+      return jsonResponse(400, { error: 'Certificado, chave e protocolo são obrigatórios para cancelar NFC-e' });
+    }
+
+    try {
+      const result = await cancelarNFCe({
+        certificado_base64,
+        certificado_senha,
+        ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
+        cnpj: cnpj || '',
+        chave: chave_acesso,
+        nProt: numero_protocolo,
+        xJust: motivo || 'Cancelamento solicitado pelo emitente',
+      });
+
+      return jsonResponse(200, result);
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, xml: '', message: `Erro: ${err.message}` });
+    }
   }
 
   // ─── Cancel NFS-e Prefeitura (integração real) ───────────────────────────
