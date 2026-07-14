@@ -667,6 +667,40 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         serie: config!.serie_nfse || 'NFS',
         numeroDPS: config!.proximo_numero_nfse || 1,
       };
+    } else if (inv?.tipo === 'nfse') {
+      // NFS-e via Prefeitura (ABRASF 2.02 real)
+      const { data: items } = await supabase
+        .from('nf_invoice_items')
+        .select('*')
+        .eq('invoice_id', invoiceId);
+
+      proxyAction = 'emit';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config!.certificado_base64,
+        certificado_senha: config!.certificado_senha,
+        ambiente: config!.ambiente || 'producao',
+        cnpj: config!.cnpj,
+        inscricao_municipal: config!.inscricao_municipal,
+        tomador_nome: inv.tomador_nome,
+        tomador_cpf_cnpj: inv.tomador_cpf_cnpj,
+        tomador_doc_tipo: inv.tomador_doc_tipo,
+        tomador_email: inv.tomador_email,
+        tomador_endereco: inv.tomador_endereco,
+        items: (items || []).map((i: NFInvoiceItem) => ({
+          description: i.descricao,
+          quantidade: i.quantidade,
+          valor_unitario: i.valor_unitario,
+          valor_total: i.valor_total,
+        })),
+        codigo_municipio: config!.endereco_codigo_municipio || '3300233',
+        codigo_servico: config!.codigo_servico || '0901',
+        aliquota_iss: config!.aliquota_iss ?? 5,
+        regime_tributario: config!.regime_tributario_nfse,
+        optante_simples: config!.regime_tributario_nfse === '1',
+        numero_rps: config!.proximo_numero_nfse || 1,
+        serie_rps: config!.serie_nfse || 'RPS',
+      };
     } else {
       proxyAction = inv?.tipo === 'nfce' ? 'emit-nfce' : 'emit';
       bodyPayload = { action: proxyAction, invoiceId, hotelId };
@@ -719,8 +753,8 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
       .single();
     if (error) throw error;
 
-    // Incrementar proximo_numero se ADN
-    if (useADN && config) {
+    // Incrementar proximo_numero_nfse (ADN ou Prefeitura)
+    if (inv?.tipo === 'nfse' && config && result.success) {
       await supabase
         .from('nf_hotel_config')
         .update({ proximo_numero_nfse: (config.proximo_numero_nfse || 1) + 1 })
@@ -761,11 +795,11 @@ async function cancelInvoice(
       .eq('id', invoiceId)
       .single();
 
+    const config = await getConfig(inv!.hotel_id);
     let proxyAction = 'cancel';
-    let bodyPayload: Record<string, unknown> = { action: 'cancel', invoiceId, motivo };
+    let bodyPayload: Record<string, unknown>;
 
     if (inv?.nfse_provider === 'adn' && inv.chave_acesso) {
-      const config = await getConfig(inv.hotel_id);
       proxyAction = 'cancel-nfse-adn';
       bodyPayload = {
         action: proxyAction,
@@ -774,6 +808,24 @@ async function cancelInvoice(
         chaveAcesso: inv.chave_acesso,
         motivo,
         ambiente: config?.adn_ambiente || 'homologacao',
+      };
+    } else {
+      const { data: invFull } = await supabase
+        .from('nf_invoices')
+        .select('numero_nf')
+        .eq('id', invoiceId)
+        .single();
+
+      bodyPayload = {
+        action: 'cancel',
+        certificado_base64: config?.certificado_base64,
+        certificado_senha: config?.certificado_senha,
+        ambiente: config?.ambiente || 'producao',
+        cnpj: config?.cnpj,
+        inscricao_municipal: config?.inscricao_municipal,
+        numero_nf: invFull?.numero_nf,
+        codigo_municipio: config?.endereco_codigo_municipio || '3300233',
+        motivo,
       };
     }
 

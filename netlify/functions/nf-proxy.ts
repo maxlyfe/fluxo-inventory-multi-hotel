@@ -16,6 +16,12 @@ import {
   type DPSTomador,
   type DPSItem,
 } from './lib/adn-nfse';
+import {
+  emitirNfsePrefeitura,
+  cancelarNfsePrefeitura,
+  consultarNfsePorRps,
+  testarConexaoPrefeitura,
+} from './lib/nfse-prefeitura';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -75,13 +81,26 @@ const handler: Handler = async (event: HandlerEvent) => {
     });
   }
 
-  // ─── Test Connection (stub) ──────────────────────────────────────────────
+  // ─── Test Connection NFS-e Prefeitura ─────────────────────────────────────
 
   if (action === 'test-nfse') {
-    return jsonResponse(200, {
-      success: true,
-      message: '[STUB] Conexão com Prefeitura de Búzios simulada com sucesso. Integração real pendente.',
-    });
+    let payload: { certificado_base64: string; certificado_senha: string; ambiente: string };
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado e senha são obrigatórios' });
+    }
+
+    try {
+      const result = await testarConexaoPrefeitura({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        ambiente: (payload.ambiente === 'producao' ? 'producao' : 'homologacao'),
+      });
+      return jsonResponse(200, result);
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, message: `Erro: ${err.message}` });
+    }
   }
 
   if (action === 'test-nfe') {
@@ -91,24 +110,88 @@ const handler: Handler = async (event: HandlerEvent) => {
     });
   }
 
-  // ─── Emit Invoice (stub) ─────────────────────────────────────────────────
+  // ─── Emit NFS-e Prefeitura (integração real ABRASF 2.02) ────────────────
 
   if (action === 'emit') {
-    const mockNumber = generateMockNFNumber();
-    const mockKey = generateMockKey();
-    const mockProtocol = `${Date.now()}`;
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
 
-    return jsonResponse(200, {
-      success: true,
-      numero_nf: mockNumber,
-      serie: '1',
-      chave_acesso: mockKey,
-      numero_protocolo: mockProtocol,
-      codigo_verificacao: mockKey.substring(0, 8),
-      xml_retorno: `<nf_stub>autorizada numero="${mockNumber}"</nf_stub>`,
-      pdf_url: null,
-      message: `[STUB] Nota fiscal ${mockNumber} autorizada (simulação). Integração real pendente.`,
-    });
+    const {
+      certificado_base64, certificado_senha, ambiente,
+      cnpj, inscricao_municipal,
+      tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email,
+      tomador_endereco, tomador_numero, tomador_bairro,
+      tomador_codigo_municipio, tomador_uf, tomador_cep,
+      items, codigo_municipio, codigo_servico, aliquota_iss,
+      regime_tributario, optante_simples,
+      numero_rps, serie_rps,
+    } = payload;
+
+    if (!certificado_base64 || !certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado e senha são obrigatórios' });
+    }
+    if (!cnpj || !inscricao_municipal) {
+      return jsonResponse(400, { error: 'CNPJ e Inscrição Municipal do prestador são obrigatórios' });
+    }
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return jsonResponse(400, { error: 'Itens da nota são obrigatórios' });
+    }
+
+    try {
+      const result = await emitirNfsePrefeitura({
+        prestador: { cnpj, inscricao_municipal },
+        tomador: {
+          cpf_cnpj: tomador_cpf_cnpj || null,
+          doc_tipo: tomador_doc_tipo || null,
+          razao_social: tomador_nome || 'Consumidor Final',
+          email: tomador_email || null,
+          endereco: tomador_endereco || null,
+          numero: tomador_numero || null,
+          bairro: tomador_bairro || null,
+          codigo_municipio: tomador_codigo_municipio || null,
+          uf: tomador_uf || null,
+          cep: tomador_cep || null,
+        },
+        items: items.map((it: any) => ({
+          description: it.description || 'Serviço',
+          quantidade: it.quantidade || 1,
+          valor_unitario: it.valor_unitario || it.amount || 0,
+          valor_total: it.valor_total || it.amount || 0,
+        })),
+        config: {
+          certificado_base64,
+          certificado_senha,
+          ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
+          codigo_municipio: codigo_municipio || '3300233',
+          codigo_servico: codigo_servico || '0901',
+          aliquota_iss: aliquota_iss ?? 5,
+          regime_tributario: regime_tributario || null,
+          optante_simples: !!optante_simples,
+        },
+        numeroRps: numero_rps || 1,
+        serieRps: serie_rps || 'RPS',
+      });
+
+      return jsonResponse(200, {
+        success: result.success,
+        numero_nf: result.numero_nf,
+        serie: result.serie,
+        chave_acesso: result.chave_acesso,
+        numero_protocolo: result.numero_protocolo,
+        codigo_verificacao: result.codigo_verificacao,
+        xml_retorno: result.xml_retorno,
+        pdf_url: null,
+        message: result.message,
+      });
+    } catch (err: any) {
+      return jsonResponse(500, {
+        success: false,
+        numero_nf: null, serie: null, chave_acesso: null,
+        numero_protocolo: null, codigo_verificacao: null,
+        xml_retorno: '', pdf_url: null,
+        message: `Erro na emissão: ${err.message}`,
+      });
+    }
   }
 
   // ─── Contingência (stub — RPS para NFS-e, EPEC para NF-e) ────────────────
@@ -146,14 +229,41 @@ const handler: Handler = async (event: HandlerEvent) => {
     });
   }
 
-  // ─── Cancel Invoice (stub) ───────────────────────────────────────────────
+  // ─── Cancel NFS-e Prefeitura (integração real) ───────────────────────────
 
   if (action === 'cancel') {
-    return jsonResponse(200, {
-      success: true,
-      xml_cancelamento: '<cancel_stub>cancelado</cancel_stub>',
-      message: '[STUB] Nota fiscal cancelada (simulação). Integração real pendente.',
-    });
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    const { certificado_base64, certificado_senha, ambiente, cnpj, inscricao_municipal, numero_nf, codigo_municipio } = payload;
+
+    if (!certificado_base64 || !certificado_senha || !numero_nf) {
+      return jsonResponse(400, { error: 'Certificado, senha e número da NF são obrigatórios' });
+    }
+
+    try {
+      const result = await cancelarNfsePrefeitura({
+        certificado_base64,
+        certificado_senha,
+        ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
+        cnpj: cnpj || '',
+        inscricao_municipal: inscricao_municipal || '',
+        numero_nf,
+        codigo_municipio: codigo_municipio || '3300233',
+      });
+
+      return jsonResponse(200, {
+        success: result.success,
+        xml_cancelamento: result.xml_cancelamento,
+        message: result.message,
+      });
+    } catch (err: any) {
+      return jsonResponse(500, {
+        success: false,
+        xml_cancelamento: '',
+        message: `Erro no cancelamento: ${err.message}`,
+      });
+    }
   }
 
   // ─── Consulta DF-e (NF-e emitidas contra o CNPJ — integração real) ────────
