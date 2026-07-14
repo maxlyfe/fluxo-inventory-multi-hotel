@@ -1,25 +1,47 @@
 // netlify/functions/lib/nfse-prefeitura.ts
 // Integração real com webservice NFS-e da Prefeitura de Armação dos Búzios.
 // Padrão ABRASF 2.02 · Provedor E&L (Modernização Pública).
-// Autenticação: mTLS com certificado A1 (.pfx) + assinatura XMLDSig no RPS.
+// Certificado A1 usado para assinatura XMLDSig; transporte via HTTP.
 
-import https from 'https';
+import http from 'http';
 import crypto from 'crypto';
 import { SignedXml } from 'xml-crypto';
-import { extractPemFromPfx, httpsPost } from './dfe';
+import { extractPemFromPfx } from './dfe';
 
-// ── Hosts por ambiente ───────────────────────────────────────────────────────
+// ── Hosts por ambiente (E&L Modernização Pública — Búzios) ──────────────────
 
-const NFSE_HOSTS = {
-  producao: 'nfse.buzios.rj.gov.br',
-  homologacao: 'nfse.buzios.rj.gov.br',
+const NFSE_CONFIG = {
+  producao:    { host: 'notabuzios.modernizacaopublica.com.br', port: 8041 },
+  homologacao: { host: 'notabuzios.modernizacaopublica.com.br', port: 3082 },
 } as const;
 
-const NFSE_PATH = '/nfse/NfseWSService';
+const NFSE_PATH = '/nfe/webservices/NFEServices.jws';
 
 const ABRASF_NS = 'http://www.abrasf.org.br/nfse.xsd';
 const SOAP_NS = 'http://schemas.xmlsoap.org/soap/envelope/';
 const NFSE_ACTION_NS = 'http://nfse.abrasf.org.br';
+
+// ── HTTP POST (E&L usa HTTP, não HTTPS) ─────────────────────────────────────
+
+function httpPost(
+  options: { host: string; port: number; path: string; headers: Record<string, string> },
+  body: string,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: options.host, port: options.port, path: options.path, method: 'POST', headers: options.headers },
+      res => {
+        const chunks: Buffer[] = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(30000, () => req.destroy(new Error('Timeout na comunicação com a Prefeitura')));
+    req.write(body);
+    req.end();
+  });
+}
 
 // ── XML helpers ──────────────────────────────────────────────────────────────
 
@@ -283,21 +305,14 @@ export async function emitirNfsePrefeitura(params: {
   // 3. Montar envelope SOAP
   const envelope = soapEnvelope('GerarNfse', cabecalhoXml(), rpsXml);
 
-  // 4. Enviar via mTLS
-  console.log('[NFS-e SOAP] Envelope enviado (primeiros 2000 chars):', envelope.slice(0, 2000));
-  const pfxBuffer = Buffer.from(config.certificado_base64, 'base64');
-  const res = await httpsPost({
-    host: NFSE_HOSTS[config.ambiente],
-    path: NFSE_PATH,
-    method: 'POST',
-    pfx: pfxBuffer,
-    passphrase: config.certificado_senha,
-    headers: {
-      'Content-Type': 'text/xml;charset=UTF-8',
-      'SOAPAction': `${NFSE_ACTION_NS}/GerarNfse`,
-    },
-    rejectUnauthorized: true,
-  }, envelope);
+  // 4. Enviar via HTTP para E&L
+  const { host, port } = NFSE_CONFIG[config.ambiente];
+  console.log(`[NFS-e SOAP] Enviando para ${host}:${port}${NFSE_PATH}`);
+  console.log('[NFS-e SOAP] Envelope (primeiros 2000 chars):', envelope.slice(0, 2000));
+  const res = await httpPost(
+    { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/GerarNfse` } },
+    envelope,
+  );
 
   if (res.status !== 200) {
     return {
@@ -395,19 +410,11 @@ export async function cancelarNfsePrefeitura(params: {
 
   const envelope = soapEnvelope('CancelarNfse', cabecalhoXml(), cancelSigned);
 
-  const pfxBuffer = Buffer.from(params.certificado_base64, 'base64');
-  const res = await httpsPost({
-    host: NFSE_HOSTS[params.ambiente],
-    path: NFSE_PATH,
-    method: 'POST',
-    pfx: pfxBuffer,
-    passphrase: params.certificado_senha,
-    headers: {
-      'Content-Type': 'text/xml;charset=UTF-8',
-      'SOAPAction': `${NFSE_ACTION_NS}/CancelarNfse`,
-    },
-    rejectUnauthorized: true,
-  }, envelope);
+  const { host, port } = NFSE_CONFIG[params.ambiente];
+  const res = await httpPost(
+    { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/CancelarNfse` } },
+    envelope,
+  );
 
   if (res.status !== 200) {
     return {
@@ -464,19 +471,11 @@ export async function consultarNfsePorRps(params: {
 
   const envelope = soapEnvelope('ConsultarNfsePorRps', cabecalhoXml(), consultaXml);
 
-  const pfxBuffer = Buffer.from(params.certificado_base64, 'base64');
-  const res = await httpsPost({
-    host: NFSE_HOSTS[params.ambiente],
-    path: NFSE_PATH,
-    method: 'POST',
-    pfx: pfxBuffer,
-    passphrase: params.certificado_senha,
-    headers: {
-      'Content-Type': 'text/xml;charset=UTF-8',
-      'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps`,
-    },
-    rejectUnauthorized: true,
-  }, envelope);
+  const { host, port } = NFSE_CONFIG[params.ambiente];
+  const res = await httpPost(
+    { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
+    envelope,
+  );
 
   if (res.status !== 200) {
     return { success: false, numero_nf: null, codigo_verificacao: null, xml: res.body, message: `HTTP ${res.status}` };
@@ -508,26 +507,19 @@ export async function testarConexaoPrefeitura(params: {
   }
 
   try {
-    const pfxBuffer = Buffer.from(params.certificado_base64, 'base64');
-    const res = await httpsPost({
-      host: NFSE_HOSTS[params.ambiente],
-      path: NFSE_PATH,
-      method: 'POST',
-      pfx: pfxBuffer,
-      passphrase: params.certificado_senha,
-      headers: {
-        'Content-Type': 'text/xml;charset=UTF-8',
-        'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps`,
-      },
-      rejectUnauthorized: true,
-    }, soapEnvelope('ConsultarNfsePorRps', cabecalhoXml(),
-      `<ConsultarNfseRpsEnvio xmlns="${ABRASF_NS}"><IdentificacaoRps><Numero>0</Numero><Serie>TST</Serie><Tipo>1</Tipo></IdentificacaoRps><Prestador><CpfCnpj><Cnpj>00000000000000</Cnpj></CpfCnpj><InscricaoMunicipal>0</InscricaoMunicipal></Prestador></ConsultarNfseRpsEnvio>`
-    ));
+    const { host, port } = NFSE_CONFIG[params.ambiente];
+    const res = await httpPost(
+      { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
+      soapEnvelope('ConsultarNfsePorRps', cabecalhoXml(),
+        `<ConsultarNfseRpsEnvio xmlns="${ABRASF_NS}"><IdentificacaoRps><Numero>0</Numero><Serie>TST</Serie><Tipo>1</Tipo></IdentificacaoRps><Prestador><CpfCnpj><Cnpj>00000000000000</Cnpj></CpfCnpj><InscricaoMunicipal>0</InscricaoMunicipal></Prestador></ConsultarNfseRpsEnvio>`
+      ),
+    );
 
+    console.log(`[NFS-e Test] ${host}:${port} → HTTP ${res.status}`);
     if (res.status === 200) {
-      return { success: true, message: `Conexão mTLS com a Prefeitura de Búzios (${params.ambiente}) estabelecida com sucesso.` };
+      return { success: true, message: `Conexão com a Prefeitura de Búzios (${params.ambiente}) via E&L estabelecida com sucesso.` };
     }
-    return { success: false, message: `Prefeitura respondeu HTTP ${res.status}. Verifique o certificado.` };
+    return { success: false, message: `Prefeitura respondeu HTTP ${res.status}. Resposta: ${res.body.slice(0, 300)}` };
   } catch (err: any) {
     return { success: false, message: `Falha na conexão: ${err.message}` };
   }
