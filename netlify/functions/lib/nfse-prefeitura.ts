@@ -87,16 +87,18 @@ function xmlTag(xml: string, tag: string): string | null {
 }
 
 function soapEnvelope(operation: string, cabecMsg: string, dadosMsg: string): string {
-  // E&L Cloud uses standard ABRASF document/literal SOAP format
-  // with nfseCabecMsg/nfseDadosMsg wrapped in CDATA.
+  // E&L Cloud XSD: each operation wraps input in {Operation}Request element
+  // containing nfseCabecMsg/nfseDadosMsg (form="qualified").
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="${SOAP_NS}" xmlns:nfse="${NFSE_ACTION_NS}">` +
     `<soapenv:Header/>` +
     `<soapenv:Body>` +
     `<nfse:${operation}>` +
+    `<nfse:${operation}Request>` +
     `<nfseCabecMsg><![CDATA[${cabecMsg}]]></nfseCabecMsg>` +
     `<nfseDadosMsg><![CDATA[${dadosMsg}]]></nfseDadosMsg>` +
+    `</nfse:${operation}Request>` +
     `</nfse:${operation}>` +
     `</soapenv:Body>` +
     `</soapenv:Envelope>`
