@@ -942,6 +942,8 @@ const handler: Handler = async (event: HandlerEvent) => {
       return jsonResponse(400, { error: 'Certificado, CNPJ e Inscrição Municipal são obrigatórios' });
     }
 
+    console.log(`[consultar-nfse-prestado] cnpj="${payload.cnpj}", im="${payload.inscricao_municipal}", ambiente="${payload.ambiente}" → resolved="${payload.ambiente === 'producao' ? 'producao' : 'homologacao'}"`);
+
     try {
       const result = await consultarNfseServicoPrestado({
         certificado_base64: payload.certificado_base64,
