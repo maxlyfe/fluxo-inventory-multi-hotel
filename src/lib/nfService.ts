@@ -1604,10 +1604,15 @@ async function consultarNfseEmitidas(
   if (!config) return { success: false, notas: [], message: 'Configuração NF não encontrada.' };
 
   try {
+    if (!config.certificado_base64 || !config.cnpj || !config.inscricao_municipal) {
+      return { success: false, notas: [], message: 'Configure o certificado, CNPJ e Inscrição Municipal antes de consultar.' };
+    }
+
     const res = await fetch(NF_PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-nf-action': 'consultar-nfse-prestado' },
       body: JSON.stringify({
+        action: 'consultar-nfse-prestado',
         certificado_base64: config.certificado_base64,
         certificado_senha: config.certificado_senha,
         ambiente: config.ambiente,
@@ -1639,11 +1644,16 @@ async function consultarNfsePorFaixa(
   const config = await getConfig(hotelId);
   if (!config) return { success: false, notas: [], message: 'Configuração NF não encontrada.' };
 
+  if (!config.certificado_base64 || !config.cnpj || !config.inscricao_municipal) {
+    return { success: false, notas: [], message: 'Configure o certificado, CNPJ e Inscrição Municipal antes de consultar.' };
+  }
+
   try {
     const res = await fetch(NF_PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-nf-action': 'consultar-nfse-faixa' },
       body: JSON.stringify({
+        action: 'consultar-nfse-faixa',
         certificado_base64: config.certificado_base64,
         certificado_senha: config.certificado_senha,
         ambiente: config.ambiente,
