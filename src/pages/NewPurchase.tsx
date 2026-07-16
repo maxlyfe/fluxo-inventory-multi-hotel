@@ -18,7 +18,9 @@ import type { CreditCard as CreditCardType } from '../lib/creditCardService';
 import NFeXMLImportModal, { type NFeImportResult } from '../components/NFeXMLImportModal';
 import { nfService } from '../lib/nfService';
 import SupplierQuickCreateModal from '../components/SupplierQuickCreateModal';
+import NFReceivedPickerModal from '../components/NFReceivedPickerModal';
 import type { Supplier } from '../lib/supplierService';
+import type { NFReceived } from '../types/nf';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -420,7 +422,8 @@ const NewPurchase = () => {
 
   // NF recebida (Financeiro → NF Recebidas): XML pré-carregado para importação
   const nfeXmlFromState: string | undefined = location.state?.nfeXml;
-  const nfReceivedId: string | undefined = location.state?.nfReceivedId;
+  const nfReceivedIdFromState: string | undefined = location.state?.nfReceivedId;
+  const [nfReceivedId, setNfReceivedId] = useState<string | undefined>(nfReceivedIdFromState);
 
   // ── Products
   const [products,         setProducts]         = useState<Product[]>([]);
@@ -436,6 +439,10 @@ const NewPurchase = () => {
   const [budgetProcessed,  setBudgetProcessed]  = useState(false);
   const [showNFeModal,     setShowNFeModal]      = useState(false);
   const [showNewSupplier,  setShowNewSupplier]   = useState(false);
+  const [nfMatch,          setNfMatch]           = useState<NFReceived | null>(null);
+  const [nfMatchLoading,   setNfMatchLoading]    = useState(false);
+  const [showNfPicker,     setShowNfPicker]      = useState(false);
+  const [dynamicNfeXml,    setDynamicNfeXml]     = useState<string | undefined>();
   const [linkingIdx,       setLinkingIdx]        = useState<number | null>(null);
   const [linkSearch,       setLinkSearch]        = useState('');
 
@@ -630,6 +637,32 @@ const NewPurchase = () => {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
+  // Sync nfReceivedId from router state
+  useEffect(() => { setNfReceivedId(nfReceivedIdFromState); }, [nfReceivedIdFromState]);
+
+  // Auto-lookup NF recebida ao digitar Nº NF
+  useEffect(() => {
+    if (nfReceivedIdFromState || !purchaseData.invoice_number.trim() || !selectedHotel?.id) {
+      setNfMatch(null);
+      return;
+    }
+    setNfMatchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const supplierCnpj = suppList.find(s => s.id === purchaseData.supplier_id)?.cnpj || null;
+        const matches = await nfService.findReceivedByInvoiceNumber(
+          selectedHotel.id, purchaseData.invoice_number, supplierCnpj,
+        );
+        setNfMatch(matches[0] || null);
+      } catch (err) {
+        console.error('[NewPurchase] NF lookup:', err);
+      } finally {
+        setNfMatchLoading(false);
+      }
+    }, 500);
+    return () => { clearTimeout(timer); setNfMatchLoading(false); };
+  }, [purchaseData.invoice_number, purchaseData.supplier_id, selectedHotel?.id, nfReceivedIdFromState, suppList]);
+
   // ── Computed ──────────────────────────────────────────────────────────────────
 
   const allDocTypes = [...DEFAULT_DOC_TYPES, ...customDocTypes.map(d => d.name)];
@@ -670,6 +703,28 @@ const NewPurchase = () => {
   }, [purchaseData.supplier_id, suppList]);
 
   const total = items.reduce((s, i) => s + i.total_price, 0);
+
+  // ── Importar NF recebida (match automático ou picker manual) ────────────────
+
+  const handleImportMatchedNF = (nf: NFReceived) => {
+    setNfReceivedId(nf.id);
+    setNfMatch(null);
+
+    if (nf.xml && nf.tipo === 'completa') {
+      setDynamicNfeXml(nf.xml);
+      setShowNFeModal(true);
+    } else {
+      setPurchaseData(p => ({
+        ...p,
+        invoice_number: nf.numero_nf || p.invoice_number,
+        emission_date: nf.data_emissao?.split('T')[0] || p.emission_date,
+      }));
+      addNotification(
+        'NF vinculada (resumo — sem XML para importar itens). Preencha os itens manualmente.',
+        'info',
+      );
+    }
+  };
 
   // ── NF-e XML import ───────────────────────────────────────────────────────────
 
@@ -1143,6 +1198,13 @@ const NewPurchase = () => {
         </div>
       )}
 
+      {budgetIdToUpdate && nfReceivedId && (
+        <div className="flex items-center gap-2.5 px-4 py-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300">
+          <Link2 className="w-4 h-4 shrink-0" />
+          Compra vinculada ao orçamento e à NF recebida — dados da NF têm prioridade nos valores.
+        </div>
+      )}
+
       {error && (
         <div className="flex items-center gap-2.5 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
           <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -1363,16 +1425,58 @@ const NewPurchase = () => {
           {/* Row 2: Nº NF + Data da Compra + Data de Emissão */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                Nº Nota Fiscal
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Nº Nota Fiscal
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowNfPicker(true)}
+                  className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                >
+                  <Receipt className="w-3 h-3" /> Buscar NF Recebida
+                </button>
+              </div>
               <div className="relative">
                 <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 <input type="text" value={purchaseData.invoice_number}
                   onChange={e => setPurchaseData(p => ({ ...p, invoice_number: e.target.value }))}
                   placeholder="Opcional"
                   className={fieldCls + ' pl-9'} />
+                {nfMatchLoading && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-blue-400 animate-spin" />
+                )}
               </div>
+              {/* NF match notification */}
+              {nfMatch && !nfReceivedId && (
+                <div className={`flex items-center gap-2 mt-1.5 px-3 py-2 rounded-lg text-xs ${
+                  nfMatch.situacao === 'nova'
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                    : nfMatch.situacao === 'lancada'
+                    ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+                    : 'bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300'
+                }`}>
+                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                  <span className="flex-1 min-w-0 truncate">
+                    {nfMatch.situacao === 'lancada'
+                      ? `NF ${nfMatch.numero_nf} já lançada — ${nfMatch.emitente_nome || 'fornecedor'}`
+                      : `NF ${nfMatch.numero_nf} encontrada — ${nfMatch.emitente_nome || 'fornecedor'}${
+                          nfMatch.valor_total != null ? ` (${fmtBRL(nfMatch.valor_total)})` : ''
+                        }`}
+                  </span>
+                  {nfMatch.situacao !== 'lancada' && (
+                    <button type="button" onClick={() => handleImportMatchedNF(nfMatch)}
+                      className="shrink-0 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold transition-colors">
+                      Importar
+                    </button>
+                  )}
+                </div>
+              )}
+              {nfReceivedId && !nfReceivedIdFromState && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
+                  <Link2 className="w-3 h-3" /> NF recebida vinculada — será marcada como lançada ao salvar
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
@@ -1951,11 +2055,20 @@ const NewPurchase = () => {
       {selectedHotel && (
         <NFeXMLImportModal
           isOpen={showNFeModal}
-          onClose={() => setShowNFeModal(false)}
+          onClose={() => { setShowNFeModal(false); setDynamicNfeXml(undefined); }}
           currentItems={items}
           hotelId={selectedHotel.id}
           onConfirm={handleNFeConfirm}
-          initialXml={nfeXmlFromState}
+          initialXml={nfeXmlFromState || dynamicNfeXml}
+        />
+      )}
+
+      {selectedHotel && (
+        <NFReceivedPickerModal
+          isOpen={showNfPicker}
+          onClose={() => setShowNfPicker(false)}
+          hotelId={selectedHotel.id}
+          onSelect={handleImportMatchedNF}
         />
       )}
 

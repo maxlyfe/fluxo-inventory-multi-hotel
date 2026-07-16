@@ -62,6 +62,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
+-- Overload for timestamptz (trigger passes timestamptz)
+CREATE OR REPLACE FUNCTION fn_card_due_date(
+  p_purchase_date timestamptz,
+  p_closing_day integer,
+  p_due_day integer,
+  p_installment_index integer DEFAULT 0
+) RETURNS date AS $$
+BEGIN
+  RETURN fn_card_due_date(p_purchase_date::date, p_closing_day, p_due_day, p_installment_index);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- 5. Update fn_sync_purchase_ap to propagate card data
 CREATE OR REPLACE FUNCTION fn_sync_purchase_ap(p purchases)
 RETURNS void AS $$

@@ -1346,14 +1346,57 @@ async function syncNFRecebidas(hotelId: string): Promise<DFeSyncResult> {
   };
 }
 
+// ─── Helpers de normalização (compartilhados) ──────────────────────────────
+
+const normNum = (v: string | null) => (v || '').replace(/\D/g, '').replace(/^0+/, '');
+
+const normName = (v: string | null) =>
+  (v || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const namesSimilar = (a: string | null, b: string | null) => {
+  const na = normName(a), nb = normName(b);
+  if (na.length < 4 || nb.length < 4) return false;
+  return na.includes(nb) || nb.includes(na);
+};
+
+// ─── Busca de NF recebida por número de nota ────────────────────────────────
+
+async function findReceivedByInvoiceNumber(
+  hotelId: string,
+  invoiceNumber: string,
+  supplierCnpj?: string | null,
+): Promise<NFReceived[]> {
+  const target = normNum(invoiceNumber);
+  if (!target) return [];
+
+  const { data, error } = await supabase
+    .from('nf_received')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .not('numero_nf', 'is', null)
+    .order('data_emissao', { ascending: false, nullsFirst: false });
+  if (error) throw error;
+
+  const rows = (data ?? []) as NFReceived[];
+  const matched = rows.filter(r => normNum(r.numero_nf) === target);
+  if (!matched.length) return [];
+
+  if (!supplierCnpj) return matched;
+
+  const cleanCnpj = supplierCnpj.replace(/\D/g, '');
+  return matched.sort((a, b) => {
+    const aMatch = (a.emitente_cnpj || '').replace(/\D/g, '') === cleanCnpj ? 0 : 1;
+    const bMatch = (b.emitente_cnpj || '').replace(/\D/g, '') === cleanCnpj ? 0 : 1;
+    return aMatch - bMatch;
+  });
+}
+
+// ─── Vínculo retroativo NF ↔ Compra ────────────────────────────────────────
+
 /**
- * Vínculo retroativo: casa notas recebidas ainda "novas" com compras já
- * registradas no histórico. Exige o mesmo número de NF E uma confirmação de
- * fornecedor: CNPJ igual ao emitente ou, quando a compra não tem CNPJ
- * cadastrado, nome do fornecedor semelhante ao emitente — número sozinho não
- * basta (fornecedores diferentes repetem numeração).
- * Também revalida vínculos automáticos anteriores e desfaz os incorretos.
- * Retorna quantas notas foram vinculadas.
+ * Casa notas recebidas ainda "novas" com compras já registradas no histórico.
+ * Exige o mesmo número de NF E confirmação de fornecedor (CNPJ ou nome).
+ * Também revalida vínculos anteriores e desfaz os incorretos.
  */
 async function linkReceivedToPurchases(hotelId: string): Promise<number> {
   const { data: rows, error: pendErr } = await supabase
@@ -1374,27 +1417,16 @@ async function linkReceivedToPurchases(hotelId: string): Promise<number> {
 
   // CNPJs dos fornecedores das compras
   const supplierIds = [...new Set((purchases ?? []).map(p => p.supplier_id).filter(Boolean))] as string[];
-  const supplierCnpj = new Map<string, string>();
+  const supplierCnpjMap = new Map<string, string>();
   if (supplierIds.length > 0) {
     const { data: sups } = await supabase
       .from('suppliers')
       .select('id, cnpj')
       .in('id', supplierIds);
     (sups ?? []).forEach((s: { id: string; cnpj: string | null }) => {
-      if (s.cnpj) supplierCnpj.set(s.id, s.cnpj.replace(/\D/g, ''));
+      if (s.cnpj) supplierCnpjMap.set(s.id, s.cnpj.replace(/\D/g, ''));
     });
   }
-
-  // Número de NF normalizado: só dígitos, sem zeros à esquerda
-  const normNum = (v: string | null) => (v || '').replace(/\D/g, '').replace(/^0+/, '');
-  // Nome normalizado para comparação: maiúsculas, sem acentos nem pontuação
-  const normName = (v: string | null) =>
-    (v || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-  const namesSimilar = (a: string | null, b: string | null) => {
-    const na = normName(a), nb = normName(b);
-    if (na.length < 4 || nb.length < 4) return false;
-    return na.includes(nb) || nb.includes(na);
-  };
 
   interface Candidate { id: string; cnpj: string | null; supplierName: string | null }
   const purchasesByNum = new Map<string, Candidate[]>();
@@ -1404,7 +1436,7 @@ async function linkReceivedToPurchases(hotelId: string): Promise<number> {
     if (!n) continue;
     const cand: Candidate = {
       id: p.id,
-      cnpj: p.supplier_id ? supplierCnpj.get(p.supplier_id) || null : null,
+      cnpj: p.supplier_id ? supplierCnpjMap.get(p.supplier_id) || null : null,
       supplierName: p.supplier || null,
     };
     const list = purchasesByNum.get(n) || [];
@@ -1698,6 +1730,7 @@ export const nfService = {
   getReceivedNFs,
   updateReceivedSituacao,
   resetDFeNSU,
+  findReceivedByInvoiceNumber,
   linkReceivedToPurchases,
   manifestarNFe,
   fetchDANFSE,
