@@ -86,32 +86,21 @@ function xmlTag(xml: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
-function soapEnvelope(operation: string, _cabecMsg: string, dadosMsg: string): string {
-  // E&L (Modernização Pública) uses a simpler SOAP envelope:
-  // <nfse:operationName><xml><![CDATA[...]]></xml></nfse:operationName>
-  // NOT the CabecMsg/DadosMsg pattern used by Betha/Ginfes.
-  const opName = operationSoapName(operation);
+function soapEnvelope(operation: string, cabecMsg: string, dadosMsg: string): string {
+  // E&L Cloud uses standard ABRASF document/literal SOAP format
+  // with nfseCabecMsg/nfseDadosMsg wrapped in CDATA.
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="${SOAP_NS}" xmlns:nfse="${NFSE_ACTION_NS}">` +
     `<soapenv:Header/>` +
     `<soapenv:Body>` +
-    `<nfse:${opName}>` +
-    `<xml><![CDATA[${dadosMsg}]]></xml>` +
-    `</nfse:${opName}>` +
+    `<nfse:${operation}>` +
+    `<nfseCabecMsg><![CDATA[${cabecMsg}]]></nfseCabecMsg>` +
+    `<nfseDadosMsg><![CDATA[${dadosMsg}]]></nfseDadosMsg>` +
+    `</nfse:${operation}>` +
     `</soapenv:Body>` +
     `</soapenv:Envelope>`
   );
-}
-
-function operationSoapName(operation: string): string {
-  const map: Record<string, string> = {
-    GerarNfse: 'gerarNfse',
-    CancelarNfse: 'cancelarNfse',
-    ConsultarNfsePorRps: 'consultarNfsePorRps',
-    ConsultarNfseServicoPrestado: 'consultarNfseServicoPrestado',
-  };
-  return map[operation] || operation;
 }
 
 function cabecalhoXml(): string {
