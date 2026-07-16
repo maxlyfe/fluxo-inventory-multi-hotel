@@ -1,5 +1,5 @@
 // netlify/functions/lib/nfce-sefaz.ts
-// NFC-e (modelo 65) — integração real com SEFAZ via SVRS (RJ).
+// NFC-e (modelo 65) e NF-e (modelo 55) — integração real com SEFAZ via SVRS (RJ).
 // Layout 4.00 · SOAP 1.2 · mTLS com certificado A1 · XMLDSig RSA-SHA1.
 
 import crypto from 'crypto';
@@ -8,10 +8,17 @@ import { extractPemFromPfx, httpsPost } from './dfe';
 
 // ── SVRS endpoints (RJ usa Sefaz Virtual RS) ────────────────────────────────
 
-const SVRS_HOSTS = {
+const SVRS_HOSTS_NFCE = {
   producao: 'nfce.svrs.rs.gov.br',
   homologacao: 'nfce-homologacao.svrs.rs.gov.br',
 } as const;
+
+const SVRS_HOSTS_NFE = {
+  producao: 'nfe.svrs.rs.gov.br',
+  homologacao: 'nfe-homologacao.svrs.rs.gov.br',
+} as const;
+
+type Modelo = '55' | '65';
 
 const WS_PATHS = {
   autorizacao:  '/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
@@ -140,8 +147,10 @@ async function sefazPost(params: {
   xml: string;
   pfxBase64: string;
   pfxSenha: string;
+  modelo?: Modelo;
 }): Promise<{ status: number; body: string }> {
-  const host = SVRS_HOSTS[params.ambiente];
+  const hosts = (params.modelo === '55') ? SVRS_HOSTS_NFE : SVRS_HOSTS_NFCE;
+  const host = hosts[params.ambiente];
   const path = WS_PATHS[params.service];
   const action = SOAP_ACTIONS[params.service as keyof typeof SOAP_ACTIONS];
   const wsdlNs = WSDL_NS[params.service as keyof typeof WSDL_NS];
@@ -669,6 +678,451 @@ export async function statusServicoNFCe(params: {
     // 107 = Serviço em Operação
     if (cStat === '107') {
       return { success: true, message: `SEFAZ NFC-e (SVRS) em operação. ${xMotivo}`, cStat };
+    }
+
+    return { success: false, message: `SEFAZ ${cStat}: ${xMotivo}`, cStat };
+  } catch (err: any) {
+    return { success: false, message: `Falha na conexão com SEFAZ: ${err.message}` };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NF-e (modelo 55) — mesma infraestrutura SVRS, endpoints nfe.svrs.rs.gov.br
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface NFeDestinatario {
+  cpf_cnpj: string;
+  doc_tipo: 'cpf' | 'cnpj';
+  nome: string;
+  ie?: string | null;
+  indIEDest: '1' | '2' | '9'; // 1=contribuinte, 2=isento, 9=não contribuinte
+  email?: string | null;
+  endereco_logradouro?: string;
+  endereco_numero?: string;
+  endereco_bairro?: string;
+  endereco_cidade?: string;
+  endereco_codigo_municipio?: string;
+  endereco_uf?: string;
+  endereco_cep?: string;
+}
+
+export interface NFeConfig {
+  certificado_base64: string;
+  certificado_senha: string;
+  ambiente: Ambiente;
+  serie: string;
+}
+
+function buildNFeXml(params: {
+  emitente: NFCeEmitente;
+  destinatario: NFeDestinatario;
+  items: NFCeItem[];
+  config: NFeConfig;
+  nNF: number;
+  natOp: string;
+  tPag: string;
+}): { xml: string; chave: string } {
+  const { emitente, destinatario, items, config, nNF, natOp, tPag } = params;
+  const cnpj = emitente.cnpj.replace(/\D/g, '');
+  const tpAmb = config.ambiente === 'producao' ? '1' : '2';
+  const now = brasilia();
+  const aamm = now.toISOString().slice(2, 4) + now.toISOString().slice(5, 7);
+  const dhEmi = dhBrasilia();
+  const cNF = pad(Math.floor(Math.random() * 99999999), 8);
+  const tpEmis = '1';
+
+  const chave = buildChaveAcesso({
+    cUF: CUF_RJ, aamm, cnpj, mod: '55',
+    serie: config.serie, nNF, tpEmis, cNF,
+  });
+  const nfeId = `NFe${chave}`;
+
+  let vProd = 0, vICMS = 0, vBC = 0;
+  for (const it of items) {
+    vProd += it.vProd;
+    vICMS += it.icms_vICMS ?? 0;
+    vBC += it.icms_vBC ?? 0;
+  }
+
+  // det (items) — mesmo builder da NFC-e
+  let detXml = '';
+  for (const it of items) {
+    let icmsXml: string;
+    if (emitente.crt === 1 || emitente.crt === 2) {
+      const csosn = it.icms_csosn || '102';
+      if (csosn === '102' || csosn === '103' || csosn === '300' || csosn === '400') {
+        icmsXml = `<ICMSSN102><orig>${it.icms_orig}</orig><CSOSN>${csosn}</CSOSN></ICMSSN102>`;
+      } else if (csosn === '500') {
+        icmsXml = `<ICMSSN500><orig>${it.icms_orig}</orig><CSOSN>500</CSOSN></ICMSSN500>`;
+      } else {
+        icmsXml = `<ICMSSN102><orig>${it.icms_orig}</orig><CSOSN>102</CSOSN></ICMSSN102>`;
+      }
+    } else {
+      const cst = it.icms_cst || '00';
+      if (cst === '00') {
+        icmsXml =
+          `<ICMS00><orig>${it.icms_orig}</orig><CST>00</CST>` +
+          `<modBC>0</modBC><vBC>${fmtDec(it.icms_vBC ?? it.vProd)}</vBC>` +
+          `<pICMS>${fmtDec(it.icms_pICMS ?? 0)}</pICMS>` +
+          `<vICMS>${fmtDec(it.icms_vICMS ?? 0)}</vICMS></ICMS00>`;
+      } else if (cst === '40' || cst === '41' || cst === '50') {
+        icmsXml = `<ICMS40><orig>${it.icms_orig}</orig><CST>${cst}</CST></ICMS40>`;
+      } else if (cst === '60') {
+        icmsXml = `<ICMS60><orig>${it.icms_orig}</orig><CST>60</CST></ICMS60>`;
+      } else {
+        icmsXml = `<ICMS00><orig>${it.icms_orig}</orig><CST>${cst}</CST>` +
+          `<modBC>0</modBC><vBC>${fmtDec(it.icms_vBC ?? 0)}</vBC>` +
+          `<pICMS>${fmtDec(it.icms_pICMS ?? 0)}</pICMS>` +
+          `<vICMS>${fmtDec(it.icms_vICMS ?? 0)}</vICMS></ICMS00>`;
+      }
+    }
+
+    detXml +=
+      `<det nItem="${it.nItem}">` +
+      `<prod>` +
+      `<cProd>${xmlEsc(it.cProd)}</cProd>` +
+      `<cEAN>SEM GTIN</cEAN>` +
+      `<xProd>${xmlEsc(it.xProd)}</xProd>` +
+      `<NCM>${it.ncm}</NCM>` +
+      `<CFOP>${it.cfop}</CFOP>` +
+      `<uCom>${xmlEsc(it.uCom)}</uCom>` +
+      `<qCom>${fmtDec(it.qCom, 4)}</qCom>` +
+      `<vUnCom>${fmtDec(it.vUnCom, 4)}</vUnCom>` +
+      `<vProd>${fmtDec(it.vProd)}</vProd>` +
+      `<cEANTrib>SEM GTIN</cEANTrib>` +
+      `<uTrib>${xmlEsc(it.uCom)}</uTrib>` +
+      `<qTrib>${fmtDec(it.qCom, 4)}</qTrib>` +
+      `<vUnTrib>${fmtDec(it.vUnCom, 4)}</vUnTrib>` +
+      `<indTot>1</indTot>` +
+      `</prod>` +
+      `<imposto>` +
+      `<ICMS>${icmsXml}</ICMS>` +
+      `<PIS><PISOutr><CST>99</CST><vBC>0.00</vBC><pPIS>0.00</pPIS><vPIS>0.00</vPIS></PISOutr></PIS>` +
+      `<COFINS><COFINSOutr><CST>99</CST><vBC>0.00</vBC><pCOFINS>0.00</pCOFINS><vCOFINS>0.00</vCOFINS></COFINSOutr></COFINS>` +
+      `</imposto>` +
+      `</det>`;
+  }
+
+  // dest (obrigatório para NF-e modelo 55)
+  const docLimpo = destinatario.cpf_cnpj.replace(/\D/g, '');
+  const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length > 11;
+  let destXml = '<dest>';
+  destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
+  destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
+  if (destinatario.endereco_logradouro) {
+    destXml += '<enderDest>';
+    destXml += `<xLgr>${xmlEsc(destinatario.endereco_logradouro)}</xLgr>`;
+    destXml += `<nro>${xmlEsc(destinatario.endereco_numero || 'S/N')}</nro>`;
+    destXml += `<xBairro>${xmlEsc(destinatario.endereco_bairro || '')}</xBairro>`;
+    destXml += `<cMun>${destinatario.endereco_codigo_municipio || ''}</cMun>`;
+    destXml += `<xMun>${xmlEsc(destinatario.endereco_cidade || '')}</xMun>`;
+    destXml += `<UF>${destinatario.endereco_uf || 'RJ'}</UF>`;
+    if (destinatario.endereco_cep) destXml += `<CEP>${destinatario.endereco_cep.replace(/\D/g, '')}</CEP>`;
+    destXml += '<cPais>1058</cPais><xPais>Brasil</xPais>';
+    destXml += '</enderDest>';
+  }
+  destXml += `<indIEDest>${destinatario.indIEDest}</indIEDest>`;
+  if (destinatario.ie && destinatario.indIEDest === '1') {
+    destXml += `<IE>${destinatario.ie.replace(/\D/g, '')}</IE>`;
+  }
+  if (destinatario.email) destXml += `<email>${xmlEsc(destinatario.email)}</email>`;
+  destXml += '</dest>';
+
+  const infNFe =
+    `<infNFe Id="${nfeId}" versao="4.00">` +
+    `<ide>` +
+    `<cUF>${CUF_RJ}</cUF>` +
+    `<cNF>${cNF}</cNF>` +
+    `<natOp>${xmlEsc(natOp)}</natOp>` +
+    `<mod>55</mod>` +
+    `<serie>${pad(config.serie, 3)}</serie>` +
+    `<nNF>${pad(nNF, 9)}</nNF>` +
+    `<dhEmi>${dhEmi}</dhEmi>` +
+    `<tpNF>1</tpNF>` +
+    `<idDest>1</idDest>` +
+    `<cMunFG>${emitente.endereco_codigo_municipio}</cMunFG>` +
+    `<tpImp>1</tpImp>` +
+    `<tpEmis>${tpEmis}</tpEmis>` +
+    `<cDV>${chave[43]}</cDV>` +
+    `<tpAmb>${tpAmb}</tpAmb>` +
+    `<finNFe>1</finNFe>` +
+    `<indFinal>1</indFinal>` +
+    `<indPres>0</indPres>` +
+    `<procEmi>0</procEmi>` +
+    `<verProc>Fluxo1.0</verProc>` +
+    `</ide>` +
+    `<emit>` +
+    `<CNPJ>${cnpj}</CNPJ>` +
+    `<xNome>${xmlEsc(emitente.razao_social)}</xNome>` +
+    (emitente.nome_fantasia ? `<xFant>${xmlEsc(emitente.nome_fantasia)}</xFant>` : '') +
+    `<enderEmit>` +
+    `<xLgr>${xmlEsc(emitente.endereco_logradouro)}</xLgr>` +
+    `<nro>${xmlEsc(emitente.endereco_numero)}</nro>` +
+    `<xBairro>${xmlEsc(emitente.endereco_bairro)}</xBairro>` +
+    `<cMun>${emitente.endereco_codigo_municipio}</cMun>` +
+    `<xMun>${xmlEsc(emitente.endereco_cidade)}</xMun>` +
+    `<UF>${emitente.endereco_uf}</UF>` +
+    `<CEP>${emitente.endereco_cep.replace(/\D/g, '')}</CEP>` +
+    `<cPais>1058</cPais><xPais>Brasil</xPais>` +
+    (emitente.telefone ? `<fone>${emitente.telefone.replace(/\D/g, '')}</fone>` : '') +
+    `</enderEmit>` +
+    `<IE>${emitente.inscricao_estadual.replace(/\D/g, '')}</IE>` +
+    `<CRT>${emitente.crt}</CRT>` +
+    `</emit>` +
+    destXml +
+    detXml +
+    `<total><ICMSTot>` +
+    `<vBC>${fmtDec(vBC)}</vBC>` +
+    `<vICMS>${fmtDec(vICMS)}</vICMS>` +
+    `<vICMSDeson>0.00</vICMSDeson>` +
+    `<vFCP>0.00</vFCP>` +
+    `<vBCST>0.00</vBCST>` +
+    `<vST>0.00</vST>` +
+    `<vFCPST>0.00</vFCPST>` +
+    `<vFCPSTRet>0.00</vFCPSTRet>` +
+    `<vProd>${fmtDec(vProd)}</vProd>` +
+    `<vFrete>0.00</vFrete>` +
+    `<vSeg>0.00</vSeg>` +
+    `<vDesc>0.00</vDesc>` +
+    `<vII>0.00</vII>` +
+    `<vIPI>0.00</vIPI>` +
+    `<vIPIDevol>0.00</vIPIDevol>` +
+    `<vPIS>0.00</vPIS>` +
+    `<vCOFINS>0.00</vCOFINS>` +
+    `<vOutro>0.00</vOutro>` +
+    `<vNF>${fmtDec(vProd)}</vNF>` +
+    `</ICMSTot></total>` +
+    `<transp><modFrete>9</modFrete></transp>` +
+    `<pag><detPag>` +
+    `<tPag>${tPag}</tPag>` +
+    `<vPag>${fmtDec(vProd)}</vPag>` +
+    `</detPag></pag>` +
+    `<infAdic><infCpl>NF-e emitida pelo sistema Fluxo.</infCpl></infAdic>` +
+    `</infNFe>`;
+
+  return { xml: `<NFe xmlns="${NFE_NS}">${infNFe}</NFe>`, chave };
+}
+
+// ── Emitir NF-e (modelo 55) ─────────────────────────────────────────────────
+
+export async function emitirNFe(params: {
+  emitente: NFCeEmitente;
+  destinatario: NFeDestinatario;
+  items: NFCeItem[];
+  config: NFeConfig;
+  nNF: number;
+  natOp?: string;
+  tPag?: string;
+}): Promise<NFCeResult> {
+  const natOp = params.natOp || 'VENDA DE MERCADORIA';
+  const tPag = params.tPag || '01';
+
+  const { xml: nfeUnsigned, chave } = buildNFeXml({ ...params, natOp, tPag });
+
+  const nfeId = `NFe${chave}`;
+  const { key, cert } = extractPemFromPfx(params.config.certificado_base64, params.config.certificado_senha);
+  const nfeSigned = signNFe(nfeUnsigned, nfeId, key, cert);
+
+  const idLote = Date.now().toString().slice(-15);
+  const enviNFe =
+    `<enviNFe xmlns="${NFE_NS}" versao="4.00">` +
+    `<idLote>${idLote}</idLote>` +
+    `<indSinc>1</indSinc>` +
+    nfeSigned +
+    `</enviNFe>`;
+
+  console.log(`[NF-e] Emitindo NF-e ${params.nNF} chave ${chave}`);
+
+  const res = await sefazPost({
+    ambiente: params.config.ambiente,
+    service: 'autorizacao',
+    xml: enviNFe,
+    pfxBase64: params.config.certificado_base64,
+    pfxSenha: params.config.certificado_senha,
+    modelo: '55',
+  });
+
+  console.log(`[NF-e] SEFAZ HTTP ${res.status}`);
+  console.log(`[NF-e] Resposta (2000 chars):`, res.body.slice(0, 2000));
+
+  if (res.status !== 200) {
+    return {
+      success: false, numero_nf: null, serie: null, chave_acesso: null,
+      numero_protocolo: null, codigo_verificacao: null,
+      qrcode_url: null, url_consulta: null,
+      xml_retorno: res.body,
+      message: `SEFAZ respondeu HTTP ${res.status}: ${res.body.slice(0, 500)}`,
+    };
+  }
+
+  const body = res.body;
+  const cStat = xmlTag(body, 'cStat');
+  const xMotivo = xmlTag(body, 'xMotivo');
+  const nProt = xmlTag(body, 'nProt');
+
+  if (cStat === '100' || cStat === '150') {
+    return {
+      success: true,
+      numero_nf: String(params.nNF),
+      serie: params.config.serie,
+      chave_acesso: chave,
+      numero_protocolo: nProt,
+      codigo_verificacao: null,
+      qrcode_url: null,
+      url_consulta: null,
+      xml_retorno: body,
+      message: `NF-e ${params.nNF} autorizada. Protocolo: ${nProt}`,
+    };
+  }
+
+  if (cStat === '104') {
+    const protNFe = xmlTag(body, 'protNFe') ?? body;
+    const innerStat = xmlTag(protNFe, 'cStat');
+    const innerMotivo = xmlTag(protNFe, 'xMotivo');
+    const innerProt = xmlTag(protNFe, 'nProt');
+
+    if (innerStat === '100' || innerStat === '150') {
+      return {
+        success: true,
+        numero_nf: String(params.nNF),
+        serie: params.config.serie,
+        chave_acesso: chave,
+        numero_protocolo: innerProt,
+        codigo_verificacao: null,
+        qrcode_url: null, url_consulta: null,
+        xml_retorno: body,
+        message: `NF-e ${params.nNF} autorizada. Protocolo: ${innerProt}`,
+      };
+    }
+
+    return {
+      success: false, numero_nf: null, serie: null, chave_acesso: chave,
+      numero_protocolo: null, codigo_verificacao: null,
+      qrcode_url: null, url_consulta: null,
+      xml_retorno: body,
+      message: `Rejeição ${innerStat}: ${innerMotivo}`,
+    };
+  }
+
+  return {
+    success: false, numero_nf: null, serie: null, chave_acesso: chave,
+    numero_protocolo: null, codigo_verificacao: null,
+    qrcode_url: null, url_consulta: null,
+    xml_retorno: body,
+    message: `SEFAZ ${cStat}: ${xMotivo}`,
+  };
+}
+
+// ── Cancelar NF-e (modelo 55) ───────────────────────────────────────────────
+
+export async function cancelarNFe(params: {
+  certificado_base64: string;
+  certificado_senha: string;
+  ambiente: Ambiente;
+  cnpj: string;
+  chave: string;
+  nProt: string;
+  xJust: string;
+}): Promise<{ success: boolean; xml: string; message: string }> {
+  const cnpj = params.cnpj.replace(/\D/g, '');
+  const tpAmb = params.ambiente === 'producao' ? '1' : '2';
+  const dhEvento = dhBrasilia();
+  const eventId = `ID110111${params.chave}01`;
+
+  const infEventoXml =
+    `<infEvento Id="${eventId}">` +
+    `<cOrgao>${CUF_RJ}</cOrgao>` +
+    `<tpAmb>${tpAmb}</tpAmb>` +
+    `<CNPJ>${cnpj}</CNPJ>` +
+    `<chNFe>${params.chave}</chNFe>` +
+    `<dhEvento>${dhEvento}</dhEvento>` +
+    `<tpEvento>110111</tpEvento>` +
+    `<nSeqEvento>1</nSeqEvento>` +
+    `<verEvento>1.00</verEvento>` +
+    `<detEvento versao="1.00">` +
+    `<descEvento>Cancelamento</descEvento>` +
+    `<nProt>${params.nProt}</nProt>` +
+    `<xJust>${xmlEsc(params.xJust)}</xJust>` +
+    `</detEvento>` +
+    `</infEvento>`;
+
+  const eventoUnsigned =
+    `<evento xmlns="${NFE_NS}" versao="1.00">${infEventoXml}</evento>`;
+
+  const { key, cert } = extractPemFromPfx(params.certificado_base64, params.certificado_senha);
+  const eventoSigned = signNFe(eventoUnsigned, eventId, key, cert);
+
+  const envEvento =
+    `<envEvento xmlns="${NFE_NS}" versao="1.00">` +
+    `<idLote>${Date.now()}</idLote>` +
+    eventoSigned +
+    `</envEvento>`;
+
+  const res = await sefazPost({
+    ambiente: params.ambiente,
+    service: 'evento',
+    xml: envEvento,
+    pfxBase64: params.certificado_base64,
+    pfxSenha: params.certificado_senha,
+    modelo: '55',
+  });
+
+  if (res.status !== 200) {
+    return { success: false, xml: res.body, message: `SEFAZ HTTP ${res.status}` };
+  }
+
+  const cStat = xmlTag(res.body, 'cStat');
+  const xMotivo = xmlTag(res.body, 'xMotivo');
+
+  if (cStat === '135' || cStat === '155') {
+    return { success: true, xml: res.body, message: `NF-e cancelada. ${xMotivo}` };
+  }
+
+  return { success: false, xml: res.body, message: `Erro ${cStat}: ${xMotivo}` };
+}
+
+// ── Status do Serviço NF-e (modelo 55) ──────────────────────────────────────
+
+export async function statusServicoNFe(params: {
+  certificado_base64: string;
+  certificado_senha: string;
+  ambiente: Ambiente;
+}): Promise<{ success: boolean; message: string; cStat?: string }> {
+  try {
+    extractPemFromPfx(params.certificado_base64, params.certificado_senha);
+  } catch (err: any) {
+    return { success: false, message: `Erro no certificado: ${err.message}` };
+  }
+
+  try {
+    const tpAmb = params.ambiente === 'producao' ? '1' : '2';
+    const consStatServ =
+      `<consStatServ xmlns="${NFE_NS}" versao="4.00">` +
+      `<tpAmb>${tpAmb}</tpAmb>` +
+      `<cUF>${CUF_RJ}</cUF>` +
+      `<xServ>STATUS</xServ>` +
+      `</consStatServ>`;
+
+    const res = await sefazPost({
+      ambiente: params.ambiente,
+      service: 'status',
+      xml: consStatServ,
+      pfxBase64: params.certificado_base64,
+      pfxSenha: params.certificado_senha,
+      modelo: '55',
+    });
+
+    console.log(`[NF-e StatusServico] HTTP ${res.status}, body: ${res.body.slice(0, 500)}`);
+
+    if (res.status !== 200) {
+      return { success: false, message: `SEFAZ respondeu HTTP ${res.status}` };
+    }
+
+    const cStat = xmlTag(res.body, 'cStat');
+    const xMotivo = xmlTag(res.body, 'xMotivo');
+
+    if (cStat === '107') {
+      return { success: true, message: `SEFAZ NF-e (SVRS) em operação. ${xMotivo}`, cStat };
     }
 
     return { success: false, message: `SEFAZ ${cStat}: ${xMotivo}`, cStat };

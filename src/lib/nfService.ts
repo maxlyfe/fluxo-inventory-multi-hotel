@@ -749,6 +749,60 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         numero_nfce: config!.proximo_numero_nfce || 1,
         tPag: '01',
       };
+    } else if (inv?.tipo === 'nfe') {
+      const { data: items } = await supabase
+        .from('nf_invoice_items')
+        .select('*')
+        .eq('invoice_id', invoiceId);
+
+      // indIEDest: 1=contribuinte ICMS, 2=isento, 9=não contribuinte (consumidor)
+      const isCnpj = inv.tomador_doc_tipo === 'cnpj';
+      const indIE: '1' | '2' | '9' = isCnpj ? '1' : '9';
+
+      proxyAction = 'emit-nfe';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config!.certificado_base64,
+        certificado_senha: config!.certificado_senha,
+        ambiente: config!.ambiente || 'homologacao',
+        cnpj: config!.cnpj,
+        razao_social: config!.razao_social,
+        nome_fantasia: config!.nome_fantasia,
+        inscricao_estadual: config!.inscricao_estadual,
+        crt: config!.crt || 1,
+        endereco_logradouro: config!.endereco_logradouro,
+        endereco_numero: config!.endereco_numero,
+        endereco_bairro: config!.endereco_bairro,
+        endereco_cidade: config!.endereco_cidade,
+        endereco_uf: config!.endereco_uf,
+        endereco_cep: config!.endereco_cep,
+        endereco_codigo_municipio: config!.endereco_codigo_municipio,
+        telefone: config!.telefone,
+        tomador_nome: inv.tomador_nome,
+        tomador_cpf_cnpj: inv.tomador_cpf_cnpj,
+        tomador_doc_tipo: inv.tomador_doc_tipo,
+        tomador_ind_ie: indIE,
+        tomador_email: inv.tomador_email,
+        tomador_endereco: inv.tomador_endereco,
+        items: (items || []).map((i: NFInvoiceItem) => ({
+          description: i.descricao,
+          quantidade: i.quantidade,
+          valor_unitario: i.valor_unitario,
+          valor_total: i.valor_total,
+          ncm: i.ncm || '00000000',
+          cfop: i.cfop || '5102',
+          icms_orig: '0',
+          icms_csosn: (config!.crt === 1 || config!.crt === 2) ? '102' : undefined,
+          icms_cst: (config!.crt === 3) ? '00' : undefined,
+          icms_vBC: (config!.crt === 3) ? i.valor_total : 0,
+          icms_pICMS: (config!.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
+          icms_vICMS: (config!.crt === 3) ? (i.icms_valor ?? 0) : 0,
+        })),
+        serie_nfe: config!.serie_nfe || '1',
+        numero_nfe: config!.proximo_numero_nfe || 1,
+        natureza_operacao: 'VENDA DE MERCADORIA',
+        tPag: '01',
+      };
     } else {
       proxyAction = 'emit';
       bodyPayload = { action: proxyAction, invoiceId, hotelId };
@@ -815,6 +869,11 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         await supabase
           .from('nf_hotel_config')
           .update({ proximo_numero_nfce: (config.proximo_numero_nfce || 1) + 1 })
+          .eq('hotel_id', hotelId);
+      } else if (inv?.tipo === 'nfe') {
+        await supabase
+          .from('nf_hotel_config')
+          .update({ proximo_numero_nfe: (config.proximo_numero_nfe || 1) + 1 })
           .eq('hotel_id', hotelId);
       }
     }
