@@ -19,7 +19,7 @@ import {
   Home, Calendar, Shirt, Sparkles, Clock, History,
   MonitorSmartphone, Store, TrendingUp, Coffee,
   MessageCircle, Bot, Radio, Receipt, Truck, Calculator, Globe,
-  ConciergeBell, HandCoins, Repeat, FileSearch, Wallet,
+  ConciergeBell, HandCoins, Repeat, FileSearch, FileCheck, Wallet,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -200,6 +200,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { module: 'finances', label: 'Cartões de Crédito',  href: '/finances/cartoes',            icon: CreditCard,   iconName: 'CreditCard',   color: '#7c3aed' },
       { module: 'finances', label: 'NF Recebidas',       href: '/finances/nf-recebidas',       icon: FileSearch,   iconName: 'FileSearch',   color: '#3b82f6' },
       { module: 'finances', label: 'Emissão de NF',     href: '/finances/emissao-nf',         icon: FileText,     iconName: 'FileText',     color: '#f59e0b' },
+      { module: 'finances', label: 'NFS-e Emitidas',    href: '/finances/nfse-emitidas',      icon: FileCheck,    iconName: 'FileCheck',    color: '#d97706' },
       { module: 'finances', label: 'Fornecedores',       href: '/finances/fornecedores',       icon: Truck,        iconName: 'Truck',        color: '#059669' },
     ],
   },

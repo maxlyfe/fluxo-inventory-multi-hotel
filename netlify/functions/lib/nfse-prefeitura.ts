@@ -565,3 +565,376 @@ export async function testarConexaoPrefeitura(params: {
     return { success: false, message: `Falha na conexão: ${err.message}` };
   }
 }
+
+// ── Consultar NFS-e Serviço Prestado (retroativo) ──────────────────────────
+
+export interface NfseConsultaItem {
+  numero: string;
+  codigo_verificacao: string | null;
+  data_emissao: string | null;
+  competencia: string | null;
+  valor_servicos: string | null;
+  valor_iss: string | null;
+  aliquota: string | null;
+  tomador_nome: string | null;
+  tomador_cpf_cnpj: string | null;
+  discriminacao: string | null;
+  situacao: string | null;
+}
+
+export interface ConsultaNfseResult {
+  success: boolean;
+  notas: NfseConsultaItem[];
+  total: number;
+  pagina: number;
+  xml_retorno: string;
+  message: string;
+}
+
+function parseNfseList(xml: string): NfseConsultaItem[] {
+  const notas: NfseConsultaItem[] = [];
+  const nfseRegex = /<(?:[\w]+:)?CompNfse[^>]*>([\s\S]*?)<\/(?:[\w]+:)?CompNfse>/g;
+  let match;
+  while ((match = nfseRegex.exec(xml)) !== null) {
+    const block = match[1];
+    const numero = xmlTag(block, 'Numero');
+    if (!numero) continue;
+    notas.push({
+      numero,
+      codigo_verificacao: xmlTag(block, 'CodigoVerificacao'),
+      data_emissao: xmlTag(block, 'DataEmissao'),
+      competencia: xmlTag(block, 'Competencia'),
+      valor_servicos: xmlTag(block, 'ValorServicos'),
+      valor_iss: xmlTag(block, 'ValorIss'),
+      aliquota: xmlTag(block, 'Aliquota'),
+      tomador_nome: xmlTag(block, 'RazaoSocial'),
+      tomador_cpf_cnpj: xmlTag(block, 'Cpf') || xmlTag(block, 'Cnpj'),
+      discriminacao: xmlTag(block, 'Discriminacao'),
+      situacao: xmlTag(block, 'Situacao'),
+    });
+  }
+  return notas;
+}
+
+export async function consultarNfseServicoPrestado(params: {
+  certificado_base64: string;
+  certificado_senha: string;
+  ambiente: 'producao' | 'homologacao';
+  cnpj: string;
+  inscricao_municipal: string;
+  data_inicial: string;
+  data_final: string;
+  pagina?: number;
+  tomador_cpf_cnpj?: string;
+}): Promise<ConsultaNfseResult> {
+  const cnpj = params.cnpj.replace(/\D/g, '');
+  const im = params.inscricao_municipal.replace(/\D/g, '');
+  const pagina = params.pagina || 1;
+
+  let filtroTomador = '';
+  if (params.tomador_cpf_cnpj) {
+    const docLimpo = params.tomador_cpf_cnpj.replace(/\D/g, '');
+    const isCnpj = docLimpo.length > 11;
+    filtroTomador =
+      `<Tomador><CpfCnpj>` +
+      (isCnpj ? `<Cnpj>${docLimpo}</Cnpj>` : `<Cpf>${docLimpo}</Cpf>`) +
+      `</CpfCnpj></Tomador>`;
+  }
+
+  const consultaXml =
+    `<ConsultarNfseServicoPrestadoEnvio xmlns="${ABRASF_NS}">` +
+    `<Prestador>` +
+    `<CpfCnpj><Cnpj>${cnpj}</Cnpj></CpfCnpj>` +
+    `<InscricaoMunicipal>${im}</InscricaoMunicipal>` +
+    `</Prestador>` +
+    filtroTomador +
+    `<PeriodoEmissao>` +
+    `<DataInicial>${params.data_inicial}</DataInicial>` +
+    `<DataFinal>${params.data_final}</DataFinal>` +
+    `</PeriodoEmissao>` +
+    `<Pagina>${pagina}</Pagina>` +
+    `</ConsultarNfseServicoPrestadoEnvio>`;
+
+  const envelope = soapEnvelope('ConsultarNfseServicoPrestado', cabecalhoXml(), consultaXml);
+
+  const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
+  console.log(`[NFS-e Consulta] Buscando NFS-e prestadas, período ${params.data_inicial} a ${params.data_final}, página ${pagina}`);
+
+  const res = await httpPost(
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfseServicoPrestado` } },
+    envelope,
+  );
+
+  if (res.status !== 200) {
+    return {
+      success: false, notas: [], total: 0, pagina,
+      xml_retorno: res.body,
+      message: `Prefeitura respondeu HTTP ${res.status}: ${res.body.slice(0, 500)}`,
+    };
+  }
+
+  const codigoErro = xmlTag(res.body, 'Codigo');
+  const mensagemErro = xmlTag(res.body, 'Mensagem');
+
+  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+    return {
+      success: false, notas: [], total: 0, pagina,
+      xml_retorno: res.body,
+      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'}`,
+    };
+  }
+
+  const notas = parseNfseList(res.body);
+
+  return {
+    success: true,
+    notas,
+    total: notas.length,
+    pagina,
+    xml_retorno: res.body,
+    message: notas.length > 0 ? `${notas.length} NFS-e encontrada(s).` : 'Nenhuma NFS-e encontrada no período.',
+  };
+}
+
+// ── Consultar NFS-e por Faixa de Números ────────────────────────────────────
+
+export async function consultarNfsePorFaixa(params: {
+  certificado_base64: string;
+  certificado_senha: string;
+  ambiente: 'producao' | 'homologacao';
+  cnpj: string;
+  inscricao_municipal: string;
+  numero_inicial: number;
+  numero_final: number;
+  pagina?: number;
+}): Promise<ConsultaNfseResult> {
+  const cnpj = params.cnpj.replace(/\D/g, '');
+  const im = params.inscricao_municipal.replace(/\D/g, '');
+  const pagina = params.pagina || 1;
+
+  const consultaXml =
+    `<ConsultarNfseFaixaEnvio xmlns="${ABRASF_NS}">` +
+    `<Prestador>` +
+    `<CpfCnpj><Cnpj>${cnpj}</Cnpj></CpfCnpj>` +
+    `<InscricaoMunicipal>${im}</InscricaoMunicipal>` +
+    `</Prestador>` +
+    `<Faixa>` +
+    `<NumeroNfseInicial>${params.numero_inicial}</NumeroNfseInicial>` +
+    `<NumeroNfseFinal>${params.numero_final}</NumeroNfseFinal>` +
+    `</Faixa>` +
+    `<Pagina>${pagina}</Pagina>` +
+    `</ConsultarNfseFaixaEnvio>`;
+
+  const envelope = soapEnvelope('ConsultarNfsePorFaixa', cabecalhoXml(), consultaXml);
+
+  const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
+
+  const res = await httpPost(
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorFaixa` } },
+    envelope,
+  );
+
+  if (res.status !== 200) {
+    return {
+      success: false, notas: [], total: 0, pagina,
+      xml_retorno: res.body,
+      message: `Prefeitura respondeu HTTP ${res.status}: ${res.body.slice(0, 500)}`,
+    };
+  }
+
+  const codigoErro = xmlTag(res.body, 'Codigo');
+  const mensagemErro = xmlTag(res.body, 'Mensagem');
+
+  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+    return {
+      success: false, notas: [], total: 0, pagina,
+      xml_retorno: res.body,
+      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'}`,
+    };
+  }
+
+  const notas = parseNfseList(res.body);
+
+  return {
+    success: true,
+    notas,
+    total: notas.length,
+    pagina,
+    xml_retorno: res.body,
+    message: notas.length > 0 ? `${notas.length} NFS-e encontrada(s).` : 'Nenhuma NFS-e na faixa informada.',
+  };
+}
+
+// ── Emissão em Lote Síncrono ────────────────────────────────────────────────
+
+export async function recepcionarLoteRpsSincrono(params: {
+  prestador: NfsePrestador;
+  tomadores: NfseTomador[];
+  itemsPerRps: NfseItem[][];
+  config: NfseConfig;
+  numerosRps: number[];
+  serieRps: string;
+}): Promise<{ success: boolean; resultados: EmissaoNfseResult[]; xml_retorno: string; message: string }> {
+  const { prestador, tomadores, itemsPerRps, config, numerosRps, serieRps } = params;
+  const { key, cert } = extractPemFromPfx(config.certificado_base64, config.certificado_senha);
+  const cnpj = prestador.cnpj.replace(/\D/g, '');
+  const im = prestador.inscricao_municipal.replace(/\D/g, '');
+
+  const loteId = Date.now().toString();
+  let rpsListXml = '';
+
+  for (let i = 0; i < numerosRps.length; i++) {
+    const rpsXml = buildRpsXml(prestador, tomadores[i], itemsPerRps[i], config, numerosRps[i], serieRps);
+    const rpsId = `rps_${numerosRps[i]}`;
+    const signed = signRps(rpsXml, rpsId, key, cert);
+    const inner = signed.replace(/<GerarNfseEnvio[^>]*>/, '').replace(/<\/GerarNfseEnvio>/, '');
+    rpsListXml += inner;
+  }
+
+  const loteXml =
+    `<EnviarLoteRpsSincronoEnvio xmlns="${ABRASF_NS}">` +
+    `<LoteRps Id="lote_${loteId}" versao="2.02">` +
+    `<NumeroLote>${loteId}</NumeroLote>` +
+    `<CpfCnpj><Cnpj>${cnpj}</Cnpj></CpfCnpj>` +
+    `<InscricaoMunicipal>${im}</InscricaoMunicipal>` +
+    `<QuantidadeRps>${numerosRps.length}</QuantidadeRps>` +
+    `<ListaRps>${rpsListXml}</ListaRps>` +
+    `</LoteRps>` +
+    `</EnviarLoteRpsSincronoEnvio>`;
+
+  const envelope = soapEnvelope('RecepcionarLoteRpsSincrono', cabecalhoXml(), loteXml);
+
+  const { host, path: wsPath } = NFSE_CONFIG[config.ambiente];
+  console.log(`[NFS-e Lote] Enviando lote com ${numerosRps.length} RPS`);
+
+  const res = await httpPost(
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/RecepcionarLoteRpsSincrono` } },
+    envelope,
+  );
+
+  if (res.status !== 200) {
+    return {
+      success: false, resultados: [],
+      xml_retorno: res.body,
+      message: `Prefeitura respondeu HTTP ${res.status}: ${res.body.slice(0, 500)}`,
+    };
+  }
+
+  const codigoErro = xmlTag(res.body, 'Codigo');
+  const mensagemErro = xmlTag(res.body, 'Mensagem');
+
+  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+    return {
+      success: false, resultados: [],
+      xml_retorno: res.body,
+      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro no lote'}`,
+    };
+  }
+
+  const notasRetorno = parseNfseList(res.body);
+  const resultados: EmissaoNfseResult[] = notasRetorno.map(n => ({
+    success: true,
+    numero_nf: n.numero,
+    serie: serieRps,
+    codigo_verificacao: n.codigo_verificacao,
+    numero_protocolo: null,
+    chave_acesso: null,
+    xml_retorno: res.body,
+    message: `NFS-e ${n.numero} emitida com sucesso.`,
+  }));
+
+  return {
+    success: true,
+    resultados,
+    xml_retorno: res.body,
+    message: `Lote processado: ${resultados.length} NFS-e emitida(s).`,
+  };
+}
+
+// ── Substituir NFS-e ────────────────────────────────────────────────────────
+
+export async function substituirNfse(params: {
+  prestador: NfsePrestador;
+  tomador: NfseTomador;
+  items: NfseItem[];
+  config: NfseConfig;
+  numeroRps: number;
+  serieRps: string;
+  numero_nfse_substituida: string;
+}): Promise<EmissaoNfseResult> {
+  const { prestador, tomador, items, config, numeroRps, serieRps } = params;
+  const rpsId = `rps_${numeroRps}`;
+
+  let rpsXml = buildRpsXml(prestador, tomador, items, config, numeroRps, serieRps);
+
+  const { key, cert } = extractPemFromPfx(config.certificado_base64, config.certificado_senha);
+  rpsXml = signRps(rpsXml, rpsId, key, cert);
+
+  const cnpj = prestador.cnpj.replace(/\D/g, '');
+  const im = prestador.inscricao_municipal.replace(/\D/g, '');
+
+  const subsXml =
+    `<SubstituirNfseEnvio xmlns="${ABRASF_NS}">` +
+    `<SubstituicaoNfse Id="sub_${params.numero_nfse_substituida}">` +
+    `<Pedido>` +
+    `<InfPedidoCancelamento Id="cancel_${params.numero_nfse_substituida}">` +
+    `<IdentificacaoNfse>` +
+    `<Numero>${params.numero_nfse_substituida}</Numero>` +
+    `<CpfCnpj><Cnpj>${cnpj}</Cnpj></CpfCnpj>` +
+    `<InscricaoMunicipal>${im}</InscricaoMunicipal>` +
+    `<CodigoMunicipio>${config.codigo_municipio}</CodigoMunicipio>` +
+    `</IdentificacaoNfse>` +
+    `<CodigoCancelamento>4</CodigoCancelamento>` +
+    `</InfPedidoCancelamento>` +
+    `</Pedido>` +
+    rpsXml +
+    `</SubstituicaoNfse>` +
+    `</SubstituirNfseEnvio>`;
+
+  const envelope = soapEnvelope('SubstituirNfse', cabecalhoXml(), subsXml);
+
+  const { host, path: wsPath } = NFSE_CONFIG[config.ambiente];
+  const res = await httpPost(
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/SubstituirNfse` } },
+    envelope,
+  );
+
+  if (res.status !== 200) {
+    return {
+      success: false,
+      numero_nf: null, serie: null, codigo_verificacao: null,
+      numero_protocolo: null, chave_acesso: null,
+      xml_retorno: res.body,
+      message: `Prefeitura respondeu HTTP ${res.status}: ${res.body.slice(0, 500)}`,
+    };
+  }
+
+  const codigoErro = xmlTag(res.body, 'Codigo');
+  const mensagemErro = xmlTag(res.body, 'Mensagem');
+
+  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+    return {
+      success: false,
+      numero_nf: null, serie: null, codigo_verificacao: null,
+      numero_protocolo: null, chave_acesso: null,
+      xml_retorno: res.body,
+      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro ao substituir'}`,
+    };
+  }
+
+  const numeroNf = xmlTag(res.body, 'Numero');
+  const codigoVerificacao = xmlTag(res.body, 'CodigoVerificacao');
+
+  return {
+    success: !!numeroNf,
+    numero_nf: numeroNf,
+    serie: serieRps,
+    codigo_verificacao: codigoVerificacao,
+    numero_protocolo: null,
+    chave_acesso: null,
+    xml_retorno: res.body,
+    message: numeroNf
+      ? `NFS-e ${params.numero_nfse_substituida} substituída por NFS-e ${numeroNf}.`
+      : `Resposta inesperada: ${res.body.slice(0, 500)}`,
+  };
+}

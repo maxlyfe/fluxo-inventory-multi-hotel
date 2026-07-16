@@ -237,6 +237,9 @@ export interface NFCeItem {
   icms_vBC?: number;
   icms_pICMS?: number;
   icms_vICMS?: number;
+  // IBS/CBS (NT 2025.002 — obrigatório CRT 3 a partir de 03/Ago/2026)
+  ibs_cbs_cst?: string;        // CST IBS/CBS — 000=tributado integral
+  ibs_cbs_cClassTrib?: string; // Código Classificação Tributária (6 dígitos)
 }
 
 export interface NFCeConfig {
@@ -259,6 +262,62 @@ export interface NFCeResult {
   url_consulta: string | null;
   xml_retorno: string;
   message: string;
+}
+
+// ── IBS/CBS helpers (NT 2025.002 — Reforma Tributária) ─────────────────────
+
+const IBS_UF_RATE = 0.10;   // 0,1% IBS estadual (teste 2026)
+const IBS_MUN_RATE = 0.00;  // 0% IBS municipal (teste 2026)
+const CBS_RATE = 0.90;      // 0,9% CBS federal (teste 2026)
+
+function buildIBSCBSItem(item: NFCeItem, crt: number): { xml: string; vIBS: number; vCBS: number; vBC: number } {
+  // CRT 1/2/4 (Simples Nacional/MEI): adiado para Jan/2027
+  if (crt !== 3) return { xml: '', vIBS: 0, vCBS: 0, vBC: 0 };
+
+  const cstIbsCbs = item.ibs_cbs_cst || '000';
+  const cClassTrib = item.ibs_cbs_cClassTrib || '000003';
+  const vBC = item.vProd;
+  const vIBSUF = +(vBC * IBS_UF_RATE / 100).toFixed(2);
+  const vIBSMun = +(vBC * IBS_MUN_RATE / 100).toFixed(2);
+  const vIBS = +(vIBSUF + vIBSMun).toFixed(2);
+  const vCBS = +(vBC * CBS_RATE / 100).toFixed(2);
+
+  const xml =
+    `<IBSCBS>` +
+    `<CST>${cstIbsCbs}</CST>` +
+    `<cClassTrib>${cClassTrib}</cClassTrib>` +
+    `<gIBSCBS>` +
+    `<vBC>${fmtDec(vBC)}</vBC>` +
+    `<gIBSUF>` +
+    `<pIBSUF>${fmtDec(IBS_UF_RATE, 4)}</pIBSUF>` +
+    `<vIBSUF>${fmtDec(vIBSUF)}</vIBSUF>` +
+    `</gIBSUF>` +
+    `<gIBSMun>` +
+    `<pIBSMun>${fmtDec(IBS_MUN_RATE, 4)}</pIBSMun>` +
+    `<vIBSMun>${fmtDec(vIBSMun)}</vIBSMun>` +
+    `</gIBSMun>` +
+    `<vIBS>${fmtDec(vIBS)}</vIBS>` +
+    `<gCBS>` +
+    `<pCBS>${fmtDec(CBS_RATE, 4)}</pCBS>` +
+    `<vCBS>${fmtDec(vCBS)}</vCBS>` +
+    `</gCBS>` +
+    `</gIBSCBS>` +
+    `</IBSCBS>`;
+
+  return { xml, vIBS, vCBS, vBC };
+}
+
+function buildIBSCBSTot(totalVBC: number, totalVIBS: number, totalVCBS: number): string {
+  if (totalVBC === 0 && totalVIBS === 0 && totalVCBS === 0) return '';
+  return (
+    `<IBSCBSTot>` +
+    `<vBCIBSCBS>${fmtDec(totalVBC)}</vBCIBSCBS>` +
+    `<vIBSUF>${fmtDec(+(totalVIBS * IBS_UF_RATE / (IBS_UF_RATE + IBS_MUN_RATE || 1)).toFixed(2))}</vIBSUF>` +
+    `<vIBSMun>0.00</vIBSMun>` +
+    `<vIBS>${fmtDec(totalVIBS)}</vIBS>` +
+    `<vCBS>${fmtDec(totalVCBS)}</vCBS>` +
+    `</IBSCBSTot>`
+  );
 }
 
 // ── Montar XML da NFC-e ─────────────────────────────────────────────────────
@@ -303,10 +362,10 @@ function buildNFCeXml(params: {
 
   // det (items)
   let detXml = '';
+  let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
   for (const it of items) {
     let icmsXml: string;
     if (emitente.crt === 1 || emitente.crt === 2) {
-      // Simples Nacional
       const csosn = it.icms_csosn || '102';
       if (csosn === '102' || csosn === '103' || csosn === '300' || csosn === '400') {
         icmsXml = `<ICMSSN102><orig>${it.icms_orig}</orig><CSOSN>${csosn}</CSOSN></ICMSSN102>`;
@@ -316,7 +375,6 @@ function buildNFCeXml(params: {
         icmsXml = `<ICMSSN102><orig>${it.icms_orig}</orig><CSOSN>102</CSOSN></ICMSSN102>`;
       }
     } else {
-      // Regime normal
       const cst = it.icms_cst || '00';
       if (cst === '00') {
         icmsXml =
@@ -335,6 +393,11 @@ function buildNFCeXml(params: {
           `<vICMS>${fmtDec(it.icms_vICMS ?? 0)}</vICMS></ICMS00>`;
       }
     }
+
+    const ibsCbs = buildIBSCBSItem(it, emitente.crt);
+    totIBS += ibsCbs.vIBS;
+    totCBS += ibsCbs.vCBS;
+    totBCIBSCBS += ibsCbs.vBC;
 
     detXml +=
       `<det nItem="${it.nItem}">` +
@@ -358,6 +421,7 @@ function buildNFCeXml(params: {
       `<ICMS>${icmsXml}</ICMS>` +
       `<PIS><PISOutr><CST>99</CST><vBC>0.00</vBC><pPIS>0.00</pPIS><vPIS>0.00</vPIS></PISOutr></PIS>` +
       `<COFINS><COFINSOutr><CST>99</CST><vBC>0.00</vBC><pCOFINS>0.00</pCOFINS><vCOFINS>0.00</vCOFINS></COFINSOutr></COFINS>` +
+      ibsCbs.xml +
       `</imposto>` +
       `</det>`;
   }
@@ -437,7 +501,9 @@ function buildNFCeXml(params: {
     `<vCOFINS>0.00</vCOFINS>` +
     `<vOutro>0.00</vOutro>` +
     `<vNF>${fmtDec(vProd)}</vNF>` +
-    `</ICMSTot></total>` +
+    `</ICMSTot>` +
+    buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
+    `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
     `<pag><detPag>` +
     `<tPag>${tPag}</tPag>` +
@@ -746,6 +812,7 @@ function buildNFeXml(params: {
 
   // det (items) — mesmo builder da NFC-e
   let detXml = '';
+  let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
   for (const it of items) {
     let icmsXml: string;
     if (emitente.crt === 1 || emitente.crt === 2) {
@@ -777,6 +844,11 @@ function buildNFeXml(params: {
       }
     }
 
+    const ibsCbs = buildIBSCBSItem(it, emitente.crt);
+    totIBS += ibsCbs.vIBS;
+    totCBS += ibsCbs.vCBS;
+    totBCIBSCBS += ibsCbs.vBC;
+
     detXml +=
       `<det nItem="${it.nItem}">` +
       `<prod>` +
@@ -799,6 +871,7 @@ function buildNFeXml(params: {
       `<ICMS>${icmsXml}</ICMS>` +
       `<PIS><PISOutr><CST>99</CST><vBC>0.00</vBC><pPIS>0.00</pPIS><vPIS>0.00</vPIS></PISOutr></PIS>` +
       `<COFINS><COFINSOutr><CST>99</CST><vBC>0.00</vBC><pCOFINS>0.00</pCOFINS><vCOFINS>0.00</vCOFINS></COFINSOutr></COFINS>` +
+      ibsCbs.xml +
       `</imposto>` +
       `</det>`;
   }
@@ -891,7 +964,9 @@ function buildNFeXml(params: {
     `<vCOFINS>0.00</vCOFINS>` +
     `<vOutro>0.00</vOutro>` +
     `<vNF>${fmtDec(vProd)}</vNF>` +
-    `</ICMSTot></total>` +
+    `</ICMSTot>` +
+    buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
+    `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
     `<pag><detPag>` +
     `<tPag>${tPag}</tPag>` +

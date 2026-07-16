@@ -1577,6 +1577,94 @@ async function testConnection(
   }
 }
 
+// ─── Consultar NFS-e Emitidas (Prefeitura — retroativo) ─────────────────────
+
+export interface NfseConsultaItem {
+  numero: string;
+  codigo_verificacao: string | null;
+  data_emissao: string | null;
+  competencia: string | null;
+  valor_servicos: string | null;
+  valor_iss: string | null;
+  aliquota: string | null;
+  tomador_nome: string | null;
+  tomador_cpf_cnpj: string | null;
+  discriminacao: string | null;
+  situacao: string | null;
+}
+
+async function consultarNfseEmitidas(
+  hotelId: string,
+  dataInicial: string,
+  dataFinal: string,
+  pagina = 1,
+  tomadorCpfCnpj?: string,
+): Promise<{ success: boolean; notas: NfseConsultaItem[]; message: string }> {
+  const config = await getConfig(hotelId);
+  if (!config) return { success: false, notas: [], message: 'Configuração NF não encontrada.' };
+
+  try {
+    const res = await fetch(NF_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-nf-action': 'consultar-nfse-prestado' },
+      body: JSON.stringify({
+        certificado_base64: config.certificado_base64,
+        certificado_senha: config.certificado_senha,
+        ambiente: config.ambiente,
+        cnpj: config.cnpj,
+        inscricao_municipal: config.inscricao_municipal,
+        data_inicial: dataInicial,
+        data_final: dataFinal,
+        pagina,
+        tomador_cpf_cnpj: tomadorCpfCnpj,
+      }),
+    });
+    const result = await res.json();
+    return {
+      success: result.success ?? false,
+      notas: result.notas || [],
+      message: result.message || '',
+    };
+  } catch {
+    return { success: false, notas: [], message: 'Erro de rede ao consultar NFS-e.' };
+  }
+}
+
+async function consultarNfsePorFaixa(
+  hotelId: string,
+  numeroInicial: number,
+  numeroFinal: number,
+  pagina = 1,
+): Promise<{ success: boolean; notas: NfseConsultaItem[]; message: string }> {
+  const config = await getConfig(hotelId);
+  if (!config) return { success: false, notas: [], message: 'Configuração NF não encontrada.' };
+
+  try {
+    const res = await fetch(NF_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-nf-action': 'consultar-nfse-faixa' },
+      body: JSON.stringify({
+        certificado_base64: config.certificado_base64,
+        certificado_senha: config.certificado_senha,
+        ambiente: config.ambiente,
+        cnpj: config.cnpj,
+        inscricao_municipal: config.inscricao_municipal,
+        numero_inicial: numeroInicial,
+        numero_final: numeroFinal,
+        pagina,
+      }),
+    });
+    const result = await res.json();
+    return {
+      success: result.success ?? false,
+      notas: result.notas || [],
+      message: result.message || '',
+    };
+  } catch {
+    return { success: false, notas: [], message: 'Erro de rede ao consultar NFS-e.' };
+  }
+}
+
 // ─── Export ──────────────────────────────────────────────────────────────────
 
 export const nfService = {
@@ -1604,6 +1692,8 @@ export const nfService = {
   manifestarNFe,
   fetchDANFSE,
   batchEmitInvoices,
+  consultarNfseEmitidas,
+  consultarNfsePorFaixa,
 };
 
 export type { CreateInvoiceInput, WCIGuestData, FiscalLineItem, FiscalResolutionResult, BatchEmissionProgress };

@@ -20,6 +20,10 @@ import {
   emitirNfsePrefeitura,
   cancelarNfsePrefeitura,
   consultarNfsePorRps,
+  consultarNfseServicoPrestado,
+  consultarNfsePorFaixa,
+  recepcionarLoteRpsSincrono,
+  substituirNfse,
   testarConexaoPrefeitura,
 } from './lib/nfse-prefeitura';
 import {
@@ -925,6 +929,104 @@ const handler: Handler = async (event: HandlerEvent) => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
       return jsonResponse(502, { error: `Falha ao obter DANFSE: ${msg}` });
+    }
+  }
+
+  // ─── Consultar NFS-e Serviço Prestado (retroativo) ────────────────────────
+
+  if (action === 'consultar-nfse-prestado') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha || !payload.cnpj || !payload.inscricao_municipal) {
+      return jsonResponse(400, { error: 'Certificado, CNPJ e Inscrição Municipal são obrigatórios' });
+    }
+
+    try {
+      const result = await consultarNfseServicoPrestado({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+        cnpj: payload.cnpj,
+        inscricao_municipal: payload.inscricao_municipal,
+        data_inicial: payload.data_inicial,
+        data_final: payload.data_final,
+        pagina: payload.pagina,
+        tomador_cpf_cnpj: payload.tomador_cpf_cnpj,
+      });
+      return jsonResponse(200, result);
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, notas: [], message: `Erro: ${err.message}` });
+    }
+  }
+
+  // ─── Consultar NFS-e por Faixa ──────────────────────────────────────────
+
+  if (action === 'consultar-nfse-faixa') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha || !payload.cnpj || !payload.inscricao_municipal) {
+      return jsonResponse(400, { error: 'Certificado, CNPJ e Inscrição Municipal são obrigatórios' });
+    }
+
+    try {
+      const result = await consultarNfsePorFaixa({
+        certificado_base64: payload.certificado_base64,
+        certificado_senha: payload.certificado_senha,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+        cnpj: payload.cnpj,
+        inscricao_municipal: payload.inscricao_municipal,
+        numero_inicial: payload.numero_inicial || 1,
+        numero_final: payload.numero_final || 9999,
+        pagina: payload.pagina,
+      });
+      return jsonResponse(200, result);
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, notas: [], message: `Erro: ${err.message}` });
+    }
+  }
+
+  // ─── Emissão em Lote Síncrono ───────────────────────────────────────────
+
+  if (action === 'emit-lote-nfse') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    try {
+      const result = await recepcionarLoteRpsSincrono({
+        prestador: payload.prestador,
+        tomadores: payload.tomadores,
+        itemsPerRps: payload.itemsPerRps,
+        config: payload.config,
+        numerosRps: payload.numerosRps,
+        serieRps: payload.serieRps,
+      });
+      return jsonResponse(200, result);
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, resultados: [], message: `Erro: ${err.message}` });
+    }
+  }
+
+  // ─── Substituir NFS-e ───────────────────────────────────────────────────
+
+  if (action === 'substituir-nfse') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    try {
+      const result = await substituirNfse({
+        prestador: payload.prestador,
+        tomador: payload.tomador,
+        items: payload.items,
+        config: payload.config,
+        numeroRps: payload.numeroRps,
+        serieRps: payload.serieRps,
+        numero_nfse_substituida: payload.numero_nfse_substituida,
+      });
+      return jsonResponse(200, result);
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, message: `Erro: ${err.message}` });
     }
   }
 

@@ -40,6 +40,7 @@ import MovimentacoesPage     from './pages/financial/MovimentacoesPage';
 import NFRecebidasPage       from './pages/financial/NFRecebidasPage';
 import CartoesPage           from './pages/financial/CartoesPage';
 import EmissaoNFPage         from './pages/financial/EmissaoNFPage';
+import NFSeEmitidasPage      from './pages/financial/NFSeEmitidasPage';
 import ServicosPage          from './pages/gerencia/ServicosPage';
 import IbsCbsPage           from './pages/accounting/IbsCbsPage';
 import AuthorizationsPage    from './pages/AuthorizationsPage';
@@ -813,6 +814,11 @@ function App() {
                     <Route path="/finances/emissao-nf" element={
                       <PrivateRoute module="finances">
                         <EmissaoNFPage />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/finances/nfse-emitidas" element={
+                      <PrivateRoute module="finances">
+                        <NFSeEmitidasPage />
                       </PrivateRoute>
                     } />
                     <Route path="/finances/fornecedores" element={
