@@ -279,6 +279,32 @@ export interface ErbonAccountReceivable {
   [key: string]: any; // Estrutura a validar com dados reais
 }
 
+// ── Point of Sale (POS) ───────────────────────────────────────────────────
+
+export interface ErbonPointOfSaleTable {
+  id: number;
+  description: string;
+}
+
+export interface ErbonPointOfSale {
+  id: number;
+  description: string;
+  tables: ErbonPointOfSaleTable[];
+}
+
+export interface ErbonPOSAccountLine {
+  idService: number;
+  quantity: number;
+}
+
+export interface ErbonPOSAccountPayload {
+  idPointOfSale: number;
+  idPointOfSaleTable?: number;
+  comments?: string;
+  passerbyName?: string;
+  lines: ErbonPOSAccountLine[];
+}
+
 // ── Employee / Funcionário ─────────────────────────────────────────────────
 // Retornado por GET /pmsuser/hotel/{hotelID}/userlist
 // Estrutura real a ser confirmada com resposta da API.
@@ -1472,6 +1498,87 @@ export const erbonService = {
     if (!res.ok) throw new Error(`Erro ao buscar funcionários Erbon (${res.status})`);
     const data = await res.json();
     return Array.isArray(data) ? data : [];
+  },
+
+  // ── Point of Sale (POS) — AE67, AE68, AE69 ─────────────────────────────
+
+  /**
+   * AE69 — GET /hotel/{hotelID}/sales/pointofsale
+   * Lista os pontos de venda ativos do hotel e suas mesas.
+   */
+  async fetchPointsOfSale(hotelId: string): Promise<ErbonPointOfSale[]> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId);
+    const path = `/hotel/${config.erbon_hotel_id}/sales/pointofsale`;
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      headers: { 'Authorization': `Bearer ${token}`, ...proxyHeaders(config.erbon_base_url, path) },
+    });
+    if (!res.ok) throw new Error(`Erro ao buscar pontos de venda (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  },
+
+  /**
+   * AE68 — POST /hotel/{hotelID}/sales/pointofsale/account
+   * Cria uma comanda aberta no POS com as linhas de serviço.
+   * Preços vêm do banco do hotel (preço do departamento POS ou preço do serviço).
+   * Retorna o ID da nova conta, que pode ser debitada no quarto com AE67.
+   */
+  async createPointOfSaleAccount(hotelId: string, account: ErbonPOSAccountPayload): Promise<number> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId, true);
+    const path = `/hotel/${config.erbon_hotel_id}/sales/pointofsale/account`;
+
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+      body: JSON.stringify(account),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao criar comanda POS (${res.status}): ${txt}`);
+    }
+
+    const data = await res.json();
+    return typeof data === 'number' ? data : Number(data);
+  },
+
+  /**
+   * AE67 — POST /hotel/{hotelID}/sales/pointofsale/debitroom
+   * Fecha a conta POS, cria o documento TICKET e debita todas as linhas
+   * ativas na conta corrente da reserva (UH).
+   * A reserva deve estar em estado checkin e não marcada como no-post.
+   */
+  async debitPointOfSaleToRoom(hotelId: string, idPointOfSaleAccount: number, bookingInternalID: number): Promise<boolean> {
+    const config = await this.getConfig(hotelId);
+    if (!config) throw new Error('Configuração Erbon não encontrada');
+    const token = await this.getToken(hotelId, true);
+    const path = `/hotel/${config.erbon_hotel_id}/sales/pointofsale/debitroom`;
+
+    const res = await fetch(resolveErbonUrl(config.erbon_base_url, path), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...proxyHeaders(config.erbon_base_url, path),
+      },
+      body: JSON.stringify({ idPointOfSaleAccount, bookingInternalID }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao debitar comanda na UH (${res.status}): ${txt}`);
+    }
+
+    const data = await res.json().catch(() => true);
+    return !!data;
   },
 
   // ── Clear cache for re-fetch ────────────────────────────────────────────

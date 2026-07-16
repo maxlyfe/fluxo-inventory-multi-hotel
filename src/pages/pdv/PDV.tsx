@@ -16,10 +16,11 @@ import {
 import {
   getProductsForSector, getSectorDetails, getSectorsForPDV,
   getSectorTables, createSectorTable, deleteSectorTable, updateTablePosition, updateSectorTable,
-  createSale, createErbonSale, retryErbonPosting,
+  createSale, createErbonSale, createErbonPOSSale, retryErbonPosting,
   saveOpenTab, getOpenTabsForSector, deleteOpenTab,
   getErbonProductsForPDV, syncErbonProducts, getErbonSyncStatus,
   getEmployeesForPDV, createEmployeeSale,
+  fetchErbonPOSList, ErbonPOSInfo,
   PDVProduct, PDVSectorDetails, PdvTable, CartItem,
   SelectedBooking, SelectedEmployee, ChargeTarget, SaleResult, OpenTab,
 } from '../../lib/pdvService';
@@ -161,6 +162,11 @@ const PDV: React.FC = () => {
   const [currentTabId, setCurrentTabId] = useState<string | null>(null);
   const [savingTab, setSavingTab] = useState(false);
 
+  // ── Erbon POS (AE67/68/69) ─────────────────────────────────────────────
+  const [erbonPOSList, setErbonPOSList] = useState<ErbonPOSInfo[]>([]);
+  const [selectedErbonPOS, setSelectedErbonPOS] = useState<ErbonPOSInfo | null>(null);
+  const [selectedErbonPOSTableId, setSelectedErbonPOSTableId] = useState<number | null>(null);
+
   // ── Busca de produtos + sync Erbon ────────────────────────────────────
   const [productSearch, setProductSearch] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -286,6 +292,35 @@ const PDV: React.FC = () => {
       .finally(() => setEmployeesLoading(false));
   }, [selectedHotel, chargeTarget]); // eslint-disable-line
 
+  // 1c. Carregar pontos de venda Erbon (AE69) quando hotel tem Erbon ativa
+  useEffect(() => {
+    if (!selectedHotel || !erbonConfigured) return;
+    fetchErbonPOSList(selectedHotel.id)
+      .then(list => {
+        setErbonPOSList(list);
+      })
+      .catch(err => {
+        console.warn('[PDV] Erro ao buscar pontos de venda Erbon:', err.message);
+        setErbonPOSList([]);
+      });
+  }, [selectedHotel, erbonConfigured]);
+
+  // 1d. Auto-sync: quando setor muda, selecionar POS Erbon correspondente por nome
+  useEffect(() => {
+    if (!sectorDetails || erbonPOSList.length === 0) {
+      setSelectedErbonPOS(null);
+      setSelectedErbonPOSTableId(null);
+      return;
+    }
+    const dept = (sectorDetails.erbon_department || sectorDetails.sector_name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const match = erbonPOSList.find(pos => {
+      const posName = pos.description.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      return posName === dept || posName.includes(dept) || dept.includes(posName);
+    });
+    setSelectedErbonPOS(match ?? erbonPOSList[0]);
+    setSelectedErbonPOSTableId(null);
+  }, [sectorDetails, erbonPOSList]);
+
   // 2. Restaurar setor salvo na sessão
   useEffect(() => {
     if (!selectedHotel || sectors.length === 0) return;
@@ -345,15 +380,19 @@ const PDV: React.FC = () => {
       .finally(() => setTablesLoading(false));
   }, [selectedSectorId, selectedHotel]);
 
+  // Mesas disponíveis: Erbon POS tables (quando Erbon mode) ou mesas locais
+  const erbonPOSTables = selectedErbonPOS?.tables ?? [];
+  const hasErbonTables = isErbonMode && erbonPOSTables.length > 0;
+  const hasTables = hasErbonTables || tables.length > 0;
+
   // 6. Após troca de setor: abrir mapa de mesas se houver, senão direto para produtos
   useEffect(() => {
     if (!justChangedSector || tablesLoading) return;
     setJustChangedSector(false);
-    if (tables.length > 0) {
+    if (hasTables) {
       setShowTableMap(true);
     }
-    // Se não tem mesas, activeTableId já foi setado para '__direct__'
-  }, [tables, tablesLoading, justChangedSector]);
+  }, [hasTables, tablesLoading, justChangedSector]);
 
   // 7. Quando o carrinho fica vazio → limpar comanda aberta da mesa
   useEffect(() => {
@@ -502,7 +541,17 @@ const PDV: React.FC = () => {
           tableId: activeTableId !== '__direct__' ? activeTableId : null,
           tableLabel: activeTableLabel,
         };
-        result = await (isErbonMode ? createErbonSale(saleInput) : createSale(saleInput));
+        // Se tem POS Erbon configurado → usar fluxo AE68→AE67 (comanda→debit)
+        // Senão fallback para o fluxo antigo (createErbonSale ou createSale)
+        if (isErbonMode && selectedErbonPOS) {
+          result = await createErbonPOSSale({
+            ...saleInput,
+            erbonPOSId: selectedErbonPOS.id,
+            erbonPOSTableId: selectedErbonPOSTableId,
+          });
+        } else {
+          result = await (isErbonMode ? createErbonSale(saleInput) : createSale(saleInput));
+        }
         if (result.erbonPosted) {
           addNotification('success', `Venda lançada na UH ${selectedBooking.roomDescription}`);
         } else if (result.erbonErrors.length > 0) {
@@ -547,6 +596,7 @@ const PDV: React.FC = () => {
     setActiveTableId('__direct__');
     setActiveTableLabel(null);
     setCurrentTabId(null);
+    setSelectedErbonPOSTableId(null);
   }
 
   function refreshGuests() {
@@ -829,6 +879,28 @@ const PDV: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* ── Erbon POS info (indicador do POS auto-selecionado) ── */}
+      {isErbonMode && selectedErbonPOS && chargeTarget === 'guest' && (
+        <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/60 border border-slate-700/50">
+          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">POS Erbon</p>
+            <p className="text-xs text-white font-semibold truncate">
+              {selectedErbonPOS.description}
+              {selectedErbonPOSTableId != null && activeTableLabel && (
+                <span className="text-amber-400 ml-1">· {activeTableLabel}</span>
+              )}
+            </p>
+          </div>
+          {hasErbonTables && (
+            <button onClick={() => setShowTableMap(true)}
+              className="text-[10px] font-bold text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg hover:bg-amber-500/10 transition-colors">
+              Trocar mesa
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -1070,6 +1142,73 @@ const PDV: React.FC = () => {
   }
 
   const renderTableMap = () => {
+    // ── Erbon POS tables (modo simplificado — grid sem drag) ──
+    if (hasErbonTables) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowTableMap(false)} />
+          <div className="relative w-full lg:max-w-2xl lg:mx-4 bg-slate-900 rounded-t-3xl lg:rounded-3xl shadow-2xl shadow-black/50 flex flex-col max-h-[90vh]">
+            <div className="w-10 h-1 rounded-full bg-slate-700 mx-auto mt-3 lg:hidden" />
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
+              <div>
+                <h2 className="font-bold text-white text-base">Mesas — {selectedErbonPOS?.description}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{currentSector?.sector_name ?? 'Setor'} · Erbon POS</p>
+              </div>
+              <button onClick={() => setShowTableMap(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* Direto para UH (sem mesa) */}
+              <button
+                onClick={() => { setSelectedErbonPOSTableId(null); setActiveTableId('__direct__'); setActiveTableLabel(null); setShowTableMap(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border mb-3 transition-all
+                  ${selectedErbonPOSTableId === null
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                    : 'border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500'}`}>
+                <ArrowLeft className="w-4 h-4" />
+                <span className="font-bold text-sm">Direto para UH (sem mesa)</span>
+              </button>
+              {/* Erbon POS tables grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {erbonPOSTables.map(t => {
+                  const isSelected = selectedErbonPOSTableId === t.id;
+                  const tabForTable = openTabs.find(tab => tab.table_label === t.description);
+                  const hasItems = !!tabForTable;
+                  return (
+                    <button key={t.id}
+                      onClick={() => {
+                        setSelectedErbonPOSTableId(t.id);
+                        setActiveTableId(`erbon_${t.id}`);
+                        setActiveTableLabel(t.description);
+                        setShowTableMap(false);
+                      }}
+                      className={`relative flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 transition-all duration-150 active:scale-95
+                        ${isSelected
+                          ? 'border-amber-500 bg-amber-500/15 shadow-lg shadow-amber-500/10'
+                          : hasItems
+                            ? 'border-emerald-500/50 bg-emerald-500/5 hover:border-emerald-400'
+                            : 'border-slate-700 bg-slate-800/60 hover:border-slate-500 hover:bg-slate-800'}`}>
+                      <MapPin className={`w-5 h-5 ${isSelected ? 'text-amber-400' : hasItems ? 'text-emerald-400' : 'text-slate-500'}`} />
+                      <span className={`text-sm font-bold ${isSelected ? 'text-amber-300' : 'text-white'}`}>{t.description}</span>
+                      {hasItems && (
+                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                          {fmtBRL(tabForTable!.total_amount)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Mesas locais (modo completo — canvas com drag) ──
     const tablesWithPos = tables.map((t, i) => getTableWithPos(t, i));
     const hasAnyPos = tables.some(t => t.position_x != null);
 
@@ -1622,7 +1761,7 @@ const PDV: React.FC = () => {
       <div className={`flex flex-1 overflow-hidden ${mobileView === 'sector' ? 'hidden lg:flex' : 'flex'}`}>
 
         {/* ── Desktop: Left Panel ─────────────────────────────────────────── */}
-        <aside className="hidden lg:flex flex-col w-[360px] min-w-[320px] max-w-[400px] bg-slate-900 border-r border-slate-800">
+        <aside className="hidden lg:flex flex-col w-[420px] min-w-[380px] max-w-[460px] bg-slate-900 border-r border-slate-800">
           {/* Mesa / UH indicator */}
           <div className="px-4 pt-3 pb-2 border-b border-slate-800/60">
             <div className="flex items-center justify-between mb-2">

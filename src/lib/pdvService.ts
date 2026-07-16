@@ -1497,6 +1497,146 @@ export async function createErbonSale(input: CreateSaleInput): Promise<SaleResul
   return { saleId, totalAmount, erbonPosted: allErbon, erbonErrors };
 }
 
+// ── PDV Erbon POS — Fluxo via AE68 + AE67 ────────────────────────────────
+
+export interface ErbonPOSInfo {
+  id: number;
+  description: string;
+  tables: { id: number; description: string }[];
+}
+
+/**
+ * Busca os pontos de venda Erbon ativos do hotel (AE69).
+ * Retorna lista de PDVs com suas mesas Erbon.
+ */
+export async function fetchErbonPOSList(hotelId: string): Promise<ErbonPOSInfo[]> {
+  return erbonService.fetchPointsOfSale(hotelId);
+}
+
+/**
+ * Cria uma venda PDV via endpoints POS da Erbon (AE68→AE67).
+ * Fluxo:
+ *  1. Salva venda local (Supabase) — local-first
+ *  2. Cria comanda POS na Erbon (AE68) → retorna idAccount
+ *  3. Debita comanda na UH (AE67) → fecha e lança na conta corrente
+ *
+ * Se AE68 ou AE67 falharem, a venda fica salva localmente com
+ * erbon_posted=false para retry posterior.
+ */
+export async function createErbonPOSSale(input: CreateSaleInput & {
+  erbonPOSId: number;
+  erbonPOSTableId?: number | null;
+}): Promise<SaleResult> {
+  const { hotelId, sectorId, bookingInternalId, bookingNumber, roomDescription,
+    guestName, operatorName, items, erbonDepartmentId, erbonDepartmentLabel,
+    erbonPOSId, erbonPOSTableId } = input;
+
+  const totalAmount = items.reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
+
+  // 1. Criar cabeçalho da venda local
+  const { data: sale, error: saleErr } = await supabase
+    .from('pdv_sales')
+    .insert({
+      hotel_id: hotelId,
+      sector_id: sectorId,
+      booking_internal_id: bookingInternalId,
+      booking_number: bookingNumber,
+      room_description: roomDescription,
+      guest_name: guestName,
+      operator_name: operatorName,
+      total_amount: totalAmount,
+      status: 'completed',
+      erbon_posted: false,
+      sale_date: new Date().toISOString().split('T')[0],
+      table_id: input.tableId ?? null,
+      table_label: input.tableLabel ?? null,
+    })
+    .select('id')
+    .single();
+
+  if (saleErr || !sale) throw new Error(`Erro ao criar venda: ${saleErr?.message}`);
+  const saleId = sale.id;
+
+  // 2. Inserir itens locais
+  const itemsToInsert = items.map(item => ({
+    sale_id: saleId,
+    product_id: item.product_id.startsWith('erbon_') ? null : item.product_id,
+    product_name: item.product_name,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    erbon_service_id: item.erbon_service_id,
+    erbon_department: erbonDepartmentLabel,
+    erbon_posted: false,
+  }));
+
+  const { error: itemsErr } = await supabase
+    .from('pdv_sale_items')
+    .insert(itemsToInsert);
+
+  if (itemsErr) throw new Error(`Erro ao salvar itens: ${itemsErr.message}`);
+
+  // 3. Tentar fluxo POS Erbon: AE68 (criar comanda) → AE67 (debitar na UH)
+  const erbonErrors: { productName: string; error: string }[] = [];
+  let erbonPosted = false;
+
+  // Verificar se todos os itens têm erbon_service_id
+  const unmappedItems = items.filter(i => !i.erbon_service_id);
+  if (unmappedItems.length > 0) {
+    const names = unmappedItems.map(i => i.product_name).join(', ');
+    erbonErrors.push({ productName: names, error: 'Produto(s) sem mapeamento Erbon (erbon_service_id)' });
+  }
+
+  const mappedItems = items.filter(i => i.erbon_service_id);
+
+  if (mappedItems.length > 0) {
+    try {
+      // AE68: criar comanda com as linhas de serviço
+      const lines = mappedItems.map(item => ({
+        idService: item.erbon_service_id!,
+        quantity: item.quantity,
+      }));
+
+      const accountId = await erbonService.createPointOfSaleAccount(hotelId, {
+        idPointOfSale: erbonPOSId,
+        ...(erbonPOSTableId ? { idPointOfSaleTable: erbonPOSTableId } : {}),
+        comments: `PDV Fluxo — ${operatorName}`,
+        lines,
+      });
+
+      // AE67: debitar comanda na UH
+      const debited = await erbonService.debitPointOfSaleToRoom(
+        hotelId, accountId, bookingInternalId
+      );
+
+      if (debited) {
+        erbonPosted = unmappedItems.length === 0;
+        // Marcar todos os itens mapeados como postados
+        await supabase
+          .from('pdv_sale_items')
+          .update({ erbon_posted: true, erbon_post_error: null })
+          .eq('sale_id', saleId)
+          .not('erbon_service_id', 'is', null);
+      } else {
+        erbonErrors.push({ productName: 'Comanda', error: 'Débito na UH retornou false' });
+      }
+    } catch (err: any) {
+      erbonErrors.push({ productName: 'Comanda POS', error: err.message });
+    }
+  }
+
+  // 4. Atualizar cabeçalho com resultado
+  const errorSummary = erbonErrors.length > 0
+    ? erbonErrors.map(e => `${e.productName}: ${e.error}`).join('; ')
+    : null;
+
+  await supabase
+    .from('pdv_sales')
+    .update({ erbon_posted: erbonPosted, erbon_post_error: errorSummary })
+    .eq('id', saleId);
+
+  return { saleId, totalAmount, erbonPosted, erbonErrors };
+}
+
 // ── Colaboradores para PDV ────────────────────────────────────────────────
 
 export async function getEmployeesForPDV(hotelId: string): Promise<SelectedEmployee[]> {
