@@ -954,7 +954,14 @@ const handler: Handler = async (event: HandlerEvent) => {
         pagina: payload.pagina,
         tomador_cpf_cnpj: payload.tomador_cpf_cnpj,
       });
-      return jsonResponse(200, result);
+      console.log(`[consultar-nfse-prestado] success=${result.success}, notas=${result.notas.length}, msg=${result.message}`);
+      if (!result.success && result.xml_retorno) {
+        console.log(`[consultar-nfse-prestado] xml_retorno (500 chars): ${result.xml_retorno.slice(0, 500)}`);
+      }
+      return jsonResponse(200, {
+        ...result,
+        xml_retorno: result.xml_retorno ? result.xml_retorno.slice(0, 2000) : undefined,
+      });
     } catch (err: any) {
       return jsonResponse(500, { success: false, notas: [], message: `Erro: ${err.message}` });
     }

@@ -1625,10 +1625,12 @@ async function consultarNfseEmitidas(
       }),
     });
     const result = await res.json();
+    const msg = result.message || '';
+    const debugXml = result.xml_retorno && !result.success ? ` | XML: ${result.xml_retorno.slice(0, 300)}` : '';
     return {
       success: result.success ?? false,
       notas: result.notas || [],
-      message: result.message || '',
+      message: msg + debugXml,
     };
   } catch {
     return { success: false, notas: [], message: 'Erro de rede ao consultar NFS-e.' };
