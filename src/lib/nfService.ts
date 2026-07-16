@@ -1626,10 +1626,11 @@ async function consultarNfseEmitidas(
     });
     const result = await res.json();
     const msg = result.message || '';
-    const debugXml = result.xml_retorno && !result.success ? ` | XML: ${result.xml_retorno.slice(0, 300)}` : '';
+    const notas = result.notas || [];
+    const debugXml = result.xml_retorno && notas.length === 0 ? ` | XML: ${result.xml_retorno.slice(0, 500)}` : '';
     return {
       success: result.success ?? false,
-      notas: result.notas || [],
+      notas,
       message: msg + debugXml,
     };
   } catch {

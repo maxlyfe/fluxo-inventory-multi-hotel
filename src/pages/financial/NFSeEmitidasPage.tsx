@@ -121,7 +121,7 @@ export default function NFSeEmitidasPage() {
       if (matched.length > 0) {
         addNotification('success', `${matched.length} NFS-e encontrada(s).`);
       } else {
-        addNotification('info', 'Nenhuma NFS-e encontrada no período/faixa.');
+        addNotification('info', result.message || 'Nenhuma NFS-e encontrada no período/faixa.');
       }
     } catch (err: any) {
       addNotification('error', err.message || 'Erro ao consultar.');

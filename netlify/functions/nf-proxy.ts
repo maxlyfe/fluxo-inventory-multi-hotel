@@ -955,8 +955,8 @@ const handler: Handler = async (event: HandlerEvent) => {
         tomador_cpf_cnpj: payload.tomador_cpf_cnpj,
       });
       console.log(`[consultar-nfse-prestado] success=${result.success}, notas=${result.notas.length}, msg=${result.message}`);
-      if (!result.success && result.xml_retorno) {
-        console.log(`[consultar-nfse-prestado] xml_retorno (500 chars): ${result.xml_retorno.slice(0, 500)}`);
+      if (result.xml_retorno) {
+        console.log(`[consultar-nfse-prestado] xml_retorno (1000 chars): ${result.xml_retorno.slice(0, 1000)}`);
       }
       return jsonResponse(200, {
         ...result,
