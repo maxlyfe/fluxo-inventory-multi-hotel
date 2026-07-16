@@ -86,6 +86,23 @@ function xmlTag(xml: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+function unescapeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function extractOutputXml(soapBody: string): string {
+  const outputXml = xmlTag(soapBody, 'outputXML');
+  if (outputXml) {
+    return unescapeXmlEntities(outputXml);
+  }
+  return soapBody;
+}
+
 function soapEnvelope(operation: string, cabecMsg: string, dadosMsg: string): string {
   // E&L Cloud XSD: each operation wraps input in {Operation}Request element
   // containing nfseCabecMsg/nfseDadosMsg (form="qualified").
@@ -343,7 +360,7 @@ export async function emitirNfsePrefeitura(params: {
   }
 
   // 5. Parsear resposta SOAP
-  const respBody = res.body;
+  const respBody = extractOutputXml(res.body);
   console.log('[NFS-e SOAP] Status HTTP:', res.status);
   console.log('[NFS-e SOAP] Resposta (primeiros 3000 chars):', respBody.slice(0, 3000));
 
@@ -442,20 +459,22 @@ export async function cancelarNfsePrefeitura(params: {
     };
   }
 
-  const codigoErro = xmlTag(res.body, 'Codigo');
-  const mensagemErro = xmlTag(res.body, 'Mensagem');
+  const xmlCancel = extractOutputXml(res.body);
 
-  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+  const codigoErro = xmlTag(xmlCancel, 'Codigo');
+  const mensagemErro = xmlTag(xmlCancel, 'Mensagem');
+
+  if (xmlTag(xmlCancel, 'ListaMensagemRetorno') && codigoErro) {
     return {
       success: false,
-      xml_cancelamento: res.body,
+      xml_cancelamento: xmlCancel,
       message: `Erro ${codigoErro}: ${mensagemErro || 'Erro ao cancelar'}`,
     };
   }
 
   return {
     success: true,
-    xml_cancelamento: res.body,
+    xml_cancelamento: xmlCancel,
     message: `NFS-e ${params.numero_nf} cancelada com sucesso.`,
   };
 }
@@ -499,14 +518,15 @@ export async function consultarNfsePorRps(params: {
     return { success: false, numero_nf: null, codigo_verificacao: null, xml: res.body, message: `HTTP ${res.status}` };
   }
 
-  const numero = xmlTag(res.body, 'Numero');
-  const codVerif = xmlTag(res.body, 'CodigoVerificacao');
+  const xmlRps = extractOutputXml(res.body);
+  const numero = xmlTag(xmlRps, 'Numero');
+  const codVerif = xmlTag(xmlRps, 'CodigoVerificacao');
 
   return {
     success: !!numero,
     numero_nf: numero,
     codigo_verificacao: codVerif,
-    xml: res.body,
+    xml: xmlRps,
     message: numero ? `NFS-e ${numero} encontrada.` : 'NFS-e não encontrada para o RPS informado.',
   };
 }
@@ -673,18 +693,20 @@ export async function consultarNfseServicoPrestado(params: {
     };
   }
 
-  const codigoErro = xmlTag(res.body, 'Codigo');
-  const mensagemErro = xmlTag(res.body, 'Mensagem');
+  const xml = extractOutputXml(res.body);
 
-  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+  const codigoErro = xmlTag(xml, 'Codigo');
+  const mensagemErro = xmlTag(xml, 'Mensagem');
+
+  if (xmlTag(xml, 'ListaMensagemRetorno') && codigoErro) {
     return {
       success: false, notas: [], total: 0, pagina,
-      xml_retorno: res.body,
+      xml_retorno: xml,
       message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'}`,
     };
   }
 
-  const notas = parseNfseList(res.body);
+  const notas = parseNfseList(xml);
 
   return {
     success: true,
@@ -742,18 +764,20 @@ export async function consultarNfsePorFaixa(params: {
     };
   }
 
-  const codigoErro = xmlTag(res.body, 'Codigo');
-  const mensagemErro = xmlTag(res.body, 'Mensagem');
+  const xml = extractOutputXml(res.body);
 
-  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+  const codigoErro = xmlTag(xml, 'Codigo');
+  const mensagemErro = xmlTag(xml, 'Mensagem');
+
+  if (xmlTag(xml, 'ListaMensagemRetorno') && codigoErro) {
     return {
       success: false, notas: [], total: 0, pagina,
-      xml_retorno: res.body,
+      xml_retorno: xml,
       message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'}`,
     };
   }
 
-  const notas = parseNfseList(res.body);
+  const notas = parseNfseList(xml);
 
   return {
     success: true,
@@ -820,18 +844,20 @@ export async function recepcionarLoteRpsSincrono(params: {
     };
   }
 
-  const codigoErro = xmlTag(res.body, 'Codigo');
-  const mensagemErro = xmlTag(res.body, 'Mensagem');
+  const xml = extractOutputXml(res.body);
 
-  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+  const codigoErro = xmlTag(xml, 'Codigo');
+  const mensagemErro = xmlTag(xml, 'Mensagem');
+
+  if (xmlTag(xml, 'ListaMensagemRetorno') && codigoErro) {
     return {
       success: false, resultados: [],
-      xml_retorno: res.body,
+      xml_retorno: xml,
       message: `Erro ${codigoErro}: ${mensagemErro || 'Erro no lote'}`,
     };
   }
 
-  const notasRetorno = parseNfseList(res.body);
+  const notasRetorno = parseNfseList(xml);
   const resultados: EmissaoNfseResult[] = notasRetorno.map(n => ({
     success: true,
     numero_nf: n.numero,
@@ -909,21 +935,23 @@ export async function substituirNfse(params: {
     };
   }
 
-  const codigoErro = xmlTag(res.body, 'Codigo');
-  const mensagemErro = xmlTag(res.body, 'Mensagem');
+  const xml = extractOutputXml(res.body);
 
-  if (xmlTag(res.body, 'ListaMensagemRetorno') && codigoErro) {
+  const codigoErro = xmlTag(xml, 'Codigo');
+  const mensagemErro = xmlTag(xml, 'Mensagem');
+
+  if (xmlTag(xml, 'ListaMensagemRetorno') && codigoErro) {
     return {
       success: false,
       numero_nf: null, serie: null, codigo_verificacao: null,
       numero_protocolo: null, chave_acesso: null,
-      xml_retorno: res.body,
+      xml_retorno: xml,
       message: `Erro ${codigoErro}: ${mensagemErro || 'Erro ao substituir'}`,
     };
   }
 
-  const numeroNf = xmlTag(res.body, 'Numero');
-  const codigoVerificacao = xmlTag(res.body, 'CodigoVerificacao');
+  const numeroNf = xmlTag(xml, 'Numero');
+  const codigoVerificacao = xmlTag(xml, 'CodigoVerificacao');
 
   return {
     success: !!numeroNf,
@@ -932,7 +960,7 @@ export async function substituirNfse(params: {
     codigo_verificacao: codigoVerificacao,
     numero_protocolo: null,
     chave_acesso: null,
-    xml_retorno: res.body,
+    xml_retorno: xml,
     message: numeroNf
       ? `NFS-e ${params.numero_nfse_substituida} substituída por NFS-e ${numeroNf}.`
       : `Resposta inesperada: ${res.body.slice(0, 500)}`,
