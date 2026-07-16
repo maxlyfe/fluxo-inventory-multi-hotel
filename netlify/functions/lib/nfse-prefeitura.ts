@@ -23,9 +23,10 @@ const NFSE_ACTION_NS = 'http://nfse.abrasf.org.br';
 
 // ── HTTP POST (E&L usa HTTP, não HTTPS) ─────────────────────────────────────
 
-function httpPost(
+function httpPostOnce(
   options: { host: string; port: number; path: string; headers: Record<string, string> },
   body: string,
+  timeoutMs = 60000,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -37,10 +38,38 @@ function httpPost(
       },
     );
     req.on('error', reject);
-    req.setTimeout(30000, () => req.destroy(new Error('Timeout na comunicação com a Prefeitura')));
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Timeout na comunicação com a Prefeitura')));
     req.write(body);
     req.end();
   });
+}
+
+async function httpPost(
+  options: { host: string; port: number; path: string; headers: Record<string, string> },
+  body: string,
+): Promise<{ status: number; body: string }> {
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await httpPostOnce(options, body);
+      if (res.status === 503 && attempt < maxRetries) {
+        const delay = (attempt + 1) * 3000;
+        console.log(`[NFS-e] HTTP 503, retry ${attempt + 1}/${maxRetries} em ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res;
+    } catch (err: any) {
+      if (attempt < maxRetries && (err.message?.includes('Timeout') || err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED')) {
+        const delay = (attempt + 1) * 3000;
+        console.log(`[NFS-e] ${err.message}, retry ${attempt + 1}/${maxRetries} em ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Máximo de tentativas excedido');
 }
 
 // ── XML helpers ──────────────────────────────────────────────────────────────
