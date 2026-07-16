@@ -515,6 +515,8 @@ export async function testarConexaoPrefeitura(params: {
   certificado_base64: string;
   certificado_senha: string;
   ambiente: 'producao' | 'homologacao';
+  cnpj?: string;
+  inscricao_municipal?: string;
 }): Promise<{ success: boolean; message: string }> {
   try {
     extractPemFromPfx(params.certificado_base64, params.certificado_senha);
@@ -524,17 +526,38 @@ export async function testarConexaoPrefeitura(params: {
 
   try {
     const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
+    const cnpj = (params.cnpj || '').replace(/\D/g, '');
+    const im = (params.inscricao_municipal || '').replace(/\D/g, '');
+
+    if (!cnpj || !im) {
+      return { success: false, message: 'CNPJ e Inscrição Municipal são obrigatórios para testar conexão com a Prefeitura.' };
+    }
+
     const res = await httpPost(
-      { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
-      soapEnvelope('ConsultarNfsePorRps', cabecalhoXml(),
-        `<ConsultarNfseRpsEnvio xmlns="${ABRASF_NS}"><IdentificacaoRps><Numero>0</Numero><Serie>TST</Serie><Tipo>1</Tipo></IdentificacaoRps><Prestador><CpfCnpj><Cnpj>00000000000000</Cnpj></CpfCnpj><InscricaoMunicipal>0</InscricaoMunicipal></Prestador></ConsultarNfseRpsEnvio>`
+      { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfseServicoPrestado` } },
+      soapEnvelope('ConsultarNfseServicoPrestado', cabecalhoXml(),
+        `<ConsultarNfseServicoPrestadoEnvio xmlns="${ABRASF_NS}">` +
+        `<Prestador><CpfCnpj><Cnpj>${cnpj}</Cnpj></CpfCnpj>` +
+        `<InscricaoMunicipal>${im}</InscricaoMunicipal></Prestador>` +
+        `<PeriodoEmissao><DataInicial>2025-01-01</DataInicial><DataFinal>2025-01-02</DataFinal></PeriodoEmissao>` +
+        `<Pagina>1</Pagina>` +
+        `</ConsultarNfseServicoPrestadoEnvio>`
       ),
     );
 
     console.log(`[NFS-e Test] https://${host}${wsPath} → HTTP ${res.status}`);
+    console.log('[NFS-e Test] Resposta:', res.body.slice(0, 1000));
+
     if (res.status === 200) {
-      return { success: true, message: `Conexão com a Prefeitura de Búzios (${params.ambiente}) via E&L estabelecida com sucesso.` };
+      return { success: true, message: `Conexão com a Prefeitura de Búzios (${params.ambiente}) via E&L Cloud estabelecida com sucesso.` };
     }
+
+    // SOAP fault com dados válidos ainda indica conexão funcional
+    if (res.body.includes('Fault') && !res.body.includes('NullPointerException') && !res.body.includes('método de despacho')) {
+      const faultMsg = xmlTag(res.body, 'faultstring') || '';
+      return { success: true, message: `Conexão E&L Cloud OK. Servidor respondeu: ${faultMsg.slice(0, 200)}` };
+    }
+
     return { success: false, message: `Prefeitura respondeu HTTP ${res.status}. Resposta: ${res.body.slice(0, 300)}` };
   } catch (err: any) {
     return { success: false, message: `Falha na conexão: ${err.message}` };

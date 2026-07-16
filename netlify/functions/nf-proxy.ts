@@ -92,7 +92,7 @@ const handler: Handler = async (event: HandlerEvent) => {
   // ─── Test Connection NFS-e Prefeitura ─────────────────────────────────────
 
   if (action === 'test-nfse') {
-    let payload: { certificado_base64: string; certificado_senha: string; ambiente: string };
+    let payload: { certificado_base64: string; certificado_senha: string; ambiente: string; cnpj?: string; inscricao_municipal?: string };
     try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
 
     if (!payload.certificado_base64 || !payload.certificado_senha) {
@@ -104,6 +104,8 @@ const handler: Handler = async (event: HandlerEvent) => {
         certificado_base64: payload.certificado_base64,
         certificado_senha: payload.certificado_senha,
         ambiente: (payload.ambiente === 'producao' ? 'producao' : 'homologacao'),
+        cnpj: payload.cnpj,
+        inscricao_municipal: payload.inscricao_municipal,
       });
       return jsonResponse(200, result);
     } catch (err: any) {
