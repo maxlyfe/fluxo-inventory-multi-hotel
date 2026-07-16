@@ -619,6 +619,14 @@ function parseNfseList(xml: string): NfseConsultaItem[] {
     const block = match[1];
     const numero = xmlTag(block, 'Numero');
     if (!numero) continue;
+
+    const tomadorBlock = xmlTag(block, 'TomadorServico') || xmlTag(block, 'Tomador') || '';
+    const tomadorDoc = xmlTag(tomadorBlock, 'Cpf') || xmlTag(tomadorBlock, 'Cnpj');
+    const tomadorNome = xmlTag(tomadorBlock, 'RazaoSocial') || xmlTag(tomadorBlock, 'NomeFantasia');
+
+    const aliqRaw = xmlTag(block, 'Aliquota');
+    const aliq = aliqRaw ? (parseFloat(aliqRaw) * 100).toFixed(2) : null;
+
     notas.push({
       numero,
       codigo_verificacao: xmlTag(block, 'CodigoVerificacao'),
@@ -626,9 +634,9 @@ function parseNfseList(xml: string): NfseConsultaItem[] {
       competencia: xmlTag(block, 'Competencia'),
       valor_servicos: xmlTag(block, 'ValorServicos'),
       valor_iss: xmlTag(block, 'ValorIss'),
-      aliquota: xmlTag(block, 'Aliquota'),
-      tomador_nome: xmlTag(block, 'RazaoSocial'),
-      tomador_cpf_cnpj: xmlTag(block, 'Cpf') || xmlTag(block, 'Cnpj'),
+      aliquota: aliq,
+      tomador_nome: tomadorNome,
+      tomador_cpf_cnpj: tomadorDoc,
       discriminacao: xmlTag(block, 'Discriminacao'),
       situacao: xmlTag(block, 'Situacao'),
     });
@@ -702,7 +710,7 @@ export async function consultarNfseServicoPrestado(params: {
     return {
       success: false, notas: [], total: 0, pagina,
       xml_retorno: xml,
-      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'} [CNPJ=${cnpj}, IM=${im}]`,
+      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'}`,
     };
   }
 

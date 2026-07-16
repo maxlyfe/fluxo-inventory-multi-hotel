@@ -36,6 +36,13 @@ function formatDoc(doc: string | null): string {
   return doc;
 }
 
+function formatCompetencia(c: string | null): string {
+  if (!c) return '—';
+  const m = c.match(/(\d{4})-(\d{2})/);
+  if (m) return `${m[2]}/${m[1]}`;
+  return c;
+}
+
 export default function NFSeEmitidasPage() {
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification();
@@ -321,12 +328,12 @@ export default function NFSeEmitidasPage() {
                               <div className="space-y-2">
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">Competência:</span>
-                                  <span className="font-medium">{nota.competencia || '—'}</span>
+                                  <span className="font-medium">{formatCompetencia(nota.competencia)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">Alíquota ISS:</span>
                                   <span className="font-medium">
-                                    {nota.aliquota ? `${(parseFloat(nota.aliquota) * 100).toFixed(2)}%` : '—'}
+                                    {nota.aliquota ? `${nota.aliquota}%` : '—'}
                                   </span>
                                 </div>
                                 <div className="flex justify-between">
