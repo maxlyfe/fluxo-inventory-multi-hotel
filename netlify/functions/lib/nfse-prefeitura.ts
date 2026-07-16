@@ -3,19 +3,17 @@
 // Padrão ABRASF 2.02 · Provedor E&L (Modernização Pública).
 // Certificado A1 usado para assinatura XMLDSig; transporte via HTTP.
 
-import http from 'http';
+import https from 'https';
 import crypto from 'crypto';
 import { SignedXml } from 'xml-crypto';
 import { extractPemFromPfx } from './dfe';
 
-// ── Hosts por ambiente (E&L Modernização Pública — Búzios) ──────────────────
+// ── Hosts por ambiente (E&L Cloud — Búzios) ─────────────────────────────────
 
 const NFSE_CONFIG = {
-  producao:    { host: 'notabuzios.modernizacaopublica.com.br', port: 8041 },
-  homologacao: { host: 'notabuzios.modernizacaopublica.com.br', port: 3082 },
+  producao:    { host: 'rj-buzios-pm-nfs-backend.cloud.el.com.br', path: '/producao35/NfseWSService' },
+  homologacao: { host: 'rj-buzios-pm-nfs-backend.cloud.el.com.br', path: '/producao35/NfseWSService' },
 } as const;
-
-const NFSE_PATH = '/nfe/webservices/NFEServices.jws';
 
 const ABRASF_NS = 'http://www.abrasf.org.br/nfse.xsd';
 const SOAP_NS = 'http://schemas.xmlsoap.org/soap/envelope/';
@@ -23,14 +21,14 @@ const NFSE_ACTION_NS = 'http://nfse.abrasf.org.br';
 
 // ── HTTP POST (E&L usa HTTP, não HTTPS) ─────────────────────────────────────
 
-function httpPostOnce(
-  options: { host: string; port: number; path: string; headers: Record<string, string> },
+function httpsPost(
+  options: { host: string; path: string; headers: Record<string, string> },
   body: string,
   timeoutMs = 60000,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request(
-      { hostname: options.host, port: options.port, path: options.path, method: 'POST', headers: options.headers },
+    const req = https.request(
+      { hostname: options.host, port: 443, path: options.path, method: 'POST', headers: options.headers },
       res => {
         const chunks: Buffer[] = [];
         res.on('data', c => chunks.push(c));
@@ -45,13 +43,13 @@ function httpPostOnce(
 }
 
 async function httpPost(
-  options: { host: string; port: number; path: string; headers: Record<string, string> },
+  options: { host: string; path: string; headers: Record<string, string> },
   body: string,
 ): Promise<{ status: number; body: string }> {
   const maxRetries = 2;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const res = await httpPostOnce(options, body);
+      const res = await httpsPost(options, body);
       if (res.status === 503 && attempt < maxRetries) {
         const delay = (attempt + 1) * 3000;
         console.log(`[NFS-e] HTTP 503, retry ${attempt + 1}/${maxRetries} em ${delay}ms...`);
@@ -335,11 +333,11 @@ export async function emitirNfsePrefeitura(params: {
   const envelope = soapEnvelope('GerarNfse', cabecalhoXml(), rpsXml);
 
   // 4. Enviar via HTTP para E&L
-  const { host, port } = NFSE_CONFIG[config.ambiente];
-  console.log(`[NFS-e SOAP] Enviando para ${host}:${port}${NFSE_PATH}`);
+  const { host, path: wsPath } = NFSE_CONFIG[config.ambiente];
+  console.log(`[NFS-e SOAP] Enviando para https://${host}${wsPath}`);
   console.log('[NFS-e SOAP] Envelope (primeiros 2000 chars):', envelope.slice(0, 2000));
   const res = await httpPost(
-    { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/GerarNfse` } },
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/GerarNfse` } },
     envelope,
   );
 
@@ -439,9 +437,9 @@ export async function cancelarNfsePrefeitura(params: {
 
   const envelope = soapEnvelope('CancelarNfse', cabecalhoXml(), cancelSigned);
 
-  const { host, port } = NFSE_CONFIG[params.ambiente];
+  const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
   const res = await httpPost(
-    { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/CancelarNfse` } },
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/CancelarNfse` } },
     envelope,
   );
 
@@ -500,9 +498,9 @@ export async function consultarNfsePorRps(params: {
 
   const envelope = soapEnvelope('ConsultarNfsePorRps', cabecalhoXml(), consultaXml);
 
-  const { host, port } = NFSE_CONFIG[params.ambiente];
+  const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
   const res = await httpPost(
-    { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
+    { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
     envelope,
   );
 
@@ -536,15 +534,15 @@ export async function testarConexaoPrefeitura(params: {
   }
 
   try {
-    const { host, port } = NFSE_CONFIG[params.ambiente];
+    const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
     const res = await httpPost(
-      { host, port, path: NFSE_PATH, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
+      { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfsePorRps` } },
       soapEnvelope('ConsultarNfsePorRps', cabecalhoXml(),
         `<ConsultarNfseRpsEnvio xmlns="${ABRASF_NS}"><IdentificacaoRps><Numero>0</Numero><Serie>TST</Serie><Tipo>1</Tipo></IdentificacaoRps><Prestador><CpfCnpj><Cnpj>00000000000000</Cnpj></CpfCnpj><InscricaoMunicipal>0</InscricaoMunicipal></Prestador></ConsultarNfseRpsEnvio>`
       ),
     );
 
-    console.log(`[NFS-e Test] ${host}:${port} → HTTP ${res.status}`);
+    console.log(`[NFS-e Test] https://${host}${wsPath} → HTTP ${res.status}`);
     if (res.status === 200) {
       return { success: true, message: `Conexão com a Prefeitura de Búzios (${params.ambiente}) via E&L estabelecida com sucesso.` };
     }
