@@ -678,7 +678,7 @@ export async function consultarNfseServicoPrestado(params: {
   const envelope = soapEnvelope('ConsultarNfseServicoPrestado', cabecalhoXml(), consultaXml);
 
   const { host, path: wsPath } = NFSE_CONFIG[params.ambiente];
-  console.log(`[NFS-e Consulta] Buscando NFS-e prestadas, período ${params.data_inicial} a ${params.data_final}, página ${pagina}`);
+  console.log(`[NFS-e Consulta] Buscando NFS-e prestadas, CNPJ=${cnpj}, IM=${im}, período ${params.data_inicial} a ${params.data_final}, página ${pagina}`);
 
   const res = await httpPost(
     { host, path: wsPath, headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': `${NFSE_ACTION_NS}/ConsultarNfseServicoPrestado` } },
@@ -702,7 +702,7 @@ export async function consultarNfseServicoPrestado(params: {
     return {
       success: false, notas: [], total: 0, pagina,
       xml_retorno: xml,
-      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'}`,
+      message: `Erro ${codigoErro}: ${mensagemErro || 'Erro na consulta'} [CNPJ=${cnpj}, IM=${im}]`,
     };
   }
 
