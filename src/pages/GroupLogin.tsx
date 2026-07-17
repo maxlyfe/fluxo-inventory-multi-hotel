@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import LoginBackdrop from '../components/LoginBackdrop';
 import MobileAppModal from '../components/MobileAppModal';
 import { useIsNative, setAppGroupSlug } from '../lib/appGroup';
-import { Lock, Mail, Eye, EyeOff, AlertCircle, Loader2, Building2, Smartphone, Settings } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, AlertCircle, Loader2, Building2, Smartphone, Settings } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
@@ -26,7 +26,7 @@ interface GroupInfo { id: string; name: string; slug: string; }
 
 export default function GroupLogin() {
   const navigate = useNavigate();
-  const { user, login, loginWithGoogle, logout } = useAuth();
+  const { user, login, loginWithGoogle, logout, refreshProfile } = useAuth();
   const { setCurrentGroup, urlSlug } = useGroup();
   const { isDev } = usePermissions();
   const isNative = useIsNative();
@@ -34,7 +34,7 @@ export default function GroupLogin() {
 
   const [group, setGroup]       = useState<GroupInfo | null>(null);
   const [resolving, setResolving] = useState(true);
-  const [email, setEmail]       = useState('');
+  const [loginId, setLoginId]   = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd]   = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -73,8 +73,34 @@ export default function GroupLogin() {
 
   // Validação ESTRITA de grupo após o login (e ao chegar já logado).
   // Só entra quem pertence ao grupo da URL. Sem bypass de dev.
+  // Se o usuário acabou de entrar via Google e ainda não tem perfil/grupo,
+  // provisiona automaticamente (ensure_user_profile).
+  const [provisioning, setProvisioning] = useState(false);
   useEffect(() => {
-    if (!user || !group) return;
+    if (!user || !group || provisioning) return;
+
+    // Sem group_id → tenta provisionar o perfil com o grupo da URL
+    if (!user.group_id && !isDev) {
+      setProvisioning(true);
+      (async () => {
+        try {
+          const { error } = await supabase.rpc('ensure_user_profile', { p_group_id: group.id });
+          if (!error) {
+            await refreshProfile(true);
+          } else {
+            setError('Não foi possível vincular sua conta a este grupo.');
+            if (pendingVerify) { setPendingVerify(false); logout(); }
+          }
+        } catch {
+          setError('Erro ao vincular conta ao grupo.');
+          if (pendingVerify) { setPendingVerify(false); logout(); }
+        } finally {
+          setProvisioning(false);
+        }
+      })();
+      return;
+    }
+
     // Dev (dono do SaaS) acessa qualquer grupo; demais SÓ o próprio grupo.
     const allowed = isDev || user.group_id === group.id;
     if (allowed) {
@@ -90,7 +116,7 @@ export default function GroupLogin() {
     } else {
       setBlocked(true);                        // sessão pré-existente de outro grupo
     }
-  }, [user, group, isDev, pendingVerify, navigate, logout, setCurrentGroup]);
+  }, [user, group, isDev, pendingVerify, provisioning, navigate, logout, setCurrentGroup, refreshProfile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,12 +124,27 @@ export default function GroupLogin() {
     setLoading(true);
     setPendingVerify(true);
     try {
-      const result = await login(email, password);
+      let emailToLogin = loginId;
+
+      // Se não contém @, é um username — resolve para o email via RPC
+      if (!loginId.includes('@') && group) {
+        const { data, error: rpcErr } = await supabase.rpc('resolve_username_email', {
+          p_username: loginId, p_group_id: group.id,
+        });
+        if (rpcErr || !data) {
+          setError('Usuário não encontrado.');
+          setPendingVerify(false);
+          setLoading(false);
+          return;
+        }
+        emailToLogin = data;
+      }
+
+      const result = await login(emailToLogin, password);
       if (!result.success) {
         setError(result.message || 'Credenciais inválidas.');
         setPendingVerify(false);
       }
-      // sucesso → o efeito de validação cuida de entrar/bloquear
     } catch {
       setError('Ocorreu um erro. Tente novamente.');
       setPendingVerify(false);
@@ -198,15 +239,15 @@ export default function GroupLogin() {
 
                 <div className="flex items-center gap-3 py-1">
                   <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
-                  <span className="text-[11px] tracking-widest uppercase font-medium" style={{ color: 'rgba(255,255,255,0.2)' }}>ou e-mail</span>
+                  <span className="text-[11px] tracking-widest uppercase font-medium" style={{ color: 'rgba(255,255,255,0.2)' }}>ou login / e-mail</span>
                   <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-2.5">
                   <div className="relative">
-                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: 'rgba(255,255,255,0.2)' }} />
-                    <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(''); }}
-                      placeholder="E-mail" required
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: 'rgba(255,255,255,0.2)' }} />
+                    <input type="text" value={loginId} onChange={e => { setLoginId(e.target.value); setError(''); }}
+                      placeholder="Login ou e-mail" required autoComplete="username"
                       className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none" style={inputBase} />
                   </div>
                   <div className="relative">

@@ -25,6 +25,7 @@ import { useNavigate } from 'react-router-dom';
 interface User {
   id:                string;
   email:             string;
+  username?:         string | null;
   role:              string;
   custom_role_id:    string | null;
   custom_role_name:  string | null;
@@ -402,10 +403,10 @@ function StatChip({ value, label, color }: { value: number; label: string; color
 }
 
 // Context menu for user actions on mobile
-function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canManagePhotos, onChangePassword, onGeneratePasswordLink, onChangeRole, onNotifications, onManageHotels, onToggleBan, onForceLogout, onRemovePhoto }: {
+function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canManagePhotos, onChangeUsername, onChangePassword, onGeneratePasswordLink, onChangeRole, onNotifications, onManageHotels, onToggleBan, onForceLogout, onRemovePhoto }: {
   user: User; isMe: boolean; disabled: boolean; isBanning: boolean; forcingLogout: boolean;
   canManagePhotos: boolean;
-  onChangePassword: () => void; onGeneratePasswordLink: () => void; onChangeRole: () => void; onNotifications: () => void;
+  onChangeUsername: () => void; onChangePassword: () => void; onGeneratePasswordLink: () => void; onChangeRole: () => void; onNotifications: () => void;
   onManageHotels: () => void;
   onToggleBan: () => void; onForceLogout: () => void; onRemovePhoto: () => void;
 }) {
@@ -490,6 +491,7 @@ function UserActionsMenu({ user, isMe, disabled, isBanning, forcingLogout, canMa
           }}
           className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 overflow-hidden"
         >
+          {item('Alterar login', <Edit3 className="h-4 w-4 text-cyan-500" />, onChangeUsername, undefined, disabled)}
           {item('Alterar senha', <Key className="h-4 w-4 text-indigo-500" />, onChangePassword, undefined, disabled)}
           {item('Gerar link de senha', <Link2 className="h-4 w-4 text-teal-500" />, onGeneratePasswordLink, undefined, disabled)}
           {item('Alterar função', <UserCog className="h-4 w-4 text-amber-500" />, onChangeRole, undefined, disabled || isMe)}
@@ -548,7 +550,7 @@ const UserManagement = () => {
 
   // Create user
   const [showCreate, setShowCreate]   = useState(false);
-  const [newUser, setNewUser]         = useState({ email: '', password: '', role: 'inventory', group_id: '' });
+  const [newUser, setNewUser]         = useState({ username: '', email: '', password: '', role: 'inventory', group_id: '' });
   const [showPwd, setShowPwd]         = useState(false);
   const [creating, setCreating]       = useState(false);
 
@@ -557,6 +559,11 @@ const UserManagement = () => {
   const [changePwd, setChangePwd]           = useState({ userId: '', newPassword: '', confirmPassword: '' });
   const [changingPwd, setChangingPwd]       = useState(false);
   const [showNewPwd, setShowNewPwd]         = useState(false);
+
+  // Change username
+  const [showChangeUsername, setShowChangeUsername] = useState(false);
+  const [changeUsername, setChangeUsername]         = useState({ userId: '', email: '', currentUsername: '', newUsername: '' });
+  const [changingUsername, setChangingUsername]     = useState(false);
 
   // Change role
   const [showChangeRole, setShowChangeRole] = useState(false);
@@ -655,6 +662,7 @@ const UserManagement = () => {
       setUsers((data || []).map((u: any) => ({
         id:                 u.id,
         email:              u.email,
+        username:           u.username            || null,
         role:               u.role || 'guest',
         custom_role_id:     u.custom_role_id     || null,
         custom_role_name:   u.custom_role_name   || null,
@@ -676,7 +684,12 @@ const UserManagement = () => {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newUser.username && !newUser.email) { showToast('error', 'Informe um login (username) ou e-mail.'); return; }
     if (!newUser.password || newUser.password.length < 6) { showToast('error', 'Senha deve ter pelo menos 6 caracteres.'); return; }
+    if (newUser.username && !/^[a-zA-Z0-9._-]{3,30}$/.test(newUser.username)) {
+      showToast('error', 'Login deve ter 3-30 caracteres (letras, números, . _ -).');
+      return;
+    }
     if (!session) { showToast('error', 'Sessão expirada. Faça login novamente.'); return; }
     setCreating(true);
     try {
@@ -684,17 +697,20 @@ const UserManagement = () => {
       const systemRole   = selectedRole?.is_system ? 'admin' : 'guest';
       if (isDev && !newUser.group_id) { showToast('error', 'Selecione o grupo do usuário.'); setCreating(false); return; }
       await callAdminAction({
-        action: 'create_user', email: newUser.email, password: newUser.password,
+        action: 'create_user',
+        username: newUser.username || undefined,
+        email: newUser.email || undefined,
+        password: newUser.password,
         role: systemRole, custom_role_id: selectedRole?.id ?? null,
-        // dev escolhe o grupo; admin → backend usa o grupo do próprio admin
         group_id: isDev ? newUser.group_id : undefined,
       });
-      setNewUser({ email: '', password: '', role: 'inventory', group_id: '' });
+      const displayName = newUser.username || newUser.email;
+      setNewUser({ username: '', email: '', password: '', role: 'inventory', group_id: '' });
       setShowCreate(false);
       await fetchUsers();
-      showToast('success', `Usuário ${newUser.email} criado com sucesso!`);
+      showToast('success', `Usuário ${displayName} criado com sucesso!`);
     } catch (err: any) {
-      showToast('error', err.message.includes('already') ? 'Este e-mail já está cadastrado.' : err.message);
+      showToast('error', err.message.includes('already') ? 'Este login ou e-mail já está cadastrado.' : err.message);
     } finally {
       setCreating(false);
     }
@@ -718,6 +734,32 @@ const UserManagement = () => {
       showToast('error', err.message);
     } finally {
       setChangingPwd(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Change username
+  // ---------------------------------------------------------------------------
+
+  const handleUsernameChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session) { showToast('error', 'Sessão expirada.'); return; }
+    const uname = changeUsername.newUsername.trim();
+    if (!uname) { showToast('error', 'Informe o login.'); return; }
+    if (!/^[a-zA-Z0-9._-]{3,30}$/.test(uname)) {
+      showToast('error', 'Login deve ter 3-30 caracteres (letras, números, . _ -).');
+      return;
+    }
+    setChangingUsername(true);
+    try {
+      await callAdminAction({ action: 'change_username', target_user_id: changeUsername.userId, username: uname });
+      await fetchUsers();
+      setShowChangeUsername(false);
+      showToast('success', `Login alterado para ${uname}.`);
+    } catch (err: any) {
+      showToast('error', err.message);
+    } finally {
+      setChangingUsername(false);
     }
   };
 
@@ -1093,10 +1135,14 @@ const UserManagement = () => {
             </button>
           </div>
           <form onSubmit={handleCreateUser} className="p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-              <FormField label="E-mail" required>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              <FormField label="Login (username)">
+                <input type="text" value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })}
+                  placeholder="ex: joao.silva" className={inputCls} autoComplete="username" />
+              </FormField>
+              <FormField label="E-mail (opcional)">
                 <input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })}
-                  placeholder="email@empresa.com" className={inputCls} required autoComplete="email" />
+                  placeholder="email@empresa.com" className={inputCls} autoComplete="email" />
               </FormField>
               <FormField label="Senha" required>
                 <div className="relative">
@@ -1124,6 +1170,9 @@ const UserManagement = () => {
                 </FormField>
               )}
             </div>
+            {!newUser.username && !newUser.email && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">Informe pelo menos um login (username) ou e-mail.</p>
+            )}
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowCreate(false)}
                 className="h-11 px-5 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl transition-colors">
@@ -1237,8 +1286,11 @@ const UserManagement = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[200px] sm:max-w-none">
-                            {user.email}
+                            {user.username || user.email}
                           </p>
+                          {user.username && !user.email.endsWith('@internal.local') && (
+                            <span className="text-xs text-slate-400 dark:text-slate-500 truncate max-w-[160px]">{user.email}</span>
+                          )}
                           {isMe && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
                               <BadgeCheck className="h-2.5 w-2.5" />Você
@@ -1258,6 +1310,10 @@ const UserManagement = () => {
                         user={user} isMe={isMe} disabled={disabled}
                         isBanning={isBanning} forcingLogout={isForcing}
                         canManagePhotos={canManagePhotos}
+                        onChangeUsername={() => {
+                          setChangeUsername({ userId: user.id, email: user.email, currentUsername: user.username || '', newUsername: user.username || '' });
+                          setShowChangeUsername(true);
+                        }}
                         onChangePassword={() => { setChangePwd({ userId: user.id, newPassword: '', confirmPassword: '' }); setShowNewPwd(false); setShowChangePwd(true); }}
                         onGeneratePasswordLink={() => handleGeneratePasswordLink(user)}
                         onChangeRole={() => {
@@ -1445,6 +1501,34 @@ const UserManagement = () => {
               Fechar
             </button>
           </div>
+        </Modal>
+      )}
+
+      {/* ══ Modal — Alterar Login (username) ══ */}
+      {showChangeUsername && (
+        <Modal title="Alterar Login" subtitle={`Usuário: ${changeUsername.email}`} onClose={() => setShowChangeUsername(false)}>
+          <form onSubmit={handleUsernameChange} className="space-y-4">
+            <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                {(changeUsername.currentUsername || changeUsername.email)[0]?.toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{changeUsername.currentUsername || changeUsername.email}</p>
+                {changeUsername.currentUsername && (
+                  <p className="text-xs text-slate-400 mt-0.5">Login atual: <span className="font-mono">{changeUsername.currentUsername}</span></p>
+                )}
+              </div>
+            </div>
+            <FormField label="Novo Login (username)" required>
+              <input type="text" value={changeUsername.newUsername}
+                onChange={e => setChangeUsername({ ...changeUsername, newUsername: e.target.value })}
+                className={inputCls} required minLength={3} maxLength={30}
+                placeholder="ex: joao.silva" autoComplete="off"
+                pattern="[a-zA-Z0-9._-]{3,30}" title="3-30 caracteres: letras, números, . _ -" />
+            </FormField>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Letras, números, ponto, underline e hífen. 3 a 30 caracteres.</p>
+            <ModalActions onCancel={() => setShowChangeUsername(false)} submitLabel="Salvar login" submitting={changingUsername} />
+          </form>
         </Modal>
       )}
 
