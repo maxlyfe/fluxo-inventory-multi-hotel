@@ -10,16 +10,17 @@ import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
 import { useGroup } from '../../context/GroupContext';
 import { useFormatters } from '../../hooks/useFormatters';
-import { format, addDays, startOfWeek, addWeeks, subWeeks } from 'date-fns';
+import { format, addDays, startOfWeek, addWeeks, subWeeks, differenceInMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   LayoutDashboard, Package, AlertTriangle, DollarSign, Briefcase,
   CalendarDays, Users, Gift, Loader2, Building2, Check, Cake,
-  ChevronLeft, ChevronRight, Search, Filter, ImageIcon,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Filter, ImageIcon,
+  Phone, Clock,
 } from 'lucide-react';
 
 interface HotelRow { id: string; name: string; code?: string | null; [k: string]: any; }
-interface Emp { name: string; sector: string; birth_date: string | null; }
+interface Emp { name: string; sector: string; birth_date: string | null; admission_date: string | null; phone: string | null; }
 interface Job { title: string; sector: string; }
 interface CatAgg { name: string; items: number; value: number; }
 interface LightData {
@@ -73,7 +74,7 @@ export default function DirectorPanel() {
           const [{ data: products }, { data: jobs }, { data: emps }] = await Promise.all([
             supabase.from('products').select('quantity, min_quantity, average_price, is_active, category').eq('hotel_id', h.id),
             supabase.from('job_openings').select('title, sector, status').eq('hotel_id', h.id),
-            supabase.from('employees').select('name, sector, birth_date, status').eq('hotel_id', h.id).eq('status', 'active'),
+            supabase.from('employees').select('name, sector, birth_date, admission_date, phone, status').eq('hotel_id', h.id).eq('status', 'active'),
           ]);
           const prods = products || [];
           const items = prods.length;
@@ -92,7 +93,7 @@ export default function DirectorPanel() {
           const ld: LightData = {
             items, lowStock, invested,
             categories: [...catMap.values()].sort((a, b) => b.value - a.value),
-            employees: (emps || []).map((e: any) => ({ name: e.name, sector: e.sector || 'Sem setor', birth_date: e.birth_date })),
+            employees: (emps || []).map((e: any) => ({ name: e.name, sector: e.sector || 'Sem setor', birth_date: e.birth_date, admission_date: e.admission_date, phone: e.phone })),
             openJobs: (jobs || []).filter((j: any) => j.status === 'open').map((j: any) => ({ title: j.title, sector: j.sector })),
           };
           return [h.id, ld] as const;
@@ -245,30 +246,72 @@ function UnitColumn({ hotel, section, data, formatCurrency, isCurrent }: {
 
 // ── Seções (read views) ───────────────────────────────────────────────────────
 
+function formatTenure(admissionDate: string): string {
+  const months = differenceInMonths(new Date(), new Date(admissionDate + 'T12:00:00'));
+  if (months < 1) return 'Menos de 1 mês';
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  if (y === 0) return `${m} ${m === 1 ? 'mês' : 'meses'}`;
+  if (m === 0) return `${y} ${y === 1 ? 'ano' : 'anos'}`;
+  return `${y}a ${m}m`;
+}
+
+function EmpBadge({ emp }: { emp: Emp }) {
+  const [hover, setHover] = useState(false);
+  const hasExtra = emp.admission_date || emp.phone;
+  return (
+    <span className="relative"
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <span className="text-[11px] px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-default">{emp.name}</span>
+      {hover && hasExtra && (
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-700 text-white text-[11px] shadow-lg whitespace-nowrap pointer-events-none">
+          <p className="font-bold mb-0.5">{emp.name}</p>
+          {emp.admission_date && (
+            <p className="flex items-center gap-1 text-gray-300"><Clock className="w-3 h-3" /> {formatTenure(emp.admission_date)}</p>
+          )}
+          {emp.phone && (
+            <p className="flex items-center gap-1 text-gray-300"><Phone className="w-3 h-3" /> {emp.phone}</p>
+          )}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
+        </div>
+      )}
+    </span>
+  );
+}
+
 function Colaboradores({ data }: { data: LightData }) {
   const bySector = useMemo(() => {
-    const m = new Map<string, string[]>();
-    data.employees.forEach(e => { const a = m.get(e.sector) || []; a.push(e.name); m.set(e.sector, a); });
-    return [...m.entries()].map(([sector, names]) => ({ sector, names })).sort((a, b) => b.names.length - a.names.length);
+    const m = new Map<string, Emp[]>();
+    data.employees.forEach(e => { const a = m.get(e.sector) || []; a.push(e); m.set(e.sector, a); });
+    return [...m.entries()].map(([sector, emps]) => ({ sector, emps })).sort((a, b) => b.emps.length - a.emps.length);
   }, [data.employees]);
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = (s: string) => setCollapsed(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
   if (data.employees.length === 0) return <Empty text="Sem colaboradores ativos." />;
   return (
     <div className="space-y-3">
       <p className="text-sm font-bold text-gray-700 dark:text-gray-200">{data.employees.length} colaboradores ativos</p>
-      {bySector.map(s => (
-        <div key={s.sector}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{s.sector}</span>
-            <span className="text-xs font-bold text-violet-600 dark:text-violet-400">{s.names.length}</span>
+      {bySector.map(s => {
+        const isOpen = !collapsed.has(s.sector);
+        return (
+          <div key={s.sector}>
+            <button onClick={() => toggle(s.sector)} className="flex items-center justify-between w-full mb-1 group">
+              <span className="flex items-center gap-1 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                {s.sector}
+              </span>
+              <span className="text-xs font-bold text-violet-600 dark:text-violet-400">{s.emps.length}</span>
+            </button>
+            {isOpen && (
+              <div className="flex flex-wrap gap-1">
+                {s.emps.map((e, i) => <EmpBadge key={i} emp={e} />)}
+              </div>
+            )}
           </div>
-          <div className="flex flex-wrap gap-1">
-            {s.names.map((n, i) => (
-              <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{n}</span>
-            ))}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -662,8 +705,9 @@ function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
   layout: { sector: string; maxRows: number }[]; days: Date[];
 }) {
   const entries = sched?.entries || {};
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = (s: string) => setCollapsed(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
-  // Conteúdo de uma célula de dia (altura controlada pelo wrapper de altura fixa).
   const cell = (empId: string, day: Date) => {
     const e = entries[`${empId}|${format(day, 'yyyy-MM-dd')}`];
     if (!e || e.entry_type === 'empty') return <span className="text-gray-300 dark:text-gray-600">·</span>;
@@ -673,11 +717,10 @@ function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
     return <span className={`text-[10px] font-bold ${m?.cls || 'text-gray-500'}`}>{m?.label || e.entry_type}</span>;
   };
 
-  // Larguras em fração para alinhar nome + 7 dias.
   const gridCols = `28% repeat(7, 1fr)`;
 
   return (
-    <div className={`rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden ${isCurrent ? 'border-indigo-300 dark:border-indigo-700' : 'border-gray-100 dark:border-gray-700'}`}>
+    <div className={`rounded-2xl border bg-white dark:bg-gray-800 shadow-sm ${isCurrent ? 'border-indigo-300 dark:border-indigo-700' : 'border-gray-100 dark:border-gray-700'}`}>
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
         <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
         <h2 className="text-sm font-bold text-gray-900 dark:text-white truncate flex-1">{hotel.name}</h2>
@@ -686,8 +729,8 @@ function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
       <div className="p-2">
         {sched && !sched.hasSchedule && <p className="text-[11px] text-amber-500 px-1 mb-1">Escala ainda não criada para esta semana.</p>}
 
-        {/* Cabeçalho de dias — altura fixa */}
-        <div className="grid" style={{ gridTemplateColumns: gridCols, height: HEAD_H }}>
+        {/* Cabeçalho de dias — sticky no topo */}
+        <div className="grid sticky z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700" style={{ gridTemplateColumns: gridCols, height: HEAD_H, top: '3.5rem' }}>
           <div className="flex items-center text-[10px] font-bold text-gray-400 uppercase px-1">Colab.</div>
           {days.map((d, i) => (
             <div key={i} className="flex flex-col items-center justify-center text-[10px] font-bold text-gray-400 uppercase leading-tight">
@@ -697,18 +740,19 @@ function EscalaColumn({ hotel, isCurrent, sched, layout, days }: {
           ))}
         </div>
 
-        {/* Blocos de setor — todas as colunas usam o MESMO layout (alinhado) */}
         {layout.map(({ sector, maxRows }) => {
           const list = sched?.empsBySector[sector] || [];
+          const isOpen = !collapsed.has(sector);
           return (
             <div key={sector}>
-              {/* Cabeçalho do setor — altura fixa */}
-              <div className="flex items-center bg-indigo-50/60 dark:bg-indigo-900/15 text-[10px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-wider px-2"
+              <button onClick={() => toggle(sector)}
+                className="flex items-center w-full bg-indigo-50/60 dark:bg-indigo-900/15 text-[10px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-wider px-2 gap-1 hover:bg-indigo-100/60 dark:hover:bg-indigo-900/25 transition-colors"
                 style={{ height: SECTOR_H }}>
+                {isOpen ? <ChevronDown className="w-3 h-3 flex-shrink-0" /> : <ChevronRight className="w-3 h-3 flex-shrink-0" />}
                 {sector}
-              </div>
-              {/* Linhas — cada célula com altura fixa + overflow hidden (sem drift) */}
-              {Array.from({ length: maxRows }).map((_, r) => {
+                <span className="ml-auto text-[9px] font-bold text-indigo-400 dark:text-indigo-500">{list.length}</span>
+              </button>
+              {isOpen && Array.from({ length: maxRows }).map((_, r) => {
                 const emp = list[r];
                 return (
                   <div key={r} className="grid border-b border-gray-100 dark:border-gray-700/50"

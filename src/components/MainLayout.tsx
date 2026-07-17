@@ -16,7 +16,7 @@ const MainLayout: React.FC = () => {
   if (!user) return <Outlet />;
 
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 overflow-x-hidden">
+    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
       <Sidebar isMobileOpen={isMobileMenuOpen} setIsMobileOpen={setIsMobileMenuOpen} />
       {/* pl-14 = offset do sidebar colapsado (w-14 = 3.5rem) em desktop; mobile sem offset */}
       <div className="flex flex-col flex-1 lg:pl-14 min-w-0">
