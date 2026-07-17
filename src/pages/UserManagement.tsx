@@ -686,7 +686,7 @@ const UserManagement = () => {
     e.preventDefault();
     if (!newUser.username && !newUser.email) { showToast('error', 'Informe um login (username) ou e-mail.'); return; }
     if (!newUser.password || newUser.password.length < 6) { showToast('error', 'Senha deve ter pelo menos 6 caracteres.'); return; }
-    if (newUser.username && !/^[a-zA-Z0-9._-]{3,30}$/.test(newUser.username)) {
+    if (newUser.username && !/^[a-zA-Z0-9.\-_]{3,30}$/.test(newUser.username)) {
       showToast('error', 'Login deve ter 3-30 caracteres (letras, números, . _ -).');
       return;
     }
@@ -746,7 +746,7 @@ const UserManagement = () => {
     if (!session) { showToast('error', 'Sessão expirada.'); return; }
     const uname = changeUsername.newUsername.trim();
     if (!uname) { showToast('error', 'Informe o login.'); return; }
-    if (!/^[a-zA-Z0-9._-]{3,30}$/.test(uname)) {
+    if (!/^[a-zA-Z0-9.\-_]{3,30}$/.test(uname)) {
       showToast('error', 'Login deve ter 3-30 caracteres (letras, números, . _ -).');
       return;
     }
@@ -1524,7 +1524,7 @@ const UserManagement = () => {
                 onChange={e => setChangeUsername({ ...changeUsername, newUsername: e.target.value })}
                 className={inputCls} required minLength={3} maxLength={30}
                 placeholder="ex: joao.silva" autoComplete="off"
-                pattern="[a-zA-Z0-9._-]{3,30}" title="3-30 caracteres: letras, números, . _ -" />
+                pattern="[a-zA-Z0-9.\x2D_]{3,30}" title="3-30 caracteres: letras, números, . _ -" />
             </FormField>
             <p className="text-xs text-slate-400 dark:text-slate-500">Letras, números, ponto, underline e hífen. 3 a 30 caracteres.</p>
             <ModalActions onCancel={() => setShowChangeUsername(false)} submitLabel="Salvar login" submitting={changingUsername} />

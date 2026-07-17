@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
         if (!password) return json({ error: 'Campo obrigatório: password.' }, 400);
         if (!email && !username) return json({ error: 'Informe email ou username.' }, 400);
         if (password.length < 6) return json({ error: 'Senha deve ter pelo menos 6 caracteres.' }, 400);
-        if (username && !/^[a-zA-Z0-9._-]{3,30}$/.test(username))
+        if (username && !/^[a-zA-Z0-9.\-_]{3,30}$/.test(username))
           return json({ error: 'Username deve ter 3-30 caracteres (letras, números, . _ -).' }, 400);
         const safeRole = validSystemRoles.includes(role) ? role : 'guest';
 
@@ -138,7 +138,7 @@ Deno.serve(async (req: Request) => {
       case 'change_username': {
         const { username: newUsername } = body;
         if (!newUsername) return json({ error: 'Campo obrigatório: username.' }, 400);
-        if (!/^[a-zA-Z0-9._-]{3,30}$/.test(newUsername))
+        if (!/^[a-zA-Z0-9.\-_]{3,30}$/.test(newUsername))
           return json({ error: 'Username deve ter 3-30 caracteres (letras, números, . _ -).' }, 400);
 
         // Busca grupo do alvo para checar unicidade
