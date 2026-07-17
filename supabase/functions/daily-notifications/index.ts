@@ -3,7 +3,8 @@
 // CRON diário (08:00 Brasília): dispara notificações automáticas confiáveis,
 // independentemente de alguém abrir o app.
 //   • Aniversários de colaboradores (hoje)
-//   • Contratos de experiência vencendo (hoje ou em 5 dias)
+//   • Contratos vencendo (hoje ou em 5 dias) — via employees.experience_end
+//     e fallback employee_contracts
 //
 // Roda com SERVICE ROLE → sem o limite de 403 (envia push para todos os
 // usuários inscritos). Cria a notificação in-app (sino) E o push FCM.
@@ -234,14 +235,48 @@ Deno.serve(async (req: Request) => {
       results.inApp += r.inApp; results.pushSent += r.pushSent; results.pushFailed += r.pushFailed;
     }
 
-    // ═══ CONTRATOS DE EXPERIÊNCIA (vence hoje ou em 5 dias) ═══
-    const { data: contracts } = await supabaseAdmin
+    // ═══ CONTRATOS — fonte principal: employees.experience_end ═══
+    // A coluna experience_end é a data real de vencimento preenchida pelo DP.
+    const { data: empContracts } = await supabaseAdmin
+      .from("employees")
+      .select("id, name, experience_end, hotel_id")
+      .eq("status", "active")
+      .not("experience_end", "is", null);
+
+    const todayMidnight = new Date(Date.UTC(todayYear, todayMonth - 1, todayDay));
+    const notifiedEmployees = new Set<string>();
+
+    for (const emp of empContracts || []) {
+      if (alreadyDone.has(`contract:${emp.id}`)) continue;
+      const end = new Date(emp.experience_end + "T12:00:00Z");
+      const diffDays = Math.round((end.getTime() - todayMidnight.getTime()) / 86400000);
+      if (diffDays !== 0 && diffDays !== 5) continue;
+
+      notifiedEmployees.add(emp.id);
+      const hotel = await resolveHotelName(supabaseAdmin, hotelNameCache, emp.hotel_id);
+      const title = diffDays === 0
+        ? `🚨 Contrato vence HOJE — ${hotel}`
+        : `⏳ Contrato vence em ${diffDays} dias — ${hotel}`;
+      const message = diffDays === 0
+        ? `O contrato de ${emp.name} vence hoje!`
+        : `O contrato de ${emp.name} vence em ${diffDays} dias`;
+      const eventKey = diffDays === 0 ? "EXP_CONTRACT_ENDS_TODAY" : "EXP_CONTRACT_ENDING_SOON";
+
+      const r = await notifySubscribers(
+        ctx, eventKey, emp.hotel_id, title, message,
+        "/personnel-department", emp.id, "contract",
+      );
+      results.contracts++;
+      results.inApp += r.inApp; results.pushSent += r.pushSent; results.pushFailed += r.pushFailed;
+    }
+
+    // ═══ CONTRATOS — fallback: employee_contracts (contratos manuais) ═══
+    const { data: manualContracts } = await supabaseAdmin
       .from("employee_contracts")
       .select("id, employee_name, start_date, hotel_id")
       .eq("is_active", true);
 
-    const todayMidnight = new Date(Date.UTC(todayYear, todayMonth - 1, todayDay));
-    for (const c of contracts || []) {
+    for (const c of manualContracts || []) {
       if (alreadyDone.has(`contract:${c.id}`)) continue;
       const start = new Date(c.start_date + "T12:00:00Z");
       const endDates = [
@@ -267,7 +302,7 @@ Deno.serve(async (req: Request) => {
         );
         results.contracts++;
         results.inApp += r.inApp; results.pushSent += r.pushSent; results.pushFailed += r.pushFailed;
-        break; // só um aviso por contrato por dia
+        break;
       }
     }
 

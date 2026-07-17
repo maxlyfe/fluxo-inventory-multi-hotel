@@ -481,9 +481,10 @@ export const checkBirthdayNotifications = async () => {
 };
 
 /**
- * Verifica todos os contratos ativos e dispara notificações para os que vencem hoje ou em 5 dias.
+ * Verifica contratos/experiências que vencem hoje ou em 5 dias.
+ * Fonte principal: employees.experience_end (preenchido pelo DP).
+ * Fallback: employee_contracts (contratos manuais).
  * Usa sessionStorage para rodar apenas 1x por sessão do navegador.
- * Verifica no banco se já existe notificação para o mesmo contrato hoje (evita duplicatas).
  */
 export const checkContractExpirations = async () => {
   const SESSION_KEY = 'contract_check_done';
@@ -491,18 +492,10 @@ export const checkContractExpirations = async () => {
   sessionStorage.setItem(SESSION_KEY, '1');
 
   try {
-    const { data: contracts, error } = await supabase
-      .from('employee_contracts')
-      .select('id, employee_name, start_date, hotel_id')
-      .eq('is_active', true);
-
-    if (error || !contracts) return;
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayISO = today.toISOString().slice(0, 10); // YYYY-MM-DD
+    const todayISO = today.toISOString().slice(0, 10);
 
-    // Buscar notificações de contrato já enviadas hoje para evitar duplicatas
     const { data: existingToday } = await supabase
       .from('notifications')
       .select('related_entity_id')
@@ -512,21 +505,50 @@ export const checkContractExpirations = async () => {
 
     const alreadyNotified = new Set(existingToday?.map(n => n.related_entity_id) || []);
 
-    for (const contract of contracts) {
-      if (alreadyNotified.has(contract.id)) continue; // já notificado hoje
+    // ── Fonte principal: employees.experience_end ──
+    const { data: employees } = await supabase
+      .from('employees')
+      .select('id, name, experience_end, hotel_id')
+      .eq('status', 'active')
+      .not('experience_end', 'is', null);
+
+    for (const emp of employees || []) {
+      if (alreadyNotified.has(emp.id)) continue;
+      const end = new Date(emp.experience_end + 'T12:00:00');
+      const diffDays = Math.round((end.getTime() - today.getTime()) / 86400000);
+      if (diffDays !== 0 && diffDays !== 5) continue;
+
+      const eventData: NotificationEventData = {
+        hotel_id: emp.hotel_id,
+        contract_name: emp.name,
+        days_remaining: diffDays,
+        related_entity_id: emp.id,
+      };
+
+      if (diffDays === 0) {
+        await notifyContractEndsToday(eventData);
+      } else {
+        await notifyContractEndingSoon(eventData);
+      }
+    }
+
+    // ── Fallback: employee_contracts (contratos manuais) ──
+    const { data: contracts } = await supabase
+      .from('employee_contracts')
+      .select('id, employee_name, start_date, hotel_id')
+      .eq('is_active', true);
+
+    for (const contract of contracts || []) {
+      if (alreadyNotified.has(contract.id)) continue;
 
       const startDate = new Date(contract.start_date + 'T12:00:00');
-
-      // Fim do 1º período (30 dias) e 2º período (90 dias)
       const endDates = [
         new Date(startDate.getTime() + 29 * 86400000),
         new Date(startDate.getTime() + 89 * 86400000),
       ];
 
       for (const endDate of endDates) {
-        const diffMs = endDate.getTime() - today.getTime();
-        const diffDays = Math.round(diffMs / 86400000);
-
+        const diffDays = Math.round((endDate.getTime() - today.getTime()) / 86400000);
         if (diffDays !== 0 && diffDays !== 5) continue;
 
         const eventData: NotificationEventData = {
