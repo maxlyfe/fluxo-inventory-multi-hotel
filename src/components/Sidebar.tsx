@@ -9,12 +9,15 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useHotel } from '../context/HotelContext';
 import { supabase } from '../lib/supabase';
-import { NAV_GROUPS } from '../lib/navigationConfig';
-import type { NavItem } from '../lib/navigationConfig';
+import { NAV_CATEGORIES } from '../lib/navigationConfig';
+import type { NavItem, NavGroup, NavCategory } from '../lib/navigationConfig';
 
 // ── Tipos internos ────────────────────────────────────────────────────────────
 
 interface SectorRow { id: string; name: string; color: string | null; }
+
+interface VisibleGroup extends NavGroup { items: NavItem[]; }
+interface VisibleCategory { key: string; label: string; groups: VisibleGroup[]; }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -30,7 +33,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
   const location                             = useLocation();
   const navigate                             = useNavigate();
 
-  // Logout robusto: aguarda + força redirect para /login
   const handleLogout = async () => {
     try {
       await authLogout();
@@ -47,8 +49,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
   const [allSectors, setAllSectors] = useState<SectorRow[]>([]);
 
   // Fecha overlay ao navegar
-  useEffect(() => { 
-    if (setIsMobileOpen) setIsMobileOpen(false); 
+  useEffect(() => {
+    if (setIsMobileOpen) setIsMobileOpen(false);
   }, [location.pathname, setIsMobileOpen]);
 
   // Carrega setores do hotel selecionado
@@ -69,77 +71,77 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
   const isActive = (href: string) =>
     href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
 
-  // ── Seções visíveis com itens dinâmicos injetados ──────────────────────────
-  const visibleSections = useMemo(() => {
-    return NAV_GROUPS
-      .filter(s => {
-        // Requisições — visível para qualquer autenticado se há setores
-        if (s.dynamicKey === 'allSectors') return !!user;
+  // ── Categorias visíveis com itens dinâmicos injetados ─────────────────────
+  const visibleCategories = useMemo((): VisibleCategory[] => {
+    return NAV_CATEGORIES
+      .map(cat => {
+        const visibleGroups = cat.groups
+          .filter(s => {
+            if (s.dynamicKey === 'allSectors') return !!user;
+            if (s.adminOnly) {
+              if (isDev) return true;
+              if (isAdmin && !user?.custom_role_id) return true;
+              if (s.module && can(s.module)) return true;
+              return s.items.some(i => can(i.module));
+            }
+            if (s.module) {
+              if (can(s.module)) return true;
+              if (s.key === 'compras' && canAccessContacts) return true;
+            }
+            return s.items.some(i => {
+              if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
+              if (!i.module) return true;
+              return can(i.module);
+            });
+          })
+          .map(s => {
+            const staticItems: NavItem[] = s.items.filter(i => {
+              if (i.module === '__groups_dev__') return isDev;
+              if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
+              if (!i.module) return true;
+              return can(i.module);
+            });
 
-        if (s.adminOnly) {
-          if (isDev) return true;
-          if (isAdmin && !user?.custom_role_id) return true;
-          if (s.module && can(s.module)) return true;
-          return s.items.some(i => can(i.module));
-        }
-        if (s.module) {
-          if (can(s.module)) return true;
-          if (s.key === 'compras' && canAccessContacts) return true;
-          // Não retorna false — verifica se há pelo menos um item acessível
-        }
-        return s.items.some(i => {
-          if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
-          if (!i.module) return true;
-          return can(i.module);
-        });
+            if (s.dynamicKey === 'stockSectors') {
+              const stockItems: NavItem[] = allSectors
+                .filter(sec => isAdmin || isDev || can(`sector_stock:${sec.id}`))
+                .map(sec => ({
+                  module:   `sector_stock:${sec.id}`,
+                  label:    sec.name,
+                  href:     `/sector-stock/${sec.id}`,
+                  icon:     Boxes,
+                  iconName: 'Boxes',
+                  color:    sec.color ?? '#8b5cf6',
+                }));
+              return { ...s, items: [...staticItems, ...stockItems] } as VisibleGroup;
+            }
+
+            if (s.dynamicKey === 'allSectors') {
+              const sectorItems: NavItem[] = allSectors.map(sec => ({
+                module:   '',
+                label:    sec.name,
+                href:     `/sector/${sec.id}`,
+                icon:     ClipboardList,
+                iconName: 'ClipboardList',
+                color:    sec.color ?? '#6366f1',
+              }));
+              return { ...s, items: sectorItems } as VisibleGroup;
+            }
+
+            return { ...s, items: staticItems } as VisibleGroup;
+          })
+          .filter(s => s.items.length > 0);
+
+        return { key: cat.key, label: cat.label, groups: visibleGroups };
       })
-      .map(s => {
-        // Filtrar itens estáticos por permissão
-        const staticItems: NavItem[] = s.items.filter(i => {
-          if (i.module === '__groups_dev__') return isDev;
-          if (i.module === '__contacts__') return isAdmin || can('purchases') || canAccessContacts;
-          if (!i.module) return true;
-          return can(i.module);
-        });
-
-        // Injetar stock setorial no grupo "stock"
-        if (s.dynamicKey === 'stockSectors') {
-          const stockItems: NavItem[] = allSectors
-            .filter(sec => isAdmin || isDev || can(`sector_stock:${sec.id}`))
-            .map(sec => ({
-              module:   `sector_stock:${sec.id}`,
-              label:    sec.name,
-              href:     `/sector-stock/${sec.id}`,
-              icon:     Boxes,
-              iconName: 'Boxes',
-              color:    sec.color ?? '#8b5cf6',
-            }));
-          return { ...s, items: [...staticItems, ...stockItems] };
-        }
-
-        // Injetar todos os setores no grupo "requisicoes"
-        if (s.dynamicKey === 'allSectors') {
-          const sectorItems: NavItem[] = allSectors.map(sec => ({
-            module:   '',
-            label:    sec.name,
-            href:     `/sector/${sec.id}`,
-            icon:     ClipboardList,
-            iconName: 'ClipboardList',
-            color:    sec.color ?? '#6366f1',
-          }));
-          return { ...s, items: sectorItems };
-        }
-
-        return { ...s, items: staticItems };
-      })
-      .filter(s => s.items.length > 0);
+      .filter(cat => cat.groups.length > 0);
   }, [isAdmin, isDev, can, canAccessContacts, user, allSectors]);
 
   if (!user) return null;
 
   // ── Conteúdo interior (reutilizado em desktop e mobile) ───────────────────
 
-  const expanded = isHovered || isMobileOpen; // texto visível quando expandido
+  const expanded = isHovered || isMobileOpen;
 
   const sidebarContent = (
     <div className="flex flex-col h-full py-4 overflow-hidden">
@@ -158,7 +160,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
       </Link>
 
       {/* Scrollable */}
-      <div className="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-hide">
+      <div className="flex-1 overflow-y-auto px-2 space-y-0.5 scrollbar-hide">
 
         {/* Dashboard */}
         <Link
@@ -179,75 +181,90 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, setIsMobileOpen
           </span>
         </Link>
 
-        {/* Separador */}
-        <div className={classNames("my-2 border-t border-slate-100 dark:border-slate-800 transition-opacity duration-200", expanded ? "opacity-100" : "opacity-30")} />
-
-        {/* Grupos dinâmicos */}
-        {visibleSections.map(section => {
-          const isExpanded   = expandedGroups[section.key];
-          const hasActiveItem = section.items.some(i => isActive(i.href));
-
-          return (
-            <div key={section.key}>
-
-              {/* Header da seção */}
-              <button
-                onClick={() => toggleGroup(section.key)}
-                title={expanded ? undefined : section.label}
-                className={classNames(
-                  "w-full flex items-center gap-3 px-2 py-2 rounded-xl transition-all",
-                  isExpanded || hasActiveItem
-                    ? "text-blue-500 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-900/10"
-                    : "text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-600 dark:hover:text-slate-300"
-                )}
-              >
-                <section.icon className="w-5 h-5 shrink-0" />
-                <span className={classNames(
-                  "text-[11px] font-medium uppercase tracking-wider truncate transition-opacity duration-200 whitespace-nowrap flex-1 text-left",
-                  expanded ? "opacity-100" : "opacity-0"
-                )}>
-                  {section.label}
-                </span>
-                {expanded && (
-                  <ChevronRight className={classNames(
-                    "w-3 h-3 shrink-0 transition-transform duration-200",
-                    isExpanded ? "rotate-90" : ""
-                  )} />
-                )}
-              </button>
-
-              {/* Itens */}
-              {(isExpanded || (hasActiveItem && !expanded)) && (
-                <div className={classNames("mt-0.5 space-y-0.5", expanded ? "ml-3" : "ml-0")}>
-                  {section.items.map(item => (
-                    <Link
-                      key={item.href}
-                      to={item.href}
-                      title={expanded ? undefined : item.label}
-                      className={classNames(
-                        "flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all",
-                        isActive(item.href)
-                          ? "text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10"
-                          : "text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                      )}
-                    >
-                      <item.icon
-                        className="w-4 h-4 shrink-0"
-                        style={{ color: isActive(item.href) ? item.color : undefined }}
-                      />
-                      <span className={classNames(
-                        "text-sm font-normal truncate transition-opacity duration-200 whitespace-nowrap",
-                        expanded ? "opacity-100" : "opacity-0"
-                      )}>
-                        {item.label}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              )}
+        {/* Categorias > Módulos > Acessos */}
+        {visibleCategories.map((cat, catIdx) => (
+          <div key={cat.key}>
+            {/* Separador + label da categoria */}
+            <div className={classNames(
+              "mt-3 mb-1 flex items-center gap-2 px-2",
+              catIdx === 0 ? "pt-2 border-t border-slate-100 dark:border-slate-800" : "pt-2 border-t border-slate-100 dark:border-slate-800"
+            )}>
+              <span className={classNames(
+                "text-[9px] font-black uppercase tracking-[0.12em] text-slate-300 dark:text-slate-600 truncate transition-opacity duration-200 whitespace-nowrap select-none",
+                expanded ? "opacity-100" : "opacity-0"
+              )}>
+                {cat.label}
+              </span>
+              {!expanded && <div className="w-full border-t border-slate-100 dark:border-slate-800" />}
             </div>
-          );
-        })}
+
+            {/* Módulos (accordion) */}
+            {cat.groups.map(section => {
+              const isExpanded   = expandedGroups[section.key];
+              const hasActiveItem = section.items.some(i => isActive(i.href));
+
+              return (
+                <div key={section.key}>
+                  {/* Header do módulo */}
+                  <button
+                    onClick={() => toggleGroup(section.key)}
+                    title={expanded ? undefined : section.label}
+                    className={classNames(
+                      "w-full flex items-center gap-3 px-2 py-2 rounded-xl transition-all",
+                      isExpanded || hasActiveItem
+                        ? "text-blue-500 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-900/10"
+                        : "text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-600 dark:hover:text-slate-300"
+                    )}
+                  >
+                    <section.icon className="w-5 h-5 shrink-0" />
+                    <span className={classNames(
+                      "text-[11px] font-medium uppercase tracking-wider truncate transition-opacity duration-200 whitespace-nowrap flex-1 text-left",
+                      expanded ? "opacity-100" : "opacity-0"
+                    )}>
+                      {section.label}
+                    </span>
+                    {expanded && (
+                      <ChevronRight className={classNames(
+                        "w-3 h-3 shrink-0 transition-transform duration-200",
+                        isExpanded ? "rotate-90" : ""
+                      )} />
+                    )}
+                  </button>
+
+                  {/* Acessos (links) */}
+                  {(isExpanded || (hasActiveItem && !expanded)) && (
+                    <div className={classNames("mt-0.5 space-y-0.5", expanded ? "ml-3" : "ml-0")}>
+                      {section.items.map(item => (
+                        <Link
+                          key={item.href}
+                          to={item.href}
+                          title={expanded ? undefined : item.label}
+                          className={classNames(
+                            "flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all",
+                            isActive(item.href)
+                              ? "text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10"
+                              : "text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                          )}
+                        >
+                          <item.icon
+                            className="w-4 h-4 shrink-0"
+                            style={{ color: isActive(item.href) ? item.color : undefined }}
+                          />
+                          <span className={classNames(
+                            "text-sm font-normal truncate transition-opacity duration-200 whitespace-nowrap",
+                            expanded ? "opacity-100" : "opacity-0"
+                          )}>
+                            {item.label}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       {/* Footer */}
