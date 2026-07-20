@@ -231,7 +231,7 @@ function buildRpsXml(
 
   const rawCodigo = config.codigo_servico || '9.01';
   const digits = rawCodigo.replace(/\D/g, '');
-  const itemListaServico = digits.padStart(4, '0');
+  const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const codigoTribMunicipio = config.codigo_tributacao_municipio || rawCodigo.replace(/^0+/, '').replace(/(\d+)(\d{2})$/, '$1.$2');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
