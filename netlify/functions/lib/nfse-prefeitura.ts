@@ -299,7 +299,7 @@ function buildRpsXml(
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
-    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
+    `<ItemListaServico>${codigoTribMunicipio}</ItemListaServico>` +
     `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
