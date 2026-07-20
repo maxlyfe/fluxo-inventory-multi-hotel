@@ -26,6 +26,8 @@ export interface Product {
   product_type?: string;
   mcu_code?: string;
   tax_percentage?: number;
+  ibs_cbs_cst?: string;
+  ibs_cbs_cclasstrib?: string;
   created_at?: string;
 }
 

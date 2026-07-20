@@ -40,6 +40,8 @@ interface EditForm {
   iss_retained: boolean;
   iss_exigibilidade: string;
   nbs_code: string;
+  ibs_cbs_cst: string;
+  ibs_cbs_cclasstrib: string;
 }
 
 const EMPTY_FORM: EditForm = {
@@ -47,6 +49,7 @@ const EMPTY_FORM: EditForm = {
   pricing_mode: 'fixed', price: '',
   lc116_code: '09.01', municipal_tax_code: '', cnae: '',
   iss_rate: '5', iss_retained: false, iss_exigibilidade: '1', nbs_code: '',
+  ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
 };
 
 const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -130,6 +133,8 @@ const ServiceCatalog: React.FC = () => {
       iss_retained: s.iss_retained,
       iss_exigibilidade: s.iss_exigibilidade || '1',
       nbs_code: s.nbs_code || '',
+      ibs_cbs_cst: (s as any).ibs_cbs_cst || '000',
+      ibs_cbs_cclasstrib: (s as any).ibs_cbs_cclasstrib || '000001',
     });
     setEditOpen(true);
   }
@@ -158,6 +163,8 @@ const ServiceCatalog: React.FC = () => {
         iss_retained: form.iss_retained,
         iss_exigibilidade: form.iss_exigibilidade,
         nbs_code: form.nbs_code.trim() || null,
+        ibs_cbs_cst: form.ibs_cbs_cst.trim() || '000',
+        ibs_cbs_cclasstrib: form.ibs_cbs_cclasstrib.trim() || '000001',
         is_active: true,
       });
       addNotification(form.id ? 'Serviço atualizado.' : 'Serviço criado.', 'success');
@@ -423,6 +430,14 @@ const ServiceCatalog: React.FC = () => {
                   <div>
                     <label className={labelCls}>Código NBS</label>
                     <input type="text" value={form.nbs_code} onChange={e => setForm(p => ({ ...p, nbs_code: e.target.value }))} className={inputCls} placeholder="Opcional" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>CST IBS/CBS (Reforma)</label>
+                    <input type="text" value={form.ibs_cbs_cst} onChange={e => setForm(p => ({ ...p, ibs_cbs_cst: e.target.value }))} className={inputCls} placeholder="000" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Cód. Class. Tributária (cClassTrib)</label>
+                    <input type="text" value={form.ibs_cbs_cclasstrib} onChange={e => setForm(p => ({ ...p, ibs_cbs_cclasstrib: e.target.value }))} className={inputCls} placeholder="000001" />
                   </div>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">

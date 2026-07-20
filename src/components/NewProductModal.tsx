@@ -100,6 +100,7 @@ const NewProductModal = ({
     auto_portion_multiplier: null as number | null,
     unit_measure: 'und', product_type: 'consumo',
     mcu_code: '', tax_percentage: '0',
+    ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
   });
 
   const [portionProducts, setPortionProducts] = useState<Product[]>([]);
@@ -172,6 +173,8 @@ const NewProductModal = ({
           product_type: editingProduct.product_type  || 'consumo',
           mcu_code:     editingProduct.mcu_code      || '',
           tax_percentage: editingProduct.tax_percentage?.toString() || '0',
+          ibs_cbs_cst:        (editingProduct as any).ibs_cbs_cst        || '000',
+          ibs_cbs_cclasstrib: (editingProduct as any).ibs_cbs_cclasstrib || '000001',
         });
       } else {
         if (sectorsData) setSelectedSectors(new Set(sectorsData.map(s => s.id)));
@@ -182,6 +185,7 @@ const NewProductModal = ({
           is_portionable: false, is_portion: false,
           auto_portion_product_id: null, auto_portion_multiplier: null,
           unit_measure: 'und', product_type: 'consumo', mcu_code: '', tax_percentage: '0',
+          ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
         });
       }
       setLoadingSectors(false);
@@ -262,6 +266,8 @@ const NewProductModal = ({
         ...formData, supplier: supplierField, quantity: qty, min_quantity: minQty, max_quantity: maxQty,
         mcu_code: formData.mcu_code || null,
         tax_percentage: parseNumber(formData.tax_percentage),
+        ibs_cbs_cst: formData.ibs_cbs_cst || '000',
+        ibs_cbs_cclasstrib: formData.ibs_cbs_cclasstrib || '000001',
       };
 
       let savedProduct: Product | null = null;
@@ -761,6 +767,27 @@ const NewProductModal = ({
                     <input name="tax_percentage" type="text" inputMode="decimal" value={formData.tax_percentage}
                       onChange={handleInputChange} placeholder="0" className={fieldCls} />
                   </div>
+                </div>
+
+                {/* IBS/CBS — Reforma Tributária (EC 132/2023) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Hash className="w-3 h-3 inline mr-1" />CST IBS/CBS
+                    </label>
+                    <input name="ibs_cbs_cst" type="text" value={formData.ibs_cbs_cst} onChange={handleInputChange}
+                      placeholder="000" className={fieldCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Hash className="w-3 h-3 inline mr-1" />Cód. Class. Tributária (cClassTrib)
+                    </label>
+                    <input name="ibs_cbs_cclasstrib" type="text" value={formData.ibs_cbs_cclasstrib} onChange={handleInputChange}
+                      placeholder="000001" className={fieldCls} />
+                  </div>
+                  <p className="sm:col-span-2 text-[11px] text-slate-400 -mt-1">
+                    Reforma Tributária (IBS/CBS). Padrão 000 / 000001 = tributação integral. Ajuste conforme orientação do contador.
+                  </p>
                 </div>
               </Section>
 
