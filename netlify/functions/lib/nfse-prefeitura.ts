@@ -242,7 +242,7 @@ function buildRpsXml(
   const competencia = now.toISOString().slice(0, 10);
 
   // Tomador XML
-  let tomadorXml = '<Tomador>';
+  let tomadorXml = '<TomadorServico>';
   if (tomador.cpf_cnpj && tomador.doc_tipo !== 'passaporte') {
     const docLimpo = tomador.cpf_cnpj.replace(/\D/g, '');
     const isCnpj = tomador.doc_tipo === 'cnpj' || docLimpo.length > 11;
@@ -266,7 +266,7 @@ function buildRpsXml(
   if (tomador.email) {
     tomadorXml += `<Contato><Email>${xmlEsc(tomador.email)}</Email></Contato>`;
   }
-  tomadorXml += '</Tomador>';
+  tomadorXml += '</TomadorServico>';
 
   // Regime especial: 1=Microempresa, 2=Estimativa, 3=Sociedade Profissionais, 4=Cooperativa, 6=MEI
   const regimeEspecial = config.regime_tributario
