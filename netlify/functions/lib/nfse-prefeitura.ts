@@ -304,7 +304,6 @@ function buildRpsXml(
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
-    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<MunicipioIncidencia>${codigoMunicipio}</MunicipioIncidencia>` +
     `</Servico>` +
     `<Prestador>` +
