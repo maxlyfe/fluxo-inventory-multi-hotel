@@ -295,7 +295,7 @@ function buildRpsXml(
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${codigoServico}</ItemListaServico>` +
-    `<CodigoTributacaoMunicipio>${config.codigo_tributacao_municipio || (codigoServico.replace(/\./g, '') + '01')}</CodigoTributacaoMunicipio>` +
+    `<CodigoTributacaoMunicipio>${config.codigo_tributacao_municipio || codigoServico.replace(/\./g, '')}</CodigoTributacaoMunicipio>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
