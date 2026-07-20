@@ -262,16 +262,17 @@ function buildRpsXml(
   }
   tomadorXml += `<RazaoSocial>${xmlEsc(tomador.razao_social)}</RazaoSocial>`;
 
-  if (tomador.endereco) {
-    tomadorXml += '<Endereco>';
-    tomadorXml += `<Endereco>${xmlEsc(tomador.endereco)}</Endereco>`;
-    if (tomador.numero) tomadorXml += `<Numero>${xmlEsc(tomador.numero)}</Numero>`;
-    if (tomador.bairro) tomadorXml += `<Bairro>${xmlEsc(tomador.bairro)}</Bairro>`;
-    if (tomador.codigo_municipio) tomadorXml += `<CodigoMunicipio>${tomador.codigo_municipio}</CodigoMunicipio>`;
-    if (tomador.uf) tomadorXml += `<Uf>${tomador.uf}</Uf>`;
-    if (tomador.cep) tomadorXml += `<Cep>${tomador.cep.replace(/\D/g, '')}</Cep>`;
-    tomadorXml += '</Endereco>';
-  }
+  // Endereço do tomador SEMPRE presente e completo — a ausência do bloco (ou de
+  // subcampos) faz a E&L rejeitar com EL55 genérico "Arquivo Inválido"
+  // (confirmado empiricamente em 20/07/2026). Fallbacks p/ hóspede sem cadastro.
+  tomadorXml += '<Endereco>';
+  tomadorXml += `<Endereco>${xmlEsc(tomador.endereco || 'Nao informado')}</Endereco>`;
+  tomadorXml += `<Numero>${xmlEsc(tomador.numero || 'S/N')}</Numero>`;
+  tomadorXml += `<Bairro>${xmlEsc(tomador.bairro || 'Centro')}</Bairro>`;
+  tomadorXml += `<CodigoMunicipio>${tomador.codigo_municipio || codigoMunicipio}</CodigoMunicipio>`;
+  tomadorXml += `<Uf>${tomador.uf || 'RJ'}</Uf>`;
+  tomadorXml += `<Cep>${(tomador.cep || '28950000').replace(/\D/g, '')}</Cep>`;
+  tomadorXml += '</Endereco>';
 
   if (tomador.email) {
     tomadorXml += `<Contato><Email>${xmlEsc(tomador.email)}</Email></Contato>`;
