@@ -235,8 +235,10 @@ function buildRpsXml(
   const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
   const codigoServicoNacional = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const codigoCnae = (config.codigo_cnae || '').replace(/\D/g, '') || '';
-  // CodigoTributacaoMunicipio: só dígitos, sem zero à esquerda (exemplo oficial E&L: 107 p/ item 01.07)
-  const codigoTribMunicipio = (config.codigo_tributacao_municipio || rawCodigo).replace(/\D/g, '').replace(/^0+/, '');
+  // CodigoTributacaoMunicipio: formato da tabela municipal de Búzios — a NFS-e
+  // real emitida pela prefeitura usa 9.01 (com ponto, sem zero à esquerda)
+  const codigoTribMunicipio = config.codigo_tributacao_municipio ||
+    digits.replace(/^0+/, '').replace(/^(\d{1,2})(\d{2})$/, '$1.$2');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 
