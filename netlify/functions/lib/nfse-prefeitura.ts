@@ -235,9 +235,9 @@ function buildRpsXml(
   const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
   const codigoServicoNacional = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const codigoCnae = (config.codigo_cnae || '').replace(/\D/g, '') || '';
-  // CodigoTributacaoMunicipio: só dígitos (EL55 se tiver ponto). Tabela de
-  // Búzios usa o código nacional de 6 dígitos (dropdown da plataforma: 090101)
-  const codigoTribMunicipio = (config.codigo_tributacao_municipio || '').replace(/\D/g, '') || codigoServicoNacional;
+  // CodigoTributacaoMunicipio: só dígitos (EL55 se tiver ponto). 901 e 090101
+  // não existem na tabela de Búzios (E35) — omite salvo se configurado
+  const codigoTribMunicipio = (config.codigo_tributacao_municipio || '').replace(/\D/g, '');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 
@@ -303,7 +303,7 @@ function buildRpsXml(
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
     (codigoCnae ? `<CodigoCnae>${codigoCnae}</CodigoCnae>` : '') +
-    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
+    (codigoTribMunicipio ? `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` : '') +
     `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
