@@ -192,7 +192,6 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   // 1. Initialize items and prefill Tomador on mount/open
   useEffect(() => {
     if (!isOpen) return;
-    if (step === 4) return; // Não re-inicializar/preencher se já estiver exibindo a nota emitida
 
     setFormErrors({});
     setSubmitting(false);
@@ -361,7 +360,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorBairro('');
     setTomadorCidade('');
     setTomadorUf('');
-  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, step]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId]);
 
   if (!isOpen) return null;
 
