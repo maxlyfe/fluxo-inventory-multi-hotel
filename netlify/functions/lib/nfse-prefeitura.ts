@@ -228,7 +228,8 @@ function buildRpsXml(
     .map(it => `${it.description} - Qtd: ${it.quantidade} x R$ ${it.valor_unitario.toFixed(2)} = R$ ${it.valor_total.toFixed(2)}`)
     .join('\n');
 
-  const codigoServico = (config.codigo_servico || '0901').replace(/\./g, '');
+  const rawCodigo = config.codigo_servico || '09.01';
+  const codigoServico = rawCodigo.includes('.') ? rawCodigo : rawCodigo.replace(/^(\d{2})(\d{2})$/, '$1.$2');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 
@@ -274,8 +275,8 @@ function buildRpsXml(
     : '';
 
   const infDPS =
-    `<InfDeclaracaoPrestacaoServico Id="${rpsId}">` +
-    `<Rps>` +
+    `<InfDeclaracaoPrestacaoServico>` +
+    `<Rps Id="${rpsId}">` +
     `<IdentificacaoRps>` +
     `<Numero>${numeroRps}</Numero>` +
     `<Serie>${xmlEsc(serieRps)}</Serie>` +
@@ -289,7 +290,7 @@ function buildRpsXml(
     `<Valores>` +
     `<ValorServicos>${valorServicos.toFixed(2)}</ValorServicos>` +
     `<ValorIss>${valorIss.toFixed(2)}</ValorIss>` +
-    `<Aliquota>${aliquota.toFixed(4)}</Aliquota>` +
+    `<Aliquota>${aliquota.toFixed(2)}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${codigoServico}</ItemListaServico>` +
