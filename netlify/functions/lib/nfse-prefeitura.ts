@@ -238,7 +238,7 @@ function buildRpsXml(
   const rpsId = `rps_${numeroRps}`;
 
   const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  const dataEmissao = now.toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  const dataEmissao = now.toISOString().slice(0, 10);
   const competencia = now.toISOString().slice(0, 10);
 
   // Tomador XML
