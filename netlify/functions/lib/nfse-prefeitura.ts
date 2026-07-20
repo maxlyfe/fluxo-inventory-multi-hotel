@@ -302,8 +302,8 @@ function buildRpsXml(
     `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
     `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
-    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
+    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
     `<MunicipioIncidencia>${codigoMunicipio}</MunicipioIncidencia>` +
     `</Servico>` +
