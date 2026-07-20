@@ -147,7 +147,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email,
       tomador_endereco, tomador_numero, tomador_bairro,
       tomador_codigo_municipio, tomador_uf, tomador_cep,
-      items, codigo_municipio, codigo_servico, aliquota_iss,
+      items, codigo_municipio, codigo_servico, codigo_cnae, aliquota_iss,
       regime_tributario, optante_simples,
       numero_rps, serie_rps,
     } = payload;
@@ -190,6 +190,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
           codigo_municipio: codigo_municipio || '3300233',
           codigo_servico: codigo_servico || '09.01',
+          codigo_cnae: codigo_cnae || null,
           aliquota_iss: aliquota_iss ?? 5,
           regime_tributario: regime_tributario || null,
           optante_simples: !!optante_simples,

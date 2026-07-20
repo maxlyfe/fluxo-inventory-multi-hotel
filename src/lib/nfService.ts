@@ -674,6 +674,14 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         .select('*')
         .eq('invoice_id', invoiceId);
 
+      const { data: svcRow } = await supabase
+        .from('services')
+        .select('cnae')
+        .eq('hotel_id', hotelId)
+        .not('cnae', 'is', null)
+        .limit(1)
+        .maybeSingle();
+
       proxyAction = 'emit';
       bodyPayload = {
         action: proxyAction,
@@ -695,6 +703,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         })),
         codigo_municipio: config!.endereco_codigo_municipio || '3300233',
         codigo_servico: config!.codigo_servico || '09.01',
+        codigo_cnae: svcRow?.cnae || null,
         aliquota_iss: config!.aliquota_iss ?? 5,
         regime_tributario: config!.regime_tributario_nfse,
         optante_simples: config!.regime_tributario_nfse === '1',

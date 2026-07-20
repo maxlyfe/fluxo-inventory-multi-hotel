@@ -187,6 +187,7 @@ export interface NfseConfig {
   codigo_municipio: string;
   codigo_servico: string;
   codigo_tributacao_municipio?: string | null;
+  codigo_cnae?: string | null;
   aliquota_iss: number;
   regime_tributario: string | null;
   optante_simples: boolean;
@@ -231,7 +232,8 @@ function buildRpsXml(
 
   const rawCodigo = config.codigo_servico || '9.01';
   const digits = rawCodigo.replace(/\D/g, '');
-  const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
+  const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
+  const codigoCnae = (config.codigo_cnae || '').replace(/\D/g, '') || '';
   const codigoTribMunicipio = config.codigo_tributacao_municipio || rawCodigo.replace(/^0+/, '').replace(/(\d+)(\d{2})$/, '$1.$2');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
@@ -297,6 +299,7 @@ function buildRpsXml(
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
+    (codigoCnae ? `<CodigoCnae>${codigoCnae}</CodigoCnae>` : '') +
     `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
