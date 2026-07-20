@@ -230,8 +230,9 @@ function buildRpsXml(
     .join('\n');
 
   const rawCodigo = config.codigo_servico || '9.01';
-  const codigoLC116 = rawCodigo.replace(/^0+/, '').replace(/(\d+)(\d{2})$/, '$1.$2');
-  const codigoNacional = rawCodigo.replace(/\D/g, '').replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
+  const digits = rawCodigo.replace(/\D/g, '');
+  const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
+  const codigoTribMunicipio = config.codigo_tributacao_municipio || rawCodigo.replace(/^0+/, '').replace(/(\d+)(\d{2})$/, '$1.$2');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 
@@ -295,8 +296,8 @@ function buildRpsXml(
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
-    `<ItemListaServico>${codigoLC116}</ItemListaServico>` +
-    `<CodigoTributacaoMunicipio>${config.codigo_tributacao_municipio || codigoLC116}</CodigoTributacaoMunicipio>` +
+    `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
+    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
