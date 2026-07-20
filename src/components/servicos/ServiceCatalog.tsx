@@ -45,7 +45,7 @@ interface EditForm {
 const EMPTY_FORM: EditForm = {
   name: '', description: '', category: '',
   pricing_mode: 'fixed', price: '',
-  lc116_code: '9.01', municipal_tax_code: '', cnae: '',
+  lc116_code: '09.01', municipal_tax_code: '', cnae: '',
   iss_rate: '5', iss_retained: false, iss_exigibilidade: '1', nbs_code: '',
 };
 
@@ -400,7 +400,7 @@ const ServiceCatalog: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Item Lista de Serviços (LC 116)</label>
-                    <input type="text" value={form.lc116_code} onChange={e => setForm(p => ({ ...p, lc116_code: e.target.value }))} className={inputCls} placeholder="9.01" />
+                    <input type="text" value={form.lc116_code} onChange={e => setForm(p => ({ ...p, lc116_code: e.target.value }))} className={inputCls} placeholder="09.01" />
                   </div>
                   <div>
                     <label className={labelCls}>Cód. Tributação Municipal (CTISS)</label>

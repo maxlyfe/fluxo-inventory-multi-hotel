@@ -228,8 +228,8 @@ function buildRpsXml(
     .map(it => `${it.description} - Qtd: ${it.quantidade} x R$ ${it.valor_unitario.toFixed(2)} = R$ ${it.valor_total.toFixed(2)}`)
     .join('\n');
 
-  const rawCodigo = config.codigo_servico || '09.01';
-  const codigoServico = rawCodigo.includes('.') ? rawCodigo : rawCodigo.replace(/^(\d{2})(\d{2})$/, '$1.$2');
+  const rawCodigo = (config.codigo_servico || '09.01').replace(/\D/g, '');
+  const codigoServico = rawCodigo.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 

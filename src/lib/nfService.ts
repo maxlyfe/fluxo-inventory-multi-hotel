@@ -694,7 +694,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
           valor_total: i.valor_total,
         })),
         codigo_municipio: config!.endereco_codigo_municipio || '3300233',
-        codigo_servico: config!.codigo_servico || '0901',
+        codigo_servico: config!.codigo_servico || '09.01',
         aliquota_iss: config!.aliquota_iss ?? 5,
         regime_tributario: config!.regime_tributario_nfse,
         optante_simples: config!.regime_tributario_nfse === '1',

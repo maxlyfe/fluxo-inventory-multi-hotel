@@ -189,7 +189,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           certificado_senha,
           ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
           codigo_municipio: codigo_municipio || '3300233',
-          codigo_servico: codigo_servico || '0901',
+          codigo_servico: codigo_servico || '09.01',
           aliquota_iss: aliquota_iss ?? 5,
           regime_tributario: regime_tributario || null,
           optante_simples: !!optante_simples,
