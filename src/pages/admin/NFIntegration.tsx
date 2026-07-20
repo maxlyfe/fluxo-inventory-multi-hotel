@@ -70,6 +70,9 @@ const EMPTY_FORM = {
   nfce_csc_token: '',
   nfse_provider: 'prefeitura' as NFSEProvider,
   adn_ambiente: 'homologacao' as NFAmbiente,
+  el_token: '',
+  el_ambiente: 'homologacao' as NFAmbiente,
+  codigo_servico_municipal: '',
   logo_url: '',
   nf_recebidas_enabled: false,
   certificado_base64: '',
@@ -154,6 +157,9 @@ const NFIntegration: React.FC = () => {
           nfce_csc_token: cfg.nfce_csc_token || '',
           nfse_provider: cfg.nfse_provider || 'prefeitura',
           adn_ambiente: cfg.adn_ambiente || 'homologacao',
+          el_token: (cfg as any).el_token || '',
+          el_ambiente: (cfg as any).el_ambiente || 'homologacao',
+          codigo_servico_municipal: (cfg as any).codigo_servico_municipal || '',
           logo_url: cfg.logo_url || '',
           nf_recebidas_enabled: cfg.nf_recebidas_enabled ?? false,
           certificado_base64: cfg.certificado_base64 || '',
@@ -552,9 +558,9 @@ const NFIntegration: React.FC = () => {
               {/* Provider toggle */}
               <div className="flex rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <button
-                  onClick={() => setForm(p => ({ ...p, nfse_provider: 'prefeitura' }))}
+                  onClick={() => setForm(p => ({ ...p, nfse_provider: p.nfse_provider === 'adn' ? 'prefeitura' : p.nfse_provider }))}
                   className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm font-bold transition-colors ${
-                    form.nfse_provider === 'prefeitura'
+                    form.nfse_provider !== 'adn'
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-50 dark:bg-gray-900/50 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
                   }`}
@@ -575,7 +581,116 @@ const NFIntegration: React.FC = () => {
                 </button>
               </div>
 
-              {form.nfse_provider === 'prefeitura' ? (
+              {/* Sub-toggle: formato de emissão da Prefeitura (atual × futuro) */}
+              {form.nfse_provider !== 'adn' && (
+                <div className="p-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50/50 dark:bg-gray-900/30 space-y-2">
+                  <label className={labelCls}>Formato de Emissão</label>
+                  <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <button
+                      onClick={() => setForm(p => ({ ...p, nfse_provider: 'prefeitura' }))}
+                      className={`flex-1 py-2.5 px-4 text-sm font-bold transition-colors ${
+                        form.nfse_provider === 'prefeitura'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white dark:bg-gray-900 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      ABRASF 2.04 — Atual (sem IBS/CBS)
+                    </button>
+                    <button
+                      onClick={() => setForm(p => ({ ...p, nfse_provider: 'el-nacional' }))}
+                      className={`flex-1 py-2.5 px-4 text-sm font-bold transition-colors ${
+                        form.nfse_provider === 'el-nacional'
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-white dark:bg-gray-900 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      Nacional DPS — Futuro (com IBS/CBS)
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Quando a prefeitura migrar para a Plataforma Nacional, basta trocar o formato aqui e salvar — 1 clique.
+                  </p>
+                </div>
+              )}
+
+              {form.nfse_provider === 'el-nacional' ? (
+                <>
+                  <p className="text-sm text-gray-500">
+                    Integração via API Nacional NFS-e hospedada pelo E&L (Búzios). Formato DPS (layout nacional v1.01) com CBS e IBS.
+                    O XML é assinado digitalmente, compactado e enviado via REST com token de integração.
+                  </p>
+
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span>
+                      Este formato será o padrão de produção quando a prefeitura migrar para a Plataforma Nacional NFS-e.
+                      O token de integração é gerado no portal do município (E&L Cloud).
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Ambiente E&L Nacional</label>
+                      <select value={form.el_ambiente} onChange={upd('el_ambiente') as any} className={inputCls}>
+                        <option value="homologacao">🧪 Homologação</option>
+                        <option value="producao">🟢 Produção</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Token de Integração (E&L)</label>
+                      <input type="password" value={form.el_token} onChange={upd('el_token')} className={inputCls} placeholder="Token gerado no portal E&L" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Inscrição Municipal</label>
+                      <input type="text" value={form.inscricao_municipal} onChange={upd('inscricao_municipal')} className={inputCls} placeholder="Número da IM" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código de Serviço (LC 116)</label>
+                      <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código Serviço Municipal (cIntContrib)</label>
+                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: 901 ou código do município" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Alíquota ISS (%)</label>
+                      <input type="number" value={form.aliquota_iss} onChange={upd('aliquota_iss')} className={inputCls} step="0.01" min="0" max="100" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Série</label>
+                      <input type="text" value={form.serie_nfse} onChange={upd('serie_nfse')} className={inputCls} placeholder="NFS" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Próximo Número DPS</label>
+                      <input type="number" value={form.proximo_numero_nfse} onChange={upd('proximo_numero_nfse')} className={inputCls} min="1" />
+                    </div>
+                  </div>
+
+                  {/* Pré-requisitos */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
+                      form.certificado_base64 && !certVencido
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                        : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                    }`}>
+                      {form.certificado_base64 && !certVencido ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+                      {!form.certificado_base64
+                        ? 'Certificado A1 não configurado (aba Certificado)'
+                        : certVencido
+                        ? 'Certificado A1 vencido — renove na aba Certificado'
+                        : 'Certificado A1 configurado e válido'}
+                    </div>
+                    <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
+                      form.el_token
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                        : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+                    }`}>
+                      {form.el_token ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+                      {form.el_token ? 'Token E&L configurado' : 'Token de integração E&L não configurado'}
+                    </div>
+                  </div>
+                </>
+              ) : form.nfse_provider === 'prefeitura' ? (
                 <>
                   <p className="text-sm text-gray-500">
                     Integração com a Prefeitura de Armação dos Búzios (padrão ABRASF) para emissão de notas de serviço (diárias, taxas).
@@ -601,6 +716,13 @@ const NFIntegration: React.FC = () => {
                     <div>
                       <label className={labelCls}>Código de Serviço (LC 116)</label>
                       <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código de Tributação Municipal</label>
+                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Código da tabela do município" />
+                      <p className="text-xs text-gray-400 mt-1">
+                        Código usado no campo "Código de Tributação Municipal" da emissão manual no portal da prefeitura. Vazio = não enviar.
+                      </p>
                     </div>
                     <div>
                       <label className={labelCls}>Alíquota ISS (%)</label>

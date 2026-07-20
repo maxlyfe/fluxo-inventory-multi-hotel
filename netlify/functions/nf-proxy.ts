@@ -34,6 +34,11 @@ import {
   cancelarNFe,
   statusServicoNFe,
 } from './lib/nfce-sefaz';
+import {
+  emitirNfseELNacional,
+  cancelarNfseELNacional,
+  consultarNfseELNacional,
+} from './lib/el-nacional-nfse';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -147,7 +152,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email,
       tomador_endereco, tomador_numero, tomador_bairro,
       tomador_codigo_municipio, tomador_uf, tomador_cep,
-      items, codigo_municipio, codigo_servico, codigo_cnae, aliquota_iss,
+      items, codigo_municipio, codigo_servico, codigo_cnae, codigo_tributacao_municipio, aliquota_iss,
       regime_tributario, optante_simples,
       numero_rps, serie_rps,
     } = payload;
@@ -191,6 +196,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           codigo_municipio: codigo_municipio || '3300233',
           codigo_servico: codigo_servico || '09.01',
           codigo_cnae: codigo_cnae || null,
+          codigo_tributacao_municipio: codigo_tributacao_municipio || null,
           aliquota_iss: aliquota_iss ?? 5,
           regime_tributario: regime_tributario || null,
           optante_simples: !!optante_simples,
@@ -1037,6 +1043,131 @@ const handler: Handler = async (event: HandlerEvent) => {
       return jsonResponse(200, result);
     } catch (err: any) {
       return jsonResponse(500, { success: false, message: `Erro: ${err.message}` });
+    }
+  }
+
+  // ─── E&L Nacional: Emissão de NFS-e (DPS) ─────────────────────────────────
+
+  if (action === 'emit-nfse-el-nacional') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha) {
+      return jsonResponse(400, { error: 'Certificado digital A1 e senha são obrigatórios.' });
+    }
+    if (!payload.token) {
+      return jsonResponse(400, { error: 'Token de integração E&L é obrigatório.' });
+    }
+
+    try {
+      const result = await emitirNfseELNacional({
+        config: {
+          certificado_base64: payload.certificado_base64,
+          certificado_senha: payload.certificado_senha,
+          token: payload.token,
+          ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+          cnpj: payload.cnpj,
+          inscricao_municipal: payload.inscricao_municipal,
+          codigo_municipio: payload.codigo_municipio || '3300233',
+          codigo_servico: payload.codigo_servico || '9.01',
+          codigo_servico_municipal: payload.codigo_servico_municipal || null,
+          aliquota_iss: payload.aliquota_iss ?? 5,
+          optante_simples: !!payload.optante_simples,
+          telefone: payload.telefone || null,
+        },
+        tomador: {
+          cpf_cnpj: payload.tomador_cpf_cnpj || null,
+          doc_tipo: payload.tomador_doc_tipo || null,
+          razao_social: payload.tomador_nome || 'Consumidor Final',
+          endereco: payload.tomador_endereco || null,
+          numero: payload.tomador_numero || null,
+          bairro: payload.tomador_bairro || null,
+          codigo_municipio: payload.tomador_codigo_municipio || null,
+          cep: payload.tomador_cep || null,
+        },
+        items: (payload.items || []).map((it: any) => ({
+          description: it.description || it.descricao || 'Serviço',
+          quantidade: it.quantidade || 1,
+          valor_unitario: it.valor_unitario || it.amount || 0,
+          valor_total: it.valor_total || it.amount || 0,
+        })),
+        serie: payload.serie || 'NFS',
+        numeroDPS: payload.numeroDPS || 1,
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        numero_nf: result.numero_nf,
+        chave_acesso: result.chave_acesso,
+        codigo_verificacao: result.codigo_verificacao,
+        xml_retorno: result.xml_retorno,
+        message: result.message,
+        error: result.success ? undefined : result.message,
+      });
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, message: `Erro na emissão E&L Nacional: ${err.message}` });
+    }
+  }
+
+  // ─── E&L Nacional: Cancelamento de NFS-e ─────────────────────────────────
+
+  if (action === 'cancel-nfse-el-nacional') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.certificado_base64 || !payload.certificado_senha || !payload.token || !payload.chave_acesso) {
+      return jsonResponse(400, { error: 'Certificado, token e chave de acesso são obrigatórios.' });
+    }
+
+    try {
+      const result = await cancelarNfseELNacional({
+        config: {
+          certificado_base64: payload.certificado_base64,
+          certificado_senha: payload.certificado_senha,
+          token: payload.token,
+          ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+          cnpj: payload.cnpj,
+        },
+        chave_acesso: payload.chave_acesso,
+        motivo: payload.motivo,
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        message: result.message,
+        xml_cancelamento: result.xml_retorno,
+        error: result.success ? undefined : result.message,
+      });
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, message: `Erro no cancelamento E&L Nacional: ${err.message}` });
+    }
+  }
+
+  // ─── E&L Nacional: Consulta NFS-e por chave ──────────────────────────────
+
+  if (action === 'consulta-nfse-el-nacional') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.token || !payload.chave_acesso) {
+      return jsonResponse(400, { error: 'Token e chave de acesso são obrigatórios.' });
+    }
+
+    try {
+      const result = await consultarNfseELNacional({
+        token: payload.token,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+        chave_acesso: payload.chave_acesso,
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        message: result.message,
+        xml: result.xml,
+        error: result.success ? undefined : result.message,
+      });
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, message: `Erro na consulta E&L Nacional: ${err.message}` });
     }
   }
 

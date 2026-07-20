@@ -614,11 +614,47 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
 
     const config = await getConfig(hotelId);
     const useADN = inv?.tipo === 'nfse' && config?.nfse_provider === 'adn';
+    const useELNacional = inv?.tipo === 'nfse' && config?.nfse_provider === 'el-nacional';
 
     let proxyAction: string;
     let bodyPayload: Record<string, unknown>;
 
-    if (useADN) {
+    if (useELNacional) {
+      const { data: items } = await supabase
+        .from('nf_invoice_items')
+        .select('*')
+        .eq('invoice_id', invoiceId);
+
+      proxyAction = 'emit-nfse-el-nacional';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config!.certificado_base64,
+        certificado_senha: config!.certificado_senha,
+        token: (config as any).el_token,
+        ambiente: (config as any).el_ambiente || 'homologacao',
+        cnpj: config!.cnpj,
+        inscricao_municipal: config!.inscricao_municipal,
+        codigo_municipio: config!.endereco_codigo_municipio || '3300233',
+        codigo_servico: config!.codigo_servico || '9.01',
+        codigo_servico_municipal: (config as any).codigo_servico_municipal || null,
+        aliquota_iss: config!.aliquota_iss ?? 5,
+        optante_simples: config!.regime_tributario_nfse === '6',
+        telefone: config!.telefone,
+        tomador_nome: inv!.tomador_nome,
+        tomador_cpf_cnpj: inv!.tomador_cpf_cnpj,
+        tomador_doc_tipo: inv!.tomador_doc_tipo,
+        tomador_email: inv!.tomador_email,
+        tomador_endereco: inv!.tomador_endereco,
+        items: (items || []).map((i: NFInvoiceItem) => ({
+          description: i.descricao,
+          quantidade: i.quantidade,
+          valor_unitario: i.valor_unitario,
+          valor_total: i.valor_total,
+        })),
+        serie: config!.serie_nfse || 'NFS',
+        numeroDPS: config!.proximo_numero_nfse || 1,
+      };
+    } else if (useADN) {
       const { data: items } = await supabase
         .from('nf_invoice_items')
         .select('*')
@@ -704,6 +740,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         codigo_municipio: config!.endereco_codigo_municipio || '3300233',
         codigo_servico: config!.codigo_servico || '09.01',
         codigo_cnae: svcRow?.cnae || null,
+        codigo_tributacao_municipio: (config as any).codigo_servico_municipal || null,
         aliquota_iss: config!.aliquota_iss ?? 5,
         regime_tributario: config!.regime_tributario_nfse,
         optante_simples: config!.regime_tributario_nfse === '1',

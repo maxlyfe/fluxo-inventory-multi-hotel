@@ -2,7 +2,7 @@ export type NFTipo = 'nfse' | 'nfe' | 'nfce';
 export type NFStatus = 'rascunho' | 'emitida' | 'autorizada' | 'rejeitada' | 'cancelada' | 'contingencia';
 export type NFAmbiente = 'homologacao' | 'producao';
 export type NFDocTipo = 'cpf' | 'cnpj' | 'passaporte';
-export type NFSEProvider = 'prefeitura' | 'adn';
+export type NFSEProvider = 'prefeitura' | 'adn' | 'el-nacional';
 
 export interface NFHotelConfig {
   id: string;
@@ -53,6 +53,9 @@ export interface NFHotelConfig {
 
   nfse_provider: NFSEProvider;
   adn_ambiente: NFAmbiente;
+  el_token: string | null;
+  el_ambiente: NFAmbiente;
+  codigo_servico_municipal: string | null;
   logo_url: string | null;
 
   nf_recebidas_enabled: boolean;
