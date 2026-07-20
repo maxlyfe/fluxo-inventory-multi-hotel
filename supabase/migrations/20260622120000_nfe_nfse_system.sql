@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS nf_hotel_config (
   endereco_cidade         TEXT,
   endereco_uf             TEXT DEFAULT 'RJ',
   endereco_cep            TEXT,
-  endereco_codigo_municipio TEXT DEFAULT '3300456', -- Armação dos Búzios IBGE
+  endereco_codigo_municipio TEXT DEFAULT '3300233', -- Armação dos Búzios IBGE
   telefone                TEXT,
   email                   TEXT,
 

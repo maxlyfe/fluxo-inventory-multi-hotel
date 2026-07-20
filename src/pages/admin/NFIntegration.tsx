@@ -44,7 +44,7 @@ const EMPTY_FORM = {
   endereco_cidade: 'Armação dos Búzios',
   endereco_uf: 'RJ',
   endereco_cep: '',
-  endereco_codigo_municipio: '3300456',
+  endereco_codigo_municipio: '3300233',
   telefone: '',
   email: '',
   nfse_enabled: false,
@@ -131,7 +131,7 @@ const NFIntegration: React.FC = () => {
           endereco_cidade: cfg.endereco_cidade || 'Armação dos Búzios',
           endereco_uf: cfg.endereco_uf || 'RJ',
           endereco_cep: cfg.endereco_cep || '',
-          endereco_codigo_municipio: cfg.endereco_codigo_municipio || '3300456',
+          endereco_codigo_municipio: cfg.endereco_codigo_municipio || '3300233',
           telefone: cfg.telefone || '',
           email: cfg.email || '',
           nfse_enabled: cfg.nfse_enabled ?? false,
@@ -522,7 +522,7 @@ const NFIntegration: React.FC = () => {
                 </div>
                 <div>
                   <label className={labelCls}>Cód. Município (IBGE)</label>
-                  <input type="text" value={form.endereco_codigo_municipio} onChange={upd('endereco_codigo_municipio')} className={inputCls} placeholder="3300456" />
+                  <input type="text" value={form.endereco_codigo_municipio} onChange={upd('endereco_codigo_municipio')} className={inputCls} placeholder="3300233" />
                 </div>
               </div>
             </div>
