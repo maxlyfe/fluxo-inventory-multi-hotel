@@ -445,8 +445,8 @@ function buildNFCeXml(params: {
     `<cNF>${cNF}</cNF>` +
     `<natOp>VENDA AO CONSUMIDOR</natOp>` +
     `<mod>65</mod>` +
-    `<serie>${pad(config.serie, 3)}</serie>` +
-    `<nNF>${pad(nNF, 9)}</nNF>` +
+    `<serie>${parseInt(String(config.serie), 10) || 0}</serie>` +
+    `<nNF>${nNF}</nNF>` +
     `<dhEmi>${dhEmi}</dhEmi>` +
     `<tpNF>1</tpNF>` +
     `<idDest>1</idDest>` +
@@ -908,8 +908,8 @@ function buildNFeXml(params: {
     `<cNF>${cNF}</cNF>` +
     `<natOp>${xmlEsc(natOp)}</natOp>` +
     `<mod>55</mod>` +
-    `<serie>${pad(config.serie, 3)}</serie>` +
-    `<nNF>${pad(nNF, 9)}</nNF>` +
+    `<serie>${parseInt(String(config.serie), 10) || 0}</serie>` +
+    `<nNF>${nNF}</nNF>` +
     `<dhEmi>${dhEmi}</dhEmi>` +
     `<tpNF>1</tpNF>` +
     `<idDest>1</idDest>` +
