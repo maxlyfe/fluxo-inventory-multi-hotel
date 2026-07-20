@@ -195,8 +195,10 @@ function signNFe(xml: string, refId: string, keyPem: string, certPem: string): s
       'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     ],
   });
+  // Signature deve ficar como IRMÃ do infNFe (depois dele, dentro de <NFe>),
+  // não como filha (action 'append' colocava dentro do infNFe → rejeição 225).
   sig.computeSignature(xml, {
-    location: { reference: `//*[@Id='${refId}']`, action: 'append' },
+    location: { reference: `//*[@Id='${refId}']`, action: 'after' },
   });
   return sig.getSignedXml();
 }
