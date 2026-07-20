@@ -222,15 +222,16 @@ function buildRpsXml(
   const cnpjPrestador = prestador.cnpj.replace(/\D/g, '');
   const im = prestador.inscricao_municipal.replace(/\D/g, '');
   const valorServicos = items.reduce((s, it) => s + it.valor_total, 0);
-  const aliquota = config.aliquota_iss / 100;
-  const valorIss = +(valorServicos * aliquota).toFixed(2);
+  const aliquotaPct = config.aliquota_iss;
+  const valorIss = +(valorServicos * aliquotaPct / 100).toFixed(2);
 
   const discriminacao = items
     .map(it => `${it.description} - Qtd: ${it.quantidade} x R$ ${it.valor_unitario.toFixed(2)} = R$ ${it.valor_total.toFixed(2)}`)
     .join('\n');
 
-  const rawCodigo = (config.codigo_servico || '09.01').replace(/\D/g, '');
-  const codigoServico = rawCodigo.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
+  const rawCodigo = config.codigo_servico || '9.01';
+  const codigoLC116 = rawCodigo.replace(/^0+/, '').replace(/(\d+)(\d{2})$/, '$1.$2');
+  const codigoNacional = rawCodigo.replace(/\D/g, '').replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 
@@ -291,11 +292,11 @@ function buildRpsXml(
     `<Valores>` +
     `<ValorServicos>${valorServicos.toFixed(2)}</ValorServicos>` +
     `<ValorIss>${valorIss.toFixed(2)}</ValorIss>` +
-    `<Aliquota>${aliquota.toFixed(2)}</Aliquota>` +
+    `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
-    `<ItemListaServico>${codigoServico}</ItemListaServico>` +
-    `<CodigoTributacaoMunicipio>${config.codigo_tributacao_municipio || codigoServico.replace(/\./g, '')}</CodigoTributacaoMunicipio>` +
+    `<CodigoTributacaoMunicipio>${config.codigo_tributacao_municipio || codigoLC116}</CodigoTributacaoMunicipio>` +
+    `<CodigoServicoNacional>${codigoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
