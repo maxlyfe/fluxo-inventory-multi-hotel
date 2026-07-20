@@ -404,7 +404,7 @@ function buildNFCeXml(params: {
       `<prod>` +
       `<cProd>${xmlEsc(it.cProd)}</cProd>` +
       `<cEAN>SEM GTIN</cEAN>` +
-      `<xProd>${xmlEsc(it.xProd)}</xProd>` +
+      `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : it.xProd)}</xProd>` +
       `<NCM>${it.ncm}</NCM>` +
       `<CFOP>${it.cfop}</CFOP>` +
       `<uCom>${xmlEsc(it.uCom)}</uCom>` +
@@ -854,7 +854,7 @@ function buildNFeXml(params: {
       `<prod>` +
       `<cProd>${xmlEsc(it.cProd)}</cProd>` +
       `<cEAN>SEM GTIN</cEAN>` +
-      `<xProd>${xmlEsc(it.xProd)}</xProd>` +
+      `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : it.xProd)}</xProd>` +
       `<NCM>${it.ncm}</NCM>` +
       `<CFOP>${it.cfop}</CFOP>` +
       `<uCom>${xmlEsc(it.uCom)}</uCom>` +
