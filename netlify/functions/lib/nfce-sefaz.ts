@@ -75,6 +75,12 @@ function pad(n: number | string, len: number): string {
   return String(n).padStart(len, '0');
 }
 
+// NCM: schema exige 2 ou 8 dígitos, sem pontos. Cadastro pode gravar "2202.10.00".
+function sanitizeNCM(ncm?: string): string {
+  const d = (ncm || '').replace(/\D/g, '');
+  return d.length === 8 || d.length === 2 ? d : '00000000';
+}
+
 function fmtDec(v: number, decimals = 2): string {
   return v.toFixed(decimals);
 }
@@ -411,7 +417,7 @@ function buildNFCeXml(params: {
       `<cProd>${xmlEsc(it.cProd)}</cProd>` +
       `<cEAN>SEM GTIN</cEAN>` +
       `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : it.xProd)}</xProd>` +
-      `<NCM>${it.ncm}</NCM>` +
+      `<NCM>${sanitizeNCM(it.ncm)}</NCM>` +
       `<CFOP>${it.cfop}</CFOP>` +
       `<uCom>${xmlEsc(it.uCom)}</uCom>` +
       `<qCom>${fmtDec(it.qCom, 4)}</qCom>` +
@@ -861,7 +867,7 @@ function buildNFeXml(params: {
       `<cProd>${xmlEsc(it.cProd)}</cProd>` +
       `<cEAN>SEM GTIN</cEAN>` +
       `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : it.xProd)}</xProd>` +
-      `<NCM>${it.ncm}</NCM>` +
+      `<NCM>${sanitizeNCM(it.ncm)}</NCM>` +
       `<CFOP>${it.cfop}</CFOP>` +
       `<uCom>${xmlEsc(it.uCom)}</uCom>` +
       `<qCom>${fmtDec(it.qCom, 4)}</qCom>` +
