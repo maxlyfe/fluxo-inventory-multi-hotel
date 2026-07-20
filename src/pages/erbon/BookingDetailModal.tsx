@@ -20,6 +20,7 @@ import { ensureHotelWciCode } from '../../lib/wciCode';
 import { useNotification } from '../../context/NotificationContext';
 import { nfService } from '../../lib/nfService';
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
+import type { NFInvoice } from '../../types/nf';
 
 interface BookingDetailModalProps {
   hotelId: string;
@@ -68,6 +69,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
 
   // Emissão de NF a partir da conta corrente
   const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
+  const [bookingInvoices, setBookingInvoices] = useState<NFInvoice[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [nfModalType, setNfModalType] = useState<'nfse' | 'nfe' | 'nfce' | null>(null);
   const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
@@ -80,9 +82,20 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
     } catch { /* badge de NF é best-effort */ }
   }, [hotelId]);
 
+  const loadBookingInvoices = useCallback(async () => {
+    try {
+      const invs = await nfService.getInvoicesByBooking(
+        hotelId,
+        booking.bookingInternalID ?? null,
+        booking.erbonNumber ? String(booking.erbonNumber) : null,
+      );
+      setBookingInvoices(invs);
+    } catch { /* reimpressão é best-effort */ }
+  }, [hotelId, booking.bookingInternalID, booking.erbonNumber]);
+
   useEffect(() => {
-    if (tab === 'conta') loadEmittedEntries();
-  }, [tab, loadEmittedEntries]);
+    if (tab === 'conta') { loadEmittedEntries(); loadBookingInvoices(); }
+  }, [tab, loadEmittedEntries, loadBookingInvoices]);
 
   // Hóspedes — ações
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -480,6 +493,40 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                   </div>
                 </div>
 
+                {/* Notas Fiscais Emitidas — revisualizar / reimprimir */}
+                {bookingInvoices.length > 0 && (
+                  <div>
+                    <p className="flex items-center gap-1.5 text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wider mb-2">
+                      <FileCheck2 className="w-3.5 h-3.5" /> Notas Fiscais Emitidas ({bookingInvoices.length})
+                    </p>
+                    <div className="rounded-xl border border-green-100 dark:border-green-900/40 divide-y divide-green-50 dark:divide-green-900/30">
+                      {bookingInvoices.map(inv => (
+                        <div key={inv.id} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
+                          <div className="min-w-0">
+                            <span className="font-bold text-gray-800 dark:text-gray-200">
+                              {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}
+                            </span>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {inv.numero_nf ? ` · Nº ${inv.numero_nf}` : ''}{inv.serie ? `/${inv.serie}` : ''}
+                              {inv.status === 'contingencia' ? ' · contingência' : ''}
+                            </span>
+                            <span className="block text-[11px] text-gray-400 truncate">
+                              {inv.created_at ? new Date(inv.created_at).toLocaleString('pt-BR') : ''}
+                              {inv.valor_total != null ? ` · R$ ${Number(inv.valor_total).toFixed(2)}` : ''}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => { setViewInvoiceId(inv.id); setViewInvoiceTipo(inv.tipo); }}
+                            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors"
+                            title="Revisualizar e reimprimir esta nota">
+                            <FileCheck2 className="w-3.5 h-3.5" /> Reimprimir
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Débitos (consumos) */}
                 <div>
                   <p className="flex items-center gap-1.5 text-xs font-bold text-red-500 uppercase tracking-wider mb-2">
@@ -611,6 +658,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
         onSuccess={() => {
           setSelectedIds(new Set());
           loadEmittedEntries();
+          loadBookingInvoices();
         }}
         viewInvoiceId={viewInvoiceId}
       />

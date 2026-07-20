@@ -519,6 +519,33 @@ async function getEmittedEntries(hotelId: string): Promise<Map<number, string>> 
   return map;
 }
 
+// Notas emitidas (autorizadas/contingência) de uma reserva — para reimpressão.
+// Independe do ambiente: sempre lista o que já foi emitido para aquela reserva.
+async function getInvoicesByBooking(
+  hotelId: string,
+  erbonBookingId: number | null,
+  bookingNumber?: string | null,
+): Promise<NFInvoice[]> {
+  let query = supabase
+    .from('nf_invoices')
+    .select('*')
+    .eq('hotel_id', hotelId)
+    .in('status', ['autorizada', 'contingencia'])
+    .order('created_at', { ascending: false });
+
+  if (erbonBookingId != null) {
+    query = query.eq('erbon_booking_id', erbonBookingId);
+  } else if (bookingNumber) {
+    query = query.eq('booking_number', bookingNumber);
+  } else {
+    return [];
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as NFInvoice[];
+}
+
 async function markEntriesAsEmitted(
   hotelId: string,
   entryIds: number[],
@@ -1768,6 +1795,7 @@ export const nfService = {
   getInvoices,
   getInvoiceItems,
   getEmittedEntries,
+  getInvoicesByBooking,
   markEntriesAsEmitted,
   createDraftInvoice,
   emitInvoice,
