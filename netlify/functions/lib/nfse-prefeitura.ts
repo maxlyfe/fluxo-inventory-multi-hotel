@@ -186,6 +186,7 @@ export interface NfseConfig {
   ambiente: 'producao' | 'homologacao';
   codigo_municipio: string;
   codigo_servico: string;
+  codigo_tributacao_municipio?: string | null;
   aliquota_iss: number;
   regime_tributario: string | null;
   optante_simples: boolean;
@@ -294,7 +295,7 @@ function buildRpsXml(
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${codigoServico}</ItemListaServico>` +
-    `<CodigoTributacaoMunicipio>${codigoServico}</CodigoTributacaoMunicipio>` +
+    (config.codigo_tributacao_municipio ? `<CodigoTributacaoMunicipio>${xmlEsc(config.codigo_tributacao_municipio)}</CodigoTributacaoMunicipio>` : '') +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
