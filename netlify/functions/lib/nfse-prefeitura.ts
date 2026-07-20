@@ -233,6 +233,7 @@ function buildRpsXml(
   const rawCodigo = config.codigo_servico || '9.01';
   const digits = rawCodigo.replace(/\D/g, '');
   const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
+  const codigoServicoNacional = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const codigoCnae = (config.codigo_cnae || '').replace(/\D/g, '') || '';
   const codigoTribMunicipio = config.codigo_tributacao_municipio || rawCodigo.replace(/^0+/, '').replace(/(\d+)(\d{2})$/, '$1.$2');
   const codigoMunicipio = config.codigo_municipio || '3300233';
@@ -299,6 +300,7 @@ function buildRpsXml(
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
+    `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     (codigoCnae ? `<CodigoCnae>${codigoCnae}</CodigoCnae>` : '') +
     `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
