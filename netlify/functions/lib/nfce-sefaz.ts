@@ -125,14 +125,14 @@ function buildChaveAcesso(params: {
 // ── QR Code NFC-e (versão 2) ────────────────────────────────────────────────
 
 function buildQRCodeUrl(params: {
-  chave: string; tpAmb: string; cscId: string; cscToken: string; ambiente: Ambiente;
+  chave: string; tpAmb: string; ambiente: Ambiente;
 }): string {
-  const { chave, tpAmb, cscId, cscToken } = params;
-  const cscIdPad = pad(cscId, 6);
-  const concat = `${chave}|2|${tpAmb}|${cscIdPad}${cscToken}`;
-  const hash = crypto.createHash('sha1').update(concat).digest('hex').toUpperCase();
+  const { chave, tpAmb } = params;
   const baseUrl = QRCODE_URLS[params.ambiente];
-  return `${baseUrl}?p=${chave}|2|${tpAmb}|${cscIdPad}|${hash}`;
+  // QR-Code v3.00 (NT 2025.001, obrigatório desde 01/09/2025): apenas
+  // chave|versao|tpAmb. O CSC + hash SHA-1 foi substituído pela assinatura
+  // digital da própria NFC-e; não usa mais CDATA no elemento qrCode.
+  return `${baseUrl}?p=${chave}|3|${tpAmb}`;
 }
 
 // ── SOAP 1.2 ────────────────────────────────────────────────────────────────
@@ -371,7 +371,7 @@ function buildNFCeXml(params: {
 
   // QR Code
   const qrCodeUrl = buildQRCodeUrl({
-    chave, tpAmb, cscId: config.csc_id, cscToken: config.csc_token, ambiente: config.ambiente,
+    chave, tpAmb, ambiente: config.ambiente,
   });
 
   // det (items)
@@ -558,7 +558,7 @@ export async function emitirNFCe(params: {
   const urlChave = CONSULTA_URLS[params.config.ambiente];
   const infNFeSupl =
     `<infNFeSupl>` +
-    `<qrCode><![CDATA[${qrCodeUrl}]]></qrCode>` +
+    `<qrCode>${qrCodeUrl}</qrCode>` +
     `<urlChave>${urlChave}</urlChave>` +
     `</infNFeSupl>`;
   const nfeComSupl = nfeSigned.replace('<Signature', infNFeSupl + '<Signature');
