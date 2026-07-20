@@ -295,8 +295,8 @@ function buildRpsXml(
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
+    `<ItemListaServico>${codigoLC116}</ItemListaServico>` +
     `<CodigoTributacaoMunicipio>${config.codigo_tributacao_municipio || codigoLC116}</CodigoTributacaoMunicipio>` +
-    `<CodigoServicoNacional>${codigoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
