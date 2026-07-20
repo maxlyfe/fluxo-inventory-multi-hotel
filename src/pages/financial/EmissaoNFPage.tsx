@@ -131,8 +131,8 @@ export default function EmissaoNFPage() {
     setSelected(new Set());
 
     try {
-      // Fetch in parallel: Erbon bookings, internal bookings, existing invoices
-      const [erbonBookings, internalRes, invoicesRes] = await Promise.all([
+      // Fetch in parallel: Erbon bookings, internal bookings, existing invoices, NF config
+      const [erbonBookings, internalRes, invoicesRes, nfConfig] = await Promise.all([
         erbonService.searchBookings(hotelId, {
           [filterBy === 'checkout' ? 'checkout' : 'checkin']: period.from,
           ...(filterBy === 'checkout' ? { checkout: period.from } : { checkin: period.from }),
@@ -148,7 +148,12 @@ export default function EmissaoNFPage() {
           .select('*')
           .eq('hotel_id', hotelId)
           .in('status', ['autorizada', 'contingencia']),
+        nfService.getConfig(hotelId),
       ]);
+
+      const isHomolog = nfConfig?.ambiente === 'homologacao'
+        || nfConfig?.adn_ambiente === 'homologacao'
+        || nfConfig?.el_ambiente === 'homologacao';
 
       const unified: UnifiedReservation[] = [
         ...erbonBookings.map(erbonToUnified),
@@ -168,7 +173,7 @@ export default function EmissaoNFPage() {
         const inv = invoiceMap.get(r.bookingNumber) ||
           (r.bookingInternalId ? invoiceByErbonId.get(r.bookingInternalId) : undefined);
 
-        if (inv && (inv.status === 'autorizada' || inv.status === 'contingencia')) {
+        if (!isHomolog && inv && (inv.status === 'autorizada' || inv.status === 'contingencia')) {
           return { ...r, tab: 'emitida' as TabKey, issues: [], invoiceId: inv.id, invoice: inv };
         }
 

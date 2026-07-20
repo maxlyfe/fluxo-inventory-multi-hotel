@@ -502,6 +502,13 @@ async function getInvoiceItems(invoiceId: string): Promise<NFInvoiceItem[]> {
 // ─── Emitted Entries (rastreio de itens já faturados) ────────────────────────
 
 async function getEmittedEntries(hotelId: string): Promise<Map<number, string>> {
+  // In homologação, allow re-emission freely (no blocking)
+  const config = await getConfig(hotelId);
+  const isHomolog = config?.ambiente === 'homologacao'
+    || config?.adn_ambiente === 'homologacao'
+    || config?.el_ambiente === 'homologacao';
+  if (isHomolog) return new Map();
+
   const { data, error } = await supabase
     .from('nf_emitted_entries')
     .select('erbon_entry_id, invoice_id')
