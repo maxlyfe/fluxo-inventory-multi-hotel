@@ -124,8 +124,8 @@ function soapEnvelope(operation: string, cabecMsg: string, dadosMsg: string): st
 
 function cabecalhoXml(): string {
   return (
-    `<cabecalho xmlns="${ABRASF_NS}" versao="2.02">` +
-    `<versaoDados>2.02</versaoDados>` +
+    `<cabecalho xmlns="${ABRASF_NS}" versao="2.04">` +
+    `<versaoDados>2.04</versaoDados>` +
     `</cabecalho>`
   );
 }
@@ -299,7 +299,7 @@ function buildRpsXml(
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
-    `<ItemListaServico>${codigoTribMunicipio}</ItemListaServico>` +
+    `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
     `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
