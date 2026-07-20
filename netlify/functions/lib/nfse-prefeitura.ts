@@ -232,12 +232,12 @@ function buildRpsXml(
 
   const rawCodigo = config.codigo_servico || '9.01';
   const digits = rawCodigo.replace(/\D/g, '');
-  const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
   const codigoServicoNacional = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
-  const codigoCnae = (config.codigo_cnae || '').replace(/\D/g, '') || '';
-  // CodigoTributacaoMunicipio: só dígitos (EL55 se tiver ponto). 901 e 090101
-  // não existem na tabela de Búzios (E35) — omite salvo se configurado
-  const codigoTribMunicipio = (config.codigo_tributacao_municipio || '').replace(/\D/g, '');
+  // Estrutura copiada de NFS-e reais emitidas manualmente no portal (jul/2026):
+  // CodigoTributacaoMunicipio COM ponto e sem zero à esquerda (ex. "9.01"),
+  // SEM ItemListaServico e SEM CodigoCnae no bloco Servico.
+  const codigoTribMunicipio = (config.codigo_tributacao_municipio || '').trim()
+    || rawCodigo.replace(/^0+/, '');
   const codigoMunicipio = config.codigo_municipio || '3300233';
   const optanteSN = config.optante_simples ? '1' : '2';
 
@@ -301,9 +301,7 @@ function buildRpsXml(
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
-    `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
-    (codigoCnae ? `<CodigoCnae>${codigoCnae}</CodigoCnae>` : '') +
-    (codigoTribMunicipio ? `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` : '') +
+    `<CodigoTributacaoMunicipio>${xmlEsc(codigoTribMunicipio)}</CodigoTributacaoMunicipio>` +
     `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +

@@ -719,9 +719,9 @@ const NFIntegration: React.FC = () => {
                     </div>
                     <div>
                       <label className={labelCls}>Código de Tributação Municipal</label>
-                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Código da tabela do município" />
+                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="9.01 (com ponto, como no portal)" />
                       <p className="text-xs text-gray-400 mt-1">
-                        Código usado no campo "Código de Tributação Municipal" da emissão manual no portal da prefeitura. Vazio = não enviar.
+                        Valor da tabela do município, com ponto (ex.: 9.01 — confirmado nas notas emitidas no portal). Vazio = usa o Código de Serviço.
                       </p>
                     </div>
                     <div>
