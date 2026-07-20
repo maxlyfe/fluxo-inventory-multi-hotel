@@ -291,6 +291,8 @@ function buildRpsXml(
     `<ValorDeducoes>0.00</ValorDeducoes>` +
     `<ValorIss>${valorIss.toFixed(2)}</ValorIss>` +
     `<Aliquota>${aliquota.toFixed(4)}</Aliquota>` +
+    `<DescontoIncondicionado>0.00</DescontoIncondicionado>` +
+    `<DescontoCondicionado>0.00</DescontoCondicionado>` +
     `<IssRetido>2</IssRetido>` +
     `</Valores>` +
     `<ItemListaServico>${codigoServico}</ItemListaServico>` +
