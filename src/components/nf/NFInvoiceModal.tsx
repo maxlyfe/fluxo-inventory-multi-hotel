@@ -719,7 +719,18 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
       const emitRes = await nfService.emitInvoice(draft.id, hotelId);
 
       if (emitRes.success) {
-        setEmittedInvoice(emitRes.invoice);
+        // Garante os dados do cupom no passo 4 mesmo se o retorno não trouxer a
+        // nota (busca fresca pelo id do rascunho emitido).
+        let emitted = emitRes.invoice;
+        if (!emitted) {
+          const { data } = await supabase
+            .from('nf_invoices')
+            .select('*')
+            .eq('id', draft.id)
+            .single();
+          emitted = data || undefined;
+        }
+        setEmittedInvoice(emitted || null);
         addNotification(emitRes.message, 'success');
         onSuccess(draft.id);
         setStep(4);
