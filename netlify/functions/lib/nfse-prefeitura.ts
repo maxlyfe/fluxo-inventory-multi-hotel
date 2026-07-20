@@ -300,9 +300,8 @@ function buildRpsXml(
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
-    `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
-    (codigoCnae ? `<CodigoCnae>${codigoCnae}</CodigoCnae>` : '') +
     `<CodigoTributacaoMunicipio>${codigoTribMunicipio}</CodigoTributacaoMunicipio>` +
+    `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
     `<CodigoMunicipio>${codigoMunicipio}</CodigoMunicipio>` +
     `<ExigibilidadeISS>${exigibilidade}</ExigibilidadeISS>` +
