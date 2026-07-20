@@ -288,13 +288,10 @@ function buildRpsXml(
     `<Servico>` +
     `<Valores>` +
     `<ValorServicos>${valorServicos.toFixed(2)}</ValorServicos>` +
-    `<ValorDeducoes>0.00</ValorDeducoes>` +
     `<ValorIss>${valorIss.toFixed(2)}</ValorIss>` +
     `<Aliquota>${aliquota.toFixed(4)}</Aliquota>` +
-    `<DescontoIncondicionado>0.00</DescontoIncondicionado>` +
-    `<DescontoCondicionado>0.00</DescontoCondicionado>` +
-    `<IssRetido>2</IssRetido>` +
     `</Valores>` +
+    `<IssRetido>2</IssRetido>` +
     `<ItemListaServico>${codigoServico}</ItemListaServico>` +
     `<CodigoTributacaoMunicipio>${codigoServico}</CodigoTributacaoMunicipio>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
