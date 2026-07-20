@@ -270,9 +270,15 @@ const IBS_UF_RATE = 0.10;   // 0,1% IBS estadual (teste 2026)
 const IBS_MUN_RATE = 0.00;  // 0% IBS municipal (teste 2026)
 const CBS_RATE = 0.90;      // 0,9% CBS federal (teste 2026)
 
+// Grupo IBS/CBS da reforma desligado por padrão: a estrutura atual não bate com
+// o schema atual da SVRS (rejeição 225 em IBSCBSTot/vIBSUF). Enquanto não for
+// implementado contra o XSD oficial da reforma, mantém-se opt-in por env var
+// (NFCE_IBSCBS=1) — o grupo é informativo/transitório em 2026, não obriga a nota.
+const IBSCBS_ENABLED = process.env.NFCE_IBSCBS === '1';
+
 function buildIBSCBSItem(item: NFCeItem, crt: number): { xml: string; vIBS: number; vCBS: number; vBC: number } {
   // CRT 1/2/4 (Simples Nacional/MEI): adiado para Jan/2027
-  if (crt !== 3) return { xml: '', vIBS: 0, vCBS: 0, vBC: 0 };
+  if (!IBSCBS_ENABLED || crt !== 3) return { xml: '', vIBS: 0, vCBS: 0, vBC: 0 };
 
   const cstIbsCbs = item.ibs_cbs_cst || '000';
   const cClassTrib = item.ibs_cbs_cClassTrib || '000003';
