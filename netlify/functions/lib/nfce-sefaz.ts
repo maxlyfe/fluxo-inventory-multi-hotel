@@ -552,13 +552,24 @@ export async function emitirNFCe(params: {
   const { key, cert } = extractPemFromPfx(params.config.certificado_base64, params.config.certificado_senha);
   const nfeSigned = signNFe(nfeUnsigned, nfeId, key, cert);
 
+  // 2b. Inserir infNFeSupl (QR-Code + urlChave) entre infNFe e Signature.
+  // Ordem do schema NFe: infNFe → infNFeSupl → Signature. O infNFeSupl NÃO é
+  // assinado (fora da Reference), então inserir após a assinatura é seguro.
+  const urlChave = CONSULTA_URLS[params.config.ambiente];
+  const infNFeSupl =
+    `<infNFeSupl>` +
+    `<qrCode><![CDATA[${qrCodeUrl}]]></qrCode>` +
+    `<urlChave>${urlChave}</urlChave>` +
+    `</infNFeSupl>`;
+  const nfeComSupl = nfeSigned.replace('<Signature', infNFeSupl + '<Signature');
+
   // 3. Build enviNFe (synchronous, indSinc=1)
   const idLote = Date.now().toString().slice(-15);
   const enviNFe =
     `<enviNFe xmlns="${NFE_NS}" versao="4.00">` +
     `<idLote>${idLote}</idLote>` +
     `<indSinc>1</indSinc>` +
-    nfeSigned +
+    nfeComSupl +
     `</enviNFe>`;
 
   console.log(`[NFC-e] Emitindo NFC-e ${params.nNF} chave ${chave}`);
