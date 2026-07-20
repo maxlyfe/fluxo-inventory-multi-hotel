@@ -232,10 +232,11 @@ function buildRpsXml(
 
   const rawCodigo = config.codigo_servico || '9.01';
   const digits = rawCodigo.replace(/\D/g, '');
+  // ItemListaServico: obrigatório no XSD (minOccurs=1), enum com ponto e zero à esquerda ("09.01")
+  const itemListaServico = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + '.' + s);
   const codigoServicoNacional = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
-  // Estrutura copiada de NFS-e reais emitidas manualmente no portal (jul/2026):
-  // CodigoTributacaoMunicipio COM ponto e sem zero à esquerda (ex. "9.01"),
-  // SEM ItemListaServico e SEM CodigoCnae no bloco Servico.
+  // CodigoTributacaoMunicipio: tsCodigoTributacao = string livre (ponto permitido).
+  // Notas reais do portal usam "9.01" (com ponto, sem zero à esquerda).
   const codigoTribMunicipio = (config.codigo_tributacao_municipio || '').trim()
     || rawCodigo.replace(/^0+/, '');
   const codigoMunicipio = config.codigo_municipio || '3300233';
@@ -301,6 +302,7 @@ function buildRpsXml(
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +
     `<IssRetido>2</IssRetido>` +
+    `<ItemListaServico>${itemListaServico}</ItemListaServico>` +
     `<CodigoTributacaoMunicipio>${xmlEsc(codigoTribMunicipio)}</CodigoTributacaoMunicipio>` +
     `<CodigoServicoNacional>${codigoServicoNacional}</CodigoServicoNacional>` +
     `<Discriminacao>${xmlEsc(discriminacao)}</Discriminacao>` +
