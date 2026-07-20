@@ -148,7 +148,7 @@ function signRps(xml: string, refId: string, keyPem: string, certPem: string): s
     ],
   });
   sig.computeSignature(xml, {
-    location: { reference: `//*[@Id='${refId}']`, action: 'append' },
+    location: { reference: `//*[@Id='${refId}']`, action: 'after' },
   });
   return sig.getSignedXml();
 }
@@ -275,8 +275,8 @@ function buildRpsXml(
     : '';
 
   const infDPS =
-    `<InfDeclaracaoPrestacaoServico>` +
-    `<Rps Id="${rpsId}">` +
+    `<InfDeclaracaoPrestacaoServico Id="${rpsId}">` +
+    `<Rps>` +
     `<IdentificacaoRps>` +
     `<Numero>${numeroRps}</Numero>` +
     `<Serie>${xmlEsc(serieRps)}</Serie>` +
