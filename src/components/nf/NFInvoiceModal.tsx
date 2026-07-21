@@ -262,10 +262,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       idDepartment: 0,
     }));
 
-    // Serviços marcados como "emitir em NFC-e" (ex.: taxa de serviço) contam como
-    // produto na emissão de produtos, mesmo que isServiceEntry os classifique como serviço.
-    const isProductEntry = (e: { description: string }) =>
-      !isServiceEntry(e) || nfceEligible.some(s => normDesc(e.description).includes(s.name));
+    // Serviço marcado como acréscimo (ex.: taxa de serviço): entra na NFC-e como
+    // vOutro (não como produto) — logo NÃO passa pela resolução de NCM.
+    const isAcrescimo = (e: { description: string }) =>
+      nfceEligible.some(s => normDesc(e.description).includes(s.name));
+    // Conta na emissão de produtos: produto real OU acréscimo (para ser incluído).
+    const isProductEntry = (e: { description: string }) => !isServiceEntry(e) || isAcrescimo(e);
 
     const services = isGeneric ? genericEntries : selectedEntries.filter(e => !isProductEntry(e));
     const products = isGeneric ? genericEntries : selectedEntries.filter(isProductEntry);
@@ -277,12 +279,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setIgnoredItems(ignored);
     setCheckedItemIds(new Set(active.map((e) => e.id)));
 
-    // For NF-e/NFC-e (products), resolve fiscal data (NCM, tax %)
-    if (isProduct && products.length > 0) {
+    // For NF-e/NFC-e (products), resolve fiscal data (NCM, tax %) — acréscimos ficam de fora
+    const realProducts = isProduct ? products.filter(e => !isAcrescimo(e)) : [];
+    if (isProduct && realProducts.length > 0) {
       setLoadingFiscal(true);
       nfService.resolveEntryFiscalData(
         hotelId,
-        products.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment }))
+        realProducts.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment }))
       ).then(result => {
         setFiscalData(result);
       }).catch(err => {
@@ -291,6 +294,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       }).finally(() => {
         setLoadingFiscal(false);
       });
+    } else if (isProduct) {
+      setFiscalData({ items: [], warnings: [], hasErrors: false });
     }
 
     // For NFS-e, resolve tributação por serviço do catálogo (mapeamento Erbon
@@ -839,6 +844,7 @@ svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !
                     {activeItems.map((item) => {
                       const fiscalItem = fiscalData?.items.find(f => f.erbon_entry_id === item.id);
                       const svcItem = tipo === 'nfse' ? serviceFiscal?.items.find(s => s.erbon_entry_id === item.id) : undefined;
+                      const isAcrescimoItem = isProduct && nfceEligible.some(s => normDesc(item.description).includes(s.name));
                       return (
                         <label
                           key={item.id}
@@ -855,7 +861,12 @@ svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !
                               <span className="text-gray-850 dark:text-gray-200 font-medium block">{item.description}</span>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-[10px] text-gray-400">Depto: {item.idDepartment}</span>
-                                {isProduct && fiscalItem && (
+                                {isAcrescimoItem && (
+                                  <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                                    Acréscimo (vOutro) · não é produto
+                                  </span>
+                                )}
+                                {isProduct && !isAcrescimoItem && fiscalItem && (
                                   <>
                                     {fiscalItem.ncm ? (
                                       <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded font-mono">
