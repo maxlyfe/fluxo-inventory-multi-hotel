@@ -579,12 +579,14 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       errors.push('Configuração fiscal não encontrada. Acesse Configurações > NF-e / NFS-e para cadastrar os dados da empresa.');
       return { valid: false, errors };
     }
-    if (!nfConfig.is_active) {
+    // Identidade da empresa: unidade responsável quando a NFC-e é redirecionada
+    const c = emitterConfig || nfConfig;
+    if (!c.is_active) {
       errors.push('A configuração fiscal está desativada para este hotel.');
     }
-    if (!nfConfig.cnpj) errors.push('CNPJ da empresa não cadastrado.');
-    if (!nfConfig.razao_social) errors.push('Razão social não cadastrada.');
-    if (!nfConfig.nome_fantasia) errors.push('Nome fantasia não cadastrado.');
+    if (!c.cnpj) errors.push('CNPJ da empresa não cadastrado.');
+    if (!c.razao_social) errors.push('Razão social não cadastrada.');
+    if (!c.nome_fantasia) errors.push('Nome fantasia não cadastrado.');
 
     if (tipo === 'nfse') {
       if (!nfConfig.nfse_enabled) errors.push('Emissão de NFS-e está desabilitada nas configurações.');
@@ -598,8 +600,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         errors.push('Código de serviço não cadastrado (configure na aba NFS-e ou mapeie os itens a serviços do catálogo).');
       }
     } else if (tipo === 'nfce') {
-      // Redirecionada: valida a identidade fiscal da unidade responsável
-      const c = emitterConfig || nfConfig;
+      // Identidade fiscal (IE/CSC) também da unidade responsável quando redirecionada
       if (!c.nfce_enabled) errors.push('Emissão de NFC-e está desabilitada nas configurações.');
       if (!c.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (compartilhada com NF-e).');
       if (!c.nfce_csc_id) errors.push('CSC ID da NFC-e não cadastrado.');
