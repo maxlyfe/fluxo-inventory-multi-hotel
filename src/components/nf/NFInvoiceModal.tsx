@@ -636,7 +636,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cupom Fiscal</title><style>
 @page { margin: 0; size: 80mm auto; }
 * { margin: 0; padding: 0; box-sizing: border-box; color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 400; width: 72mm; margin: 0 auto; padding: 2mm 3mm; color: #000; line-height: 1.3; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 400; width: 72mm; margin: 0; padding: 2mm 7mm 2mm 2mm; color: #000; line-height: 1.3; }
 .text-center { text-align: center; }
 .font-bold { font-weight: 700; }
 .text-sm { font-size: 14px; }
