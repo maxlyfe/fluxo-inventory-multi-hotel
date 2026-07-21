@@ -69,6 +69,8 @@ const EMPTY_FORM = {
   nfce_csc_id: '',
   nfce_csc_token: '',
   nfce_taxa_na_base_icms: false,
+  nfce_emit_redirect_enabled: false,
+  nfce_emit_redirect_hotel_id: '',
   nfse_provider: 'prefeitura' as NFSEProvider,
   adn_ambiente: 'homologacao' as NFAmbiente,
   el_token: '',
@@ -98,11 +100,29 @@ const NFIntegration: React.FC = () => {
 
   const [config, setConfig] = useState<NFHotelConfig | null>(null);
   const [form, setForm] = useState<FormState>({ ...EMPTY_FORM });
+  const [groupUnits, setGroupUnits] = useState<{ id: string; name: string }[]>([]);
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (selectedHotel) loadConfig();
+  }, [selectedHotel]);
+
+  // Unidades do mesmo grupo (para redirecionamento de emissão de NFC-e)
+  useEffect(() => {
+    if (!selectedHotel) return;
+    (async () => {
+      const { data: me } = await supabase.from('hotels').select('group_id').eq('id', selectedHotel.id).single();
+      if (!me?.group_id) { setGroupUnits([]); return; }
+      const { data: units } = await supabase
+        .from('hotels')
+        .select('id, name, fantasy_name')
+        .eq('group_id', me.group_id)
+        .neq('id', selectedHotel.id)
+        .eq('is_active', true)
+        .order('name');
+      setGroupUnits((units ?? []).map((u: any) => ({ id: u.id, name: u.fantasy_name || u.name })));
+    })();
   }, [selectedHotel]);
 
   useEffect(() => {
@@ -157,6 +177,8 @@ const NFIntegration: React.FC = () => {
           nfce_csc_id: cfg.nfce_csc_id || '',
           nfce_csc_token: cfg.nfce_csc_token || '',
           nfce_taxa_na_base_icms: (cfg as any).nfce_taxa_na_base_icms ?? false,
+          nfce_emit_redirect_enabled: (cfg as any).nfce_emit_redirect_enabled ?? false,
+          nfce_emit_redirect_hotel_id: (cfg as any).nfce_emit_redirect_hotel_id ?? '',
           nfse_provider: cfg.nfse_provider || 'prefeitura',
           adn_ambiente: cfg.adn_ambiente || 'homologacao',
           el_token: (cfg as any).el_token || '',
@@ -199,6 +221,7 @@ const NFIntegration: React.FC = () => {
         proximo_numero_nfe: Number(form.proximo_numero_nfe) || 1,
         proximo_numero_nfce: Number(form.proximo_numero_nfce) || 1,
         certificado_validade: form.certificado_validade || null,
+        nfce_emit_redirect_hotel_id: form.nfce_emit_redirect_hotel_id || null,
         is_active: true,
       });
       setConfig(saved);
@@ -1003,6 +1026,40 @@ const NFIntegration: React.FC = () => {
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
+              </div>
+
+              {/* Redirecionar emissão de NFC-e para outra unidade do grupo */}
+              <div className="p-4 rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-purple-800 dark:text-purple-300">Emitir NFC-e por outra unidade</p>
+                    <p className="text-xs text-purple-700/80 dark:text-purple-400/80 mt-0.5">
+                      Esta unidade vende mas não fatura: a NFC-e sai com a identidade fiscal (CNPJ, IE, certificado,
+                      numeração, logo) da unidade responsável escolhida abaixo. Só unidades do mesmo grupo.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={form.nfce_emit_redirect_enabled}
+                      onChange={e => setForm(p => ({ ...p, nfce_emit_redirect_enabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+                {form.nfce_emit_redirect_enabled && (
+                  <div>
+                    <label className={labelCls}>Unidade responsável pela emissão</label>
+                    <select value={form.nfce_emit_redirect_hotel_id} onChange={upd('nfce_emit_redirect_hotel_id')} className={inputCls}>
+                      <option value="">Selecione uma unidade do grupo…</option>
+                      {groupUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                    {groupUnits.length === 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Nenhuma outra unidade do grupo encontrada.</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <button

@@ -142,6 +142,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const { user } = useAuth();
   const { addNotification } = useNotification();
   const [nfConfig, setNfConfig] = useState<NFHotelConfig | null>(null);
+  // Config da unidade responsável (quando a NFC-e é redirecionada para outra unidade)
+  const [emitterConfig, setEmitterConfig] = useState<NFHotelConfig | null>(null);
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -213,7 +215,15 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setServiceFiscal(null);
 
     // Load NF config for print receipt header
-    nfService.getConfig(hotelId).then(c => setNfConfig(c)).catch(() => {});
+    nfService.getConfig(hotelId).then(c => {
+      setNfConfig(c);
+      // NFC-e redirecionada: carrega a config da unidade responsável (identidade fiscal + logo)
+      if (tipo === 'nfce' && (c as any)?.nfce_emit_redirect_enabled && (c as any)?.nfce_emit_redirect_hotel_id) {
+        nfService.getConfig((c as any).nfce_emit_redirect_hotel_id).then(setEmitterConfig).catch(() => setEmitterConfig(null));
+      } else {
+        setEmitterConfig(null);
+      }
+    }).catch(() => {});
 
     if (viewInvoiceId) {
       setLoadingFiscal(true);
@@ -388,6 +398,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible]);
 
   if (!isOpen) return null;
+
+  // Config exibida no cabeçalho do cupom: unidade responsável quando redirecionado
+  const receiptConfig = emitterConfig || nfConfig;
 
   // Toggle item in active items list
   const handleToggleItem = (id: number) => {
@@ -585,10 +598,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         errors.push('Código de serviço não cadastrado (configure na aba NFS-e ou mapeie os itens a serviços do catálogo).');
       }
     } else if (tipo === 'nfce') {
-      if (!nfConfig.nfce_enabled) errors.push('Emissão de NFC-e está desabilitada nas configurações.');
-      if (!nfConfig.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (compartilhada com NF-e).');
-      if (!nfConfig.nfce_csc_id) errors.push('CSC ID da NFC-e não cadastrado.');
-      if (!nfConfig.nfce_csc_token) errors.push('CSC Token da NFC-e não cadastrado.');
+      // Redirecionada: valida a identidade fiscal da unidade responsável
+      const c = emitterConfig || nfConfig;
+      if (!c.nfce_enabled) errors.push('Emissão de NFC-e está desabilitada nas configurações.');
+      if (!c.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (compartilhada com NF-e).');
+      if (!c.nfce_csc_id) errors.push('CSC ID da NFC-e não cadastrado.');
+      if (!c.nfce_csc_token) errors.push('CSC Token da NFC-e não cadastrado.');
     } else {
       if (!nfConfig.nfe_enabled) errors.push('Emissão de NF-e está desabilitada nas configurações.');
       if (!nfConfig.inscricao_estadual) errors.push('Inscrição Estadual não cadastrada (obrigatória para NF-e).');
@@ -676,6 +691,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 
 .mt-1 { margin-top: 3px; }
 .mb-1 { margin-bottom: 3px; }
 svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !important; }
+img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; object-fit: contain; }
 .flex { display: flex; }
 .justify-between { justify-content: space-between; }
 .items-start { align-items: flex-start; }
@@ -686,7 +702,7 @@ svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !
 .mr-2 { margin-right: 4px; }
 .whitespace-nowrap { white-space: nowrap; }
 .break-all { word-break: break-all; }
-</style></head><body>${content.innerHTML}<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/script></body></html>`);
+</style></head><body>${content.innerHTML}<script>window.onload=function(){var imgs=document.images,n=imgs.length,c=0;function go(){window.focus();window.print();window.onafterprint=function(){window.close();};}if(!n){go();return;}for(var i=0;i<n;i++){if(imgs[i].complete){if(++c===n)go();}else{imgs[i].onload=imgs[i].onerror=function(){if(++c===n)go();};}}};<\/script></body></html>`);
     printWindow.document.close();
   };
 
@@ -1383,20 +1399,20 @@ svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !
 
                 {/* Inline receipt preview */}
                 <div className="bg-white border border-gray-200 dark:border-gray-700 rounded-xl p-4 font-mono text-[11px] text-gray-900 dark:text-gray-100 leading-relaxed mx-auto" style={{ maxWidth: '300px' }} id="nf-receipt-print">
-                  {nfConfig?.logo_url && (
+                  {receiptConfig?.logo_url && (
                     <div className="text-center mb-2">
-                      <img src={nfConfig.logo_url} alt="" className="mx-auto" style={{ maxHeight: '40px', maxWidth: '120px', objectFit: 'contain' }} />
+                      <img src={receiptConfig.logo_url} alt="" className="mx-auto" style={{ maxHeight: '40px', maxWidth: '120px', objectFit: 'contain' }} />
                     </div>
                   )}
-                  <div className="text-center font-bold text-sm">{nfConfig?.nome_fantasia || 'Hotel'}</div>
-                  {nfConfig?.razao_social && <div className="text-center text-[9px] text-gray-500">{nfConfig.razao_social}</div>}
-                  {nfConfig?.cnpj && <div className="text-center text-[9px] text-gray-500">CNPJ: {nfConfig.cnpj}</div>}
-                  {nfConfig?.endereco_logradouro && (
+                  <div className="text-center font-bold text-sm">{receiptConfig?.nome_fantasia || 'Hotel'}</div>
+                  {receiptConfig?.razao_social && <div className="text-center text-[9px] text-gray-500">{receiptConfig.razao_social}</div>}
+                  {receiptConfig?.cnpj && <div className="text-center text-[9px] text-gray-500">CNPJ: {receiptConfig.cnpj}</div>}
+                  {receiptConfig?.endereco_logradouro && (
                     <div className="text-center text-[9px] text-gray-500">
-                      {[nfConfig.endereco_logradouro, nfConfig.endereco_numero, nfConfig.endereco_bairro, nfConfig.endereco_cidade, nfConfig.endereco_uf].filter(Boolean).join(', ')}
+                      {[receiptConfig.endereco_logradouro, receiptConfig.endereco_numero, receiptConfig.endereco_bairro, receiptConfig.endereco_cidade, receiptConfig.endereco_uf].filter(Boolean).join(', ')}
                     </div>
                   )}
-                  {nfConfig?.telefone && <div className="text-center text-[9px] text-gray-500">Tel: {nfConfig.telefone}</div>}
+                  {receiptConfig?.telefone && <div className="text-center text-[9px] text-gray-500">Tel: {receiptConfig.telefone}</div>}
 
                   <div className="border-t border-dashed border-gray-300 my-2" />
 

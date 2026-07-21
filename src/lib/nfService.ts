@@ -673,6 +673,10 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
     const config = await getConfig(hotelId);
     const useADN = inv?.tipo === 'nfse' && config?.nfse_provider === 'adn';
     const useELNacional = inv?.tipo === 'nfse' && config?.nfse_provider === 'el-nacional';
+    // Redirecionamento de NFC-e: se ligado, emite com a identidade fiscal de
+    // outra unidade do grupo (a numeração incrementa na unidade responsável).
+    let nfceEmitCfg: any = null;
+    let nfceEmitHotelId: string | null = null;
 
     let proxyAction: string;
     let bodyPayload: Record<string, unknown>;
@@ -820,25 +824,32 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
       const productItems = allNfceItems.filter((i: NFInvoiceItem) => !isAcr(i));
       const acrescimoTotal = allNfceItems.filter(isAcr).reduce((s: number, i: NFInvoiceItem) => s + Number(i.valor_total || 0), 0);
 
+      // Identidade fiscal do emissor: a própria unidade OU a responsável (redirecionamento)
+      let fiscalCfg: any = config!;
+      if ((config as any)?.nfce_emit_redirect_enabled && (config as any)?.nfce_emit_redirect_hotel_id) {
+        const emitter = await getConfig((config as any).nfce_emit_redirect_hotel_id);
+        if (emitter) { fiscalCfg = emitter; nfceEmitCfg = emitter; nfceEmitHotelId = (config as any).nfce_emit_redirect_hotel_id; }
+      }
+
       proxyAction = 'emit-nfce';
       bodyPayload = {
         action: proxyAction,
-        certificado_base64: config!.certificado_base64,
-        certificado_senha: config!.certificado_senha,
-        ambiente: config!.ambiente || 'homologacao',
-        cnpj: config!.cnpj,
-        razao_social: config!.razao_social,
-        nome_fantasia: config!.nome_fantasia,
-        inscricao_estadual: config!.inscricao_estadual,
-        crt: config!.crt || 1,
-        endereco_logradouro: config!.endereco_logradouro,
-        endereco_numero: config!.endereco_numero,
-        endereco_bairro: config!.endereco_bairro,
-        endereco_cidade: config!.endereco_cidade,
-        endereco_uf: config!.endereco_uf,
-        endereco_cep: config!.endereco_cep,
-        endereco_codigo_municipio: config!.endereco_codigo_municipio,
-        telefone: config!.telefone,
+        certificado_base64: fiscalCfg.certificado_base64,
+        certificado_senha: fiscalCfg.certificado_senha,
+        ambiente: fiscalCfg.ambiente || 'homologacao',
+        cnpj: fiscalCfg.cnpj,
+        razao_social: fiscalCfg.razao_social,
+        nome_fantasia: fiscalCfg.nome_fantasia,
+        inscricao_estadual: fiscalCfg.inscricao_estadual,
+        crt: fiscalCfg.crt || 1,
+        endereco_logradouro: fiscalCfg.endereco_logradouro,
+        endereco_numero: fiscalCfg.endereco_numero,
+        endereco_bairro: fiscalCfg.endereco_bairro,
+        endereco_cidade: fiscalCfg.endereco_cidade,
+        endereco_uf: fiscalCfg.endereco_uf,
+        endereco_cep: fiscalCfg.endereco_cep,
+        endereco_codigo_municipio: fiscalCfg.endereco_codigo_municipio,
+        telefone: fiscalCfg.telefone,
         tomador_nome: inv.tomador_nome,
         tomador_cpf_cnpj: inv.tomador_cpf_cnpj,
         tomador_doc_tipo: inv.tomador_doc_tipo,
@@ -850,18 +861,18 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
           ncm: i.ncm || '00000000',
           cfop: i.cfop || '5102',
           icms_orig: '0',
-          icms_csosn: (config!.crt === 1 || config!.crt === 2) ? '102' : undefined,
-          icms_cst: (config!.crt === 3) ? '00' : undefined,
-          icms_vBC: (config!.crt === 3) ? i.valor_total : 0,
-          icms_pICMS: (config!.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
-          icms_vICMS: (config!.crt === 3) ? (i.icms_valor ?? 0) : 0,
+          icms_csosn: (fiscalCfg.crt === 1 || fiscalCfg.crt === 2) ? '102' : undefined,
+          icms_cst: (fiscalCfg.crt === 3) ? '00' : undefined,
+          icms_vBC: (fiscalCfg.crt === 3) ? i.valor_total : 0,
+          icms_pICMS: (fiscalCfg.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
+          icms_vICMS: (fiscalCfg.crt === 3) ? (i.icms_valor ?? 0) : 0,
         })),
         acrescimo: Math.round(acrescimoTotal * 100) / 100,
-        taxa_na_base_icms: !!(config as any).nfce_taxa_na_base_icms,
-        serie_nfce: config!.serie_nfce || '1',
-        nfce_csc_id: config!.nfce_csc_id,
-        nfce_csc_token: config!.nfce_csc_token,
-        numero_nfce: config!.proximo_numero_nfce || 1,
+        taxa_na_base_icms: !!fiscalCfg.nfce_taxa_na_base_icms,
+        serie_nfce: fiscalCfg.serie_nfce || '1',
+        nfce_csc_id: fiscalCfg.nfce_csc_id,
+        nfce_csc_token: fiscalCfg.nfce_csc_token,
+        numero_nfce: fiscalCfg.proximo_numero_nfce || 1,
         tPag: '01',
       };
     } else if (inv?.tipo === 'nfe') {
@@ -981,10 +992,13 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
           .update({ proximo_numero_nfse: (config.proximo_numero_nfse || 1) + 1 })
           .eq('hotel_id', hotelId);
       } else if (inv?.tipo === 'nfce') {
+        // Numeração incrementa na unidade responsável (se redirecionado) ou na própria
+        const numHotelId = nfceEmitHotelId || hotelId;
+        const numBase = (nfceEmitCfg?.proximo_numero_nfce ?? config.proximo_numero_nfce) || 1;
         await supabase
           .from('nf_hotel_config')
-          .update({ proximo_numero_nfce: (config.proximo_numero_nfce || 1) + 1 })
-          .eq('hotel_id', hotelId);
+          .update({ proximo_numero_nfce: numBase + 1 })
+          .eq('hotel_id', numHotelId);
       } else if (inv?.tipo === 'nfe') {
         await supabase
           .from('nf_hotel_config')
