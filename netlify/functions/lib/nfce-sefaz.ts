@@ -343,6 +343,8 @@ function buildNFCeXml(params: {
   config: NFCeConfig;
   nNF: number;
   tPag: string;
+  acrescimo?: number;
+  taxaNaBaseIcms?: boolean;
 }): { xml: string; chave: string; qrCodeUrl: string } {
   const { emitente, destinatario, items, config, nNF, tPag } = params;
   const cnpj = emitente.cnpj.replace(/\D/g, '');
@@ -359,15 +361,31 @@ function buildNFCeXml(params: {
   });
   const nfeId = `NFe${chave}`;
 
-  // Totais
+  // Acréscimo (ex.: taxa de serviço) → vOutro distribuído proporcionalmente
+  // entre os produtos. A soma dos vOutro dos itens tem que bater com o total.
+  const isRegimeNormal = emitente.crt === 3;
+  const taxaNaBase = !!params.taxaNaBaseIcms && isRegimeNormal;
+  const vProdTotal = items.reduce((s, it) => s + it.vProd, 0);
+  const vOutroTotal = Math.round((params.acrescimo || 0) * 100) / 100;
+  const vOutroItem: number[] = [];
+  {
+    let acc = 0;
+    items.forEach((it, idx) => {
+      const v = (vOutroTotal > 0 && vProdTotal > 0)
+        ? (idx === items.length - 1
+            ? Math.round((vOutroTotal - acc) * 100) / 100
+            : Math.round((vOutroTotal * it.vProd / vProdTotal) * 100) / 100)
+        : 0;
+      acc = Math.round((acc + v) * 100) / 100;
+      vOutroItem[idx] = v;
+    });
+  }
+
+  // Totais (acumulados no loop de itens)
   let vProd = 0;
   let vICMS = 0;
   let vBC = 0;
-  for (const it of items) {
-    vProd += it.vProd;
-    vICMS += it.icms_vICMS ?? 0;
-    vBC += it.icms_vBC ?? 0;
-  }
+  let vOutroSum = 0;
 
   // QR Code
   const qrCodeUrl = buildQRCodeUrl({
@@ -377,7 +395,18 @@ function buildNFCeXml(params: {
   // det (items)
   let detXml = '';
   let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
-  for (const it of items) {
+  for (let idx = 0; idx < items.length; idx++) {
+    const it = items[idx];
+    const vOutro_i = vOutroItem[idx] || 0;
+    vOutroSum = Math.round((vOutroSum + vOutro_i) * 100) / 100;
+    vProd += it.vProd;
+    // Base do ICMS: inclui o acréscimo (vOutro) só se configurado e regime normal
+    const baseVBC = it.icms_vBC ?? it.vProd;
+    const vBC_i = taxaNaBase ? Math.round((baseVBC + vOutro_i) * 100) / 100 : baseVBC;
+    const pICMS_i = it.icms_pICMS ?? 0;
+    const vICMS_i = taxaNaBase ? Math.round(vBC_i * pICMS_i) / 100 : (it.icms_vICMS ?? 0);
+    vBC += vBC_i;
+    vICMS += vICMS_i;
     let icmsXml: string;
     if (emitente.crt === 1 || emitente.crt === 2) {
       const csosn = it.icms_csosn || '102';
@@ -393,18 +422,18 @@ function buildNFCeXml(params: {
       if (cst === '00') {
         icmsXml =
           `<ICMS00><orig>${it.icms_orig}</orig><CST>00</CST>` +
-          `<modBC>0</modBC><vBC>${fmtDec(it.icms_vBC ?? it.vProd)}</vBC>` +
-          `<pICMS>${fmtDec(it.icms_pICMS ?? 0)}</pICMS>` +
-          `<vICMS>${fmtDec(it.icms_vICMS ?? 0)}</vICMS></ICMS00>`;
+          `<modBC>0</modBC><vBC>${fmtDec(vBC_i)}</vBC>` +
+          `<pICMS>${fmtDec(pICMS_i)}</pICMS>` +
+          `<vICMS>${fmtDec(vICMS_i)}</vICMS></ICMS00>`;
       } else if (cst === '40' || cst === '41' || cst === '50') {
         icmsXml = `<ICMS40><orig>${it.icms_orig}</orig><CST>${cst}</CST></ICMS40>`;
       } else if (cst === '60') {
         icmsXml = `<ICMS60><orig>${it.icms_orig}</orig><CST>60</CST></ICMS60>`;
       } else {
         icmsXml = `<ICMS00><orig>${it.icms_orig}</orig><CST>${cst}</CST>` +
-          `<modBC>0</modBC><vBC>${fmtDec(it.icms_vBC ?? 0)}</vBC>` +
-          `<pICMS>${fmtDec(it.icms_pICMS ?? 0)}</pICMS>` +
-          `<vICMS>${fmtDec(it.icms_vICMS ?? 0)}</vICMS></ICMS00>`;
+          `<modBC>0</modBC><vBC>${fmtDec(vBC_i)}</vBC>` +
+          `<pICMS>${fmtDec(pICMS_i)}</pICMS>` +
+          `<vICMS>${fmtDec(vICMS_i)}</vICMS></ICMS00>`;
       }
     }
 
@@ -429,6 +458,7 @@ function buildNFCeXml(params: {
       `<uTrib>${xmlEsc(it.uCom)}</uTrib>` +
       `<qTrib>${fmtDec(it.qCom, 4)}</qTrib>` +
       `<vUnTrib>${fmtDec(it.vUnCom, 4)}</vUnTrib>` +
+      (vOutro_i > 0 ? `<vOutro>${fmtDec(vOutro_i)}</vOutro>` : '') +
       `<indTot>1</indTot>` +
       `</prod>` +
       `<imposto>` +
@@ -513,15 +543,15 @@ function buildNFCeXml(params: {
     `<vIPIDevol>0.00</vIPIDevol>` +
     `<vPIS>0.00</vPIS>` +
     `<vCOFINS>0.00</vCOFINS>` +
-    `<vOutro>0.00</vOutro>` +
-    `<vNF>${fmtDec(vProd)}</vNF>` +
+    `<vOutro>${fmtDec(vOutroSum)}</vOutro>` +
+    `<vNF>${fmtDec(vProd + vOutroSum)}</vNF>` +
     `</ICMSTot>` +
     buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
     `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
     `<pag><detPag>` +
     `<tPag>${tPag}</tPag>` +
-    `<vPag>${fmtDec(vProd)}</vPag>` +
+    `<vPag>${fmtDec(vProd + vOutroSum)}</vPag>` +
     `</detPag></pag>` +
     `<infAdic><infCpl>NFC-e emitida pelo sistema Fluxo.</infCpl></infAdic>` +
     `</infNFe>`;
@@ -541,6 +571,8 @@ export async function emitirNFCe(params: {
   config: NFCeConfig;
   nNF: number;
   tPag?: string;
+  acrescimo?: number;
+  taxaNaBaseIcms?: boolean;
 }): Promise<NFCeResult> {
   const tPag = params.tPag || '01'; // 01=dinheiro default
 
@@ -839,6 +871,7 @@ function buildNFeXml(params: {
   let detXml = '';
   let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
   for (const it of items) {
+    const vOutro_i = 0; // NF-e (modelo 55) não usa acréscimo de taxa de serviço
     let icmsXml: string;
     if (emitente.crt === 1 || emitente.crt === 2) {
       const csosn = it.icms_csosn || '102';
@@ -890,6 +923,7 @@ function buildNFeXml(params: {
       `<uTrib>${xmlEsc(it.uCom)}</uTrib>` +
       `<qTrib>${fmtDec(it.qCom, 4)}</qTrib>` +
       `<vUnTrib>${fmtDec(it.vUnCom, 4)}</vUnTrib>` +
+      (vOutro_i > 0 ? `<vOutro>${fmtDec(vOutro_i)}</vOutro>` : '') +
       `<indTot>1</indTot>` +
       `</prod>` +
       `<imposto>` +

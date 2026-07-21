@@ -259,7 +259,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       telefone,
       tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo,
       items, serie_nfce, nfce_csc_id, nfce_csc_token,
-      numero_nfce, tPag,
+      numero_nfce, tPag, acrescimo, taxa_na_base_icms,
     } = payload;
 
     if (!certificado_base64 || !certificado_senha) {
@@ -324,6 +324,8 @@ const handler: Handler = async (event: HandlerEvent) => {
         },
         nNF: numero_nfce || 1,
         tPag: tPag || '01',
+        acrescimo: Number(acrescimo) || 0,
+        taxaNaBaseIcms: !!taxa_na_base_icms,
       });
 
       console.log('[NFC-e] Resultado:', result.success ? 'SUCESSO' : 'FALHA',

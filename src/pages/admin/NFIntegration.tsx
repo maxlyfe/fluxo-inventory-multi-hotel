@@ -68,6 +68,7 @@ const EMPTY_FORM = {
   proximo_numero_nfce: 1,
   nfce_csc_id: '',
   nfce_csc_token: '',
+  nfce_taxa_na_base_icms: false,
   nfse_provider: 'prefeitura' as NFSEProvider,
   adn_ambiente: 'homologacao' as NFAmbiente,
   el_token: '',
@@ -155,6 +156,7 @@ const NFIntegration: React.FC = () => {
           proximo_numero_nfce: cfg.proximo_numero_nfce ?? 1,
           nfce_csc_id: cfg.nfce_csc_id || '',
           nfce_csc_token: cfg.nfce_csc_token || '',
+          nfce_taxa_na_base_icms: (cfg as any).nfce_taxa_na_base_icms ?? false,
           nfse_provider: cfg.nfse_provider || 'prefeitura',
           adn_ambiente: cfg.adn_ambiente || 'homologacao',
           el_token: (cfg as any).el_token || '',
@@ -978,6 +980,28 @@ const NFIntegration: React.FC = () => {
                 <div>
                   <label className={labelCls}>CSC Token (NFC-e)</label>
                   <input type="password" value={form.nfce_csc_token} onChange={upd('nfce_csc_token')} className={inputCls} placeholder="Token do CSC para NFC-e" />
+                </div>
+              </div>
+
+              {/* Tratamento da taxa de serviço (acréscimo/vOutro) na base do ICMS */}
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Taxa de serviço na base do ICMS</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      A taxa de serviço (10%) é enviada como acréscimo (vOutro) e soma no total da NFC-e.
+                      Ligado = entra na base do ICMS (tributada); desligado = fora da base (isenta). Confirme com o contador.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={form.nfce_taxa_na_base_icms}
+                      onChange={e => setForm(p => ({ ...p, nfce_taxa_na_base_icms: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
                 </div>
               </div>
 

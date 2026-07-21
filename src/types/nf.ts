@@ -46,6 +46,7 @@ export interface NFHotelConfig {
   proximo_numero_nfce: number | null;
   nfce_csc_id: string | null;
   nfce_csc_token: string | null;
+  nfce_taxa_na_base_icms: boolean;
 
   certificado_base64: string | null;
   certificado_senha: string | null;

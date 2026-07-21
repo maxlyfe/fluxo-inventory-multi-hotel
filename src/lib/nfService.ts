@@ -811,6 +811,15 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         .select('*')
         .eq('invoice_id', invoiceId);
 
+      // Serviços marcados como acréscimo (ex.: taxa de serviço 10%) NÃO viram
+      // <det> na NFC-e: somam em vOutro. Match por nome do serviço na descrição.
+      const eligibleAcr = await getNfceEligibleServices(hotelId);
+      const normAcr = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+      const allNfceItems = items || [];
+      const isAcr = (i: NFInvoiceItem) => eligibleAcr.some(e => normAcr(i.descricao).includes(e.name));
+      const productItems = allNfceItems.filter((i: NFInvoiceItem) => !isAcr(i));
+      const acrescimoTotal = allNfceItems.filter(isAcr).reduce((s: number, i: NFInvoiceItem) => s + Number(i.valor_total || 0), 0);
+
       proxyAction = 'emit-nfce';
       bodyPayload = {
         action: proxyAction,
@@ -833,7 +842,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         tomador_nome: inv.tomador_nome,
         tomador_cpf_cnpj: inv.tomador_cpf_cnpj,
         tomador_doc_tipo: inv.tomador_doc_tipo,
-        items: (items || []).map((i: NFInvoiceItem) => ({
+        items: productItems.map((i: NFInvoiceItem) => ({
           description: i.descricao,
           quantidade: i.quantidade,
           valor_unitario: i.valor_unitario,
@@ -847,6 +856,8 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
           icms_pICMS: (config!.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
           icms_vICMS: (config!.crt === 3) ? (i.icms_valor ?? 0) : 0,
         })),
+        acrescimo: Math.round(acrescimoTotal * 100) / 100,
+        taxa_na_base_icms: !!(config as any).nfce_taxa_na_base_icms,
         serie_nfce: config!.serie_nfce || '1',
         nfce_csc_id: config!.nfce_csc_id,
         nfce_csc_token: config!.nfce_csc_token,

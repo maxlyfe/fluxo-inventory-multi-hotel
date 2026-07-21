@@ -497,8 +497,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     finalItems.map((e) => {
       const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
       const svc = serviceFiscal?.items.find(s => s.erbon_entry_id === e.id);
-      // Serviço marcado p/ emitir em NFC-e (ex.: taxa de serviço) → usa NCM/CFOP do catálogo
-      const elig = isProduct ? nfceEligible.find(s => normDesc(e.description).includes(s.name)) : undefined;
+      // Serviço marcado p/ emitir em NFC-e (ex.: taxa de serviço) NÃO é produto:
+      // vai como acréscimo (vOutro) na emissão — item simples, sem NCM/CFOP.
+      const elig = isProduct ? nfceEligible.some(s => normDesc(e.description).includes(s.name)) : false;
       return {
         // Itens genéricos usam IDs locais que NÃO podem ser gravados como
         // erbon_entry_id (colidiriam com lançamentos reais da Erbon)
@@ -507,11 +508,11 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         quantidade: 1,
         valor_unitario: e.amount,
         valor_total: e.amount,
-        ...(isProduct && (fiscal || elig) ? {
-          ncm: (elig?.ncm ?? fiscal?.ncm) || null,
-          cfop: elig?.cfop || '5102',
-          icms_aliquota: fiscal?.tax_percentage ?? null,
-          icms_valor: fiscal?.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+        ...(isProduct && !elig && fiscal ? {
+          ncm: fiscal.ncm || null,
+          cfop: '5102',
+          icms_aliquota: fiscal.tax_percentage ?? null,
+          icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
         } : {}),
         ...(tipo === 'nfse' && svc ? {
           codigo_servico: svc.codigo_servico ?? null,

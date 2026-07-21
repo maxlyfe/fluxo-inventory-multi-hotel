@@ -455,28 +455,17 @@ const ServiceCatalog: React.FC = () => {
                   ISS retido na fonte (tomador recolhe)
                 </label>
 
-                {/* Emitir junto em NFC-e/NF-e (tratar como produto) */}
-                <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 space-y-3">
+                {/* Incluir em NFC-e como acréscimo (vOutro) */}
+                <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 space-y-2">
                   <label className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
                     <input type="checkbox" checked={form.nfce_eligible} onChange={e => setForm(p => ({ ...p, nfce_eligible: e.target.checked }))} className="rounded" />
-                    Emitir junto em NFC-e / NF-e (tratar como produto)
+                    Incluir em NFC-e como acréscimo (ex.: taxa de serviço 10%)
                   </label>
                   <p className="text-xs text-amber-700/80 dark:text-amber-400/80 -mt-1">
-                    Marque para itens como a <strong>taxa de serviço (10%)</strong> aparecerem no cupom da NFC-e junto aos produtos.
-                    O lançamento na conta da reserva precisa conter o nome do serviço abaixo. Informe NCM e CFOP conforme orientação do contador.
+                    O valor entra na NFC-e como <strong>acréscimo (vOutro)</strong> e soma no total do cupom — não vira produto
+                    nem exige NCM. O lançamento na conta da reserva precisa conter o <strong>nome deste serviço</strong> para o
+                    sistema reconhecê-lo. Se o acréscimo entra ou não na base do ICMS é definido em <strong>Admin → NF-e → aba NFC-e</strong>.
                   </p>
-                  {form.nfce_eligible && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className={labelCls}>NCM (para NFC-e)</label>
-                        <input type="text" value={form.nfce_ncm} onChange={e => setForm(p => ({ ...p, nfce_ncm: e.target.value }))} className={inputCls} placeholder="8 dígitos" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>CFOP (para NFC-e)</label>
-                        <input type="text" value={form.nfce_cfop} onChange={e => setForm(p => ({ ...p, nfce_cfop: e.target.value }))} className={inputCls} placeholder="5102" />
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
