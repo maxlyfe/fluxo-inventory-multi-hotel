@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
-import { nfService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData } from '../../lib/nfService';
+import { nfService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData, type NfceEligibleService } from '../../lib/nfService';
 import { printNFA4 } from './NFPrintA4';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
@@ -74,6 +74,11 @@ export function isServiceEntry(entry: { description: string }) {
     desc.includes('serviço') ||
     desc.includes('servico')
   );
+}
+
+// Normaliza descrição para casar com o nome do serviço elegível (minúsculo, sem acento)
+function normDesc(s: string): string {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 }
 
 // Brazilian CPF/CNPJ validation helpers
@@ -153,6 +158,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [ignoredItems, setIgnoredItems] = useState<CurrentAccountEntry[]>([]);
   const [checkedItemIds, setCheckedItemIds] = useState<Set<number>>(new Set());
 
+  // Serviços marcados para emitir como produto em NFC-e/NF-e (ex.: taxa de serviço)
+  const [nfceEligible, setNfceEligible] = useState<NfceEligibleService[]>([]);
+
   // Emitted invoice (for print after emission)
   const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
@@ -188,6 +196,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       setInvoiceItems([]);
     }
   }, [isOpen]);
+
+  // Carrega serviços elegíveis a virar produto em NFC-e/NF-e (async, à parte)
+  useEffect(() => {
+    if (!isOpen) return;
+    nfService.getNfceEligibleServices(hotelId).then(setNfceEligible).catch(() => setNfceEligible([]));
+  }, [isOpen, hotelId]);
 
   // 1. Initialize items and prefill Tomador on mount/open
   useEffect(() => {
@@ -248,8 +262,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       idDepartment: 0,
     }));
 
-    const services = isGeneric ? genericEntries : selectedEntries.filter(isServiceEntry);
-    const products = isGeneric ? genericEntries : selectedEntries.filter((e) => !isServiceEntry(e));
+    // Serviços marcados como "emitir em NFC-e" (ex.: taxa de serviço) contam como
+    // produto na emissão de produtos, mesmo que isServiceEntry os classifique como serviço.
+    const isProductEntry = (e: { description: string }) =>
+      !isServiceEntry(e) || nfceEligible.some(s => normDesc(e.description).includes(s.name));
+
+    const services = isGeneric ? genericEntries : selectedEntries.filter(e => !isProductEntry(e));
+    const products = isGeneric ? genericEntries : selectedEntries.filter(isProductEntry);
 
     const active = isProduct ? products : services;
     const ignored = isGeneric ? [] : (isProduct ? services : products);
@@ -361,7 +380,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorCidade('');
     setTomadorUf('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId]);
+  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible]);
 
   if (!isOpen) return null;
 
@@ -478,6 +497,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     finalItems.map((e) => {
       const fiscal = fiscalData?.items.find(f => f.erbon_entry_id === e.id);
       const svc = serviceFiscal?.items.find(s => s.erbon_entry_id === e.id);
+      // Serviço marcado p/ emitir em NFC-e (ex.: taxa de serviço) → usa NCM/CFOP do catálogo
+      const elig = isProduct ? nfceEligible.find(s => normDesc(e.description).includes(s.name)) : undefined;
       return {
         // Itens genéricos usam IDs locais que NÃO podem ser gravados como
         // erbon_entry_id (colidiriam com lançamentos reais da Erbon)
@@ -486,11 +507,11 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         quantidade: 1,
         valor_unitario: e.amount,
         valor_total: e.amount,
-        ...(isProduct && fiscal ? {
-          ncm: fiscal.ncm || null,
-          cfop: '5102',
-          icms_aliquota: fiscal.tax_percentage ?? null,
-          icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+        ...(isProduct && (fiscal || elig) ? {
+          ncm: (elig?.ncm ?? fiscal?.ncm) || null,
+          cfop: elig?.cfop || '5102',
+          icms_aliquota: fiscal?.tax_percentage ?? null,
+          icms_valor: fiscal?.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
         } : {}),
         ...(tipo === 'nfse' && svc ? {
           codigo_servico: svc.codigo_servico ?? null,

@@ -42,6 +42,9 @@ interface EditForm {
   nbs_code: string;
   ibs_cbs_cst: string;
   ibs_cbs_cclasstrib: string;
+  nfce_eligible: boolean;
+  nfce_ncm: string;
+  nfce_cfop: string;
 }
 
 const EMPTY_FORM: EditForm = {
@@ -50,6 +53,7 @@ const EMPTY_FORM: EditForm = {
   lc116_code: '09.01', municipal_tax_code: '', cnae: '',
   iss_rate: '5', iss_retained: false, iss_exigibilidade: '1', nbs_code: '',
   ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
+  nfce_eligible: false, nfce_ncm: '', nfce_cfop: '5102',
 };
 
 const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -135,6 +139,9 @@ const ServiceCatalog: React.FC = () => {
       nbs_code: s.nbs_code || '',
       ibs_cbs_cst: (s as any).ibs_cbs_cst || '000',
       ibs_cbs_cclasstrib: (s as any).ibs_cbs_cclasstrib || '000001',
+      nfce_eligible: (s as any).nfce_eligible ?? false,
+      nfce_ncm: (s as any).nfce_ncm || '',
+      nfce_cfop: (s as any).nfce_cfop || '5102',
     });
     setEditOpen(true);
   }
@@ -165,6 +172,9 @@ const ServiceCatalog: React.FC = () => {
         nbs_code: form.nbs_code.trim() || null,
         ibs_cbs_cst: form.ibs_cbs_cst.trim() || '000',
         ibs_cbs_cclasstrib: form.ibs_cbs_cclasstrib.trim() || '000001',
+        nfce_eligible: form.nfce_eligible,
+        nfce_ncm: form.nfce_ncm.trim() || null,
+        nfce_cfop: form.nfce_cfop.trim() || '5102',
         is_active: true,
       });
       addNotification(form.id ? 'Serviço atualizado.' : 'Serviço criado.', 'success');
@@ -444,6 +454,30 @@ const ServiceCatalog: React.FC = () => {
                   <input type="checkbox" checked={form.iss_retained} onChange={e => setForm(p => ({ ...p, iss_retained: e.target.checked }))} className="rounded" />
                   ISS retido na fonte (tomador recolhe)
                 </label>
+
+                {/* Emitir junto em NFC-e/NF-e (tratar como produto) */}
+                <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 space-y-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    <input type="checkbox" checked={form.nfce_eligible} onChange={e => setForm(p => ({ ...p, nfce_eligible: e.target.checked }))} className="rounded" />
+                    Emitir junto em NFC-e / NF-e (tratar como produto)
+                  </label>
+                  <p className="text-xs text-amber-700/80 dark:text-amber-400/80 -mt-1">
+                    Marque para itens como a <strong>taxa de serviço (10%)</strong> aparecerem no cupom da NFC-e junto aos produtos.
+                    O lançamento na conta da reserva precisa conter o nome do serviço abaixo. Informe NCM e CFOP conforme orientação do contador.
+                  </p>
+                  {form.nfce_eligible && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className={labelCls}>NCM (para NFC-e)</label>
+                        <input type="text" value={form.nfce_ncm} onChange={e => setForm(p => ({ ...p, nfce_ncm: e.target.value }))} className={inputCls} placeholder="8 dígitos" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>CFOP (para NFC-e)</label>
+                        <input type="text" value={form.nfce_cfop} onChange={e => setForm(p => ({ ...p, nfce_cfop: e.target.value }))} className={inputCls} placeholder="5102" />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

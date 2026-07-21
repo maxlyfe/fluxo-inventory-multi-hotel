@@ -24,6 +24,9 @@ export interface HotelService {
   nbs_code: string | null;
   ibs_cbs_cst: string | null;
   ibs_cbs_cclasstrib: string | null;
+  nfce_eligible: boolean;
+  nfce_ncm: string | null;
+  nfce_cfop: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -96,6 +99,9 @@ function shareableFields(svc: HotelService) {
     nbs_code: svc.nbs_code,
     ibs_cbs_cst: (svc as any).ibs_cbs_cst ?? '000',
     ibs_cbs_cclasstrib: (svc as any).ibs_cbs_cclasstrib ?? '000001',
+    nfce_eligible: (svc as any).nfce_eligible ?? false,
+    nfce_ncm: (svc as any).nfce_ncm ?? null,
+    nfce_cfop: (svc as any).nfce_cfop ?? '5102',
   };
 }
 

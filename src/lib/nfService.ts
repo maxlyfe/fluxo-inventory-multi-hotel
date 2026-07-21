@@ -546,6 +546,30 @@ async function getInvoicesByBooking(
   return (data ?? []) as NFInvoice[];
 }
 
+// Serviços do catálogo marcados para emitir em NFC-e/NF-e (tratar como produto).
+// Ex.: "Taxa de serviço" 10%. Usado para reclassificar lançamentos da reserva.
+export interface NfceEligibleService {
+  name: string;      // normalizado (minúsculo, sem acento)
+  ncm: string | null;
+  cfop: string;
+}
+
+async function getNfceEligibleServices(hotelId: string): Promise<NfceEligibleService[]> {
+  const { data, error } = await supabase
+    .from('services')
+    .select('name, nfce_ncm, nfce_cfop')
+    .eq('hotel_id', hotelId)
+    .eq('nfce_eligible', true)
+    .eq('is_active', true);
+  if (error) throw error;
+  const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  return (data ?? []).map((r: any) => ({
+    name: norm(r.name),
+    ncm: r.nfce_ncm || null,
+    cfop: r.nfce_cfop || '5102',
+  })).filter(s => s.name.length > 0);
+}
+
 async function markEntriesAsEmitted(
   hotelId: string,
   entryIds: number[],
@@ -1796,6 +1820,7 @@ export const nfService = {
   getInvoiceItems,
   getEmittedEntries,
   getInvoicesByBooking,
+  getNfceEligibleServices,
   markEntriesAsEmitted,
   createDraftInvoice,
   emitInvoice,
