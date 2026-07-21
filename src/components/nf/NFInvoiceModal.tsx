@@ -634,23 +634,27 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     if (!printWindow) return;
 
     printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cupom Fiscal</title><style>
-@page { margin: 2mm; size: 80mm auto; }
-* { margin: 0; padding: 0; box-sizing: border-box; color: #000 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; width: 76mm; padding: 2mm; color: #000; line-height: 1.35; }
+@page { margin: 0; size: 80mm auto; }
+* { margin: 0; padding: 0; box-sizing: border-box; color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 400; width: 72mm; margin: 0 auto; padding: 2mm 3mm; color: #000; line-height: 1.3; }
 .text-center { text-align: center; }
-.font-bold { font-weight: 900; }
-.text-sm { font-size: 15px; }
-.text-\\[10px\\] { font-size: 12px; }
-.text-\\[9px\\] { font-size: 11px; }
-.text-\\[8px\\] { font-size: 10px; }
-.border-t { border-top: 2px dashed #000; }
+.font-bold { font-weight: 700; }
+.text-sm { font-size: 14px; }
+.text-\\[10px\\] { font-size: 11px; }
+.text-\\[9px\\] { font-size: 10px; }
+.text-\\[8px\\] { font-size: 9px; }
+.border-t { border-top: 1px dashed #000; }
 .border-dashed { border-style: dashed; }
-.my-2 { margin: 6px 0; }
+.my-2 { margin: 5px 0; }
 .mt-1 { margin-top: 3px; }
 .mb-1 { margin-bottom: 3px; }
-svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !important; }
+svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !important; }
 .flex { display: flex; }
 .justify-between { justify-content: space-between; }
+.items-start { align-items: flex-start; }
+.gap-2 { gap: 6px; }
+.flex-1 { flex: 1 1 auto; min-width: 0; }
+.break-words { overflow-wrap: anywhere; word-break: break-word; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mr-2 { margin-right: 4px; }
 .whitespace-nowrap { white-space: nowrap; }
@@ -1386,8 +1390,8 @@ svg { display: block; margin: 4px auto 0; width: 34mm !important; height: 34mm !
 
                   <div className="font-bold text-[10px] mb-1">ITENS</div>
                   {displayItems.map((item, i) => (
-                    <div key={i} className="flex justify-between text-[10px]">
-                      <span className="truncate mr-2" style={{ maxWidth: '180px' }}>{item.description}</span>
+                    <div key={i} className="flex justify-between items-start gap-2 text-[10px]">
+                      <span className="flex-1 break-words">{item.description}</span>
                       <span className="font-bold whitespace-nowrap">{item.amount.toFixed(2)}</span>
                     </div>
                   ))}
