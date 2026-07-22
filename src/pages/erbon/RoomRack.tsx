@@ -20,6 +20,7 @@ import { omnibeesService } from '../../lib/omnibeesService';
 import Modal from '../../components/Modal';
 import { nfService } from '../../lib/nfService';
 import { NFInvoiceModal, isServiceEntry } from '../../components/nf/NFInvoiceModal';
+import { usePermissions } from '../../hooks/usePermissions';
 import { CheckCircle2, FileCheck2, ShoppingBag, Receipt as ReceiptIcon } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -1132,6 +1133,7 @@ interface CurrentAccountEntry {
 }
 
 const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room: ErbonRoom }> = ({ hotelId, booking, room }) => {
+  const { can } = usePermissions();
   const [entries, setEntries] = useState<CurrentAccountEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
@@ -1231,6 +1233,7 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
           )}
         </div>
         <div className="flex items-center gap-2">
+          {can('nf.emit.nfse') && (
           <button
             onClick={() => setNfModalType('nfse')}
             disabled={selectedIds.size === 0}
@@ -1239,6 +1242,8 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
             <ReceiptIcon className="w-3.5 h-3.5" />
             NF Serviços
           </button>
+          )}
+          {can('nf.emit.nfe') && (
           <button
             onClick={() => setNfModalType('nfe')}
             disabled={selectedIds.size === 0}
@@ -1247,6 +1252,8 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
             <ShoppingBag className="w-3.5 h-3.5" />
             NF Consumo
           </button>
+          )}
+          {can('nf.emit.nfce') && (
           <button
             onClick={() => setNfModalType('nfce')}
             disabled={selectedIds.size === 0}
@@ -1255,6 +1262,7 @@ const AccountTab: React.FC<{ hotelId: string; booking: ErbonBooking | null; room
             <ReceiptIcon className="w-3.5 h-3.5" />
             NFC-e
           </button>
+          )}
         </div>
       </div>
 

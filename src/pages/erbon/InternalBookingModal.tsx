@@ -19,6 +19,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { serviceCatalogService, type HotelService } from '../../lib/serviceCatalogService';
 import { NFInvoiceModal, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
+import { usePermissions } from '../../hooks/usePermissions';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,7 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
 }) => {
   const { addNotification } = useNotification();
   const { user } = useAuth();
+  const { can } = usePermissions();
   const isNew = !booking;
 
   const [tab, setTab] = useState<Tab>('dados');
@@ -656,7 +658,7 @@ const InternalBookingModal: React.FC<InternalBookingModalProps> = ({
               )}
 
               {/* Emitir NFS-e dos lançamentos pendentes */}
-              {unbilledCharges.length > 0 && (
+              {unbilledCharges.length > 0 && can('nf.emit.nfse') && (
                 <button onClick={() => setNfOpen(true)}
                   className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-colors">
                   <Receipt className="w-3.5 h-3.5" />

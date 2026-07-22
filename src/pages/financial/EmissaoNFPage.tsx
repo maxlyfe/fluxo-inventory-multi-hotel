@@ -13,6 +13,7 @@ import { PeriodFilter, defaultPeriod, type Period } from '../../components/finan
 import { NFInvoiceModal, type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
+import { usePermissions } from '../../hooks/usePermissions';
 
 // ── Unified reservation type ─────────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ export default function EmissaoNFPage() {
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification();
   const hotelId = selectedHotel?.id || '';
+  const { can } = usePermissions();
 
   const [period, setPeriod] = useState<Period>(defaultPeriod);
   const [filterBy, setFilterBy] = useState<'checkout' | 'checkin'>('checkout');
@@ -390,12 +392,16 @@ export default function EmissaoNFPage() {
           {selected.size >= 2 && !batchTipoNf && (
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-sm text-gray-500">{selected.size} selecionada(s)</span>
+              {can('nf.emit.nfse') && (
               <button onClick={() => handleBatchStart('nfse')} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
                 <Zap className="w-4 h-4" /> Emitir NFS-e em Lote
               </button>
+              )}
+              {can('nf.emit.nfe') && (
               <button onClick={() => handleBatchStart('nfe')} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
                 <Zap className="w-4 h-4" /> Emitir NF-e em Lote
               </button>
+              )}
             </div>
           )}
         </div>
@@ -455,6 +461,7 @@ export default function EmissaoNFPage() {
               isSelected={selected.has(r.id)}
               onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
               onToggleSelect={() => toggleSelect(r.id)}
+              canEmit={can('nf.emit.nfse')}
               onEmit={() => handleOpenEmission(r)}
               onViewNF={() => r.invoiceId && setViewerInvoiceId(r.invoiceId)}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
@@ -511,12 +518,13 @@ interface ReservationCardProps {
   isSelected: boolean;
   onToggleExpand: () => void;
   onToggleSelect: () => void;
+  canEmit: boolean;
   onEmit: () => void;
   onViewNF: () => void;
   onMarkAdequate: () => void;
 }
 
-function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
+function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmit, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
   };
@@ -592,7 +600,7 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            {activeTab === 'adequadas' && (
+            {activeTab === 'adequadas' && canEmit && (
               <button onClick={onEmit} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
                 <FileText className="w-4 h-4" /> Emitir NF
               </button>

@@ -59,7 +59,16 @@ export const MODULES: Module[] = [
   { key: 'omnibees_pms',         label: 'Integração Omnibees',  description: 'Channel manager Omnibees (reservas dos canais)', group: 'Administração',  icon: 'Globe'         },
   { key: 'whatsapp_integration', label: 'Integração WhatsApp',  description: 'Configuração da API Meta/WhatsApp',        group: 'Administração',       icon: 'MessageSquare' },
   { key: 'fnrh_integration',    label: 'Integração FNRH Gov', description: 'Envio automático de fichas ao Governo Federal', group: 'Administração',    icon: 'FileText'      },
-  { key: 'nf_integration',      label: 'NF-e / NFS-e',        description: 'Configuração e emissão de notas fiscais',     group: 'Administração',    icon: 'Receipt'       },
+  { key: 'nf_integration',      label: 'NF-e / NFS-e — Configuração', description: 'Acesso à tela de configuração fiscal (/admin/nfe)', group: 'Administração',    icon: 'Receipt'       },
+
+  // ── Sub-permissões (convenção 'area.acao') ──────────────────────────────
+  // Framework granular: cada ação/tela/relatório é uma chave própria, agrupada
+  // por área. Adicionar 1 linha aqui já a faz aparecer sozinha em /admin/roles
+  // (o RolesManagement renderiza por grupo). Gatear o uso com can('area.acao').
+  { key: 'nf.emit.nfce',        label: 'Emitir NFC-e (Consumidor)', description: 'Emitir cupom fiscal NFC-e nas reservas',   group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
+  { key: 'nf.emit.nfe',         label: 'Emitir NF-e (Produtos)',    description: 'Emitir NF-e modelo 55 de produtos',        group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
+  { key: 'nf.emit.nfse',        label: 'Emitir NFS-e (Serviços)',   description: 'Emitir NFS-e de serviços (diárias, taxas)', group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
+  { key: 'nf.emit.devolucao',   label: 'Emitir NF-e de Devolução',  description: 'Emitir NF-e de devolução (finNFe=4)',      group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
 ];
 
 // Gera módulos dinâmicos de setor — chamado pelo RolesManagement com dados do banco
@@ -67,11 +76,13 @@ export const MODULES: Module[] = [
 export function buildSectorModules(
   sectors: { id: string; name: string; hotelName?: string | null }[]
 ): Module[] {
+  // Agrupa por unidade: cada hotel vira um grupo próprio ('Stock por Setor · Hotel'),
+  // deixando a lista de setores organizada por unidade no editor de perfis.
   return sectors.map(s => ({
     key:         `sector_stock:${s.id}`,
-    label:       s.hotelName ? `${s.name} — ${s.hotelName}` : s.name,
-    description: s.hotelName ? s.hotelName : `Stock do setor ${s.name}`,
-    group:       'Stock por Setor',
+    label:       s.name,
+    description: s.hotelName ? `Stock do setor ${s.name} (${s.hotelName})` : `Stock do setor ${s.name}`,
+    group:       s.hotelName ? `Stock por Setor · ${s.hotelName}` : 'Stock por Setor',
     icon:        'Package',
   }));
 }

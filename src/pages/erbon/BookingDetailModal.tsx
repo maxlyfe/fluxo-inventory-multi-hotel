@@ -21,6 +21,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { nfService } from '../../lib/nfService';
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
 import type { NFInvoice } from '../../types/nf';
+import { usePermissions } from '../../hooks/usePermissions';
 
 interface BookingDetailModalProps {
   hotelId: string;
@@ -46,6 +47,7 @@ function headerColor(b: ErbonBooking): string {
 
 const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, booking: initialBooking, onClose }) => {
   const { addNotification } = useNotification();
+  const { can } = usePermissions();
   const [tab, setTab] = useState<Tab>('resumo');
   const [booking, setBooking] = useState<ErbonBooking>(initialBooking);
   const [refreshing, setRefreshing] = useState(false);
@@ -470,7 +472,8 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                   <p className={`text-xl font-black ${balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtBRL(balance)}</p>
                 </div>
 
-                {/* Barra de emissão de NF */}
+                {/* Barra de emissão de NF — cada botão gateado por permissão do perfil */}
+                {(can('nf.emit.nfse') || can('nf.emit.nfe') || can('nf.emit.nfce')) && (
                 <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 p-3 space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                     {selectedIds.size > 0
@@ -478,20 +481,27 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                       : 'Selecione lançamentos abaixo para emitir a nota fiscal'}
                   </p>
                   <div className="flex flex-wrap gap-2">
+                    {can('nf.emit.nfse') && (
                     <button onClick={() => setNfModalType('nfse')} disabled={selectedIds.size === 0}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed">
                       <ReceiptIcon className="w-3.5 h-3.5" /> NF Serviços
                     </button>
+                    )}
+                    {can('nf.emit.nfe') && (
                     <button onClick={() => setNfModalType('nfe')} disabled={selectedIds.size === 0}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed">
                       <ShoppingBag className="w-3.5 h-3.5" /> NF Consumo
                     </button>
+                    )}
+                    {can('nf.emit.nfce') && (
                     <button onClick={() => setNfModalType('nfce')} disabled={selectedIds.size === 0}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-200 dark:disabled:bg-gray-700/50 text-white disabled:text-gray-400 dark:disabled:text-gray-500 rounded-lg text-xs font-bold transition-all disabled:cursor-not-allowed">
                       <ReceiptIcon className="w-3.5 h-3.5" /> NFC-e
                     </button>
+                    )}
                   </div>
                 </div>
+                )}
 
                 {/* Notas Fiscais Emitidas — revisualizar / reimprimir */}
                 {bookingInvoices.length > 0 && (
