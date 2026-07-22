@@ -165,6 +165,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   // Emitted invoice (for print after emission)
   const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
+  const [tPag, setTPag] = useState('01'); // forma de pagamento (NFC-e/NF-e)
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
 
   // Inline error state (shown within the modal, not just toast)
@@ -764,7 +765,7 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
       };
 
       const draft = await nfService.createDraftInvoice(input);
-      const emitRes = await nfService.emitInvoice(draft.id, hotelId);
+      const emitRes = await nfService.emitInvoice(draft.id, hotelId, tPag);
 
       if (emitRes.success) {
         // Garante os dados do cupom no passo 4 mesmo se o retorno não trouxer a
@@ -1281,6 +1282,28 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                   </div>
                 </div>
               </div>
+
+              {/* Forma de pagamento (só NFC-e/NF-e — NFS-e ABRASF não tem tPag) */}
+              {isProduct && (
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block mb-1">Forma de pagamento</label>
+                  <select
+                    value={tPag}
+                    onChange={e => setTPag(e.target.value)}
+                    className="w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="01">Dinheiro</option>
+                    <option value="17">PIX</option>
+                    <option value="03">Cartão de Crédito</option>
+                    <option value="04">Cartão de Débito</option>
+                    <option value="15">Boleto Bancário</option>
+                    <option value="05">Crédito Loja</option>
+                    <option value="18">Transferência / Carteira Digital</option>
+                    <option value="90">Sem Pagamento</option>
+                    <option value="99">Outros</option>
+                  </select>
+                </div>
+              )}
 
               {/* Items summary list */}
               <div className="space-y-2">
