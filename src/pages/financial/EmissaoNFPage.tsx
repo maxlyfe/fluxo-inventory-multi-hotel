@@ -133,13 +133,29 @@ export default function EmissaoNFPage() {
     setSelected(new Set());
 
     try {
-      // Fetch in parallel: Erbon bookings, internal bookings, existing invoices, NF config
-      const [erbonBookings, internalRes, invoicesRes, nfConfig] = await Promise.all([
-        erbonService.searchBookings(hotelId, {
-          [filterBy === 'checkout' ? 'checkout' : 'checkin']: period.from,
-          ...(filterBy === 'checkout' ? { checkout: period.from } : { checkin: period.from }),
-          status: 'CHECKOUT',
-        }).catch(() => [] as ErbonBooking[]),
+      // Build array of dates in the period (Erbon API accepts one date per call)
+      const dates: string[] = [];
+      const dateKey = filterBy === 'checkout' ? 'checkout' : 'checkin';
+      for (let d = new Date(period.from + 'T12:00:00'); d <= new Date(period.to + 'T12:00:00'); d.setDate(d.getDate() + 1)) {
+        dates.push(d.toISOString().slice(0, 10));
+      }
+
+      // Fetch Erbon bookings for all dates in parallel, plus internal bookings, invoices, config
+      const erbonSettled = await Promise.allSettled(
+        dates.map(date => erbonService.searchBookings(hotelId, { [dateKey]: date, status: 'CHECKOUT' }))
+      );
+      const seen = new Set<number>();
+      const erbonBookings: ErbonBooking[] = [];
+      for (const r of erbonSettled) {
+        if (r.status !== 'fulfilled') continue;
+        for (const b of r.value) {
+          if (b.bookingInternalID && seen.has(b.bookingInternalID)) continue;
+          if (b.bookingInternalID) seen.add(b.bookingInternalID);
+          erbonBookings.push(b);
+        }
+      }
+
+      const [internalRes, invoicesRes, nfConfig] = await Promise.all([
         supabase.from('internal_bookings')
           .select('*')
           .eq('hotel_id', hotelId)
