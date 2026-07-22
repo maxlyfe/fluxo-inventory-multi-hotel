@@ -85,16 +85,16 @@ function internalToUnified(b: any): UnifiedReservation {
     id: `internal-${b.id}`,
     source: 'internal',
     bookingInternalId: null,
-    bookingNumber: b.booking_number || b.id?.slice(0, 8),
+    bookingNumber: b.code || b.id?.slice(0, 8),
     guestName: b.guest_name || 'Hóspede',
     guestDoc: b.guest_doc || null,
     guestDocType: b.guest_doc_type || null,
     guestEmail: b.guest_email || null,
     guestNationality: b.guest_nationality || null,
     roomDescription: b.room_description || '',
-    checkIn: b.check_in,
-    checkOut: b.check_out,
-    totalValue: b.total_value || 0,
+    checkIn: b.checkin,
+    checkOut: b.checkout,
+    totalValue: b.total_rate || 0,
     status: b.status,
     raw: b,
   };
@@ -144,8 +144,8 @@ export default function EmissaoNFPage() {
           .select('*')
           .eq('hotel_id', hotelId)
           .eq('status', 'checkedout')
-          .gte(filterBy === 'checkout' ? 'check_out' : 'check_in', period.from)
-          .lte(filterBy === 'checkout' ? 'check_out' : 'check_in', period.to),
+          .gte(filterBy === 'checkout' ? 'checkout' : 'checkin', period.from)
+          .lte(filterBy === 'checkout' ? 'checkout' : 'checkin', period.to),
         supabase.from('nf_invoices')
           .select('*')
           .eq('hotel_id', hotelId)
