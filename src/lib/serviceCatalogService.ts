@@ -27,6 +27,7 @@ export interface HotelService {
   nfce_eligible: boolean;
   nfce_ncm: string | null;
   nfce_cfop: string | null;
+  nfse_taxa_isenta: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -102,6 +103,7 @@ function shareableFields(svc: HotelService) {
     nfce_eligible: (svc as any).nfce_eligible ?? false,
     nfce_ncm: (svc as any).nfce_ncm ?? null,
     nfce_cfop: (svc as any).nfce_cfop ?? '5102',
+    nfse_taxa_isenta: (svc as any).nfse_taxa_isenta ?? false,
   };
 }
 

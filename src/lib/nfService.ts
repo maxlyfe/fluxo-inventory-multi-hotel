@@ -780,6 +780,20 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         .limit(1)
         .maybeSingle();
 
+      // Taxa de turismo isenta (sai da base do ISS via ValorDeducoes). Match por
+      // nome de serviço marcado como isento na descrição do lançamento.
+      const { data: isentaSvcs } = await supabase
+        .from('services')
+        .select('name')
+        .eq('hotel_id', hotelId)
+        .eq('nfse_taxa_isenta', true)
+        .eq('is_active', true);
+      const normIsenta = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+      const isentaNames = (isentaSvcs || []).map((r: any) => normIsenta(r.name)).filter((n: string) => n.length > 0);
+      const valorDeducoes = (items || [])
+        .filter((i: NFInvoiceItem) => isentaNames.some(n => normIsenta(i.descricao).includes(n)))
+        .reduce((s: number, i: NFInvoiceItem) => s + Number(i.valor_total || 0), 0);
+
       proxyAction = 'emit';
       bodyPayload = {
         action: proxyAction,
@@ -806,6 +820,7 @@ async function emitInvoice(invoiceId: string, hotelId: string): Promise<{ succes
         aliquota_iss: config!.aliquota_iss ?? 5,
         regime_tributario: config!.regime_tributario_nfse,
         optante_simples: config!.regime_tributario_nfse === '1',
+        valor_deducoes: Math.round(valorDeducoes * 100) / 100,
         numero_rps: config!.proximo_numero_nfse || 1,
         serie_rps: config!.serie_nfse || 'RPS',
       };

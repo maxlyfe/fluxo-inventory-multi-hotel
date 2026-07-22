@@ -191,6 +191,7 @@ export interface NfseConfig {
   aliquota_iss: number;
   regime_tributario: string | null;
   optante_simples: boolean;
+  valor_deducoes?: number; // taxa de turismo isenta: soma no valor, sai da base do ISS
 }
 
 export interface EmissaoNfseResult {
@@ -224,7 +225,10 @@ function buildRpsXml(
   const im = prestador.inscricao_municipal.replace(/\D/g, '');
   const valorServicos = items.reduce((s, it) => s + it.valor_total, 0);
   const aliquotaPct = config.aliquota_iss;
-  const valorIss = +(valorServicos * aliquotaPct / 100).toFixed(2);
+  // Taxa de turismo isenta: entra no valor total mas sai da base do ISS
+  const valorDeducoes = +(config.valor_deducoes || 0).toFixed(2);
+  const baseCalculo = +Math.max(0, valorServicos - valorDeducoes).toFixed(2);
+  const valorIss = +(baseCalculo * aliquotaPct / 100).toFixed(2);
 
   const discriminacao = items
     .map(it => `${it.description} - Qtd: ${it.quantidade} x R$ ${it.valor_unitario.toFixed(2)} = R$ ${it.valor_total.toFixed(2)}`)
@@ -299,6 +303,7 @@ function buildRpsXml(
     `<Servico>` +
     `<Valores>` +
     `<ValorServicos>${valorServicos.toFixed(2)}</ValorServicos>` +
+    (valorDeducoes > 0 ? `<ValorDeducoes>${valorDeducoes.toFixed(2)}</ValorDeducoes>` : '') +
     `<ValorIss>${valorIss.toFixed(2)}</ValorIss>` +
     `<Aliquota>${aliquotaPct}</Aliquota>` +
     `</Valores>` +

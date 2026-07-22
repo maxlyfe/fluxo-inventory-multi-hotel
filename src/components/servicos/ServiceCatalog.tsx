@@ -45,6 +45,7 @@ interface EditForm {
   nfce_eligible: boolean;
   nfce_ncm: string;
   nfce_cfop: string;
+  nfse_taxa_isenta: boolean;
 }
 
 const EMPTY_FORM: EditForm = {
@@ -54,6 +55,7 @@ const EMPTY_FORM: EditForm = {
   iss_rate: '5', iss_retained: false, iss_exigibilidade: '1', nbs_code: '',
   ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
   nfce_eligible: false, nfce_ncm: '', nfce_cfop: '5102',
+  nfse_taxa_isenta: false,
 };
 
 const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -142,6 +144,7 @@ const ServiceCatalog: React.FC = () => {
       nfce_eligible: (s as any).nfce_eligible ?? false,
       nfce_ncm: (s as any).nfce_ncm || '',
       nfce_cfop: (s as any).nfce_cfop || '5102',
+      nfse_taxa_isenta: (s as any).nfse_taxa_isenta ?? false,
     });
     setEditOpen(true);
   }
@@ -175,6 +178,7 @@ const ServiceCatalog: React.FC = () => {
         nfce_eligible: form.nfce_eligible,
         nfce_ncm: form.nfce_ncm.trim() || null,
         nfce_cfop: form.nfce_cfop.trim() || '5102',
+        nfse_taxa_isenta: form.nfse_taxa_isenta,
         is_active: true,
       });
       addNotification(form.id ? 'Serviço atualizado.' : 'Serviço criado.', 'success');
@@ -465,6 +469,18 @@ const ServiceCatalog: React.FC = () => {
                     O valor entra na NFC-e como <strong>acréscimo (vOutro)</strong> e soma no total do cupom — não vira produto
                     nem exige NCM. O lançamento na conta da reserva precisa conter o <strong>nome deste serviço</strong> para o
                     sistema reconhecê-lo. Se o acréscimo entra ou não na base do ICMS é definido em <strong>Admin → NF-e → aba NFC-e</strong>.
+                  </p>
+                </div>
+
+                {/* Taxa de turismo isenta de ISS (NFS-e) */}
+                <div className="p-3 rounded-xl border border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/20 space-y-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-teal-800 dark:text-teal-300">
+                    <input type="checkbox" checked={form.nfse_taxa_isenta} onChange={e => setForm(p => ({ ...p, nfse_taxa_isenta: e.target.checked }))} className="rounded" />
+                    Isento de ISS na NFS-e (ex.: taxa de turismo)
+                  </label>
+                  <p className="text-xs text-teal-700/80 dark:text-teal-400/80 -mt-1">
+                    O valor soma no total da NFS-e mas fica <strong>fora da base do ISS</strong> (via ValorDeducoes) — o imposto
+                    incide só sobre as diárias. O lançamento na reserva precisa conter o <strong>nome deste serviço</strong>.
                   </p>
                 </div>
               </div>

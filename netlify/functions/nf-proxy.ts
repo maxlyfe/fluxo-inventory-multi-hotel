@@ -153,7 +153,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       tomador_endereco, tomador_numero, tomador_bairro,
       tomador_codigo_municipio, tomador_uf, tomador_cep,
       items, codigo_municipio, codigo_servico, codigo_cnae, codigo_tributacao_municipio, aliquota_iss,
-      regime_tributario, optante_simples,
+      regime_tributario, optante_simples, valor_deducoes,
       numero_rps, serie_rps,
     } = payload;
 
@@ -200,6 +200,7 @@ const handler: Handler = async (event: HandlerEvent) => {
           aliquota_iss: aliquota_iss ?? 5,
           regime_tributario: regime_tributario || null,
           optante_simples: !!optante_simples,
+          valor_deducoes: Number(valor_deducoes) || 0,
         },
         numeroRps: numero_rps || 1,
         serieRps: serie_rps || 'RPS',
