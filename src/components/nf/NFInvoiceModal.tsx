@@ -76,6 +76,16 @@ export function isServiceEntry(entry: { description: string }) {
   );
 }
 
+// Rótulo da forma de pagamento (tPag SEFAZ) para exibir no cupom
+const TPAG_LABELS: Record<string, string> = {
+  '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão de Crédito', '04': 'Cartão de Débito',
+  '05': 'Crédito Loja', '10': 'Vale Alimentação', '11': 'Vale Refeição', '15': 'Boleto Bancário',
+  '17': 'PIX', '18': 'Transferência / Carteira Digital', '90': 'Sem Pagamento', '99': 'Outros',
+};
+function tPagLabel(code?: string | null): string {
+  return code ? (TPAG_LABELS[code] || `Cód. ${code}`) : '';
+}
+
 // Normaliza descrição para casar com o nome do serviço elegível (minúsculo, sem acento)
 function normDesc(s: string): string {
   return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
@@ -1475,6 +1485,13 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                   <span>TOTAL</span>
                   <span>R$ {Number(emittedInvoice.valor_total).toFixed(2)}</span>
                 </div>
+
+                {emittedInvoice.tipo !== 'nfse' && emittedInvoice.forma_pagamento && (
+                  <div className="flex justify-between text-[10px] mt-0.5">
+                    <span>FORMA DE PAGAMENTO</span>
+                    <span className="font-bold">{tPagLabel(emittedInvoice.forma_pagamento)}</span>
+                  </div>
+                )}
 
                 {emittedInvoice.chave_acesso && (
                   <>

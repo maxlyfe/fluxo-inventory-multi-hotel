@@ -982,6 +982,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, tPag: string = '0
       pdf_url: result.pdf_url || null,
       qrcode_url: result.qrcode_url || null,
       url_consulta: result.url_consulta || null,
+      forma_pagamento: (inv?.tipo === 'nfce' || inv?.tipo === 'nfe') ? tPag : null,
     };
 
     if (useADN) {
