@@ -10,10 +10,27 @@ import { supabase } from '../../lib/supabase';
 import { erbonService, type ErbonBooking } from '../../lib/erbonService';
 import { nfService, type BatchEmissionProgress } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
-import { NFInvoiceModal, type CurrentAccountEntry } from '../../components/nf/NFInvoiceModal';
+import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
+
+// Formas de pagamento (tPag SEFAZ) — obrigatória para NF-e, igual ao planning
+const TPAG_OPTIONS: Array<[string, string]> = [
+  ['01', 'Dinheiro'],
+  ['03', 'Cartão de Crédito'],
+  ['04', 'Cartão de Débito'],
+  ['17', 'PIX'],
+  ['15', 'Boleto Bancário'],
+  ['18', 'Transferência / Carteira Digital'],
+  ['05', 'Crédito Loja'],
+  ['99', 'Outros'],
+];
+
+// Normaliza descrição p/ casar com nome de serviço elegível (igual ao modal)
+function normDesc(s: string): string {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
 
 // ── Unified reservation type ─────────────────────────────────────────────────
 
@@ -119,11 +136,19 @@ export default function EmissaoNFPage() {
 
   // Modals
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [invoiceModal, setInvoiceModal] = useState<{ booking: UnifiedReservation; entries: CurrentAccountEntry[] } | null>(null);
+  const [invoiceModal, setInvoiceModal] = useState<{
+    booking: UnifiedReservation;
+    tipo: NFTipo;
+    entries: CurrentAccountEntry[];
+    genericItems?: GenericNFItem[];
+    internalChargeIds?: string[];
+  } | null>(null);
   const [viewerInvoiceId, setViewerInvoiceId] = useState<string | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchEmissionProgress | null>(null);
   const [batchTipoNf, setBatchTipoNf] = useState<NFTipo | null>(null);
+  // Forma de pagamento do lote (obrigatória para NF-e, mesma regra do planning)
+  const [batchTPag, setBatchTPag] = useState('');
 
   // ── Load reservations ─────────────────────────────────────────────────────
 
@@ -197,9 +222,9 @@ export default function EmissaoNFPage() {
 
         const issues: string[] = [];
         if (!r.guestName || r.guestName === 'Hóspede') issues.push('Nome do hóspede ausente');
-        if (!r.guestDoc && !r.guestDocType) {
-          // sem doc é ok (consumidor final), mas marca como revisão se nome tb falta
-        }
+        // NFS-e/NF-e exigem documento do tomador (mesma regra do planning);
+        // só a NFC-e aceita consumidor sem identificação.
+        if (!r.guestDoc) issues.push('Documento (CPF/CNPJ/passaporte) ausente');
         if (r.totalValue <= 0) issues.push('Valor total zero');
 
         if (issues.length > 0) {
@@ -252,79 +277,254 @@ export default function EmissaoNFPage() {
   // ── Batch emission ─────────────────────────────────────────────────────────
 
   const handleBatchStart = (tipo: NFTipo) => {
+    setBatchTPag('');
     setBatchTipoNf(tipo);
+  };
+
+  // Busca os lançamentos de débito da conta corrente Erbon (excluindo já emitidos)
+  const fetchErbonDebits = async (bookingInternalId: number, emitted: Map<number, string>): Promise<CurrentAccountEntry[]> => {
+    const account = await erbonService.fetchBookingAccount(hotelId, bookingInternalId);
+    return (account || [])
+      .filter((e: any) => e.isDebit && !emitted.has(e.id))
+      .map((e: any) => ({
+        id: e.id,
+        description: e.description || 'Item',
+        amount: e.amount ?? 0,
+        isDebit: true,
+        isCredit: false,
+        currency: e.currency || 'BRL',
+        isInvoiced: !!e.isInvoiced,
+        idDepartment: e.idDepartment ?? 0,
+      }));
+  };
+
+  // Lançamentos internos ainda não faturados (mesma fonte do planning)
+  const fetchInternalCharges = async (internalBookingId: string) => {
+    const { data } = await supabase
+      .from('internal_booking_charges')
+      .select('id, service_id, description, quantity, total, invoice_id')
+      .eq('booking_id', internalBookingId);
+    return (data || []).filter((c: any) => !c.invoice_id);
   };
 
   const handleBatchConfirm = async () => {
     if (!batchTipoNf || selected.size === 0) return;
+    if (batchTipoNf === 'nfe' && !batchTPag) {
+      addNotification('error', 'Selecione a forma de pagamento antes de emitir NF-e em lote.');
+      return;
+    }
     setBatchRunning(true);
     setBatchProgress(null);
 
+    const failures: Array<{ label: string; error: string }> = [];
+    const invoiceIds: string[] = [];
+    const pagamentosById: Record<string, { tPag: string; vPag: number }[]> = {};
+    const chargesByInvoice: Record<string, string[]> = {};
+
     try {
-      // Create draft invoices for each selected reservation
-      const invoiceIds: string[] = [];
       const selectedReservations = filtered.filter(r => selected.has(r.id));
+      const [nfceEligible, emitted] = await Promise.all([
+        nfService.getNfceEligibleServices(hotelId).catch(() => []),
+        nfService.getEmittedEntries(hotelId).catch(() => new Map<number, string>()),
+      ]);
+      const isAcrescimo = (e: { description: string }) =>
+        nfceEligible.some(s => normDesc(e.description).includes(s.name));
 
+      // 1. Monta o rascunho de cada reserva com os itens reais da conta,
+      //    aplicando as mesmas regras do modal (serviços × produtos separados)
       for (const r of selectedReservations) {
-        const { data: inv, error } = await supabase.from('nf_invoices').insert({
-          hotel_id: hotelId,
-          tipo: batchTipoNf,
-          erbon_booking_id: r.bookingInternalId,
-          booking_number: r.bookingNumber,
-          room_description: r.roomDescription,
-          tomador_nome: r.guestName,
-          tomador_cpf_cnpj: r.guestDoc,
-          tomador_doc_tipo: r.guestDocType || 'cpf',
-          tomador_email: r.guestEmail,
-          valor_total: r.totalValue,
-          valor_deducoes: 0,
-          valor_iss: 0,
-          base_calculo: r.totalValue,
-          aliquota: 0,
-          status: 'rascunho',
-        }).select('id').single();
+        const label = `${r.guestName} (#${r.bookingNumber})`;
+        try {
+          if (!r.guestDoc) {
+            failures.push({ label, error: 'Sem documento do tomador (obrigatório para NFS-e/NF-e). Emita individualmente informando o documento.' });
+            continue;
+          }
 
-        if (error) throw error;
-        invoiceIds.push(inv.id);
+          let internalChargeIds: string[] = [];
+          let items: Array<{
+            erbon_entry_id: number | null; descricao: string; quantidade: number;
+            valor_unitario: number; valor_total: number;
+            ncm?: string | null; cfop?: string | null; icms_aliquota?: number | null; icms_valor?: number | null;
+            codigo_servico?: string | null; iss_aliquota?: number | null; iss_valor?: number | null;
+          }> = [];
+
+          if (r.source === 'erbon' && r.bookingInternalId) {
+            const debits = await fetchErbonDebits(r.bookingInternalId, emitted);
+            const services = debits.filter(e => isServiceEntry(e) && !isAcrescimo(e));
+            const products = debits.filter(e => !isServiceEntry(e) || isAcrescimo(e));
+
+            if (batchTipoNf === 'nfse') {
+              if (services.length === 0) {
+                failures.push({ label, error: 'Nenhum lançamento de serviço pendente na conta.' });
+                continue;
+              }
+              const svcFiscal = await nfService.resolveServiceFiscalData(
+                hotelId,
+                services.map(e => ({ id: e.id, description: e.description, amount: e.amount })),
+              ).catch(() => null);
+              items = services.map(e => {
+                const svc = svcFiscal?.items.find(s => s.erbon_entry_id === e.id);
+                return {
+                  erbon_entry_id: e.id,
+                  descricao: e.description,
+                  quantidade: 1,
+                  valor_unitario: e.amount,
+                  valor_total: e.amount,
+                  codigo_servico: svc?.codigo_servico ?? null,
+                  iss_aliquota: svc?.iss_aliquota ?? null,
+                  iss_valor: svc?.iss_aliquota != null ? Math.round(e.amount * svc.iss_aliquota) / 100 : null,
+                };
+              });
+            } else {
+              if (products.length === 0) {
+                failures.push({ label, error: 'Nenhum lançamento de produto pendente na conta.' });
+                continue;
+              }
+              const realProducts = products.filter(e => !isAcrescimo(e));
+              const fiscal = realProducts.length > 0
+                ? await nfService.resolveEntryFiscalData(
+                    hotelId,
+                    realProducts.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment })),
+                  )
+                : { items: [], warnings: [], hasErrors: false };
+              if (fiscal.hasErrors) {
+                failures.push({ label, error: 'Dados fiscais dos produtos com pendências (NCM/tributação). Emita individualmente para revisar.' });
+                continue;
+              }
+              items = products.map(e => {
+                const f = fiscal.items.find(fi => fi.erbon_entry_id === e.id);
+                const elig = isAcrescimo(e);
+                return {
+                  erbon_entry_id: e.id,
+                  descricao: e.description,
+                  quantidade: 1,
+                  valor_unitario: e.amount,
+                  valor_total: e.amount,
+                  ...(!elig && f ? {
+                    ncm: f.ncm || null,
+                    cfop: '5102',
+                    icms_aliquota: f.tax_percentage ?? null,
+                    icms_valor: f.tax_percentage != null ? e.amount * (f.tax_percentage / 100) : null,
+                  } : {}),
+                };
+              });
+            }
+          } else {
+            // Reserva interna: lançamentos do catálogo de serviços
+            if (batchTipoNf !== 'nfse') {
+              failures.push({ label, error: 'Reserva interna: apenas NFS-e é suportada em lote.' });
+              continue;
+            }
+            const charges = await fetchInternalCharges(r.raw.id);
+            if (charges.length === 0) {
+              failures.push({ label, error: 'Nenhum lançamento pendente de faturamento nesta reserva.' });
+              continue;
+            }
+            internalChargeIds = charges.map((c: any) => c.id);
+            const svcFiscal = await nfService.resolveServiceFiscalData(
+              hotelId,
+              charges.map((c: any, i: number) => ({ id: -(i + 1), description: c.description, amount: c.total, service_id: c.service_id })),
+            ).catch(() => null);
+            items = charges.map((c: any, i: number) => {
+              const svc = svcFiscal?.items.find(s => s.erbon_entry_id === -(i + 1));
+              return {
+                erbon_entry_id: null,
+                descricao: c.quantity !== 1 ? `${c.description} (${c.quantity}x)` : c.description,
+                quantidade: 1,
+                valor_unitario: c.total,
+                valor_total: c.total,
+                codigo_servico: svc?.codigo_servico ?? null,
+                iss_aliquota: svc?.iss_aliquota ?? null,
+                iss_valor: svc?.iss_aliquota != null ? Math.round(c.total * svc.iss_aliquota) / 100 : null,
+              };
+            });
+          }
+
+          const draft = await nfService.createDraftInvoice({
+            hotel_id: hotelId,
+            tipo: batchTipoNf,
+            erbon_booking_id: r.bookingInternalId,
+            booking_number: r.bookingNumber,
+            room_description: r.roomDescription || null,
+            tomador_nome: r.guestName,
+            tomador_cpf_cnpj: r.guestDoc,
+            tomador_doc_tipo: r.guestDocType || 'cpf',
+            tomador_nacionalidade: r.guestNationality,
+            tomador_email: r.guestEmail,
+            tomador_endereco: null,
+            items,
+            emitido_por: null,
+          });
+          invoiceIds.push(draft.id);
+          if (batchTipoNf === 'nfe') {
+            const total = +items.reduce((s, i) => s + i.valor_total, 0).toFixed(2);
+            pagamentosById[draft.id] = [{ tPag: batchTPag, vPag: total }];
+          }
+          if (r.source === 'internal' && internalChargeIds.length > 0) {
+            chargesByInvoice[draft.id] = internalChargeIds;
+          }
+        } catch (err: any) {
+          failures.push({ label, error: err.message || String(err) });
+        }
       }
 
-      const result = await nfService.batchEmitInvoices(invoiceIds, hotelId, setBatchProgress);
-      addNotification(
-        result.failures.length === 0 ? 'success' : 'warning',
-        `Lote concluído: ${result.successes.length} sucesso(s), ${result.failures.length} falha(s)`,
-      );
+      // 2. Emite os rascunhos criados
+      if (invoiceIds.length > 0) {
+        const result = await nfService.batchEmitInvoices(invoiceIds, hotelId, setBatchProgress, 1000, pagamentosById);
+        // Vincula lançamentos internos faturados às notas autorizadas
+        for (const invId of result.successes) {
+          const chargeIds = chargesByInvoice[invId];
+          if (chargeIds?.length) {
+            await supabase.from('internal_booking_charges').update({ invoice_id: invId }).in('id', chargeIds);
+          }
+        }
+        result.failures.forEach(f => failures.push({ label: `Nota ${f.invoiceId.slice(0, 8)}`, error: f.error }));
+        const okCount = result.successes.length;
+        if (failures.length === 0) {
+          addNotification('success', `Lote concluído: ${okCount} nota(s) emitida(s) com sucesso.`);
+        } else {
+          addNotification('warning', `Lote concluído: ${okCount} sucesso(s), ${failures.length} falha(s). ${failures.map(f => `${f.label}: ${f.error}`).join(' | ')}`);
+        }
+      } else {
+        addNotification('error', `Nenhuma nota emitida. ${failures.map(f => `${f.label}: ${f.error}`).join(' | ')}`);
+      }
       loadReservations();
     } catch (err: any) {
       addNotification('error', `Erro no lote: ${err.message}`);
     } finally {
       setBatchRunning(false);
       setBatchTipoNf(null);
+      setBatchTPag('');
       setSelected(new Set());
     }
   };
 
   // ── Open single emission ───────────────────────────────────────────────────
 
-  const handleOpenEmission = async (r: ClassifiedReservation) => {
-    let entries: CurrentAccountEntry[] = [];
+  const handleOpenEmission = async (r: ClassifiedReservation, tipo: NFTipo) => {
     if (r.source === 'erbon' && r.bookingInternalId) {
+      let entries: CurrentAccountEntry[] = [];
       try {
-        const account = await erbonService.fetchBookingAccount(hotelId, r.bookingInternalId);
-        entries = (account || [])
-          .filter((e: any) => e.isDebit)
-          .map((e: any) => ({
-            id: e.id,
-            description: e.description || 'Item',
-            amount: e.amount ?? 0,
-            isDebit: true,
-            isCredit: false,
-            currency: e.currency || 'BRL',
-            isInvoiced: !!e.isInvoiced,
-            idDepartment: e.idDepartment ?? 0,
-          }));
+        const emitted = await nfService.getEmittedEntries(hotelId).catch(() => new Map<number, string>());
+        entries = await fetchErbonDebits(r.bookingInternalId, emitted);
       } catch { /* conta corrente pode não estar disponível */ }
+      setInvoiceModal({ booking: r, tipo, entries });
+      return;
     }
-    setInvoiceModal({ booking: r, entries });
+    // Reserva interna: passa os lançamentos como itens genéricos (com service_id
+    // do catálogo), igual ao fluxo do planning
+    const charges = await fetchInternalCharges(r.raw.id).catch(() => []);
+    const genericItems: GenericNFItem[] = charges.map((c: any, i: number) => ({
+      id: -(i + 1),
+      description: c.quantity !== 1 ? `${c.description} (${c.quantity}x)` : c.description,
+      amount: c.total,
+      service_id: c.service_id,
+    }));
+    if (genericItems.length === 0) {
+      addNotification('error', 'Esta reserva interna não tem lançamentos pendentes de faturamento.');
+      return;
+    }
+    setInvoiceModal({ booking: r, tipo, entries: [], genericItems, internalChargeIds: charges.map((c: any) => c.id) });
   };
 
   // ── Mark as adequate ───────────────────────────────────────────────────────
@@ -429,9 +629,30 @@ export default function EmissaoNFPage() {
           <p className="font-semibold text-amber-800 dark:text-amber-200">
             Emitir {selected.size} {batchTipoNf === 'nfse' ? 'NFS-e' : 'NF-e'}(s) em lote?
           </p>
-          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">As notas serão emitidas sequencialmente com intervalo de 1s entre cada.</p>
+          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+            {batchTipoNf === 'nfse'
+              ? 'Somente os lançamentos de serviço de cada conta entram na nota. As notas serão emitidas sequencialmente com intervalo de 1s.'
+              : 'Somente os lançamentos de produto de cada conta entram na nota. As notas serão emitidas sequencialmente com intervalo de 1s.'}
+          </p>
+          {batchTipoNf === 'nfe' && (
+            <div className="mt-3">
+              <label className="block text-xs font-semibold text-amber-800 dark:text-amber-200 mb-1">Forma de pagamento (obrigatória)</label>
+              <select
+                value={batchTPag}
+                onChange={e => setBatchTPag(e.target.value)}
+                className="text-sm border border-amber-300 dark:border-amber-700 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800"
+              >
+                <option value="">Selecione...</option>
+                {TPAG_OPTIONS.map(([code, lbl]) => <option key={code} value={code}>{lbl}</option>)}
+              </select>
+            </div>
+          )}
           <div className="flex gap-2 mt-3">
-            <button onClick={handleBatchConfirm} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium">Confirmar</button>
+            <button
+              onClick={handleBatchConfirm}
+              disabled={batchTipoNf === 'nfe' && !batchTPag}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium"
+            >Confirmar</button>
             <button onClick={() => setBatchTipoNf(null)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-medium">Cancelar</button>
           </div>
         </div>
@@ -477,8 +698,9 @@ export default function EmissaoNFPage() {
               isSelected={selected.has(r.id)}
               onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
               onToggleSelect={() => toggleSelect(r.id)}
-              canEmit={can('nf.emit.nfse')}
-              onEmit={() => handleOpenEmission(r)}
+              canEmitNfse={can('nf.emit.nfse')}
+              canEmitNfe={can('nf.emit.nfe')}
+              onEmit={(tipo) => handleOpenEmission(r, tipo)}
               onViewNF={() => r.invoiceId && setViewerInvoiceId(r.invoiceId)}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
             />
@@ -491,11 +713,11 @@ export default function EmissaoNFPage() {
         <NFInvoiceModal
           isOpen
           onClose={() => setInvoiceModal(null)}
-          tipo="nfse"
+          tipo={invoiceModal.tipo}
           hotelId={hotelId}
           booking={{
             bookingInternalID: invoiceModal.booking.bookingInternalId,
-            erbonNumber: invoiceModal.booking.bookingNumber,
+            erbonNumber: invoiceModal.booking.source === 'erbon' ? invoiceModal.booking.bookingNumber : null,
             roomDescription: invoiceModal.booking.roomDescription,
             guestList: [{
               name: invoiceModal.booking.guestName,
@@ -505,7 +727,14 @@ export default function EmissaoNFPage() {
             }],
           }}
           selectedEntries={invoiceModal.entries}
-          onSuccess={() => {
+          genericItems={invoiceModal.genericItems}
+          onSuccess={async (invoiceId) => {
+            // Reserva interna: vincula a nota aos lançamentos faturados
+            if (invoiceId && invoiceModal.internalChargeIds?.length) {
+              await supabase.from('internal_booking_charges')
+                .update({ invoice_id: invoiceId })
+                .in('id', invoiceModal.internalChargeIds);
+            }
             setInvoiceModal(null);
             loadReservations();
           }}
@@ -534,13 +763,14 @@ interface ReservationCardProps {
   isSelected: boolean;
   onToggleExpand: () => void;
   onToggleSelect: () => void;
-  canEmit: boolean;
-  onEmit: () => void;
+  canEmitNfse: boolean;
+  canEmitNfe: boolean;
+  onEmit: (tipo: NFTipo) => void;
   onViewNF: () => void;
   onMarkAdequate: () => void;
 }
 
-function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmit, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
+function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfe, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
   };
@@ -616,9 +846,14 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            {activeTab === 'adequadas' && canEmit && (
-              <button onClick={onEmit} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
-                <FileText className="w-4 h-4" /> Emitir NF
+            {activeTab === 'adequadas' && canEmitNfse && (
+              <button onClick={() => onEmit('nfse')} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
+                <FileText className="w-4 h-4" /> Emitir NFS-e (Serviços)
+              </button>
+            )}
+            {activeTab === 'adequadas' && canEmitNfe && (
+              <button onClick={() => onEmit('nfe')} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
+                <FileText className="w-4 h-4" /> Emitir NF-e (Produtos)
               </button>
             )}
             {activeTab === 'revisao' && (

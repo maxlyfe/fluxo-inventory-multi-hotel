@@ -1197,6 +1197,7 @@ async function batchEmitInvoices(
   hotelId: string,
   onProgress?: (progress: BatchEmissionProgress) => void,
   delayMs = 1000,
+  pagamentosById?: Record<string, { tPag: string; vPag: number }[]>,
 ): Promise<{ successes: string[]; failures: Array<{ invoiceId: string; error: string }> }> {
   const successes: string[] = [];
   const failures: Array<{ invoiceId: string; error: string }> = [];
@@ -1211,7 +1212,7 @@ async function batchEmitInvoices(
       currentLabel: `Emitindo nota ${i + 1} de ${invoiceIds.length}...`,
     });
 
-    const result = await emitInvoice(invoiceId, hotelId);
+    const result = await emitInvoice(invoiceId, hotelId, pagamentosById?.[invoiceId]);
     if (result.success) {
       successes.push(invoiceId);
     } else {
