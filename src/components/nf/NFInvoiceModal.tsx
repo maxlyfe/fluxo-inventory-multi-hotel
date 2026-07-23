@@ -892,7 +892,7 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
             <div className="space-y-4">
               <div>
                 <h4 className="text-sm font-bold text-gray-800 dark:text-white mb-1">Selecione os lançamentos da nota</h4>
-                <p className="text-xs text-gray-400">Classificação baseada nos tipos de departamento da reserva.</p>
+                <p className="text-xs text-gray-400">Clique no lançamento para incluir ou remover da nota.</p>
               </div>
 
               {/* Active list */}
@@ -904,18 +904,21 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                       const fiscalItem = fiscalData?.items.find(f => f.erbon_entry_id === item.id);
                       const svcItem = tipo === 'nfse' ? serviceFiscal?.items.find(s => s.erbon_entry_id === item.id) : undefined;
                       const isAcrescimoItem = isProduct && nfceEligible.some(s => matchesEligibleService(item.description, s));
+                      const isChecked = checkedItemIds.has(item.id);
                       return (
-                        <label
+                        <div
                           key={item.id}
-                          className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-900/30 cursor-pointer text-sm transition-colors"
+                          onClick={() => handleToggleItem(item.id)}
+                          className={`flex items-center justify-between p-3 cursor-pointer text-sm transition-colors hover:bg-sky-50 dark:hover:bg-sky-900/10 ${
+                            isChecked ? 'bg-sky-50 dark:bg-sky-900/20 ring-1 ring-inset ring-sky-300 dark:ring-sky-700' : ''
+                          }`}
                         >
                           <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={checkedItemIds.has(item.id)}
-                              onChange={() => handleToggleItem(item.id)}
-                              className="rounded border-gray-300 text-amber-500 focus:ring-amber-500 w-4 h-4"
-                            />
+                            <div className="shrink-0 w-5 flex justify-center">
+                              {isChecked
+                                ? <CheckCircle2 className="w-4 h-4 text-sky-500" />
+                                : <span className="inline-block w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600" />}
+                            </div>
                             <div>
                               <span className="text-gray-850 dark:text-gray-200 font-medium block">{item.description}</span>
                               <div className="flex items-center gap-2 mt-0.5">
@@ -972,10 +975,10 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                               )}
                             </div>
                           </div>
-                          <span className="font-mono font-bold text-gray-700 dark:text-gray-300">
+                          <span className="font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
                             {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>
@@ -1022,7 +1025,9 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                     {ignoredItems.map((item) => (
                       <div key={item.id} className="flex items-center justify-between p-3 text-xs">
                         <div className="flex items-center gap-3">
-                          <input type="checkbox" disabled checked={false} className="rounded border-gray-300 text-gray-300 w-3.5 h-3.5 cursor-not-allowed" />
+                          <div className="shrink-0 w-5 flex justify-center">
+                            <span className="text-gray-300 dark:text-gray-600">—</span>
+                          </div>
                           <div>
                             <span className="text-gray-500 dark:text-gray-400 font-medium block">{item.description}</span>
                             <span className="text-[10px] text-gray-400">Depto: {item.idDepartment}</span>
