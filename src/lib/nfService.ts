@@ -501,21 +501,38 @@ async function getInvoiceItems(invoiceId: string): Promise<NFInvoiceItem[]> {
 
 // ─── Emitted Entries (rastreio de itens já faturados) ────────────────────────
 
-async function getEmittedEntries(hotelId: string): Promise<Map<number, string>> {
-  // In homologação, allow re-emission freely (no blocking)
-  const config = await getConfig(hotelId);
-  const isHomolog = config?.ambiente === 'homologacao'
-    || config?.adn_ambiente === 'homologacao'
-    || config?.el_ambiente === 'homologacao';
-  if (isHomolog) return new Map();
+/** Ambiente de emissão do TIPO de nota (não global): uma NFS-e em produção
+ *  bloqueia reemissão mesmo que a NFC-e esteja em homologação, e vice-versa. */
+export function isHomologForTipo(config: NFHotelConfig | null, tipo: NFTipo): boolean {
+  if (!config) return true;
+  if (tipo === 'nfse') {
+    // Mesmos defaults usados na emissão (emitInvoice)
+    if (config.nfse_provider === 'adn') return (config.adn_ambiente || 'homologacao') === 'homologacao';
+    if (config.nfse_provider === 'el-nacional') return (config.el_ambiente || 'homologacao') === 'homologacao';
+    return (config.ambiente || 'producao') === 'homologacao';
+  }
+  return (config.ambiente || 'homologacao') === 'homologacao';
+}
 
+async function getEmittedEntries(hotelId: string): Promise<Map<number, string>> {
+  const config = await getConfig(hotelId);
+
+  // Considera apenas notas válidas (autorizada/contingência) cujo TIPO foi
+  // emitido em produção. Em homologação daquele tipo, libera reemissão.
   const { data, error } = await supabase
     .from('nf_emitted_entries')
-    .select('erbon_entry_id, invoice_id')
+    .select('erbon_entry_id, invoice_id, nf_invoices!inner(tipo, status)')
     .eq('hotel_id', hotelId);
   if (error) throw error;
+
   const map = new Map<number, string>();
-  (data ?? []).forEach((row: NFEmittedEntry) => map.set(row.erbon_entry_id, row.invoice_id));
+  (data ?? []).forEach((row: any) => {
+    const inv = row.nf_invoices;
+    if (!inv) return;
+    if (inv.status !== 'autorizada' && inv.status !== 'contingencia') return;
+    if (isHomologForTipo(config, inv.tipo)) return;
+    map.set(row.erbon_entry_id, row.invoice_id);
+  });
   return map;
 }
 
@@ -701,11 +718,41 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
   try {
     const { data: inv } = await supabase
       .from('nf_invoices')
-      .select('tipo, tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email, tomador_endereco')
+      .select('tipo, status, tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email, tomador_endereco')
       .eq('id', invoiceId)
       .single();
 
+    // Nota já autorizada não pode ser emitida de novo
+    if (inv?.status === 'autorizada') {
+      return { success: false, message: 'Esta nota fiscal já foi autorizada. Para emitir novamente, cancele a nota primeiro.' };
+    }
+
     const config = await getConfig(hotelId);
+
+    // Trava anti-duplicidade em PRODUÇÃO: se algum lançamento desta nota já
+    // consta em outra nota válida (autorizada/contingência) emitida em
+    // produção, bloqueia antes de contatar o fisco. Só cancelar libera.
+    if (inv && !isHomologForTipo(config, inv.tipo as NFTipo)) {
+      const { data: draftItems } = await supabase
+        .from('nf_invoice_items')
+        .select('erbon_entry_id, descricao')
+        .eq('invoice_id', invoiceId)
+        .not('erbon_entry_id', 'is', null);
+      const entryIds = (draftItems || []).map((i: any) => i.erbon_entry_id).filter((id: any) => id != null);
+      if (entryIds.length > 0) {
+        const emitted = await getEmittedEntries(hotelId);
+        const dups = (draftItems || []).filter((i: any) => {
+          const otherInv = emitted.get(i.erbon_entry_id);
+          return otherInv && otherInv !== invoiceId;
+        });
+        if (dups.length > 0) {
+          return {
+            success: false,
+            message: `Emissão bloqueada: ${dups.length} lançamento(s) já possuem NF emitida em produção (${dups.map((d: any) => d.descricao).slice(0, 3).join(', ')}${dups.length > 3 ? '…' : ''}). Cancele a nota anterior para reemitir.`,
+          };
+        }
+      }
+    }
     const useADN = inv?.tipo === 'nfse' && config?.nfse_provider === 'adn';
     const useELNacional = inv?.tipo === 'nfse' && config?.nfse_provider === 'el-nacional';
     // Redirecionamento de NFC-e: se ligado, emite com a identidade fiscal de

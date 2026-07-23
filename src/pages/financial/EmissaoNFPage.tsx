@@ -11,7 +11,7 @@ import { erbonService, type ErbonBooking } from '../../lib/erbonService';
 import { nfService, type BatchEmissionProgress } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
-import { matchesEligibleService } from '../../lib/nfService';
+import { matchesEligibleService, isHomologForTipo } from '../../lib/nfService';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -54,8 +54,8 @@ type TabKey = 'adequadas' | 'revisao' | 'emitida';
 interface ClassifiedReservation extends UnifiedReservation {
   tab: TabKey;
   issues: string[];
-  invoiceId?: string;
-  invoice?: NFInvoice;
+  /** Notas válidas emitidas em produção para esta reserva (qualquer tela de origem) */
+  invoices: NFInvoice[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -191,30 +191,41 @@ export default function EmissaoNFPage() {
         nfService.getConfig(hotelId),
       ]);
 
-      const isHomolog = nfConfig?.ambiente === 'homologacao'
-        || nfConfig?.adn_ambiente === 'homologacao'
-        || nfConfig?.el_ambiente === 'homologacao';
-
       const unified: UnifiedReservation[] = [
         ...erbonBookings.map(erbonToUnified),
         ...(internalRes.data || []).map(internalToUnified),
       ];
 
-      // Build invoice lookup: booking_number -> invoice
-      const invoiceMap = new Map<string, NFInvoice>();
-      const invoiceByErbonId = new Map<number, NFInvoice>();
+      // Lookup de notas por reserva (TODAS, não só a última): uma reserva pode
+      // ter NFS-e e NFC-e emitidas em telas diferentes (planning, esta página)
+      const invoiceMap = new Map<string, NFInvoice[]>();
+      const invoiceByErbonId = new Map<number, NFInvoice[]>();
       (invoicesRes.data || []).forEach((inv: NFInvoice) => {
-        if (inv.booking_number) invoiceMap.set(inv.booking_number, inv);
-        if (inv.erbon_booking_id) invoiceByErbonId.set(inv.erbon_booking_id, inv);
+        if (inv.booking_number) {
+          invoiceMap.set(inv.booking_number, [...(invoiceMap.get(inv.booking_number) || []), inv]);
+        }
+        if (inv.erbon_booking_id) {
+          invoiceByErbonId.set(inv.erbon_booking_id, [...(invoiceByErbonId.get(inv.erbon_booking_id) || []), inv]);
+        }
       });
 
       // Classify
       const classified: ClassifiedReservation[] = unified.map(r => {
-        const inv = invoiceMap.get(r.bookingNumber) ||
-          (r.bookingInternalId ? invoiceByErbonId.get(r.bookingInternalId) : undefined);
+        const found = [
+          ...(invoiceMap.get(r.bookingNumber) || []),
+          ...(r.bookingInternalId ? (invoiceByErbonId.get(r.bookingInternalId) || []) : []),
+        ];
+        // dedupe por id e mantém só notas do TIPO emitido em produção — homolog
+        // de um tipo não libera reemissão do outro
+        const seen = new Set<string>();
+        const blocking = found.filter(inv => {
+          if (seen.has(inv.id)) return false;
+          seen.add(inv.id);
+          return !isHomologForTipo(nfConfig, inv.tipo);
+        });
 
-        if (!isHomolog && inv && (inv.status === 'autorizada' || inv.status === 'contingencia')) {
-          return { ...r, tab: 'emitida' as TabKey, issues: [], invoiceId: inv.id, invoice: inv };
+        if (blocking.length > 0) {
+          return { ...r, tab: 'emitida' as TabKey, issues: [], invoices: blocking };
         }
 
         const issues: string[] = [];
@@ -225,10 +236,10 @@ export default function EmissaoNFPage() {
         if (r.totalValue <= 0) issues.push('Valor total zero');
 
         if (issues.length > 0) {
-          return { ...r, tab: 'revisao' as TabKey, issues };
+          return { ...r, tab: 'revisao' as TabKey, issues, invoices: [] };
         }
 
-        return { ...r, tab: 'adequadas' as TabKey, issues: [] };
+        return { ...r, tab: 'adequadas' as TabKey, issues: [], invoices: [] };
       });
 
       setReservations(classified);
@@ -528,7 +539,7 @@ export default function EmissaoNFPage() {
   // ── Mark as adequate ───────────────────────────────────────────────────────
 
   const handleMarkAdequate = (id: string) => {
-    setReservations(prev => prev.map(r => r.id === id ? { ...r, tab: 'adequadas' as TabKey, issues: [] } : r));
+    setReservations(prev => prev.map(r => r.id === id ? { ...r, tab: 'adequadas' as TabKey, issues: [], invoices: [] } : r));
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -699,7 +710,7 @@ export default function EmissaoNFPage() {
               canEmitNfse={can('nf.emit.nfse')}
               canEmitNfce={can('nf.emit.nfce')}
               onEmit={(tipo) => handleOpenEmission(r, tipo)}
-              onViewNF={() => r.invoiceId && setViewerInvoiceId(r.invoiceId)}
+              onViewNF={(invoiceId) => setViewerInvoiceId(invoiceId)}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
             />
           ))}
@@ -764,7 +775,7 @@ interface ReservationCardProps {
   canEmitNfse: boolean;
   canEmitNfce: boolean;
   onEmit: (tipo: NFTipo) => void;
-  onViewNF: () => void;
+  onViewNF: (invoiceId: string) => void;
   onMarkAdequate: () => void;
 }
 
@@ -821,10 +832,15 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
               ))}
             </div>
           )}
-          {activeTab === 'emitida' && r.invoice && (
-            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-              {r.invoice.tipo === 'nfse' ? 'NFS-e' : 'NF-e'} {r.invoice.numero_nf ? `nº ${r.invoice.numero_nf}` : ''}
-            </span>
+          {activeTab === 'emitida' && r.invoices.length > 0 && (
+            <div className="flex flex-col items-end gap-0.5">
+              {r.invoices.map(inv => (
+                <span key={inv.id} className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                  {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'} {inv.numero_nf ? `nº ${inv.numero_nf}` : ''}
+                  {inv.status === 'contingencia' ? ' · contingência' : ''}
+                </span>
+              ))}
+            </div>
           )}
           <span className="font-bold text-gray-900 dark:text-white whitespace-nowrap">
             R$ {r.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -861,23 +877,39 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
             )}
             {activeTab === 'emitida' && (
               <>
-                <button onClick={onViewNF} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
-                  <Eye className="w-4 h-4" /> Ver NF
-                </button>
-                {r.invoice?.xml_retorno && (
-                  <button
-                    onClick={() => {
-                      const blob = new Blob([r.invoice!.xml_retorno!], { type: 'application/xml' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `NF_${r.invoice!.numero_nf || r.invoiceId}.xml`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <Download className="w-4 h-4" /> XML
+                {r.invoices.map(inv => (
+                  <React.Fragment key={inv.id}>
+                    <button onClick={() => onViewNF(inv.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
+                      <Eye className="w-4 h-4" /> Ver {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}{inv.numero_nf ? ` nº ${inv.numero_nf}` : ''}
+                    </button>
+                    {inv.xml_retorno && (
+                      <button
+                        onClick={() => {
+                          const blob = new Blob([inv.xml_retorno!], { type: 'application/xml' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `NF_${inv.numero_nf || inv.id}.xml`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <Download className="w-4 h-4" /> XML
+                      </button>
+                    )}
+                  </React.Fragment>
+                ))}
+                {/* Emite apenas o tipo que ainda NÃO tem nota válida em produção;
+                    os lançamentos já emitidos ficam de fora automaticamente */}
+                {canEmitNfse && !r.invoices.some(inv => inv.tipo === 'nfse') && (
+                  <button onClick={() => onEmit('nfse')} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
+                    <FileText className="w-4 h-4" /> Emitir NFS-e (Serviços)
+                  </button>
+                )}
+                {canEmitNfce && !r.invoices.some(inv => inv.tipo === 'nfce') && (
+                  <button onClick={() => onEmit('nfce')} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors">
+                    <FileText className="w-4 h-4" /> Emitir NFC-e (Consumidor)
                   </button>
                 )}
               </>
