@@ -240,7 +240,11 @@ const BookingModal: React.FC<{
   const [deletingGuestId, setDeletingGuestId] = useState<number | null>(null);
 
   const nights = getNights(booking.checkInDateTime, booking.checkOutDateTime);
-  const isPending = booking.status !== 'CHECKIN';
+  // Cancelamento pode vir em status OU confirmedStatus (CANCELLED/CANCELADA)
+  const isCancelled = `${booking.status || ''} ${(booking as any).confirmedStatus || ''}`.toUpperCase().includes('CANCEL');
+  const isPending = booking.status !== 'CHECKIN' && booking.status !== 'CHECKOUT';
+  // Check-in não pode ser dado em reserva cancelada
+  const canCheckIn = isPending && !isCancelled;
 
   // Merge guestList + in-house
   const allGuests: UnifiedGuest[] = React.useMemo(() => {
@@ -324,7 +328,7 @@ const BookingModal: React.FC<{
                 </div>
               </div>
             </div>
-            {isPending && (
+            {canCheckIn && (
               <button onClick={handleCheckIn} disabled={checkingIn}
                 className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-700 hover:bg-emerald-50 font-semibold rounded-xl shadow-lg transition disabled:opacity-50">
                 {checkingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
@@ -334,6 +338,13 @@ const BookingModal: React.FC<{
           </div>
         </div>
       </div>
+
+      {/* Aviso: reserva cancelada não pode dar check-in */}
+      {isCancelled && (
+        <div className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+          Reserva cancelada na Erbon. Check-in não está disponível.
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl mb-5">
@@ -537,9 +548,9 @@ const CheckInList: React.FC = () => {
     [date],
   );
 
-  // Pendentes: ainda não entraram; Realizados: já deram entrada na data
-  // escolhida (inclui quem já saiu depois)
-  const pending = (bookings || []).filter(b => b.status !== 'CHECKIN' && b.status !== 'CHECKOUT' && b.status !== 'CANCELLED');
+  // Pendentes: ainda não entraram (canceladas continuam visíveis, com badge,
+  // mas o modal bloqueia o check-in); Realizados: já deram entrada na data
+  const pending = (bookings || []).filter(b => b.status !== 'CHECKIN' && b.status !== 'CHECKOUT');
   const done = (bookings || []).filter(b => b.status === 'CHECKIN' || b.status === 'CHECKOUT');
   const viewList = view === 'pendentes' ? pending : done;
 

@@ -47,9 +47,19 @@ interface CheckoutRow {
   nights: number;
   status: string;
   isCheckedOut: boolean;
+  isCancelled: boolean;
+  /** Só quem está na casa (status CHECKIN) pode dar check-out */
+  canCheckOut: boolean;
+}
+
+// Cancelamento pode vir em status OU confirmedStatus, com grafias variadas
+// (CANCELLED/CANCELADA) — normaliza para não deixar cancelada passar
+function isCancelledBooking(b: ErbonBooking): boolean {
+  return `${b.status || ''} ${(b as any).confirmedStatus || ''}`.toUpperCase().includes('CANCEL');
 }
 
 function bookingToRow(b: ErbonBooking): CheckoutRow {
+  const cancelled = isCancelledBooking(b);
   return {
     bookingId: b.bookingInternalID,
     bookingNumber: String(b.erbonNumber),
@@ -60,7 +70,9 @@ function bookingToRow(b: ErbonBooking): CheckoutRow {
     checkOut: b.checkOutDateTime,
     nights: getNights(b.checkInDateTime, b.checkOutDateTime),
     status: b.status,
-    isCheckedOut: b.status === 'CHECKOUT',
+    isCheckedOut: !cancelled && b.status === 'CHECKOUT',
+    isCancelled: cancelled,
+    canCheckOut: !cancelled && b.status === 'CHECKIN',
   };
 }
 
@@ -167,13 +179,16 @@ const CheckOutModal: React.FC<{
                   <span className="text-xs bg-white/20 text-white/90 px-2 py-0.5 rounded-full font-medium">
                     #{row.bookingNumber}
                   </span>
+                  {row.isCancelled && (
+                    <span className="text-xs bg-red-500/80 text-white px-2 py-0.5 rounded-full font-bold">Cancelada</span>
+                  )}
                   {row.isCheckedOut && (
                     <span className="text-xs bg-white/20 text-white/90 px-2 py-0.5 rounded-full font-medium">Check-out feito</span>
                   )}
                 </div>
               </div>
             </div>
-            {!row.isCheckedOut && (
+            {row.canCheckOut && (
               <button onClick={handleCheckOut} disabled={checkingOut}
                 className="flex items-center gap-2 px-4 py-2 bg-white text-amber-700 hover:bg-amber-50 font-semibold rounded-xl shadow-lg transition disabled:opacity-50">
                 {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
@@ -198,6 +213,18 @@ const CheckOutModal: React.FC<{
         ))}
       </div>
 
+      {/* Avisos de status: cancelada / sem check-in não podem dar check-out */}
+      {row.isCancelled && (
+        <div className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+          Reserva cancelada na Erbon. Check-in e check-out não estão disponíveis.
+        </div>
+      )}
+      {!row.isCancelled && !row.canCheckOut && !row.isCheckedOut && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300">
+          Esta reserva ainda não fez check-in, então o check-out não está disponível. Realize o check-in primeiro na tela de Check-in.
+        </div>
+      )}
+
       {/* Tab: Reserva */}
       {activeTab === 'reserva' && (
         <div className="space-y-4">
@@ -212,7 +239,12 @@ const CheckOutModal: React.FC<{
                 <DetailCard icon={LogOut} label="Check-out" value={fmtDateTime(row.checkOut)} valueColor="text-amber-600 dark:text-amber-400" />
                 <DetailCard icon={Clock} label="Noites" value={`${nights}`} />
                 <DetailCard icon={Users} label="Hóspedes" value={`${inHouseGuests.length} in-house`} />
-                <DetailCard icon={Star} label="Status" value={row.isCheckedOut ? 'Check-out Feito' : 'Aguardando saída'} />
+                <DetailCard icon={Star} label="Status" value={
+                  row.isCancelled ? 'Cancelada'
+                  : row.isCheckedOut ? 'Check-out Feito'
+                  : row.canCheckOut ? 'Aguardando saída'
+                  : 'Sem check-in'
+                } valueColor={row.isCancelled ? 'text-red-600 dark:text-red-400' : undefined} />
                 {booking && <DetailCard icon={DollarSign} label="Total" value={fmtBRL(booking.totalBookingRateWithTax)} />}
               </div>
 
@@ -375,12 +407,10 @@ const CheckOutList: React.FC = () => {
     [date],
   );
 
-  const bookingRows = useMemo(
-    () => (bookings || []).filter(b => b.status !== 'CANCELLED').map(bookingToRow),
-    [bookings],
-  );
+  // Canceladas continuam visíveis (com badge), mas sem ação de check-out
+  const bookingRows = useMemo(() => (bookings || []).map(bookingToRow), [bookings]);
 
-  // Pendentes: hóspedes na casa com saída na data; Realizados: já saíram
+  // Pendentes: saída prevista na data e ainda não saíram; Realizados: já saíram
   const pendingRows = useMemo(() => bookingRows.filter(r => !r.isCheckedOut), [bookingRows]);
   const doneRows = useMemo(() => bookingRows.filter(r => r.isCheckedOut), [bookingRows]);
   const viewRows = view === 'pendentes' ? pendingRows : doneRows;
@@ -532,11 +562,19 @@ const CheckOutList: React.FC = () => {
 
                 {/* Right side: status + action */}
                 <div className="flex-shrink-0 flex flex-col items-end gap-2">
-                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${row.isCheckedOut ? 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}`}>
-                    {row.isCheckedOut ? 'Check-out Feito' : 'Aguardando saída'}
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                    row.isCancelled ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                    : row.isCheckedOut ? 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300'
+                    : row.canCheckOut ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                  }`}>
+                    {row.isCancelled ? 'Cancelada'
+                      : row.isCheckedOut ? 'Check-out Feito'
+                      : row.canCheckOut ? 'Aguardando saída'
+                      : 'Sem check-in'}
                   </span>
                   <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 group-hover:underline">
-                    {row.isCheckedOut ? 'Ver detalhes / NF' : 'Fazer Check-out'}
+                    {row.canCheckOut ? 'Fazer Check-out' : 'Ver detalhes / NF'}
                   </span>
                 </div>
 
