@@ -316,6 +316,7 @@ export default function WCICompanionEntry() {
   const [vehicleRegistration, setVehicleRegistration] = useState('');
   const [documentType, setDocumentType]     = useState('CPF');
   const [documentNumber, setDocumentNumber] = useState('');
+  const [documentExpiration, setDocumentExpiration] = useState('');
   const [country, setCountry]               = useState('BR');
   const [state, setState]                   = useState('');
   const [city, setCity]                     = useState('');
@@ -456,6 +457,7 @@ export default function WCICompanionEntry() {
             if (g.documents?.length) {
               setDocumentType(g.documents[0].documentType || 'CPF');
               setDocumentNumber(g.documents[0].number || '');
+              if (g.documents[0].expirationDate) setDocumentExpiration(g.documents[0].expirationDate.split('T')[0]);
             }
 
             // Perfil completo (da Erbon in-house ou payload raw)
@@ -531,6 +533,10 @@ export default function WCICompanionEntry() {
     if (!domName)               { setError('Nome completo é obrigatório.'); return; }
     if (!email.trim())          { setError('E-mail é obrigatório.'); return; }
     if (!documentNumber.trim()) { setError('Número do documento é obrigatório.'); return; }
+    if (nationality !== 'BR' && !documentExpiration) {
+      setError('Para hóspedes estrangeiros, informe a validade do documento.');
+      return;
+    }
 
     // Validação de menor de idade
     if (isMinorGuest) {
@@ -550,6 +556,10 @@ export default function WCICompanionEntry() {
     setSaving(true);
     setError('');
     try {
+      // A Erbon não aceita 'DNI' como tipo de documento: envia como PASSPORT.
+      // Localmente (Supabase/ficha) o tipo original 'DNI' é preservado.
+      const erbonDocType = documentType === 'DNI' ? 'PASSPORT' : documentType;
+
       const payload: ErbonGuestPayload = {
         id: existingGuestId ?? 0,
         name: domName,
@@ -560,7 +570,12 @@ export default function WCICompanionEntry() {
         nationality: nationality || undefined,
         profession: profession.trim() || undefined,
         vehicleRegistration: vehicleRegistration.trim() || undefined,
-        documents: documentNumber.trim() ? [{ documentType, number: documentNumber.trim(), country: addressCountry }] : [],
+        documents: documentNumber.trim() ? [{
+          documentType: erbonDocType,
+          number: documentNumber.trim(),
+          country: addressCountry,
+          ...(documentExpiration ? { expirationDate: `${documentExpiration}T00:00:00` } : {}),
+        }] : [],
         address: {
           country:      addressCountry,
           state:        isBR ? (state        || undefined) : undefined,
@@ -604,11 +619,18 @@ export default function WCICompanionEntry() {
         responsavel_doc_tipo:  isMinorGuest ? responsavelDocTipo  || undefined : undefined,
       };
 
+      // Cópia local do documento mantém o tipo original (ex.: DNI) e a validade
+      const localDocs = documentNumber.trim() ? [{
+        documentType,
+        number: documentNumber.trim(),
+        ...(documentExpiration ? { expirationDate: documentExpiration } : {}),
+      }] : [];
+
       const stored = (await loadGuestsFromServer(realBookingId)) || loadGuestsFromStorage(realBookingId) || [];
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: newId, name: domName, email: email.trim(), phone: phone.trim(),
-          documents: payload.documents, fnrhCompleted: true, isMainGuest: false,
+          documents: localDocs, fnrhCompleted: true, isMainGuest: false,
           birthDate: birthDate || undefined,
           genderID: genderID || undefined,
           nationality: nationality || undefined,
@@ -621,6 +643,7 @@ export default function WCICompanionEntry() {
         await saveGuestsToStorage(realBookingId, stored.map(g =>
           g.id === existingGuestId
             ? { ...g, id: newId, name: domName, email: email.trim(), phone: phone.trim(),
+                documents: localDocs.length ? localDocs : g.documents,
                 birthDate: birthDate || g.birthDate,
                 genderID: genderID || g.genderID,
                 nationality: nationality || g.nationality,
@@ -789,6 +812,7 @@ export default function WCICompanionEntry() {
           phone:          phone.trim() || undefined,
           documentType,
           documentNumber: documentNumber.trim() || undefined,
+          documentExpiration: documentExpiration || undefined,
           birthDate:      birthDate || undefined,
           genderId:       genderID || undefined,
           nationality:    nationality || undefined,
@@ -824,6 +848,7 @@ export default function WCICompanionEntry() {
             phone:          g.phone,
             documentType:   g.documents?.[0]?.documentType,
             documentNumber: g.documents?.[0]?.number,
+            documentExpiration: g.documents?.[0]?.expirationDate?.split('T')[0],
             birthDate:      g.birthDate,
             genderId:       g.genderID,
             nationality:    g.nationality,
@@ -999,6 +1024,7 @@ export default function WCICompanionEntry() {
                     <option value="CPF" style={{ color: '#000' }}>{t('cpf')}</option>
                     <option value="RG" style={{ color: '#000' }}>{t('rg')}</option>
                     <option value="PASSPORT" style={{ color: '#000' }}>{t('passport')}</option>
+                    <option value="DNI" style={{ color: '#000' }}>DNI</option>
                     <option value="CNH" style={{ color: '#000' }}>{t('cnh')}</option>
                   </select>
                 </div>
@@ -1007,6 +1033,18 @@ export default function WCICompanionEntry() {
                   <input style={inputStyle} type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} placeholder="000.000.000-00" required />
                 </div>
               </div>
+
+              {/* Validade do documento — obrigatória para estrangeiros */}
+              {(nationality !== 'BR' || documentType === 'PASSPORT' || documentType === 'DNI') && (
+                <div>
+                  <label style={labelStyle}>Validade do documento *</label>
+                  <input
+                    style={inputStyle} type="date"
+                    value={documentExpiration}
+                    onChange={e => setDocumentExpiration(e.target.value)}
+                  />
+                </div>
+              )}
 
               <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'rgba(255,255,255,0.8)', fontSize: '0.88rem', borderBottom: '1px solid rgba(255,255,255,0.12)', paddingBottom: '0.4rem' }}>
                 {t('addressSection')}

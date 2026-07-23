@@ -205,6 +205,7 @@ export default function WCISignatureAndTerms() {
         phone: g.phone,
         documentType: g.documents?.[0]?.documentType,
         documentNumber: g.documents?.[0]?.number,
+        documentExpiration: g.documents?.[0]?.expirationDate?.split('T')[0],
         birthDate: g.birthDate,
         genderId: g.genderID,
         nationality: g.nationality,

@@ -111,6 +111,7 @@ export default function WCIFNRHForm() {
   const [vehicleRegistration, setVehicleRegistration] = useState('');
   const [documentType,  setDocumentType]  = useState('CPF');
   const [documentNumber,setDocumentNumber]= useState('');
+  const [documentExpiration, setDocumentExpiration] = useState('');
   const [country,       setCountry]       = useState('BR');
   const [state,         setState]         = useState('');
   const [city,          setCity]          = useState('');
@@ -243,6 +244,7 @@ export default function WCIFNRHForm() {
     const domVehicle      = fd(data, 'vehicleRegistration');
     const domDocType      = fd(data, 'documentType')  || 'CPF';
     const domDocNumber    = fd(data, 'documentNumber').replace(/[\.\-\/\s]/g, '');
+    const domDocExpiration = fd(data, 'documentExpiration');
     const domCountry      = fd(data, 'country')       || 'BR';
     const domState        = fd(data, 'state');
     const domCity         = fd(data, 'city');
@@ -266,6 +268,10 @@ export default function WCIFNRHForm() {
     if (!domName)       { setError('Nome completo é obrigatório.');        return; }
     if (!domEmail)      { setError('E-mail é obrigatório.');               return; }
     if (!domDocNumber)  { setError('Número do documento é obrigatório.');  return; }
+    if (domNationality !== 'BR' && !domDocExpiration) {
+      setError('Para hóspedes estrangeiros, informe a validade do documento.');
+      return;
+    }
 
     // Validação — menor de idade
     const ageNow = calcAge(domBirthDate);
@@ -305,6 +311,11 @@ export default function WCIFNRHForm() {
         setUploading(false);
       }
 
+      // A Erbon não aceita 'DNI' como tipo de documento: envia como PASSPORT.
+      // Localmente (Supabase/ficha) o tipo original 'DNI' é preservado.
+      const erbonDocType = domDocType === 'DNI' ? 'PASSPORT' : domDocType;
+      const docExpiration = domDocExpiration || undefined;
+
       const payload: ErbonGuestPayload = {
         id:                  guestId ?? 0,
         name:                domName,
@@ -316,9 +327,10 @@ export default function WCIFNRHForm() {
         profession:          domProfession || undefined,
         vehicleRegistration: domVehicle    || undefined,
         documents: domDocNumber ? [{
-          documentType: domDocType,
+          documentType: erbonDocType,
           number:       domDocNumber,
           country:      addressCountry,
+          ...(docExpiration ? { expirationDate: `${docExpiration}T00:00:00` } : {}),
         }] : [],
         address: {
           country:      addressCountry,
@@ -363,7 +375,12 @@ export default function WCIFNRHForm() {
         name:        fullName,
         email:       domEmail,
         phone:       domPhone,
-        documents:   payload.documents,
+        // Mantém o tipo original (ex.: DNI) e a validade na cópia local
+        documents:   domDocNumber ? [{
+          documentType: domDocType,
+          number:       domDocNumber,
+          ...(docExpiration ? { expirationDate: docExpiration } : {}),
+        }] : [],
         birthDate:   domBirthDate  || undefined,
         genderID:    domGenderID   || undefined,
         nationality: domNationality || undefined,
@@ -527,6 +544,7 @@ export default function WCIFNRHForm() {
                     <option value="CPF"      style={{ color: '#000' }}>{t('cpf')}</option>
                     <option value="RG"       style={{ color: '#000' }}>{t('rg')}</option>
                     <option value="PASSPORT" style={{ color: '#000' }}>{t('passport')}</option>
+                    <option value="DNI"      style={{ color: '#000' }}>DNI</option>
                     <option value="CNH"      style={{ color: '#000' }}>{t('cnh')}</option>
                   </select>
                 </Field>
@@ -539,6 +557,23 @@ export default function WCIFNRHForm() {
                   />
                 </Field>
               </Row>
+
+              {/* Validade do documento — obrigatória para estrangeiros */}
+              {(nationality !== 'BR' || documentType === 'PASSPORT' || documentType === 'DNI') && (
+                <div style={{ marginTop: '1rem' }}>
+                  <Field label="Validade do documento *">
+                    <input
+                      name="documentExpiration"
+                      style={inputStyle} type="date"
+                      value={documentExpiration}
+                      onChange={e => setDocumentExpiration(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              )}
+              {!(nationality !== 'BR' || documentType === 'PASSPORT' || documentType === 'DNI') && (
+                <input type="hidden" name="documentExpiration" value="" />
+              )}
             </div>
 
             {/* ── Foto do Documento ── */}

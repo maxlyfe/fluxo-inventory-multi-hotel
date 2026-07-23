@@ -22,6 +22,7 @@ interface FichaGuest {
   phone: string | null;
   document_type: string | null;
   document_number: string | null;
+  document_expiration: string | null;
   birth_date: string | null;
   gender_id: number | null;
   nationality: string | null;
@@ -71,7 +72,7 @@ interface Ficha {
 
 const GUEST_QUERY = `
   id, is_main_guest, name, email, phone,
-  document_type, document_number,
+  document_type, document_number, document_expiration,
   birth_date, gender_id, nationality, profession, vehicle_registration,
   address_street, address_neighborhood, address_city, address_state,
   address_zipcode, address_country,
@@ -198,7 +199,9 @@ function CopyBtn({ value }: { value: string }) {
 
 // ── Field helper ─────────────────────────────────────────────────────────────
 
-function Field({ label, value, icon }: { label: string; value: string | null | undefined; icon?: React.ReactNode }) {
+// copyValue: quando o valor exibido tem prefixo/rótulo (ex.: "PASSPORT: 123"),
+// o botão de copiar leva só o conteúdo puro (ex.: "123").
+function Field({ label, value, copyValue, icon }: { label: string; value: string | null | undefined; copyValue?: string | null; icon?: React.ReactNode }) {
   if (!value) return null;
   return (
     <div>
@@ -208,7 +211,7 @@ function Field({ label, value, icon }: { label: string; value: string | null | u
       </span>
       <div className="flex items-center gap-0.5 mt-0.5">
         <p className="font-medium text-xs text-slate-700 dark:text-slate-200">{value}</p>
-        <CopyBtn value={value} />
+        <CopyBtn value={copyValue || value} />
       </div>
     </div>
   );
@@ -240,7 +243,8 @@ function GuestCard({ guest }: { guest: FichaGuest }) {
 
       {/* Dados pessoais */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-3">
-        <Field label="Documento" value={guest.document_type && guest.document_number ? `${guest.document_type}: ${guest.document_number}` : null} />
+        <Field label="Documento" value={guest.document_type && guest.document_number ? `${guest.document_type}: ${guest.document_number}` : null} copyValue={guest.document_number} />
+        <Field label="Validade doc." value={fmtDate(guest.document_expiration)} icon={<CalendarDays className="w-2.5 h-2.5" />} />
         <Field label="E-mail"    value={guest.email} />
         <Field label="Telefone"  value={guest.phone} />
         <Field label="Nascimento" value={fmtDate(guest.birth_date)} icon={<CalendarDays className="w-2.5 h-2.5" />} />

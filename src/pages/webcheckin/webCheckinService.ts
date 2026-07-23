@@ -58,7 +58,7 @@ export interface WebCheckinGuest {
   name: string;
   email?: string;
   phone?: string;
-  documents?: Array<{ documentType: string; number: string }>;
+  documents?: Array<{ documentType: string; number: string; expirationDate?: string }>;
   fnrhCompleted: boolean;
   isMainGuest: boolean;
   // false quando a ficha foi salva localmente mas a Erbon rejeitou/falhou o envio
@@ -256,6 +256,7 @@ export interface SaveFichaGuestParams {
   vehicleRegistration?: string;
   documentType?: string;
   documentNumber?: string;
+  documentExpiration?: string;   // validade do documento (estrangeiros), 'YYYY-MM-DD'
   addressCountry?: string;
   addressState?: string;
   addressCity?: string;
@@ -342,6 +343,7 @@ export async function saveFichaToDatabase(params: SaveFichaParams): Promise<stri
     vehicle_registration: g.vehicleRegistration || null,
     document_type: g.documentType || null,
     document_number: g.documentNumber || null,
+    document_expiration: g.documentExpiration || null,
     address_country: g.addressCountry || null,
     address_state: g.addressState || null,
     address_city: g.addressCity || null,
