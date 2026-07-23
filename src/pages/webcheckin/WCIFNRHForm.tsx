@@ -14,6 +14,7 @@ import {
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
+import { WCI_COUNTRIES } from './wciCountries';
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 function calcAge(birthDateStr: string): number | null {
@@ -333,9 +334,23 @@ export default function WCIFNRHForm() {
       const session = await resolveSession(bookingId!).catch(() => null);
       const numericBookingId = session?.bookingId ?? 0;
 
+      // Envio à Erbon é best-effort: nunca pode bloquear o salvamento local.
+      // 1ª tentativa com payload completo; se a Erbon rejeitar (ex.: 400 por
+      // causa do gênero), retenta sem genderID; se ainda falhar, segue em
+      // frente e marca o hóspede como pendente de sincronização.
       let savedId: number;
+      let erbonSynced = true;
       if (hasErbon) {
-        savedId = await saveGuestFNRH(hotelUUID, numericBookingId, guestId, payload);
+        try {
+          savedId = await saveGuestFNRH(hotelUUID, numericBookingId, guestId, payload);
+        } catch {
+          try {
+            savedId = await saveGuestFNRH(hotelUUID, numericBookingId, guestId, { ...payload, genderID: undefined });
+          } catch {
+            erbonSynced = false;
+            savedId = guestId ?? Date.now();
+          }
+        }
       } else {
         savedId = guestId ?? Date.now();
       }
@@ -361,6 +376,7 @@ export default function WCIFNRHForm() {
           neighborhood: domNeighborhood || undefined,
         },
         fnrhCompleted:    true,
+        erbonSynced,
         documentFrontUrl: docFrontUrl,
         documentBackUrl:  docBackUrl,
         // Campos FNRH Gov
@@ -382,12 +398,12 @@ export default function WCIFNRHForm() {
           isMainGuest: false,
           ...guestProfile,
         } as WebCheckinGuest;
-        saveGuestsToStorage(numericBookingId, [...stored, newGuest], hotelUUID, bookingRef);
+        await saveGuestsToStorage(numericBookingId, [...stored, newGuest], hotelUUID, bookingRef);
       } else {
         const updated = stored.map(g =>
           g.id === guestId ? { ...g, ...guestProfile } : g
         );
-        saveGuestsToStorage(numericBookingId, updated, hotelUUID, bookingRef);
+        await saveGuestsToStorage(numericBookingId, updated, hotelUUID, bookingRef);
       }
 
       setSaved(true);
@@ -592,23 +608,9 @@ export default function WCIFNRHForm() {
                     style={{ ...inputStyle, cursor: 'pointer' }}
                     value={nationality} onChange={e => setNationality(e.target.value)}
                   >
-                    <option value="BR" style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
-                    <option value="AR" style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
-                    <option value="UY" style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
-                    <option value="PY" style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
-                    <option value="CL" style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
-                    <option value="BO" style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
-                    <option value="PE" style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
-                    <option value="CO" style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
-                    <option value="VE" style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
-                    <option value="US" style={{ color: '#000' }}>🇺🇸 United States (US)</option>
-                    <option value="DE" style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
-                    <option value="FR" style={{ color: '#000' }}>🇫🇷 France (FR)</option>
-                    <option value="IT" style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
-                    <option value="ES" style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
-                    <option value="PT" style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
-                    <option value="GB" style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
-                    <option value="OTHER" style={{ color: '#000' }}>Outro</option>
+                    {WCI_COUNTRIES.map(c => (
+                      <option key={c.code} value={c.code} style={{ color: '#000' }}>{c.label}</option>
+                    ))}
                   </select>
                 </Field>
               </Row>
@@ -861,23 +863,9 @@ export default function WCIFNRHForm() {
                     style={{ ...inputStyle, cursor: 'pointer' }}
                     value={country} onChange={e => handleCountryChange(e.target.value)}
                   >
-                    <option value="BR"    style={{ color: '#000' }}>🇧🇷 Brasil (BR)</option>
-                    <option value="AR"    style={{ color: '#000' }}>🇦🇷 Argentina (AR)</option>
-                    <option value="UY"    style={{ color: '#000' }}>🇺🇾 Uruguay (UY)</option>
-                    <option value="PY"    style={{ color: '#000' }}>🇵🇾 Paraguay (PY)</option>
-                    <option value="CL"    style={{ color: '#000' }}>🇨🇱 Chile (CL)</option>
-                    <option value="BO"    style={{ color: '#000' }}>🇧🇴 Bolivia (BO)</option>
-                    <option value="PE"    style={{ color: '#000' }}>🇵🇪 Peru (PE)</option>
-                    <option value="CO"    style={{ color: '#000' }}>🇨🇴 Colombia (CO)</option>
-                    <option value="VE"    style={{ color: '#000' }}>🇻🇪 Venezuela (VE)</option>
-                    <option value="US"    style={{ color: '#000' }}>🇺🇸 United States (US)</option>
-                    <option value="DE"    style={{ color: '#000' }}>🇩🇪 Germany (DE)</option>
-                    <option value="FR"    style={{ color: '#000' }}>🇫🇷 France (FR)</option>
-                    <option value="IT"    style={{ color: '#000' }}>🇮🇹 Italy (IT)</option>
-                    <option value="ES"    style={{ color: '#000' }}>🇪🇸 Spain (ES)</option>
-                    <option value="PT"    style={{ color: '#000' }}>🇵🇹 Portugal (PT)</option>
-                    <option value="GB"    style={{ color: '#000' }}>🇬🇧 United Kingdom (GB)</option>
-                    <option value="OTHER" style={{ color: '#000' }}>Outro</option>
+                    {WCI_COUNTRIES.map(c => (
+                      <option key={c.code} value={c.code} style={{ color: '#000' }}>{c.label}</option>
+                    ))}
                   </select>
                 </Field>
 

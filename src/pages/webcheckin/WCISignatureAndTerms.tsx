@@ -179,7 +179,20 @@ export default function WCISignatureAndTerms() {
 
       // Resolve session on-demand to get latest guests + booking number
       const session = await resolveSession(sessionToken).catch(() => null);
-      const latestGuests = (session?.guests?.length ? session.guests : guests);
+
+      // O upsert no Supabase é best-effort: com internet instável, o servidor
+      // pode ter uma cópia desatualizada dos hóspedes enquanto o localStorage
+      // (mesmo device do preenchimento) tem a ficha completa. Mescla as duas
+      // fontes preferindo, por hóspede, o registro com FNRH concluída.
+      const serverGuests = session?.guests || [];
+      const localGuests = (session?.bookingId ? loadGuestsFromStorage(session.bookingId) : null) || [];
+      const merged = new Map<number, WebCheckinGuest>();
+      for (const g of serverGuests) merged.set(g.id, g);
+      for (const g of localGuests) {
+        const existing = merged.get(g.id);
+        if (!existing || (g.fnrhCompleted && !existing.fnrhCompleted)) merged.set(g.id, g);
+      }
+      const latestGuests = merged.size > 0 ? Array.from(merged.values()) : guests;
 
       // Resolve booking number on-demand if not yet populated
       let finalBookingRef = bookingRef || session?.bookingNumber || '';

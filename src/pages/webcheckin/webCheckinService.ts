@@ -61,6 +61,8 @@ export interface WebCheckinGuest {
   documents?: Array<{ documentType: string; number: string }>;
   fnrhCompleted: boolean;
   isMainGuest: boolean;
+  // false quando a ficha foi salva localmente mas a Erbon rejeitou/falhou o envio
+  erbonSynced?: boolean;
   inHouseData?: ErbonGuest;
   // Perfil completo (do in-house ou do guest payload da Erbon)
   nationality?: string;   // ISO country code, ex: 'AR', 'BR'

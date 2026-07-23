@@ -39,6 +39,7 @@ import {
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
+import { WCI_COUNTRIES } from './wciCountries';
 
 // ── Estilos ──────────────────────────────────────────────────────────────────
 
@@ -250,29 +251,8 @@ function SendQueue({ items }: { items: QueueItem[] }) {
   );
 }
 
-const COUNTRIES = [
-  { code: 'BR', label: '🇧🇷 Brasileiro(a)' }, { code: 'AR', label: '🇦🇷 Argentino(a)' },
-  { code: 'UY', label: '🇺🇾 Uruguaio(a)' },  { code: 'PY', label: '🇵🇾 Paraguaio(a)' },
-  { code: 'CL', label: '🇨🇱 Chileno(a)' },   { code: 'BO', label: '🇧🇴 Boliviano(a)' },
-  { code: 'PE', label: '🇵🇪 Peruano(a)' },   { code: 'CO', label: '🇨🇴 Colombiano(a)' },
-  { code: 'VE', label: '🇻🇪 Venezuelano(a)' },{ code: 'US', label: '🇺🇸 Americano(a)' },
-  { code: 'DE', label: '🇩🇪 Alemão/ã' },     { code: 'FR', label: '🇫🇷 Francês/esa' },
-  { code: 'IT', label: '🇮🇹 Italiano(a)' },  { code: 'ES', label: '🇪🇸 Espanhol(a)' },
-  { code: 'PT', label: '🇵🇹 Português(a)' }, { code: 'GB', label: '🇬🇧 Britânico(a)' },
-  { code: 'OTHER', label: 'Outro' },
-];
-
-const COUNTRY_FLAGS = [
-  { code: 'BR', label: '🇧🇷 Brasil (BR)' }, { code: 'AR', label: '🇦🇷 Argentina (AR)' },
-  { code: 'UY', label: '🇺🇾 Uruguay (UY)' },{ code: 'PY', label: '🇵🇾 Paraguay (PY)' },
-  { code: 'CL', label: '🇨🇱 Chile (CL)' },  { code: 'BO', label: '🇧🇴 Bolivia (BO)' },
-  { code: 'PE', label: '🇵🇪 Peru (PE)' },   { code: 'CO', label: '🇨🇴 Colombia (CO)' },
-  { code: 'VE', label: '🇻🇪 Venezuela (VE)' },{ code: 'US', label: '🇺🇸 United States (US)' },
-  { code: 'DE', label: '🇩🇪 Germany (DE)' },{ code: 'FR', label: '🇫🇷 France (FR)' },
-  { code: 'IT', label: '🇮🇹 Italy (IT)' },  { code: 'ES', label: '🇪🇸 Spain (ES)' },
-  { code: 'PT', label: '🇵🇹 Portugal (PT)' },{ code: 'GB', label: '🇬🇧 United Kingdom (GB)' },
-  { code: 'OTHER', label: 'Outro' },
-];
+const COUNTRIES = WCI_COUNTRIES;
+const COUNTRY_FLAGS = WCI_COUNTRIES;
 
 // ── Helper: calcula idade ─────────────────────────────────────────────────────
 
@@ -591,9 +571,22 @@ export default function WCICompanionEntry() {
         },
       };
 
+      // Envio à Erbon é best-effort: nunca pode bloquear o salvamento local.
+      // Se a Erbon rejeitar (ex.: 400 por causa do gênero), retenta sem
+      // genderID; se ainda falhar, segue e marca como pendente de sync.
       let newId: number;
+      let erbonSynced = true;
       if (hasErbon && realBookingId) {
-        newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, payload);
+        try {
+          newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, payload);
+        } catch {
+          try {
+            newId = await saveGuestFNRH(realHotelId, realBookingId, existingGuestId, { ...payload, genderID: undefined });
+          } catch {
+            erbonSynced = false;
+            newId = existingGuestId && existingGuestId > 0 ? existingGuestId : Date.now();
+          }
+        }
       } else {
         newId = existingGuestId && existingGuestId > 0 ? existingGuestId : (savedGuestId ?? 0);
       }
@@ -621,6 +614,7 @@ export default function WCICompanionEntry() {
           nationality: nationality || undefined,
           address: payload.address,
           fnrh_extra: fnrhExtra,
+          erbonSynced,
         };
         await saveGuestsToStorage(realBookingId, [...stored, newGuest], realHotelId, bookingRef);
       } else {
@@ -631,7 +625,7 @@ export default function WCICompanionEntry() {
                 genderID: genderID || g.genderID,
                 nationality: nationality || g.nationality,
                 address: payload.address,
-                fnrhCompleted: true, fnrh_extra: fnrhExtra }
+                fnrhCompleted: true, fnrh_extra: fnrhExtra, erbonSynced }
             : g
         ), realHotelId, bookingRef);
       }
