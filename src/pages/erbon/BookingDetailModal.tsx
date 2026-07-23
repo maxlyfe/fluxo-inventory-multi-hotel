@@ -1,14 +1,17 @@
 // src/pages/erbon/BookingDetailModal.tsx
-// Modal detalhado da reserva Erbon (aberto pelo Planning):
+// Modal UNIVERSAL de informações da reserva Erbon. Usado por Planning, Rack,
+// Check-in, Check-out e In-house — toda informação/ação nova entra AQUI e
+// reflete em todas as telas que o renderizam:
 //  - Resumo: datas, UH, pax, tarifa, segmento/origem
-//  - Hóspedes: lista detalhada, remover, vincular hóspede existente da Erbon,
-//    adicionar via web-checkin (QR/link abrindo a reserva específica)
-//  - Conta Corrente: débitos x créditos, consumos e pagamentos detalhados
+//  - Hóspedes: lista detalhada, adicionar/editar manualmente, remover,
+//    vincular hóspede existente da Erbon, adicionar via web-checkin (QR/link)
+//  - Conta Corrente: extrato único (débitos x créditos) com emissão de NF
+//  - Ações de check-in/check-out conforme o status da reserva
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X, Loader2, Users, CalendarRange, BedDouble, Wallet, UserPlus, Trash2,
-  QrCode, Link2, Search, RefreshCw, CheckCircle2,
+  QrCode, Link2, Search, RefreshCw, CheckCircle2, LogIn, LogOut, Edit2,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { format, parseISO, differenceInCalendarDays } from 'date-fns';
@@ -18,11 +21,17 @@ import { createWCISession, WebCheckinGuest } from '../webcheckin/webCheckinServi
 import { ensureHotelWciCode } from '../../lib/wciCode';
 import { useNotification } from '../../context/NotificationContext';
 import BookingNFSection from '../../components/nf/BookingNFSection';
+import GuestEditModal, { type UnifiedGuest } from '../../components/erbon/GuestEditModal';
 
 interface BookingDetailModalProps {
   hotelId: string;
-  booking: ErbonBooking;
+  /** Reserva já carregada. Se ausente, informe bookingInternalId para buscar. */
+  booking?: ErbonBooking | null;
+  /** Alternativa: id interno para o modal buscar a reserva sozinho */
+  bookingInternalId?: number;
   onClose: () => void;
+  /** Chamado após check-in/check-out (para a tela pai recarregar a lista) */
+  onActionDone?: () => void;
 }
 
 type Tab = 'resumo' | 'hospedes' | 'conta';
@@ -41,11 +50,29 @@ function headerColor(b: ErbonBooking): string {
   return 'linear-gradient(135deg, #818cf8, #4f46e5)';
 }
 
-const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, booking: initialBooking, onClose }) => {
+const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, booking: initialBooking, bookingInternalId, onClose, onActionDone }) => {
   const { addNotification } = useNotification();
   const [tab, setTab] = useState<Tab>('resumo');
-  const [booking, setBooking] = useState<ErbonBooking>(initialBooking);
+  const [booking, setBooking] = useState<ErbonBooking | null>(initialBooking ?? null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const internalId = initialBooking?.bookingInternalID ?? bookingInternalId ?? null;
+
+  // Status da reserva → ações permitidas
+  const statusInfo = useMemo(() => {
+    const cancelled = `${booking?.status || ''} ${(booking as any)?.confirmedStatus || ''}`.toUpperCase().includes('CANCEL');
+    const checkedIn = booking?.status === 'CHECKIN';
+    const checkedOut = booking?.status === 'CHECKOUT';
+    return {
+      cancelled,
+      canCheckIn: !!booking && !cancelled && !checkedIn && !checkedOut,
+      canCheckOut: !!booking && !cancelled && checkedIn,
+    };
+  }, [booking]);
+
+  const [actionRunning, setActionRunning] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<UnifiedGuest | null>(null);
+  const [addingGuest, setAddingGuest] = useState(false);
 
   // Conta corrente — lançamento normalizado e enriquecido
   interface AccountEntry {
@@ -79,8 +106,9 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   const [generatingWci, setGeneratingWci] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
-  const guests = booking.guestList || [];
+  const guests = booking?.guestList || [];
   const nights = useMemo(() => {
+    if (!booking) return 0;
     try {
       return differenceInCalendarDays(parseISO(booking.checkOutDateTime), parseISO(booking.checkInDateTime));
     } catch { return 0; }
@@ -88,15 +116,45 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
 
   // ── Recarrega a reserva (hóspedes frescos) ─────────────────────────────────
   const refreshBooking = useCallback(async () => {
+    if (!internalId) return;
     setRefreshing(true);
     try {
-      const fresh = await erbonService.fetchBookingByInternalId(hotelId, booking.bookingInternalID);
+      const fresh = await erbonService.fetchBookingByInternalId(hotelId, internalId);
       if (fresh) setBooking(fresh);
     } catch { /* mantém dados atuais */ }
     finally { setRefreshing(false); }
-  }, [hotelId, booking.bookingInternalID]);
+  }, [hotelId, internalId]);
 
   useEffect(() => { refreshBooking(); }, []);
+
+  // ── Ações de check-in / check-out (mesma API oficial da Erbon) ─────────────
+  const handleCheckIn = async () => {
+    if (!booking || !internalId) return;
+    if (!confirm(`Confirmar check-in da reserva #${booking.erbonNumber}?`)) return;
+    setActionRunning(true);
+    try {
+      await erbonService.checkInBooking(hotelId, internalId);
+      addNotification(`Check-in realizado — Reserva #${booking.erbonNumber}`, 'success');
+      await refreshBooking();
+      onActionDone?.();
+    } catch (e: any) {
+      addNotification('Erro no check-in: ' + (e.message || ''), 'error');
+    } finally { setActionRunning(false); }
+  };
+
+  const handleCheckOut = async () => {
+    if (!booking || !internalId) return;
+    if (!confirm(`Confirmar check-out da reserva #${booking.erbonNumber}?`)) return;
+    setActionRunning(true);
+    try {
+      await erbonService.checkOutBooking(hotelId, internalId);
+      addNotification(`Check-out realizado — Reserva #${booking.erbonNumber}`, 'success');
+      await refreshBooking();
+      onActionDone?.();
+    } catch (e: any) {
+      addNotification('Erro no check-out: ' + (e.message || ''), 'error');
+    } finally { setActionRunning(false); }
+  };
 
   // ── Conta corrente (lazy — ao abrir a aba) ─────────────────────────────────
   // A API da Erbon divide a informação em DUAS fontes:
@@ -105,11 +163,11 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   //    incluindo CRÉDITOS/adiantamentos e a forma de pagamento
   // Mesclamos as duas (dedupe por id do lançamento) para não faltar nada.
   useEffect(() => {
-    if (tab !== 'conta' || account !== null || loadingAccount) return;
+    if (!booking || tab !== 'conta' || account !== null || loadingAccount) return;
     setLoadingAccount(true);
     (async () => {
       const [accR, arR] = await Promise.allSettled([
-        erbonService.fetchBookingAccount(hotelId, booking.bookingInternalID),
+        erbonService.fetchBookingAccount(hotelId, booking!.bookingInternalID),
         erbonService.fetchAccountsReceivable(hotelId),
       ]);
 
@@ -215,7 +273,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
     if (!confirm(`Remover "${name}" desta reserva?`)) return;
     setRemovingId(guestId);
     try {
-      await erbonService.removeGuestFromBooking(hotelId, booking.bookingInternalID, guestId);
+      await erbonService.removeGuestFromBooking(hotelId, internalId!, guestId);
       addNotification(`Hóspede "${name}" removido da reserva.`, 'success');
       await refreshBooking();
     } catch (e: any) {
@@ -239,7 +297,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
   const handleAttach = async (guestId: number, name: string) => {
     setAttachingId(guestId);
     try {
-      await erbonService.attachGuestToBooking(hotelId, booking.bookingInternalID, guestId);
+      await erbonService.attachGuestToBooking(hotelId, internalId!, guestId);
       addNotification(`"${name}" vinculado à reserva.`, 'success');
       setShowAttach(false);
       await refreshBooking();
@@ -279,8 +337,8 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
         isMainGuest: i === 0,
       }));
       const token = await createWCISession(
-        booking.bookingInternalID, hotelId, wciGuests,
-        String(booking.erbonNumber || booking.bookingInternalID),
+        internalId!, hotelId, wciGuests,
+        String(booking?.erbonNumber || internalId),
       );
       // Mantém o prefixo /grupo/<slug> quando o app roda sob um grupo
       const groupMatch = window.location.pathname.match(/^\/grupo\/([^/]+)/);
@@ -301,6 +359,19 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
       setTimeout(() => setLinkCopied(false), 2500);
     } catch { addNotification('Não foi possível copiar o link.', 'error'); }
   };
+
+  // Reserva ainda carregando (aberto só com bookingInternalId)
+  if (!booking) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+        <div onClick={e => e.stopPropagation()}
+          className="relative w-full sm:max-w-lg bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 p-10 flex justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+        </div>
+      </div>
+    );
+  }
 
   const guestName = guests[0]?.name || `Reserva ${booking.erbonNumber || booking.bookingInternalID}`;
 
@@ -348,6 +419,30 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
           </div>
         </div>
 
+        {/* Barra de ação conforme o status (check-in / check-out / cancelada) */}
+        {statusInfo.cancelled ? (
+          <div className="px-5 py-2.5 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/40 text-xs font-semibold text-red-700 dark:text-red-300 shrink-0">
+            Reserva cancelada na Erbon. Check-in e check-out não estão disponíveis.
+          </div>
+        ) : (statusInfo.canCheckIn || statusInfo.canCheckOut) && (
+          <div className="px-5 py-2.5 border-b border-gray-100 dark:border-gray-800 flex justify-end shrink-0 bg-gray-50/60 dark:bg-gray-800/40">
+            {statusInfo.canCheckIn && (
+              <button onClick={handleCheckIn} disabled={actionRunning}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50">
+                {actionRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                Fazer Check-in
+              </button>
+            )}
+            {statusInfo.canCheckOut && (
+              <button onClick={handleCheckOut} disabled={actionRunning}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50">
+                {actionRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                Fazer Check-out
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex border-b border-gray-100 dark:border-gray-800 shrink-0">
           {tabBtn('resumo', 'Resumo', <CalendarRange className="w-3.5 h-3.5" />)}
@@ -381,7 +476,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
           {tab === 'hospedes' && (
             <div className="space-y-3">
               {/* Ações */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={handleGenerateWci} disabled={generatingWci}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors disabled:opacity-60">
                   {generatingWci ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <QrCode className="w-3.5 h-3.5" />}
@@ -390,6 +485,10 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                 <button onClick={openAttach}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
                   <UserPlus className="w-3.5 h-3.5" /> Vincular da Erbon
+                </button>
+                <button onClick={() => setAddingGuest(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors">
+                  <UserPlus className="w-3.5 h-3.5" /> Adicionar manual
                 </button>
               </div>
 
@@ -414,11 +513,18 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
                           <p key={di} className="text-[11px] text-gray-400">{d.documentType}: {d.number}</p>
                         ))}
                       </div>
-                      <button onClick={() => handleRemoveGuest(g.id, g.name)} disabled={removingId === g.id}
-                        title="Remover hóspede da reserva"
-                        className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0">
-                        {removingId === g.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                      </button>
+                      <div className="flex items-center shrink-0">
+                        <button onClick={() => setEditingGuest({ id: g.id, name: g.name, email: g.email, phone: g.phone, documents: g.documents })}
+                          title="Editar dados do hóspede"
+                          className="p-2 rounded-lg text-gray-300 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleRemoveGuest(g.id, g.name)} disabled={removingId === g.id}
+                          title="Remover hóspede da reserva"
+                          className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                          {removingId === g.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -457,6 +563,19 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
           )}
         </div>
       </div>
+
+      {/* ── Sub-modal: adicionar/editar hóspede manualmente ── */}
+      {(editingGuest || addingGuest) && (
+        <div onClick={e => e.stopPropagation()}>
+          <GuestEditModal
+            hotelId={hotelId}
+            bookingId={booking.bookingInternalID}
+            guest={editingGuest}
+            onClose={() => { setEditingGuest(null); setAddingGuest(false); }}
+            onSaved={() => { setEditingGuest(null); setAddingGuest(false); refreshBooking(); }}
+          />
+        </div>
+      )}
 
       {/* ── Sub-modal: QR do web-checkin ── */}
       {wciUrl && (

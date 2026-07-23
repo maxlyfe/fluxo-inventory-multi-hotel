@@ -1,19 +1,16 @@
 // src/pages/erbon/CheckOutList.tsx
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   LogOut, LogIn, RefreshCw, Loader2, Calendar, Users, BedDouble,
-  Search, FileText, User, DollarSign, Mail, MapPin, Clock,
-  Star, UserCheck, ChevronRight,
+  Search, Clock, UserCheck, ChevronRight,
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { erbonService, ErbonGuest, ErbonBooking } from '../../lib/erbonService';
+import { erbonService, ErbonBooking } from '../../lib/erbonService';
 import { useErbonData } from '../../hooks/useErbonData';
 import { useHotel } from '../../context/HotelContext';
-import { useNotification } from '../../context/NotificationContext';
 import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
-import Modal from '../../components/Modal';
-import BookingNFSection from '../../components/nf/BookingNFSection';
+import BookingDetailModal from './BookingDetailModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -99,261 +96,6 @@ const InfoRow: React.FC<{ icon: React.ComponentType<any>; value: string }> = ({ 
     <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" /><span className="truncate">{value}</span>
   </div>
 );
-
-// ── Checkout Modal ────────────────────────────────────────────────────────────
-
-const CheckOutModal: React.FC<{
-  hotelId: string;
-  row: CheckoutRow;
-  onClose: () => void;
-  onDone: () => void;
-}> = ({ hotelId, row, onClose, onDone }) => {
-  const { addNotification } = useNotification();
-  const [activeTab, setActiveTab] = useState<'reserva' | 'hospede' | 'conta'>('reserva');
-  const [booking, setBooking] = useState<ErbonBooking | null>(null);
-  const [inHouseGuests, setInHouseGuests] = useState<ErbonGuest[]>([]);
-  const [accountEntries, setAccountEntries] = useState<any[]>([]);
-  const [loadingBooking, setLoadingBooking] = useState(true);
-  const [loadingAccount, setLoadingAccount] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-
-  const nights = row.nights;
-
-  // Load booking details + in-house guests at open
-  React.useEffect(() => {
-    (async () => {
-      setLoadingBooking(true);
-      try {
-        const [b, all] = await Promise.all([
-          erbonService.fetchBookingByInternalId(hotelId, row.bookingId),
-          erbonService.fetchInHouseGuests(hotelId),
-        ]);
-        setBooking(b);
-        setInHouseGuests(all.filter(g => g.idBooking === row.bookingId));
-      } catch (err: any) {
-        console.error('[CheckOutModal] load error:', err.message);
-      } finally { setLoadingBooking(false); }
-    })();
-  }, [hotelId, row.bookingId]);
-
-  const loadAccount = useCallback(async () => {
-    setLoadingAccount(true);
-    try {
-      const data = await erbonService.fetchBookingAccount(hotelId, row.bookingId);
-      setAccountEntries(data);
-    } catch { } finally { setLoadingAccount(false); }
-  }, [hotelId, row.bookingId]);
-
-  React.useEffect(() => { if (activeTab === 'conta') loadAccount(); }, [activeTab, loadAccount]);
-
-  const handleCheckOut = async () => {
-    if (!window.confirm(`Confirmar check-out da reserva #${row.bookingNumber}?`)) return;
-    setCheckingOut(true);
-    try {
-      await erbonService.checkOutBooking(hotelId, row.bookingId);
-      addNotification(`✅ Check-out realizado — ${row.guestName} · ${row.room}`, 'success');
-      onDone();
-    } catch (err: any) {
-      addNotification('Erro no check-out: ' + err.message, 'error');
-    } finally { setCheckingOut(false); }
-  };
-
-  const totalDebit = accountEntries.filter(e => e.isDebit).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const totalCredit = accountEntries.filter(e => e.isCredit).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const balance = totalDebit - totalCredit;
-
-  return (
-    <Modal isOpen={true} onClose={onClose} title="" size="4xl">
-      {/* Hero */}
-      <div className="-mt-4 -mx-4 mb-5">
-        <div className="relative overflow-hidden rounded-t-lg bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500">
-          <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-white/10" />
-          <div className="relative px-6 py-5 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
-                <span className="text-lg font-black text-white">{row.room || '—'}</span>
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-white">{row.guestName}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs bg-white/20 text-white/90 px-2 py-0.5 rounded-full font-medium">
-                    #{row.bookingNumber}
-                  </span>
-                  {row.isCancelled && (
-                    <span className="text-xs bg-red-500/80 text-white px-2 py-0.5 rounded-full font-bold">Cancelada</span>
-                  )}
-                  {row.isCheckedOut && (
-                    <span className="text-xs bg-white/20 text-white/90 px-2 py-0.5 rounded-full font-medium">Check-out feito</span>
-                  )}
-                </div>
-              </div>
-            </div>
-            {row.canCheckOut && (
-              <button onClick={handleCheckOut} disabled={checkingOut}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-amber-700 hover:bg-amber-50 font-semibold rounded-xl shadow-lg transition disabled:opacity-50">
-                {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
-                {checkingOut ? 'Processando...' : 'Fazer Check-out'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl mb-5">
-        {([
-          { key: 'reserva' as const, label: 'Reserva', icon: FileText },
-          { key: 'hospede' as const, label: 'Hóspedes', icon: User },
-          { key: 'conta' as const, label: 'Financeiro', icon: DollarSign },
-        ]).map(tab => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === tab.key ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>
-            <tab.icon className="w-4 h-4" />{tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Avisos de status: cancelada / sem check-in não podem dar check-out */}
-      {row.isCancelled && (
-        <div className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
-          Reserva cancelada na Erbon. Check-in e check-out não estão disponíveis.
-        </div>
-      )}
-      {!row.isCancelled && !row.canCheckOut && !row.isCheckedOut && (
-        <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300">
-          Esta reserva ainda não fez check-in, então o check-out não está disponível. Realize o check-in primeiro na tela de Check-in.
-        </div>
-      )}
-
-      {/* Tab: Reserva */}
-      {activeTab === 'reserva' && (
-        <div className="space-y-4">
-          {loadingBooking ? (
-            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                <DetailCard icon={FileText} label="Reserva" value={`#${row.bookingNumber}`} />
-                <DetailCard icon={BedDouble} label="UH" value={row.room || '—'} />
-                <DetailCard icon={LogIn} label="Check-in" value={fmtDate(row.checkIn)} />
-                <DetailCard icon={LogOut} label="Check-out" value={fmtDateTime(row.checkOut)} valueColor="text-amber-600 dark:text-amber-400" />
-                <DetailCard icon={Clock} label="Noites" value={`${nights}`} />
-                <DetailCard icon={Users} label="Hóspedes" value={`${inHouseGuests.length} in-house`} />
-                <DetailCard icon={Star} label="Status" value={
-                  row.isCancelled ? 'Cancelada'
-                  : row.isCheckedOut ? 'Check-out Feito'
-                  : row.canCheckOut ? 'Aguardando saída'
-                  : 'Sem check-in'
-                } valueColor={row.isCancelled ? 'text-red-600 dark:text-red-400' : undefined} />
-                {booking && <DetailCard icon={DollarSign} label="Total" value={fmtBRL(booking.totalBookingRateWithTax)} />}
-              </div>
-
-              {booking && (
-                <div className="bg-amber-50 dark:bg-amber-900/10 rounded-2xl p-5 border border-amber-200 dark:border-amber-800/40">
-                  <h4 className="text-sm font-semibold text-amber-700 dark:text-amber-300 mb-4 flex items-center gap-2">
-                    <DollarSign className="w-4 h-4" /> Resumo Financeiro
-                  </h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700">
-                      <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Diária Média</p>
-                      <p className="text-lg font-bold text-gray-800 dark:text-white">{nights > 0 ? fmtBRL(booking.totalBookingRate / nights) : '—'}</p>
-                    </div>
-                    <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700">
-                      <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Total s/ Taxa</p>
-                      <p className="text-lg font-bold text-gray-800 dark:text-white">{fmtBRL(booking.totalBookingRate)}</p>
-                    </div>
-                    <div className="bg-amber-100 dark:bg-amber-900/30 rounded-xl p-3 border border-amber-200 dark:border-amber-800/50">
-                      <p className="text-[10px] uppercase tracking-wide text-amber-600 mb-1">Total c/ Taxa</p>
-                      <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{fmtBRL(booking.totalBookingRateWithTax)}</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
-                    {booking.segmentDesc && <span className="bg-white dark:bg-gray-800 px-2 py-1 rounded-md border border-gray-100 dark:border-gray-700">Segmento: <b>{booking.segmentDesc}</b></span>}
-                    {booking.sourceDesc && <span className="bg-white dark:bg-gray-800 px-2 py-1 rounded-md border border-gray-100 dark:border-gray-700">Origem: <b>{booking.sourceDesc}</b></span>}
-                    {booking.rateDesc && <span className="bg-white dark:bg-gray-800 px-2 py-1 rounded-md border border-gray-100 dark:border-gray-700">Tarifa: <b>{booking.rateDesc}</b></span>}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Tab: Hóspedes */}
-      {activeTab === 'hospede' && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Hóspedes in-house ({inHouseGuests.length})</h3>
-          {inHouseGuests.length === 0 ? (
-            <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-300 dark:border-gray-600">
-              <User className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">Nenhum hóspede in-house registrado.</p>
-            </div>
-          ) : (
-            inHouseGuests.map(g => (
-              <div key={g.idGuest} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-                    <User className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-800 dark:text-white">{g.guestName} {g.lastName && g.lastName !== g.guestName ? g.lastName : ''}</p>
-                    <p className="text-xs text-gray-400">ID #{g.idGuest}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {g.contactEmail && <InfoRow icon={Mail} value={g.contactEmail} />}
-                  {g.localityGuest && <InfoRow icon={MapPin} value={`${g.localityGuest}${g.stateGuest ? `, ${g.stateGuest}` : ''}`} />}
-                  {g.checkInDate && <InfoRow icon={LogIn} value={`In: ${fmtDateTime(g.checkInDate)}`} />}
-                  {g.checkOutDate && <InfoRow icon={LogOut} value={`Out: ${fmtDate(g.checkOutDate)}`} />}
-                  {g.mealPlan && <InfoRow icon={Star} value={`Regime: ${MEAL_PLAN_LABELS[g.mealPlan] || g.mealPlan}`} />}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* Tab: Financeiro */}
-      {activeTab === 'conta' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-rose-50 dark:bg-rose-900/15 rounded-xl p-4 border border-rose-200 dark:border-rose-800/40">
-              <p className="text-[10px] uppercase tracking-wide text-rose-500 mb-1">Débitos</p>
-              <p className="text-lg font-bold text-rose-700 dark:text-rose-300">{fmtBRL(totalDebit)}</p>
-            </div>
-            <div className="bg-emerald-50 dark:bg-emerald-900/15 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800/40">
-              <p className="text-[10px] uppercase tracking-wide text-emerald-500 mb-1">Créditos</p>
-              <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{fmtBRL(totalCredit)}</p>
-            </div>
-            <div className={`rounded-xl p-4 border ${balance > 0 ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800/40' : 'bg-green-50 dark:bg-green-900/15 border-green-200 dark:border-green-800/40'}`}>
-              <p className={`text-[10px] uppercase tracking-wide mb-1 ${balance > 0 ? 'text-amber-500' : 'text-green-500'}`}>Saldo</p>
-              <p className={`text-lg font-bold ${balance > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}`}>{fmtBRL(balance)}</p>
-            </div>
-          </div>
-          {loadingAccount ? (
-            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>
-          ) : accountEntries.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700/50">
-              <DollarSign className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">Nenhum lançamento nesta reserva.</p>
-            </div>
-          ) : (
-            /* Extrato único: clicar no lançamento seleciona para emissão de NF */
-            <BookingNFSection
-              hotelId={hotelId}
-              bookingInternalId={row.bookingId}
-              bookingNumber={row.bookingNumber}
-              roomDescription={row.room}
-              guestList={booking?.guestList}
-              entries={accountEntries}
-              onEmitted={loadAccount}
-            />
-          )}
-        </div>
-      )}
-    </Modal>
-  );
-};
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
@@ -550,11 +292,12 @@ const CheckOutList: React.FC = () => {
       )}
 
       {selectedRow && (
-        <CheckOutModal
+        <BookingDetailModal
           hotelId={selectedHotel!.id}
-          row={selectedRow}
+          booking={(bookings || []).find(b => b.bookingInternalID === selectedRow.bookingId) || null}
+          bookingInternalId={selectedRow.bookingId}
           onClose={() => setSelectedRow(null)}
-          onDone={() => { setSelectedRow(null); refetch(); }}
+          onActionDone={refetch}
         />
       )}
     </div>
