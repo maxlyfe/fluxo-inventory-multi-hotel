@@ -11,11 +11,12 @@ import { erbonService, type ErbonBooking } from '../../lib/erbonService';
 import { nfService, type BatchEmissionProgress } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
+import { matchesEligibleService } from '../../lib/nfService';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
 
-// Formas de pagamento (tPag SEFAZ) — obrigatória para NF-e, igual ao planning
+// Formas de pagamento (tPag SEFAZ) — obrigatória para NFC-e, igual ao planning
 const TPAG_OPTIONS: Array<[string, string]> = [
   ['01', 'Dinheiro'],
   ['03', 'Cartão de Crédito'],
@@ -27,10 +28,6 @@ const TPAG_OPTIONS: Array<[string, string]> = [
   ['99', 'Outros'],
 ];
 
-// Normaliza descrição p/ casar com nome de serviço elegível (igual ao modal)
-function normDesc(s: string): string {
-  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-}
 
 // ── Unified reservation type ─────────────────────────────────────────────────
 
@@ -147,7 +144,7 @@ export default function EmissaoNFPage() {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchEmissionProgress | null>(null);
   const [batchTipoNf, setBatchTipoNf] = useState<NFTipo | null>(null);
-  // Forma de pagamento do lote (obrigatória para NF-e, mesma regra do planning)
+  // Forma de pagamento do lote (obrigatória para NFC-e, mesma regra do planning)
   const [batchTPag, setBatchTPag] = useState('');
 
   // ── Load reservations ─────────────────────────────────────────────────────
@@ -222,9 +219,9 @@ export default function EmissaoNFPage() {
 
         const issues: string[] = [];
         if (!r.guestName || r.guestName === 'Hóspede') issues.push('Nome do hóspede ausente');
-        // NFS-e/NF-e exigem documento do tomador (mesma regra do planning);
-        // só a NFC-e aceita consumidor sem identificação.
-        if (!r.guestDoc) issues.push('Documento (CPF/CNPJ/passaporte) ausente');
+        // NFS-e exige documento do tomador (mesma regra do planning);
+        // a NFC-e aceita consumidor sem identificação.
+        if (!r.guestDoc) issues.push('Documento ausente (necessário para NFS-e)');
         if (r.totalValue <= 0) issues.push('Valor total zero');
 
         if (issues.length > 0) {
@@ -309,8 +306,8 @@ export default function EmissaoNFPage() {
 
   const handleBatchConfirm = async () => {
     if (!batchTipoNf || selected.size === 0) return;
-    if (batchTipoNf === 'nfe' && !batchTPag) {
-      addNotification('error', 'Selecione a forma de pagamento antes de emitir NF-e em lote.');
+    if (batchTipoNf === 'nfce' && !batchTPag) {
+      addNotification('error', 'Selecione a forma de pagamento antes de emitir NFC-e em lote.');
       return;
     }
     setBatchRunning(true);
@@ -328,15 +325,16 @@ export default function EmissaoNFPage() {
         nfService.getEmittedEntries(hotelId).catch(() => new Map<number, string>()),
       ]);
       const isAcrescimo = (e: { description: string }) =>
-        nfceEligible.some(s => normDesc(e.description).includes(s.name));
+        nfceEligible.some(s => matchesEligibleService(e.description, s));
 
       // 1. Monta o rascunho de cada reserva com os itens reais da conta,
       //    aplicando as mesmas regras do modal (serviços × produtos separados)
       for (const r of selectedReservations) {
         const label = `${r.guestName} (#${r.bookingNumber})`;
         try {
-          if (!r.guestDoc) {
-            failures.push({ label, error: 'Sem documento do tomador (obrigatório para NFS-e/NF-e). Emita individualmente informando o documento.' });
+          // NFC-e aceita consumidor sem identificação; NFS-e exige documento
+          if (batchTipoNf === 'nfse' && !r.guestDoc) {
+            failures.push({ label, error: 'Sem documento do tomador (obrigatório para NFS-e). Emita individualmente informando o documento.' });
             continue;
           }
 
@@ -447,7 +445,7 @@ export default function EmissaoNFPage() {
             booking_number: r.bookingNumber,
             room_description: r.roomDescription || null,
             tomador_nome: r.guestName,
-            tomador_cpf_cnpj: r.guestDoc,
+            tomador_cpf_cnpj: r.guestDoc || '',
             tomador_doc_tipo: r.guestDocType || 'cpf',
             tomador_nacionalidade: r.guestNationality,
             tomador_email: r.guestEmail,
@@ -456,7 +454,7 @@ export default function EmissaoNFPage() {
             emitido_por: null,
           });
           invoiceIds.push(draft.id);
-          if (batchTipoNf === 'nfe') {
+          if (batchTipoNf === 'nfce') {
             const total = +items.reduce((s, i) => s + i.valor_total, 0).toFixed(2);
             pagamentosById[draft.id] = [{ tPag: batchTPag, vPag: total }];
           }
@@ -613,9 +611,9 @@ export default function EmissaoNFPage() {
                 <Zap className="w-4 h-4" /> Emitir NFS-e em Lote
               </button>
               )}
-              {can('nf.emit.nfe') && (
-              <button onClick={() => handleBatchStart('nfe')} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
-                <Zap className="w-4 h-4" /> Emitir NF-e em Lote
+              {can('nf.emit.nfce') && (
+              <button onClick={() => handleBatchStart('nfce')} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors">
+                <Zap className="w-4 h-4" /> Emitir NFC-e em Lote
               </button>
               )}
             </div>
@@ -627,14 +625,14 @@ export default function EmissaoNFPage() {
       {batchTipoNf && !batchRunning && (
         <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
           <p className="font-semibold text-amber-800 dark:text-amber-200">
-            Emitir {selected.size} {batchTipoNf === 'nfse' ? 'NFS-e' : 'NF-e'}(s) em lote?
+            Emitir {selected.size} {batchTipoNf === 'nfse' ? 'NFS-e' : 'NFC-e'}(s) em lote?
           </p>
           <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
             {batchTipoNf === 'nfse'
               ? 'Somente os lançamentos de serviço de cada conta entram na nota. As notas serão emitidas sequencialmente com intervalo de 1s.'
               : 'Somente os lançamentos de produto de cada conta entram na nota. As notas serão emitidas sequencialmente com intervalo de 1s.'}
           </p>
-          {batchTipoNf === 'nfe' && (
+          {batchTipoNf === 'nfce' && (
             <div className="mt-3">
               <label className="block text-xs font-semibold text-amber-800 dark:text-amber-200 mb-1">Forma de pagamento (obrigatória)</label>
               <select
@@ -650,7 +648,7 @@ export default function EmissaoNFPage() {
           <div className="flex gap-2 mt-3">
             <button
               onClick={handleBatchConfirm}
-              disabled={batchTipoNf === 'nfe' && !batchTPag}
+              disabled={batchTipoNf === 'nfce' && !batchTPag}
               className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium"
             >Confirmar</button>
             <button onClick={() => setBatchTipoNf(null)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-medium">Cancelar</button>
@@ -699,7 +697,7 @@ export default function EmissaoNFPage() {
               onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
               onToggleSelect={() => toggleSelect(r.id)}
               canEmitNfse={can('nf.emit.nfse')}
-              canEmitNfe={can('nf.emit.nfe')}
+              canEmitNfce={can('nf.emit.nfce')}
               onEmit={(tipo) => handleOpenEmission(r, tipo)}
               onViewNF={() => r.invoiceId && setViewerInvoiceId(r.invoiceId)}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
@@ -764,13 +762,13 @@ interface ReservationCardProps {
   onToggleExpand: () => void;
   onToggleSelect: () => void;
   canEmitNfse: boolean;
-  canEmitNfe: boolean;
+  canEmitNfce: boolean;
   onEmit: (tipo: NFTipo) => void;
   onViewNF: () => void;
   onMarkAdequate: () => void;
 }
 
-function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfe, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
+function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
   };
@@ -851,9 +849,9 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
                 <FileText className="w-4 h-4" /> Emitir NFS-e (Serviços)
               </button>
             )}
-            {activeTab === 'adequadas' && canEmitNfe && (
-              <button onClick={() => onEmit('nfe')} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
-                <FileText className="w-4 h-4" /> Emitir NF-e (Produtos)
+            {activeTab === 'adequadas' && canEmitNfce && (
+              <button onClick={() => onEmit('nfce')} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors">
+                <FileText className="w-4 h-4" /> Emitir NFC-e (Consumidor)
               </button>
             )}
             {activeTab === 'revisao' && (

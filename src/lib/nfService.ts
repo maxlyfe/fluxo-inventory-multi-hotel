@@ -550,6 +550,8 @@ async function getInvoicesByBooking(
 // Ex.: "Taxa de serviço" 10%. Usado para reclassificar lançamentos da reserva.
 export interface NfceEligibleService {
   name: string;      // normalizado (minúsculo, sem acento)
+  /** Nomes alternativos para match: nome do serviço + descrições Erbon mapeadas */
+  matchers: string[];
   ncm: string | null;
   cfop: string;
 }
@@ -557,17 +559,50 @@ export interface NfceEligibleService {
 async function getNfceEligibleServices(hotelId: string): Promise<NfceEligibleService[]> {
   const { data, error } = await supabase
     .from('services')
-    .select('name, nfce_ncm, nfce_cfop')
+    .select('id, name, nfce_ncm, nfce_cfop')
     .eq('hotel_id', hotelId)
     .eq('nfce_eligible', true)
     .eq('is_active', true);
   if (error) throw error;
   const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-  return (data ?? []).map((r: any) => ({
-    name: norm(r.name),
-    ncm: r.nfce_ncm || null,
-    cfop: r.nfce_cfop || '5102',
-  })).filter(s => s.name.length > 0);
+
+  // Descrições Erbon mapeadas para estes serviços — o lançamento da conta chega
+  // com a descrição da Erbon, que pode não conter o nome do serviço do catálogo
+  const ids = (data ?? []).map((r: any) => r.id);
+  const aliasesByService = new Map<string, string[]>();
+  if (ids.length > 0) {
+    const { data: maps } = await supabase
+      .from('erbon_product_mappings')
+      .select('service_id, erbon_service_description')
+      .eq('hotel_id', hotelId)
+      .in('service_id', ids);
+    (maps ?? []).forEach((m: any) => {
+      const d = norm(m.erbon_service_description);
+      if (!d) return;
+      const arr = aliasesByService.get(m.service_id) || [];
+      arr.push(d);
+      aliasesByService.set(m.service_id, arr);
+    });
+  }
+
+  return (data ?? []).map((r: any) => {
+    const name = norm(r.name);
+    return {
+      name,
+      matchers: [name, ...(aliasesByService.get(r.id) || [])].filter(s => s.length > 0),
+      ncm: r.nfce_ncm || null,
+      cfop: r.nfce_cfop || '5102',
+    };
+  }).filter(s => s.matchers.length > 0);
+}
+
+/** Um lançamento casa com um serviço elegível se a descrição contém o nome do
+ *  serviço OU uma das descrições Erbon mapeadas (e vice-versa p/ descrições curtas). */
+export function matchesEligibleService(description: string, svc: NfceEligibleService): boolean {
+  const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const desc = norm(description);
+  if (!desc) return false;
+  return svc.matchers.some(m => desc.includes(m) || m.includes(desc));
 }
 
 async function markEntriesAsEmitted(
@@ -833,9 +868,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       // Serviços marcados como acréscimo (ex.: taxa de serviço 10%) NÃO viram
       // <det> na NFC-e: somam em vOutro. Match por nome do serviço na descrição.
       const eligibleAcr = await getNfceEligibleServices(hotelId);
-      const normAcr = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
       const allNfceItems = items || [];
-      const isAcr = (i: NFInvoiceItem) => eligibleAcr.some(e => normAcr(i.descricao).includes(e.name));
+      const isAcr = (i: NFInvoiceItem) => eligibleAcr.some(e => matchesEligibleService(i.descricao, e));
       const productItems = allNfceItems.filter((i: NFInvoiceItem) => !isAcr(i));
       const acrescimoTotal = allNfceItems.filter(isAcr).reduce((s: number, i: NFInvoiceItem) => s + Number(i.valor_total || 0), 0);
 

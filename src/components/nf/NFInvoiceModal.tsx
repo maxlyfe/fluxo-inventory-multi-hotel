@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
-import { nfService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData, type NfceEligibleService } from '../../lib/nfService';
+import { nfService, matchesEligibleService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData, type NfceEligibleService } from '../../lib/nfService';
 import { printNFA4 } from './NFPrintA4';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
@@ -289,7 +289,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     // Serviço marcado como acréscimo (ex.: taxa de serviço): entra na NFC-e como
     // vOutro (não como produto) — logo NÃO passa pela resolução de NCM.
     const isAcrescimo = (e: { description: string }) =>
-      nfceEligible.some(s => normDesc(e.description).includes(s.name));
+      nfceEligible.some(s => matchesEligibleService(e.description, s));
     // Conta na emissão de produtos: produto real OU acréscimo (para ser incluído).
     const isProductEntry = (e: { description: string }) => !isServiceEntry(e) || isAcrescimo(e);
 
@@ -534,7 +534,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       const svc = serviceFiscal?.items.find(s => s.erbon_entry_id === e.id);
       // Serviço marcado p/ emitir em NFC-e (ex.: taxa de serviço) NÃO é produto:
       // vai como acréscimo (vOutro) na emissão — item simples, sem NCM/CFOP.
-      const elig = isProduct ? nfceEligible.some(s => normDesc(e.description).includes(s.name)) : false;
+      const elig = isProduct ? nfceEligible.some(s => matchesEligibleService(e.description, s)) : false;
       return {
         // Itens genéricos usam IDs locais que NÃO podem ser gravados como
         // erbon_entry_id (colidiriam com lançamentos reais da Erbon)
@@ -903,7 +903,7 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                     {activeItems.map((item) => {
                       const fiscalItem = fiscalData?.items.find(f => f.erbon_entry_id === item.id);
                       const svcItem = tipo === 'nfse' ? serviceFiscal?.items.find(s => s.erbon_entry_id === item.id) : undefined;
-                      const isAcrescimoItem = isProduct && nfceEligible.some(s => normDesc(item.description).includes(s.name));
+                      const isAcrescimoItem = isProduct && nfceEligible.some(s => matchesEligibleService(item.description, s));
                       return (
                         <label
                           key={item.id}
