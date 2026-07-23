@@ -491,41 +491,16 @@ const BookingModal: React.FC<{
               <p className="text-sm text-gray-500">Nenhum lançamento nesta reserva.</p>
             </div>
           ) : (
-            <>
-              <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                <div className="max-h-72 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 dark:bg-gray-800 text-[10px] uppercase tracking-wide text-gray-400 sticky top-0">
-                        <th className="text-left px-4 py-2.5">Descrição</th>
-                        <th className="text-right px-4 py-2.5">Débito</th>
-                        <th className="text-right px-4 py-2.5">Crédito</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {accountEntries.map((e: any, i: number) => (
-                        <tr key={e.id ?? i} className="border-t border-gray-100 dark:border-gray-800">
-                          <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 truncate max-w-[280px]" title={e.description}>{e.description || '—'}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-red-600 dark:text-red-400">{e.isDebit ? fmtBRL(e.amount) : ''}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400">{e.isCredit ? fmtBRL(e.amount) : ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Emissão de NF integrada (mesmas regras do planning) */}
-              <BookingNFSection
-                hotelId={hotelId}
-                bookingInternalId={booking.bookingInternalID}
-                bookingNumber={booking.erbonNumber}
-                roomDescription={booking.roomDescription}
-                guestList={booking.guestList}
-                entries={accountEntries}
-                onEmitted={loadAccount}
-              />
-            </>
+            /* Extrato único: clicar no lançamento seleciona para emissão de NF */
+            <BookingNFSection
+              hotelId={hotelId}
+              bookingInternalId={booking.bookingInternalID}
+              bookingNumber={booking.erbonNumber}
+              roomDescription={booking.roomDescription}
+              guestList={booking.guestList}
+              entries={accountEntries}
+              onEmitted={loadAccount}
+            />
           )}
         </div>
       )}
