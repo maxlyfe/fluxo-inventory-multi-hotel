@@ -175,7 +175,10 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   // Emitted invoice (for print after emission)
   const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
-  const [tPag, setTPag] = useState('01'); // forma de pagamento (NFC-e/NF-e)
+  // Forma(s) de pagamento (NFC-e/NF-e). Sem opção padrão: obriga o operador a escolher.
+  const [pagMulti, setPagMulti] = useState(false);
+  const [pagUnico, setPagUnico] = useState('');
+  const [pagRows, setPagRows] = useState<{ tPag: string; valor: string }[]>([{ tPag: '', valor: '' }]);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
 
   // Inline error state (shown within the modal, not just toast)
@@ -339,6 +342,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorNacionalidade('');
     setEmittedInvoice(null);
     setWciLoaded(false);
+    setPagMulti(false);
+    setPagUnico('');
+    setPagRows([{ tPag: '', valor: '' }]);
 
     // Prefill tomador data from booking guest
     const primaryGuest = booking?.guestList?.[0];
@@ -756,6 +762,31 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
       return;
     }
 
+    // Forma(s) de pagamento (só NFC-e/NF-e) — obrigatório escolher; soma = total
+    let pagamentos: { tPag: string; vPag: number }[] | undefined;
+    if (isProduct) {
+      const total = +subtotal.toFixed(2);
+      if (!pagMulti) {
+        if (!pagUnico) {
+          setEmitError({ title: 'Forma de pagamento', details: 'Selecione a forma de pagamento antes de emitir.', canRetry: true });
+          return;
+        }
+        pagamentos = [{ tPag: pagUnico, vPag: total }];
+      } else {
+        const rows = pagRows.filter(r => r.tPag || r.valor);
+        if (rows.length === 0 || rows.some(r => !r.tPag || !r.valor || Number(r.valor) <= 0)) {
+          setEmitError({ title: 'Forma de pagamento', details: 'Preencha a forma e o valor de cada pagamento.', canRetry: true });
+          return;
+        }
+        const soma = +rows.reduce((s, r) => s + Number(r.valor), 0).toFixed(2);
+        if (Math.abs(soma - total) > 0.01) {
+          setEmitError({ title: 'Forma de pagamento', details: `A soma das formas (R$ ${soma.toFixed(2)}) precisa ser igual ao total (R$ ${total.toFixed(2)}).`, canRetry: true });
+          return;
+        }
+        pagamentos = rows.map(r => ({ tPag: r.tPag, vPag: +Number(r.valor).toFixed(2) }));
+      }
+    }
+
     setSubmitting(true);
     try {
       const input = {
@@ -775,7 +806,7 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
       };
 
       const draft = await nfService.createDraftInvoice(input);
-      const emitRes = await nfService.emitInvoice(draft.id, hotelId, tPag);
+      const emitRes = await nfService.emitInvoice(draft.id, hotelId, pagamentos);
 
       if (emitRes.success) {
         // Garante os dados do cupom no passo 4 mesmo se o retorno não trouxer a
@@ -1293,15 +1324,11 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                 </div>
               </div>
 
-              {/* Forma de pagamento (só NFC-e/NF-e — NFS-e ABRASF não tem tPag) */}
-              {isProduct && (
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block mb-1">Forma de pagamento</label>
-                  <select
-                    value={tPag}
-                    onChange={e => setTPag(e.target.value)}
-                    className="w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                  >
+              {/* Forma(s) de pagamento (só NFC-e/NF-e — NFS-e ABRASF não tem tPag) */}
+              {isProduct && (() => {
+                const opts = (
+                  <>
+                    <option value="">Selecione…</option>
                     <option value="01">Dinheiro</option>
                     <option value="17">PIX</option>
                     <option value="03">Cartão de Crédito</option>
@@ -1311,9 +1338,48 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                     <option value="18">Transferência / Carteira Digital</option>
                     <option value="90">Sem Pagamento</option>
                     <option value="99">Outros</option>
-                  </select>
-                </div>
-              )}
+                  </>
+                );
+                const selCls = 'w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500';
+                const somaRows = pagRows.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+                const restante = +(subtotal - somaRows).toFixed(2);
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Forma de pagamento *</label>
+                      <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
+                        <input type="checkbox" checked={pagMulti} onChange={e => setPagMulti(e.target.checked)} className="rounded" />
+                        Mais de uma forma
+                      </label>
+                    </div>
+                    {!pagMulti ? (
+                      <select value={pagUnico} onChange={e => setPagUnico(e.target.value)} className={selCls}>{opts}</select>
+                    ) : (
+                      <div className="space-y-2">
+                        {pagRows.map((row, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <select value={row.tPag} onChange={e => setPagRows(rs => rs.map((r, j) => j === i ? { ...r, tPag: e.target.value } : r))} className={selCls + ' flex-1'}>{opts}</select>
+                            <input type="text" inputMode="decimal" value={row.valor} placeholder="Valor"
+                              onChange={e => setPagRows(rs => rs.map((r, j) => j === i ? { ...r, valor: e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.') } : r))}
+                              className={selCls + ' w-28'} />
+                            {pagRows.length > 1 && (
+                              <button type="button" onClick={() => setPagRows(rs => rs.filter((_, j) => j !== i))}
+                                className="text-red-500 hover:text-red-600 text-xs font-bold px-2">✕</button>
+                            )}
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between">
+                          <button type="button" onClick={() => setPagRows(rs => [...rs, { tPag: '', valor: restante > 0 ? String(restante) : '' }])}
+                            className="text-xs font-bold text-blue-600 hover:underline">+ Adicionar forma</button>
+                          <span className={`text-xs font-semibold ${Math.abs(restante) < 0.01 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {Math.abs(restante) < 0.01 ? 'Soma confere ✓' : `Falta R$ ${restante.toFixed(2)}`}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Items summary list */}
               <div className="space-y-2">
@@ -1486,12 +1552,19 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                   <span>R$ {Number(emittedInvoice.valor_total).toFixed(2)}</span>
                 </div>
 
-                {emittedInvoice.tipo !== 'nfse' && emittedInvoice.forma_pagamento && (
+                {emittedInvoice.tipo !== 'nfse' && Array.isArray(emittedInvoice.pagamentos) && emittedInvoice.pagamentos.length > 0 ? (
+                  emittedInvoice.pagamentos.map((p: any, i: number) => (
+                    <div key={i} className="flex justify-between text-[10px] mt-0.5">
+                      <span>{i === 0 ? 'PAGAMENTO' : ''} {tPagLabel(p.tPag)}</span>
+                      <span className="font-bold">R$ {Number(p.vPag).toFixed(2)}</span>
+                    </div>
+                  ))
+                ) : emittedInvoice.tipo !== 'nfse' && emittedInvoice.forma_pagamento ? (
                   <div className="flex justify-between text-[10px] mt-0.5">
                     <span>FORMA DE PAGAMENTO</span>
                     <span className="font-bold">{tPagLabel(emittedInvoice.forma_pagamento)}</span>
                   </div>
-                )}
+                ) : null}
 
                 {emittedInvoice.chave_acesso && (
                   <>

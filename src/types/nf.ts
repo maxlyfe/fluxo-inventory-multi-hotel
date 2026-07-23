@@ -105,6 +105,7 @@ export interface NFInvoice {
   qrcode_url: string | null;
   url_consulta: string | null;
   forma_pagamento: string | null;
+  pagamentos: { tPag: string; vPag: number }[] | null;
 
   cancelada_em: string | null;
   motivo_cancelamento: string | null;

@@ -260,7 +260,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       telefone,
       tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo,
       items, serie_nfce, nfce_csc_id, nfce_csc_token,
-      numero_nfce, tPag, acrescimo, taxa_na_base_icms,
+      numero_nfce, tPag, acrescimo, taxa_na_base_icms, pagamentos,
     } = payload;
 
     if (!certificado_base64 || !certificado_senha) {
@@ -325,6 +325,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         },
         nNF: numero_nfce || 1,
         tPag: tPag || '01',
+        pagamentos: Array.isArray(pagamentos) && pagamentos.length ? pagamentos : undefined,
         acrescimo: Number(acrescimo) || 0,
         taxaNaBaseIcms: !!taxa_na_base_icms,
       });
@@ -422,7 +423,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_ie, tomador_ind_ie,
       tomador_email, tomador_endereco, tomador_numero, tomador_bairro,
       tomador_cidade, tomador_codigo_municipio, tomador_uf, tomador_cep,
-      items, serie_nfe, numero_nfe, natureza_operacao, tPag,
+      items, serie_nfe, numero_nfe, natureza_operacao, tPag, pagamentos,
     } = payload;
 
     if (!certificado_base64 || !certificado_senha) {
@@ -496,6 +497,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         nNF: numero_nfe || 1,
         natOp: natureza_operacao || 'VENDA DE MERCADORIA',
         tPag: tPag || '01',
+        pagamentos: Array.isArray(pagamentos) && pagamentos.length ? pagamentos : undefined,
       });
 
       console.log('[NF-e] Resultado:', result.success ? 'SUCESSO' : 'FALHA',

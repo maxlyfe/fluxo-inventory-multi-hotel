@@ -343,6 +343,7 @@ function buildNFCeXml(params: {
   config: NFCeConfig;
   nNF: number;
   tPag: string;
+  pagamentos?: { tPag: string; vPag: number }[];
   acrescimo?: number;
   taxaNaBaseIcms?: boolean;
 }): { xml: string; chave: string; qrCodeUrl: string } {
@@ -482,6 +483,15 @@ function buildNFCeXml(params: {
     destXml += '</dest>';
   }
 
+  // Formas de pagamento: uma ou várias (grupo <pag> com N <detPag>)
+  const totalNota = +(vProd + vOutroSum).toFixed(2);
+  const pagList = (params.pagamentos && params.pagamentos.length > 0)
+    ? params.pagamentos
+    : [{ tPag, vPag: totalNota }];
+  const pagXml = `<pag>` +
+    pagList.map(p => `<detPag><tPag>${p.tPag}</tPag><vPag>${fmtDec(p.vPag)}</vPag></detPag>`).join('') +
+    `</pag>`;
+
   const infNFe =
     `<infNFe Id="${nfeId}" versao="4.00">` +
     `<ide>` +
@@ -549,10 +559,7 @@ function buildNFCeXml(params: {
     buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
     `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
-    `<pag><detPag>` +
-    `<tPag>${tPag}</tPag>` +
-    `<vPag>${fmtDec(vProd + vOutroSum)}</vPag>` +
-    `</detPag></pag>` +
+    pagXml +
     `<infAdic><infCpl>NFC-e emitida pelo sistema Fluxo.</infCpl></infAdic>` +
     `</infNFe>`;
 
@@ -571,6 +578,7 @@ export async function emitirNFCe(params: {
   config: NFCeConfig;
   nNF: number;
   tPag?: string;
+  pagamentos?: { tPag: string; vPag: number }[];
   acrescimo?: number;
   taxaNaBaseIcms?: boolean;
 }): Promise<NFCeResult> {
@@ -844,6 +852,7 @@ function buildNFeXml(params: {
   nNF: number;
   natOp: string;
   tPag: string;
+  pagamentos?: { tPag: string; vPag: number }[];
 }): { xml: string; chave: string } {
   const { emitente, destinatario, items, config, nNF, natOp, tPag } = params;
   const cnpj = emitente.cnpj.replace(/\D/g, '');
@@ -960,6 +969,14 @@ function buildNFeXml(params: {
   if (destinatario.email) destXml += `<email>${xmlEsc(destinatario.email)}</email>`;
   destXml += '</dest>';
 
+  // Formas de pagamento (grupo <pag> com N <detPag>)
+  const pagListNfe = (params.pagamentos && params.pagamentos.length > 0)
+    ? params.pagamentos
+    : [{ tPag, vPag: +vProd.toFixed(2) }];
+  const pagXmlNfe = `<pag>` +
+    pagListNfe.map(p => `<detPag><tPag>${p.tPag}</tPag><vPag>${fmtDec(p.vPag)}</vPag></detPag>`).join('') +
+    `</pag>`;
+
   const infNFe =
     `<infNFe Id="${nfeId}" versao="4.00">` +
     `<ide>` +
@@ -1027,10 +1044,7 @@ function buildNFeXml(params: {
     buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
     `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
-    `<pag><detPag>` +
-    `<tPag>${tPag}</tPag>` +
-    `<vPag>${fmtDec(vProd)}</vPag>` +
-    `</detPag></pag>` +
+    pagXmlNfe +
     `<infAdic><infCpl>NF-e emitida pelo sistema Fluxo.</infCpl></infAdic>` +
     `</infNFe>`;
 
@@ -1047,6 +1061,7 @@ export async function emitirNFe(params: {
   nNF: number;
   natOp?: string;
   tPag?: string;
+  pagamentos?: { tPag: string; vPag: number }[];
 }): Promise<NFCeResult> {
   const natOp = params.natOp || 'VENDA DE MERCADORIA';
   const tPag = params.tPag || '01';

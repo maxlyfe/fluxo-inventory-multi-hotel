@@ -662,7 +662,7 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
   return invoice as NFInvoice;
 }
 
-async function emitInvoice(invoiceId: string, hotelId: string, tPag: string = '01'): Promise<{ success: boolean; message: string; invoice?: NFInvoice }> {
+async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tPag: string; vPag: number }[]): Promise<{ success: boolean; message: string; invoice?: NFInvoice }> {
   try {
     const { data: inv } = await supabase
       .from('nf_invoices')
@@ -888,7 +888,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, tPag: string = '0
         nfce_csc_id: fiscalCfg.nfce_csc_id,
         nfce_csc_token: fiscalCfg.nfce_csc_token,
         numero_nfce: fiscalCfg.proximo_numero_nfce || 1,
-        tPag,
+        tPag: pagamentos?.[0]?.tPag || '01',
+        pagamentos,
       };
     } else if (inv?.tipo === 'nfe') {
       const { data: items } = await supabase
@@ -942,7 +943,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, tPag: string = '0
         serie_nfe: config!.serie_nfe || '1',
         numero_nfe: config!.proximo_numero_nfe || 1,
         natureza_operacao: 'VENDA DE MERCADORIA',
-        tPag,
+        tPag: pagamentos?.[0]?.tPag || '01',
+        pagamentos,
       };
     } else {
       proxyAction = 'emit';
@@ -982,7 +984,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, tPag: string = '0
       pdf_url: result.pdf_url || null,
       qrcode_url: result.qrcode_url || null,
       url_consulta: result.url_consulta || null,
-      forma_pagamento: (inv?.tipo === 'nfce' || inv?.tipo === 'nfe') ? tPag : null,
+      forma_pagamento: (inv?.tipo === 'nfce' || inv?.tipo === 'nfe') ? (pagamentos?.[0]?.tPag ?? null) : null,
+      pagamentos: (inv?.tipo === 'nfce' || inv?.tipo === 'nfe') ? (pagamentos ?? null) : null,
     };
 
     if (useADN) {
