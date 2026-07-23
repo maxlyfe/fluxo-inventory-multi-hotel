@@ -12,6 +12,7 @@ import { useErbonData } from '../../hooks/useErbonData';
 import { useHotel } from '../../context/HotelContext';
 import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
 import Modal from '../../components/Modal';
+import BookingNFSection from '../../components/nf/BookingNFSection';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -332,6 +333,19 @@ const InHouseModal: React.FC<{
                 </table>
               </div>
             </div>
+          )}
+
+          {/* Emissão de NF integrada (mesmas regras do planning) */}
+          {accountEntries.length > 0 && (
+            <BookingNFSection
+              hotelId={hotelId}
+              bookingInternalId={bookingId}
+              bookingNumber={mainGuest?.bookingNumber || booking?.erbonNumber || null}
+              roomDescription={mainGuest?.roomDescription}
+              guestList={booking?.guestList}
+              entries={accountEntries}
+              onEmitted={loadAccount}
+            />
           )}
         </div>
       )}

@@ -13,6 +13,7 @@ import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
 import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
 import Modal from '../../components/Modal';
+import BookingNFSection from '../../components/nf/BookingNFSection';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -39,36 +40,28 @@ interface CheckoutRow {
   bookingId: number;
   bookingNumber: string;
   room: string;
-  mainGuest: ErbonGuest;
-  allGuests: ErbonGuest[];
+  guestName: string;
+  guestCount: number;
   checkIn: string;
   checkOut: string;
-  mealPlan: string;
   nights: number;
+  status: string;
+  isCheckedOut: boolean;
 }
 
-// ── Grouping logic ────────────────────────────────────────────────────────────
-
-function groupByBooking(guests: ErbonGuest[]): CheckoutRow[] {
-  const map = new Map<number, CheckoutRow>();
-  for (const g of guests) {
-    if (!map.has(g.idBooking)) {
-      map.set(g.idBooking, {
-        bookingId: g.idBooking,
-        bookingNumber: g.bookingNumber,
-        room: g.roomDescription,
-        mainGuest: g,
-        allGuests: [g],
-        checkIn: g.checkInDate,
-        checkOut: g.checkOutDate,
-        mealPlan: g.mealPlan,
-        nights: getNights(g.checkInDate, g.checkOutDate),
-      });
-    } else {
-      map.get(g.idBooking)!.allGuests.push(g);
-    }
-  }
-  return Array.from(map.values());
+function bookingToRow(b: ErbonBooking): CheckoutRow {
+  return {
+    bookingId: b.bookingInternalID,
+    bookingNumber: String(b.erbonNumber),
+    room: b.roomDescription || b.roomTypeDescription || '',
+    guestName: b.guestList?.[0]?.name || 'Hóspede',
+    guestCount: b.guestList?.length || 0,
+    checkIn: b.checkInDateTime,
+    checkOut: b.checkOutDateTime,
+    nights: getNights(b.checkInDateTime, b.checkOutDateTime),
+    status: b.status,
+    isCheckedOut: b.status === 'CHECKOUT',
+  };
 }
 
 // ── Meal plan labels ──────────────────────────────────────────────────────────
@@ -99,10 +92,10 @@ const InfoRow: React.FC<{ icon: React.ComponentType<any>; value: string }> = ({ 
 
 const CheckOutModal: React.FC<{
   hotelId: string;
-  guest: ErbonGuest;
+  row: CheckoutRow;
   onClose: () => void;
   onDone: () => void;
-}> = ({ hotelId, guest, onClose, onDone }) => {
+}> = ({ hotelId, row, onClose, onDone }) => {
   const { addNotification } = useNotification();
   const [activeTab, setActiveTab] = useState<'reserva' | 'hospede' | 'conta'>('reserva');
   const [booking, setBooking] = useState<ErbonBooking | null>(null);
@@ -112,7 +105,7 @@ const CheckOutModal: React.FC<{
   const [loadingAccount, setLoadingAccount] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
 
-  const nights = getNights(guest.checkInDate, guest.checkOutDate);
+  const nights = row.nights;
 
   // Load booking details + in-house guests at open
   React.useEffect(() => {
@@ -120,33 +113,33 @@ const CheckOutModal: React.FC<{
       setLoadingBooking(true);
       try {
         const [b, all] = await Promise.all([
-          erbonService.fetchBookingByInternalId(hotelId, guest.idBooking),
+          erbonService.fetchBookingByInternalId(hotelId, row.bookingId),
           erbonService.fetchInHouseGuests(hotelId),
         ]);
         setBooking(b);
-        setInHouseGuests(all.filter(g => g.idBooking === guest.idBooking));
+        setInHouseGuests(all.filter(g => g.idBooking === row.bookingId));
       } catch (err: any) {
         console.error('[CheckOutModal] load error:', err.message);
       } finally { setLoadingBooking(false); }
     })();
-  }, [hotelId, guest.idBooking]);
+  }, [hotelId, row.bookingId]);
 
   const loadAccount = useCallback(async () => {
     setLoadingAccount(true);
     try {
-      const data = await erbonService.fetchBookingAccount(hotelId, guest.idBooking);
+      const data = await erbonService.fetchBookingAccount(hotelId, row.bookingId);
       setAccountEntries(data);
     } catch { } finally { setLoadingAccount(false); }
-  }, [hotelId, guest.idBooking]);
+  }, [hotelId, row.bookingId]);
 
   React.useEffect(() => { if (activeTab === 'conta') loadAccount(); }, [activeTab, loadAccount]);
 
   const handleCheckOut = async () => {
-    if (!window.confirm(`Confirmar check-out da reserva #${guest.bookingNumber}?`)) return;
+    if (!window.confirm(`Confirmar check-out da reserva #${row.bookingNumber}?`)) return;
     setCheckingOut(true);
     try {
-      await erbonService.checkOutBooking(hotelId, guest.idBooking);
-      addNotification(`✅ Check-out realizado — ${guest.guestName} · ${guest.roomDescription}`, 'success');
+      await erbonService.checkOutBooking(hotelId, row.bookingId);
+      addNotification(`✅ Check-out realizado — ${row.guestName} · ${row.room}`, 'success');
       onDone();
     } catch (err: any) {
       addNotification('Erro no check-out: ' + err.message, 'error');
@@ -166,23 +159,27 @@ const CheckOutModal: React.FC<{
           <div className="relative px-6 py-5 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shadow-lg">
-                <span className="text-lg font-black text-white">{guest.roomDescription || '—'}</span>
+                <span className="text-lg font-black text-white">{row.room || '—'}</span>
               </div>
               <div>
-                <h2 className="text-xl font-bold text-white">{guest.guestName}</h2>
+                <h2 className="text-xl font-bold text-white">{row.guestName}</h2>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-xs bg-white/20 text-white/90 px-2 py-0.5 rounded-full font-medium">
-                    #{guest.bookingNumber}
+                    #{row.bookingNumber}
                   </span>
-                  <span className="text-xs text-white/70">{guest.mealPlan}</span>
+                  {row.isCheckedOut && (
+                    <span className="text-xs bg-white/20 text-white/90 px-2 py-0.5 rounded-full font-medium">Check-out feito</span>
+                  )}
                 </div>
               </div>
             </div>
-            <button onClick={handleCheckOut} disabled={checkingOut}
-              className="flex items-center gap-2 px-4 py-2 bg-white text-amber-700 hover:bg-amber-50 font-semibold rounded-xl shadow-lg transition disabled:opacity-50">
-              {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
-              {checkingOut ? 'Processando...' : 'Fazer Check-out'}
-            </button>
+            {!row.isCheckedOut && (
+              <button onClick={handleCheckOut} disabled={checkingOut}
+                className="flex items-center gap-2 px-4 py-2 bg-white text-amber-700 hover:bg-amber-50 font-semibold rounded-xl shadow-lg transition disabled:opacity-50">
+                {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+                {checkingOut ? 'Processando...' : 'Fazer Check-out'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -209,13 +206,13 @@ const CheckOutModal: React.FC<{
           ) : (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                <DetailCard icon={FileText} label="Reserva" value={`#${guest.bookingNumber}`} />
-                <DetailCard icon={BedDouble} label="UH" value={guest.roomDescription || '—'} />
-                <DetailCard icon={LogIn} label="Check-in" value={fmtDate(guest.checkInDate)} />
-                <DetailCard icon={LogOut} label="Check-out" value={fmtDateTime(guest.checkOutDate)} valueColor="text-amber-600 dark:text-amber-400" />
+                <DetailCard icon={FileText} label="Reserva" value={`#${row.bookingNumber}`} />
+                <DetailCard icon={BedDouble} label="UH" value={row.room || '—'} />
+                <DetailCard icon={LogIn} label="Check-in" value={fmtDate(row.checkIn)} />
+                <DetailCard icon={LogOut} label="Check-out" value={fmtDateTime(row.checkOut)} valueColor="text-amber-600 dark:text-amber-400" />
                 <DetailCard icon={Clock} label="Noites" value={`${nights}`} />
                 <DetailCard icon={Users} label="Hóspedes" value={`${inHouseGuests.length} in-house`} />
-                <DetailCard icon={Star} label="Regime" value={MEAL_PLAN_LABELS[guest.mealPlan] || guest.mealPlan || '—'} />
+                <DetailCard icon={Star} label="Status" value={row.isCheckedOut ? 'Check-out Feito' : 'Aguardando saída'} />
                 {booking && <DetailCard icon={DollarSign} label="Total" value={fmtBRL(booking.totalBookingRateWithTax)} />}
               </div>
 
@@ -344,6 +341,19 @@ const CheckOutModal: React.FC<{
               </div>
             </div>
           )}
+
+          {/* Emissão de NF integrada (mesmas regras do planning) */}
+          {accountEntries.length > 0 && (
+            <BookingNFSection
+              hotelId={hotelId}
+              bookingInternalId={row.bookingId}
+              bookingNumber={row.bookingNumber}
+              roomDescription={row.room}
+              guestList={booking?.guestList}
+              entries={accountEntries}
+              onEmitted={loadAccount}
+            />
+          )}
         </div>
       )}
     </Modal>
@@ -354,29 +364,38 @@ const CheckOutModal: React.FC<{
 
 const CheckOutList: React.FC = () => {
   const { selectedHotel } = useHotel();
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const [date, setDate] = useState(today);
+  const [view, setView] = useState<'pendentes' | 'realizados'>('pendentes');
   const [search, setSearch] = useState('');
   const [selectedRow, setSelectedRow] = useState<CheckoutRow | null>(null);
 
-  const { data: guests, loading, error, refetch, erbonConfigured } = useErbonData<ErbonGuest[]>(
-    (hotelId) => erbonService.fetchTodayCheckouts(hotelId),
+  const { data: bookings, loading, error, refetch, erbonConfigured } = useErbonData<ErbonBooking[]>(
+    (hotelId) => erbonService.searchBookings(hotelId, { checkout: date }),
+    [date],
   );
 
-  // Group by booking
-  const bookingRows = useMemo(() => groupByBooking(guests || []), [guests]);
+  const bookingRows = useMemo(
+    () => (bookings || []).filter(b => b.status !== 'CANCELLED').map(bookingToRow),
+    [bookings],
+  );
 
-  // Filter on grouped rows
+  // Pendentes: hóspedes na casa com saída na data; Realizados: já saíram
+  const pendingRows = useMemo(() => bookingRows.filter(r => !r.isCheckedOut), [bookingRows]);
+  const doneRows = useMemo(() => bookingRows.filter(r => r.isCheckedOut), [bookingRows]);
+  const viewRows = view === 'pendentes' ? pendingRows : doneRows;
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return bookingRows;
+    if (!search.trim()) return viewRows;
     const q = search.toLowerCase();
-    return bookingRows.filter(row =>
-      row.mainGuest.guestName?.toLowerCase().includes(q) ||
+    return viewRows.filter(row =>
+      row.guestName?.toLowerCase().includes(q) ||
       row.bookingNumber?.includes(q) ||
-      row.room?.toLowerCase().includes(q) ||
-      row.allGuests.some(g => g.guestName?.toLowerCase().includes(q))
+      row.room?.toLowerCase().includes(q)
     );
-  }, [bookingRows, search]);
+  }, [viewRows, search]);
 
-  const totalGuests = filtered.reduce((sum, row) => sum + row.allGuests.length, 0);
+  const totalGuests = filtered.reduce((sum, row) => sum + (row.guestCount || 1), 0);
 
   if (!erbonConfigured && !loading) return <ErbonNotConfigured hotelName={selectedHotel?.name} />;
 
@@ -389,7 +408,7 @@ const CheckOutList: React.FC = () => {
             <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
               <LogOut className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Check-outs de Hoje</h1>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Check-outs</h1>
           </div>
           {!loading && (
             <div className="flex items-center gap-2 pl-1">
@@ -402,7 +421,16 @@ const CheckOutList: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <input
+              type="date"
+              value={date}
+              onChange={e => e.target.value && setDate(e.target.value)}
+              className="pl-9 pr-3 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent shadow-sm"
+            />
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -424,6 +452,22 @@ const CheckOutList: React.FC = () => {
         </div>
       </div>
 
+      {/* Abas: pendentes × realizados na data escolhida */}
+      <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 max-w-md">
+        <button
+          onClick={() => setView('pendentes')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'pendentes' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+          <Clock className="w-4 h-4" /> Pendentes
+          <span className={`px-1.5 py-0.5 rounded-full text-xs ${view === 'pendentes' ? 'bg-white/20' : 'bg-gray-200 dark:bg-gray-700'}`}>{pendingRows.length}</span>
+        </button>
+        <button
+          onClick={() => setView('realizados')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'realizados' ? 'bg-sky-500 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+          <UserCheck className="w-4 h-4" /> Realizados
+          <span className={`px-1.5 py-0.5 rounded-full text-xs ${view === 'realizados' ? 'bg-white/20' : 'bg-gray-200 dark:bg-gray-700'}`}>{doneRows.length}</span>
+        </button>
+      </div>
+
       {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
 
       {loading ? (
@@ -433,14 +477,20 @@ const CheckOutList: React.FC = () => {
       ) : filtered.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700">
           <UserCheck className="w-14 h-14 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-gray-600 dark:text-gray-400 font-semibold text-lg">Nenhum check-out previsto</p>
-          <p className="text-sm text-gray-400 mt-1">Não há check-outs agendados para hoje.</p>
+          <p className="text-gray-600 dark:text-gray-400 font-semibold text-lg">
+            {view === 'pendentes' ? 'Nenhum check-out pendente' : 'Nenhum check-out realizado'}
+          </p>
+          <p className="text-sm text-gray-400 mt-1">
+            {view === 'pendentes'
+              ? 'Não há check-outs aguardando saída na data escolhida.'
+              : 'Nenhuma reserva deu saída na data escolhida.'}
+          </p>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           {filtered.map((row, idx) => {
             const isLast = idx === filtered.length - 1;
-            const guestCount = row.allGuests.length;
+            const guestCount = row.guestCount;
             return (
               <button
                 key={row.bookingId}
@@ -457,10 +507,7 @@ const CheckOutList: React.FC = () => {
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-xs text-gray-400 font-medium">#{row.bookingNumber}</span>
                     <span className="text-gray-300 dark:text-gray-600">·</span>
-                    <span className="font-bold text-gray-800 dark:text-white truncate">
-                      {row.mainGuest.guestName}
-                      {row.mainGuest.lastName && row.mainGuest.lastName !== row.mainGuest.guestName ? ` ${row.mainGuest.lastName}` : ''}
-                    </span>
+                    <span className="font-bold text-gray-800 dark:text-white truncate">{row.guestName}</span>
                   </div>
                   {guestCount > 1 && (
                     <p className="text-xs text-gray-400 flex items-center gap-1">
@@ -483,15 +530,13 @@ const CheckOutList: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Right side: meal plan + action */}
+                {/* Right side: status + action */}
                 <div className="flex-shrink-0 flex flex-col items-end gap-2">
-                  {row.mealPlan && (
-                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
-                      {MEAL_PLAN_LABELS[row.mealPlan] || row.mealPlan}
-                    </span>
-                  )}
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${row.isCheckedOut ? 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}`}>
+                    {row.isCheckedOut ? 'Check-out Feito' : 'Aguardando saída'}
+                  </span>
                   <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 group-hover:underline">
-                    Fazer Check-out
+                    {row.isCheckedOut ? 'Ver detalhes / NF' : 'Fazer Check-out'}
                   </span>
                 </div>
 
@@ -506,7 +551,7 @@ const CheckOutList: React.FC = () => {
       {selectedRow && (
         <CheckOutModal
           hotelId={selectedHotel!.id}
-          guest={selectedRow.mainGuest}
+          row={selectedRow}
           onClose={() => setSelectedRow(null)}
           onDone={() => { setSelectedRow(null); refetch(); }}
         />

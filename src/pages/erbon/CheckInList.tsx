@@ -16,6 +16,7 @@ import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
 import ErbonNotConfigured from '../../components/erbon/ErbonNotConfigured';
 import Modal from '../../components/Modal';
+import BookingNFSection from '../../components/nf/BookingNFSection';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -479,28 +480,41 @@ const BookingModal: React.FC<{
               <p className="text-sm text-gray-500">Nenhum lançamento nesta reserva.</p>
             </div>
           ) : (
-            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-              <div className="max-h-72 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800 text-[10px] uppercase tracking-wide text-gray-400 sticky top-0">
-                      <th className="text-left px-4 py-2.5">Descrição</th>
-                      <th className="text-right px-4 py-2.5">Débito</th>
-                      <th className="text-right px-4 py-2.5">Crédito</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {accountEntries.map((e: any, i: number) => (
-                      <tr key={e.id ?? i} className="border-t border-gray-100 dark:border-gray-800">
-                        <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 truncate max-w-[280px]" title={e.description}>{e.description || '—'}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-red-600 dark:text-red-400">{e.isDebit ? fmtBRL(e.amount) : ''}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400">{e.isCredit ? fmtBRL(e.amount) : ''}</td>
+            <>
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-800 text-[10px] uppercase tracking-wide text-gray-400 sticky top-0">
+                        <th className="text-left px-4 py-2.5">Descrição</th>
+                        <th className="text-right px-4 py-2.5">Débito</th>
+                        <th className="text-right px-4 py-2.5">Crédito</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {accountEntries.map((e: any, i: number) => (
+                        <tr key={e.id ?? i} className="border-t border-gray-100 dark:border-gray-800">
+                          <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 truncate max-w-[280px]" title={e.description}>{e.description || '—'}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-red-600 dark:text-red-400">{e.isDebit ? fmtBRL(e.amount) : ''}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-400">{e.isCredit ? fmtBRL(e.amount) : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+
+              {/* Emissão de NF integrada (mesmas regras do planning) */}
+              <BookingNFSection
+                hotelId={hotelId}
+                bookingInternalId={booking.bookingInternalID}
+                bookingNumber={booking.erbonNumber}
+                roomDescription={booking.roomDescription}
+                guestList={booking.guestList}
+                entries={accountEntries}
+                onEmitted={loadAccount}
+              />
+            </>
           )}
         </div>
       )}
@@ -513,23 +527,29 @@ const BookingModal: React.FC<{
 const CheckInList: React.FC = () => {
   const { selectedHotel } = useHotel();
   const today = format(new Date(), 'yyyy-MM-dd');
+  const [date, setDate] = useState(today);
+  const [view, setView] = useState<'pendentes' | 'realizados'>('pendentes');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<ErbonBooking | null>(null);
 
   const { data: bookings, loading, error, refetch, erbonConfigured } = useErbonData<ErbonBooking[]>(
-    (hotelId) => erbonService.searchBookings(hotelId, { checkin: today }),
+    (hotelId) => erbonService.searchBookings(hotelId, { checkin: date }),
+    [date],
   );
 
-  // Only bookings pending check-in
-  const pending = (bookings || []).filter(b => b.status !== 'CHECKIN' && b.status !== 'CANCELLED');
+  // Pendentes: ainda não entraram; Realizados: já deram entrada na data
+  // escolhida (inclui quem já saiu depois)
+  const pending = (bookings || []).filter(b => b.status !== 'CHECKIN' && b.status !== 'CHECKOUT' && b.status !== 'CANCELLED');
+  const done = (bookings || []).filter(b => b.status === 'CHECKIN' || b.status === 'CHECKOUT');
+  const viewList = view === 'pendentes' ? pending : done;
 
   const filtered = search.trim()
-    ? pending.filter(b =>
+    ? viewList.filter(b =>
         b.guestList?.some(g => g.name?.toLowerCase().includes(search.toLowerCase())) ||
         String(b.erbonNumber).includes(search) ||
         b.roomDescription?.toLowerCase().includes(search.toLowerCase())
       )
-    : pending;
+    : viewList;
 
   const totalGuests = filtered.reduce((sum, b) => sum + (b.guestList?.length || 0), 0);
 
@@ -544,7 +564,7 @@ const CheckInList: React.FC = () => {
             <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
               <LogIn className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Check-ins Pendentes</h1>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Check-ins</h1>
           </div>
           {!loading && (
             <div className="flex items-center gap-2 ml-13 pl-1">
@@ -557,7 +577,16 @@ const CheckInList: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <input
+              type="date"
+              value={date}
+              onChange={e => e.target.value && setDate(e.target.value)}
+              className="pl-9 pr-3 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent shadow-sm"
+            />
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -579,6 +608,22 @@ const CheckInList: React.FC = () => {
         </div>
       </div>
 
+      {/* Abas: pendentes × realizados na data escolhida */}
+      <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 max-w-md">
+        <button
+          onClick={() => setView('pendentes')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'pendentes' ? 'bg-emerald-500 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+          <Clock className="w-4 h-4" /> Pendentes
+          <span className={`px-1.5 py-0.5 rounded-full text-xs ${view === 'pendentes' ? 'bg-white/20' : 'bg-gray-200 dark:bg-gray-700'}`}>{pending.length}</span>
+        </button>
+        <button
+          onClick={() => setView('realizados')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'realizados' ? 'bg-sky-500 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+          <UserCheck className="w-4 h-4" /> Realizados
+          <span className={`px-1.5 py-0.5 rounded-full text-xs ${view === 'realizados' ? 'bg-white/20' : 'bg-gray-200 dark:bg-gray-700'}`}>{done.length}</span>
+        </button>
+      </div>
+
       {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
 
       {loading ? (
@@ -588,8 +633,14 @@ const CheckInList: React.FC = () => {
       ) : filtered.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700">
           <UserCheck className="w-14 h-14 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-gray-600 dark:text-gray-400 font-semibold text-lg">Nenhum check-in pendente</p>
-          <p className="text-sm text-gray-400 mt-1">Todos os hóspedes já realizaram check-in ou não há reservas para hoje.</p>
+          <p className="text-gray-600 dark:text-gray-400 font-semibold text-lg">
+            {view === 'pendentes' ? 'Nenhum check-in pendente' : 'Nenhum check-in realizado'}
+          </p>
+          <p className="text-sm text-gray-400 mt-1">
+            {view === 'pendentes'
+              ? 'Todos os hóspedes já realizaram check-in ou não há reservas para a data escolhida.'
+              : 'Nenhuma reserva deu entrada na data escolhida.'}
+          </p>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
