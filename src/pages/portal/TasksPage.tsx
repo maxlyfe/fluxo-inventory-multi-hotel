@@ -26,7 +26,7 @@ const FREQ_LABEL: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Card de uma ocorrência de tarefa
 // ---------------------------------------------------------------------------
-function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdit, onDelete, onRespond, onMoveToGroup }: {
+function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdit, onDelete, onRespond, onMoveToGroup, onForceComplete }: {
   occ: TaskOccurrenceRow;
   others?: TaskOccurrenceRow[];
   userId: string;
@@ -37,6 +37,7 @@ function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdi
   onDelete: (occ: TaskOccurrenceRow) => void;
   onRespond: (taskId: string, status: 'accepted' | 'declined') => void;
   onMoveToGroup: (occ: TaskOccurrenceRow, groupId: string | null) => void;
+  onForceComplete: (occ: TaskOccurrenceRow) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -167,6 +168,13 @@ function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdi
           <div className="flex items-center gap-3 flex-wrap">
             {isOwner && (
               <>
+                {occ.is_shared && occ.completion_mode === 'all' && !isDone && (
+                  <button onClick={() => onForceComplete(occ)}
+                    className="text-xs text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 flex items-center gap-1 font-semibold transition-colors"
+                    title="Fecha esta data para todos os colaboradores">
+                    <CheckCircle2 className="w-3 h-3" /> Concluir para todos
+                  </button>
+                )}
                 <button onClick={() => onEdit(occ)}
                   className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-1 transition-colors">
                   <Edit2 className="w-3 h-3" /> Editar tarefa
@@ -457,7 +465,7 @@ export default function TasksPage() {
   const { selectedHotel } = useHotel();
   const {
     fetchOccurrences, fetchTask, deleteTask,
-    completeOccurrence, uncompleteOccurrence, respondInvite,
+    completeOccurrence, uncompleteOccurrence, forceCompleteOccurrence, respondInvite,
     fetchNotes, deleteNote, fetchGroups, setItemGroup,
   } = useTasks();
 
@@ -637,6 +645,11 @@ export default function TasksPage() {
     loadData();
   }
 
+  async function handleForceComplete(occ: TaskOccurrenceRow) {
+    await forceCompleteOccurrence(occ.occurrence_id);
+    loadData();
+  }
+
   async function handleMoveTask(occ: TaskOccurrenceRow, groupId: string | null) {
     await setItemGroup('task', occ.task_id, groupId);
     loadData();
@@ -671,6 +684,7 @@ export default function TasksPage() {
                 onDelete={handleDelete}
                 onRespond={handleRespond}
                 onMoveToGroup={handleMoveTask}
+                onForceComplete={handleForceComplete}
               />
             </div>
           ))}
@@ -992,6 +1006,7 @@ export default function TasksPage() {
                           onDelete={handleDelete}
                           onRespond={handleRespond}
                           onMoveToGroup={handleMoveTask}
+                          onForceComplete={handleForceComplete}
                         />
                       </div>
                     ))}
@@ -1028,6 +1043,7 @@ export default function TasksPage() {
                               onDelete={handleDelete}
                               onRespond={handleRespond}
                               onMoveToGroup={handleMoveTask}
+                              onForceComplete={handleForceComplete}
                             />
                           </div>
                         ))}

@@ -263,6 +263,12 @@ export function useTasks() {
     return done;
   }, [user]);
 
+  // Dono fecha a ocorrência para todos (ação explícita)
+  const forceCompleteOccurrence = useCallback(async (occurrenceId: string) => {
+    const { error } = await supabase.rpc('force_complete_task_occurrence', { p_occurrence_id: occurrenceId });
+    if (error) console.error('[tasks] forceComplete:', error.message);
+  }, []);
+
   const uncompleteOccurrence = useCallback(async (occurrenceId: string) => {
     const { error } = await supabase.rpc('uncomplete_task_occurrence', { p_occurrence_id: occurrenceId });
     if (error) console.error('[tasks] uncomplete:', error.message);
@@ -483,7 +489,7 @@ export function useTasks() {
   return {
     fetchGroups, saveGroup, deleteGroup, setItemGroup,
     fetchOccurrences, fetchTask, saveTask, deleteTask,
-    completeOccurrence, uncompleteOccurrence, respondInvite,
+    completeOccurrence, uncompleteOccurrence, forceCompleteOccurrence, respondInvite,
     fetchNotes, saveNote, deleteNote,
     fetchComments, addComment, deleteComment,
   };
