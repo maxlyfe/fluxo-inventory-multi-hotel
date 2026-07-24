@@ -25,8 +25,9 @@ const FREQ_LABEL: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Card de uma ocorrência de tarefa
 // ---------------------------------------------------------------------------
-function TaskCard({ occ, userId, userNames, groups, onToggle, onEdit, onDelete, onRespond, onMoveToGroup }: {
+function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdit, onDelete, onRespond, onMoveToGroup }: {
   occ: TaskOccurrenceRow;
+  others?: TaskOccurrenceRow[];
   userId: string;
   userNames: Map<string, string>;
   groups: TaskGroup[];
@@ -37,10 +38,12 @@ function TaskCard({ occ, userId, userNames, groups, onToggle, onEdit, onDelete, 
   onMoveToGroup: (occ: TaskOccurrenceRow, groupId: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const isOwner = occ.created_by === userId;
   const isPendingInvite = !isOwner && occ.my_assignee_status === 'pending';
   const isDone = occ.status === 'done';
   const overdue = !isDone && isBefore(parseISO(occ.due_date), startOfDay(new Date()));
+  const today = startOfDay(new Date());
 
   const participantIds = useMemo(() => [
     occ.created_by,
@@ -96,6 +99,9 @@ function TaskCard({ occ, userId, userNames, groups, onToggle, onEdit, onDelete, 
               <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {occ.due_time.slice(0, 5)}</span>
             )}
             {overdue && <span className="text-red-500 font-semibold">Atrasada</span>}
+            {others.length > 0 && (
+              <span className="text-[10px] text-slate-400">+{others.length} datas</span>
+            )}
           </div>
 
           {/* Progresso no modo 'all': quem já concluiu */}
@@ -184,6 +190,56 @@ function TaskCard({ occ, userId, userNames, groups, onToggle, onEdit, onDelete, 
               </label>
             )}
           </div>
+
+          {/* Outras datas da recorrência (passadas e futuras), recolhidas */}
+          {others.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowHistory(v => !v)}
+                className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1 mb-1.5"
+              >
+                <Repeat className="w-3 h-3" /> Outras datas ({others.length})
+                {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+              {showHistory && (
+                <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                  {others.map(o => {
+                    const oDone = o.status === 'done';
+                    const oOverdue = !oDone && isBefore(parseISO(o.due_date), today);
+                    return (
+                      <div key={o.occurrence_id}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900">
+                        <button
+                          onClick={() => !isPendingInvite && onToggle(o)}
+                          disabled={isPendingInvite}
+                          className="shrink-0 disabled:opacity-40"
+                          title={oDone || o.i_completed ? 'Desfazer conclusão' : 'Concluir esta data'}
+                        >
+                          {oDone || o.i_completed
+                            ? <CheckSquare className="w-4 h-4 text-emerald-500" />
+                            : <Square className={`w-4 h-4 ${oOverdue ? 'text-red-400' : 'text-slate-300 dark:text-slate-600'} hover:text-indigo-500 transition-colors`} />}
+                        </button>
+                        <span className={`text-xs flex-1 ${
+                          oDone ? 'text-slate-400 line-through'
+                          : oOverdue ? 'text-red-500 font-semibold'
+                          : 'text-slate-600 dark:text-slate-300'
+                        }`}>
+                          {format(parseISO(o.due_date), "dd/MM/yyyy (EEE)", { locale: ptBR })}
+                          {o.due_time ? ` · ${o.due_time.slice(0, 5)}` : ''}
+                        </span>
+                        {oOverdue && <span className="text-[10px] text-red-500 font-semibold shrink-0">Atrasada</span>}
+                        {oDone && o.completed_at && (
+                          <span className="text-[10px] text-slate-400 shrink-0" title="Concluída em">
+                            ✓ {format(parseISO(o.completed_at), 'dd/MM HH:mm')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           <CommentsPanel
             entityType="task"
@@ -416,10 +472,13 @@ export default function TasksPage() {
     [notes, selectedGroupId],
   );
 
-  // Contagem de itens abertos por grupo (tarefas pendentes + anotações)
+  // Contagem de itens abertos por grupo (tarefas pendentes, 1 por tarefa, + anotações)
   const groupCounts = useMemo(() => {
     const map = new Map<string, number>();
+    const seenTasks = new Set<string>();
     occurrences.filter(o => o.status !== 'done').forEach(o => {
+      if (seenTasks.has(o.task_id)) return;
+      seenTasks.add(o.task_id);
       const k = o.group_id || '';
       map.set(k, (map.get(k) || 0) + 1);
     });
@@ -494,23 +553,46 @@ export default function TasksPage() {
     };
   }, [user?.id, loadData]);
 
+  // Unificar recorrência: 1 linha por tarefa (a ocorrência pendente mais
+  // próxima), com as demais datas recolhidas dentro do card.
+  const dedupedTasks = useMemo(() => {
+    const byTask = new Map<string, TaskOccurrenceRow[]>();
+    filteredOccurrences.forEach(o => {
+      if (!byTask.has(o.task_id)) byTask.set(o.task_id, []);
+      byTask.get(o.task_id)!.push(o);
+    });
+    const result: { occ: TaskOccurrenceRow; others: TaskOccurrenceRow[] }[] = [];
+    byTask.forEach(list => {
+      list.sort((a, b) => a.due_date.localeCompare(b.due_date));
+      const firstPending = list.find(o => o.status !== 'done');
+      const primary = firstPending || list[list.length - 1]; // tudo concluído → mais recente
+      result.push({ occ: primary, others: list.filter(o => o.occurrence_id !== primary.occurrence_id) });
+    });
+    return result;
+  }, [filteredOccurrences]);
+
   // Agrupamento: Atrasadas / Hoje / Próximas / Concluídas
+  type TaskEntry = { occ: TaskOccurrenceRow; others: TaskOccurrenceRow[] };
   const sections = useMemo(() => {
     const today = startOfDay(new Date());
-    const overdue: TaskOccurrenceRow[] = [];
-    const todayList: TaskOccurrenceRow[] = [];
-    const upcoming: TaskOccurrenceRow[] = [];
-    const done: TaskOccurrenceRow[] = [];
-    filteredOccurrences.forEach(o => {
-      if (o.status === 'done') { done.push(o); return; }
+    const overdue: TaskEntry[] = [];
+    const todayList: TaskEntry[] = [];
+    const upcoming: TaskEntry[] = [];
+    const done: TaskEntry[] = [];
+    dedupedTasks.forEach(entry => {
+      const o = entry.occ;
+      if (o.status === 'done') { done.push(entry); return; }
       const d = parseISO(o.due_date);
-      if (isToday(d)) todayList.push(o);
-      else if (isBefore(d, today)) overdue.push(o);
-      else upcoming.push(o);
+      if (isToday(d)) todayList.push(entry);
+      else if (isBefore(d, today)) overdue.push(entry);
+      else upcoming.push(entry);
     });
-    done.sort((a, b) => b.due_date.localeCompare(a.due_date));
+    overdue.sort((a, b) => a.occ.due_date.localeCompare(b.occ.due_date));
+    todayList.sort((a, b) => (a.occ.due_time || '').localeCompare(b.occ.due_time || ''));
+    upcoming.sort((a, b) => a.occ.due_date.localeCompare(b.occ.due_date));
+    done.sort((a, b) => b.occ.due_date.localeCompare(a.occ.due_date));
     return { overdue, todayList, upcoming, done };
-  }, [filteredOccurrences]);
+  }, [dedupedTasks]);
 
   async function handleToggle(occ: TaskOccurrenceRow) {
     if (occ.i_completed || occ.status === 'done') {
@@ -554,7 +636,7 @@ export default function TasksPage() {
   const myNotes     = filteredNotes.filter(n => n.created_by === user?.id);
   const sharedNotes = filteredNotes.filter(n => n.created_by !== user?.id);
 
-  function renderGroup(title: string, list: TaskOccurrenceRow[], accent?: string) {
+  function renderGroup(title: string, list: TaskEntry[], accent?: string) {
     if (!list.length) return null;
     return (
       <div>
@@ -562,10 +644,11 @@ export default function TasksPage() {
           {title} ({list.length})
         </h3>
         <div className="space-y-2">
-          {list.map(o => (
+          {list.map(({ occ: o, others }) => (
             <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
               <TaskCard
                 occ={o}
+                others={others}
                 userId={user!.id}
                 userNames={userNames}
                 groups={groups}
@@ -753,10 +836,11 @@ export default function TasksPage() {
                   </button>
                   {showDone && (
                     <div className="space-y-2">
-                      {sections.done.map(o => (
+                      {sections.done.map(({ occ: o, others }) => (
                         <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
                           <TaskCard
                             occ={o}
+                            others={others}
                             userId={user!.id}
                             userNames={userNames}
                             groups={groups}
