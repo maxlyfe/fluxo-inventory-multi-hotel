@@ -43,10 +43,12 @@ interface SortableWidgetWrapperProps {
   isDragging: boolean;
   label: string;
   onRemove: () => void;
+  sizeW?: number;
+  onResize?: (sizeW: number) => void;
   children: React.ReactNode;
 }
 
-function SortableWidgetWrapper({ id, spanClass, isEditing, isDragging, label, onRemove, children }: SortableWidgetWrapperProps) {
+function SortableWidgetWrapper({ id, spanClass, isEditing, isDragging, label, onRemove, sizeW, onResize, children }: SortableWidgetWrapperProps) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id,
     disabled: !isEditing,
@@ -67,6 +69,8 @@ function SortableWidgetWrapper({ id, spanClass, isEditing, isDragging, label, on
         dragListeners={isEditing ? listeners : undefined}
         dragAttributes={isEditing ? attributes : undefined}
         onRemove={onRemove}
+        sizeW={sizeW}
+        onResize={onResize}
       >
         {children}
       </WidgetContainer>
@@ -80,7 +84,7 @@ const Home = () => {
   const { user } = useAuth();
   const { can, isAdmin, isDev } = usePermissions();
   const { selectedHotel } = useHotel();
-  const { widgets, loading, addWidget, removeWidget, reorderWidgets } = useDashboardConfig();
+  const { widgets, loading, addWidget, removeWidget, resizeWidget, reorderWidgets } = useDashboardConfig();
   const navigate = useNavigate();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -254,6 +258,8 @@ const Home = () => {
                     isDragging={activeId === userWidget.id}
                     label={definition.label}
                     onRemove={() => removeWidget(userWidget.id)}
+                    sizeW={userWidget.size_w}
+                    onResize={w => resizeWidget(userWidget.id, w)}
                   >
                     <Suspense fallback={<div className="h-40 rounded-3xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}>
                       <WidgetComponent settings={userWidget.settings} />

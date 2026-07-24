@@ -10,7 +10,16 @@ interface WidgetContainerProps {
   dragAttributes?: Record<string, any>;
   onRemove?: () => void;
   onSettings?: () => void;
+  sizeW?: number;
+  onResize?: (sizeW: number) => void;
 }
+
+const SIZE_OPTIONS = [
+  { w: 3,  label: 'P' },
+  { w: 4,  label: 'M' },
+  { w: 6,  label: 'G' },
+  { w: 12, label: 'F' },
+];
 
 export default function WidgetContainer({
   children,
@@ -20,10 +29,32 @@ export default function WidgetContainer({
   dragListeners,
   dragAttributes,
   onRemove,
-  onSettings
+  onSettings,
+  sizeW,
+  onResize,
 }: WidgetContainerProps) {
   return (
     <div className="group relative h-full">
+      {/* Redimensionar — modo edição */}
+      {isEditing && onResize && (
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-50 flex gap-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-lg p-0.5">
+          {SIZE_OPTIONS.map(opt => (
+            <button
+              key={opt.w}
+              onClick={() => onResize(opt.w)}
+              className={`w-5 h-5 rounded-full text-[9px] font-black transition-all ${
+                sizeW === opt.w
+                  ? 'bg-blue-500 text-white'
+                  : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+              title={opt.w === 3 ? 'Pequeno' : opt.w === 4 ? 'Médio' : opt.w === 6 ? 'Grande' : 'Largura total'}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isEditing && (
         <div className="absolute -top-2 -right-2 z-50 flex gap-1">
           {onSettings && (

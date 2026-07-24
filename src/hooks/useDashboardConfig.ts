@@ -128,6 +128,23 @@ export function useDashboardConfig() {
     }
   };
 
+  // Redimensiona um widget (size_w: 3=P, 4=M, 6=G, 12=Full)
+  const resizeWidget = async (id: string, sizeW: number) => {
+    if (!user?.id) return;
+    const updated = widgets.map(w => w.id === id ? { ...w, size_w: sizeW } : w);
+    setWidgets(updated);
+
+    if (isLocalMode || id.startsWith('local-') || id.startsWith('default-')) {
+      localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(updated));
+      return;
+    }
+
+    await supabase
+      .from('user_dashboard_widgets')
+      .update({ size_w: sizeW })
+      .eq('id', id);
+  };
+
   const reorderWidgets = useCallback(async (newOrder: UserWidget[]) => {
     // Atualiza posições: índice no array vira position_y
     const reindexed = newOrder.map((w, i) => ({ ...w, position_y: i, position_x: 0 }));
@@ -149,5 +166,5 @@ export function useDashboardConfig() {
     );
   }, [isLocalMode, user]);
 
-  return { widgets, loading, addWidget, removeWidget, reorderWidgets, refresh: fetchConfig, isLocalMode };
+  return { widgets, loading, addWidget, removeWidget, resizeWidget, reorderWidgets, refresh: fetchConfig, isLocalMode };
 }
