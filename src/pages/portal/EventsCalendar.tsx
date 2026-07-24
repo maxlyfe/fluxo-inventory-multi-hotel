@@ -1,7 +1,7 @@
 // src/pages/portal/EventsCalendar.tsx
 // Calendário de eventos com visibilidade programada, CRUD de eventos e tipos
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useHotel } from '../../context/HotelContext';
@@ -599,12 +599,38 @@ export default function EventsCalendar() {
   const [editingEvent, setEditingEvent]       = useState<EventItem | null>(null);
   const [showTypeManager, setShowTypeManager] = useState(false);
 
+  const hasLoaded = useRef(false);
+
   useEffect(() => {
+    hasLoaded.current = false;
     if (selectedHotel?.id) loadData();
   }, [selectedHotel?.id, currentMonth]);
 
+  // Realtime: eventos e tarefas atualizam sem precisar recarregar a página
+  useEffect(() => {
+    if (!user || !selectedHotel?.id) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const trigger = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => loadData(), 400);
+    };
+    const tables = [
+      'events', 'event_invitations',
+      'tasks', 'task_occurrences', 'task_assignees', 'task_completions',
+    ];
+    const channel = supabase.channel(`events-calendar-${user.id}`);
+    tables.forEach(t =>
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, trigger)
+    );
+    channel.subscribe();
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, selectedHotel?.id, currentMonth]);
+
   async function loadData() {
-    setLoading(true);
+    if (!hasLoaded.current) setLoading(true); // recargas do realtime são silenciosas
     try {
       const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
       const monthEnd   = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
@@ -653,6 +679,7 @@ export default function EventsCalendar() {
       }
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
   }
 

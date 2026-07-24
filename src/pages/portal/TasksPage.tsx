@@ -2,7 +2,7 @@
 // Todo List: tarefas pessoais/compartilhadas com recorrência + anotações
 // Tabs: Tarefas (atrasadas/hoje/próximas) | Anotações
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { format, parseISO, addDays, isBefore, isToday, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -430,9 +430,11 @@ export default function TasksPage() {
     return map;
   }, [occurrences, notes]);
 
+  const hasLoaded = useRef(false);
+
   const loadData = useCallback(async () => {
     if (!selectedHotel?.id || !user) return;
-    setLoading(true);
+    if (!hasLoaded.current) setLoading(true); // recargas seguintes são silenciosas
     try {
       const from = format(addDays(new Date(), -30), 'yyyy-MM-dd');
       const to   = format(addDays(new Date(), 60), 'yyyy-MM-dd');
@@ -462,10 +464,35 @@ export default function TasksPage() {
       }
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
   }, [selectedHotel?.id, user, fetchOccurrences, fetchNotes, fetchGroups]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { hasLoaded.current = false; loadData(); }, [loadData]);
+
+  // ── Realtime: qualquer mudança nas tabelas do módulo recarrega a tela ────
+  // (compartilhamento removido, conclusão de outro usuário, novo convite etc.)
+  useEffect(() => {
+    if (!user) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const trigger = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => loadData(), 400); // debounce de rajadas de eventos
+    };
+    const tables = [
+      'tasks', 'task_occurrences', 'task_assignees', 'task_completions',
+      'notes', 'note_collaborators', 'task_item_groups', 'task_groups',
+    ];
+    const channel = supabase.channel(`tasks-page-${user.id}`);
+    tables.forEach(t =>
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, trigger)
+    );
+    channel.subscribe();
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, loadData]);
 
   // Agrupamento: Atrasadas / Hoje / Próximas / Concluídas
   const sections = useMemo(() => {

@@ -6,6 +6,7 @@ import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { MessageSquare, Send, Trash2, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { useTasks, CommentRow } from '../../hooks/useTasks';
 
 export default function CommentsPanel({ entityType, entityId, entityTitle, participantIds }: {
@@ -33,6 +34,20 @@ export default function CommentsPanel({ entityType, entityId, entityTitle, parti
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments.length]);
+
+  // Realtime: comentários de outros usuários aparecem na hora
+  useEffect(() => {
+    const channel = supabase
+      .channel(`task-comments-${entityType}-${entityId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'task_comments',
+        filter: `entity_id=eq.${entityId}`,
+      }, async () => {
+        setComments(await fetchComments(entityType, entityId));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [entityType, entityId, fetchComments]);
 
   async function handleSend() {
     if (!text.trim() || sending) return;
