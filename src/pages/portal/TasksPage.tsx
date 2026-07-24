@@ -3,7 +3,7 @@
 // Tabs: Tarefas (atrasadas/hoje/próximas) | Anotações
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { format, parseISO, addDays, isBefore, isToday, startOfDay } from 'date-fns';
+import { format, parseISO, addDays, isBefore, isToday, isTomorrow, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   CheckSquare, Square, Plus, Loader2, Repeat, Clock, Users, Trash2,
@@ -693,7 +693,24 @@ export default function TasksPage() {
       byGroup.get(k)!.push(o);
     });
     const pendingCount = todays.filter(o => o.status !== 'done').length + overdue.length;
-    return { overdue, byGroup, pendingCount };
+
+    // Próximos dias: seções por dia (amanhã, depois…), até 7 dias com tarefas
+    const futureByDay = new Map<string, TaskOccurrenceRow[]>();
+    occurrences
+      .filter(o => {
+        const d = parseISO(o.due_date);
+        return !isToday(d) && !isBefore(d, today);
+      })
+      .sort((a, b) => a.due_date.localeCompare(b.due_date) || (a.due_time || '99').localeCompare(b.due_time || '99'))
+      .forEach(o => {
+        if (!futureByDay.has(o.due_date)) {
+          if (futureByDay.size >= 7) return; // mostra os 7 próximos dias com tarefas
+          futureByDay.set(o.due_date, []);
+        }
+        futureByDay.get(o.due_date)!.push(o);
+      });
+
+    return { overdue, byGroup, pendingCount, futureByDay };
   }, [occurrences]);
 
   // ── Drag and drop: arrastar item para um grupo da sidebar ────────────────
@@ -872,13 +889,18 @@ export default function TasksPage() {
             </h2>
           </div>
 
-          {todayView.overdue.length === 0 && todayView.byGroup.size === 0 ? (
+          {todayView.overdue.length === 0 && todayView.byGroup.size === 0 && todayView.futureByDay.size === 0 ? (
             <div className="text-center py-16">
               <Sun className="w-10 h-10 text-amber-200 dark:text-amber-900 mx-auto mb-3" />
               <p className="text-sm text-slate-400 dark:text-slate-500">Nada para hoje. Dia livre!</p>
             </div>
           ) : (
             <>
+              {todayView.overdue.length === 0 && todayView.byGroup.size === 0 && (
+                <p className="text-sm text-slate-400 dark:text-slate-500">
+                  Nada para hoje. Veja o que vem pela frente:
+                </p>
+              )}
               {todayView.overdue.length > 0 && (
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-red-500 mb-2">
@@ -940,6 +962,45 @@ export default function TasksPage() {
                     </div>
                   );
                 })}
+
+              {/* Próximos dias */}
+              {todayView.futureByDay.size > 0 && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-500 pt-2">
+                    Próximos dias
+                  </h3>
+                  {[...todayView.futureByDay.entries()].map(([dateStr, list]) => {
+                    const d = parseISO(dateStr);
+                    const label = isTomorrow(d)
+                      ? `Amanhã · ${format(d, "dd/MM (EEE)", { locale: ptBR })}`
+                      : format(d, "EEEE · dd/MM", { locale: ptBR });
+                    return (
+                      <div key={dateStr}>
+                        <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 capitalize">
+                          {label} <span className="text-slate-400">({list.length})</span>
+                        </h4>
+                        <div className="space-y-2">
+                          {list.map(o => (
+                            <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
+                              <TaskCard
+                                occ={o}
+                                userId={user!.id}
+                                userNames={userNames}
+                                groups={groups}
+                                onToggle={handleToggle}
+                                onEdit={handleEdit}
+                                onDelete={handleDelete}
+                                onRespond={handleRespond}
+                                onMoveToGroup={handleMoveTask}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
         </div>
