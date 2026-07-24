@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Sun, ShoppingCart, TrendingUp, Hotel,
   Boxes, Wrench, Link as LinkIcon, Package, TrendingDown,
+  CheckSquare,
 } from 'lucide-react';
 
 export type WidgetSize = 'small' | 'medium' | 'large' | 'full';
@@ -42,6 +43,16 @@ export const AVAILABLE_WIDGETS: WidgetDefinition[] = [
     type: 'action-link',
     defaultSize: 'small',
     component: React.lazy(() => import('../components/widgets/ActionLinkWidget')),
+  },
+  {
+    id: 'tasks-today',
+    label: 'Tarefas de Hoje',
+    description: 'Pendências do dia e atrasadas, com conclusão rápida.',
+    icon: CheckSquare,
+    module: 'tasks',
+    type: 'standard',
+    defaultSize: 'medium',
+    component: React.lazy(() => import('../components/widgets/TasksTodayWidget')),
   },
   {
     id: 'pickup-mini',
