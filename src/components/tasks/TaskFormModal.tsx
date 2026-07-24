@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { useTasks, TaskRow, TaskInput, RecurrenceFreq, CompletionMode } from '../../hooks/useTasks';
+import { useTasks, TaskRow, TaskInput, TaskGroup, RecurrenceFreq, CompletionMode } from '../../hooks/useTasks';
 
 const inputCls = 'w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-colors';
 const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -27,9 +27,11 @@ const FREQ_OPTIONS: { value: RecurrenceFreq; label: string }[] = [
 
 interface Person { user_id: string; name: string; sector: string | null }
 
-export default function TaskFormModal({ task, hotelId, onClose, onSaved }: {
+export default function TaskFormModal({ task, hotelId, groups = [], defaultGroupId = null, onClose, onSaved }: {
   task: TaskRow | null;
   hotelId: string;
+  groups?: TaskGroup[];
+  defaultGroupId?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -45,6 +47,7 @@ export default function TaskFormModal({ task, hotelId, onClose, onSaved }: {
     all_hotels: task ? task.hotel_id === null : false,
     notify_on_create: true,
   });
+  const [groupId, setGroupId]       = useState<string>(task ? (task.group_id || '') : (defaultGroupId || ''));
   const [freq, setFreq]             = useState<RecurrenceFreq>(task?.recurrence_freq || 'none');
   const [interval, setIntervalN]    = useState(task?.recurrence_interval || 1);
   const [byWeekday, setByWeekday]   = useState<number[]>(task?.recurrence_byweekday || []);
@@ -94,6 +97,7 @@ export default function TaskFormModal({ task, hotelId, onClose, onSaved }: {
     try {
       const input: TaskInput = {
         title: form.title,
+        group_id: groupId || null,
         description: form.description,
         due_date: form.due_date,
         due_time: form.due_time || null,
@@ -165,6 +169,23 @@ export default function TaskFormModal({ task, hotelId, onClose, onSaved }: {
               />
             </div>
           </div>
+
+          {/* Grupo */}
+          {groups.length > 0 && (
+            <div>
+              <label className={labelCls}>Grupo</label>
+              <select
+                value={groupId}
+                onChange={e => setGroupId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Sem grupo</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Descrição */}
           <div>

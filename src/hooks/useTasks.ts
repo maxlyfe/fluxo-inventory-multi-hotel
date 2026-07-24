@@ -16,8 +16,17 @@ export type RecurrenceFreq = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' 
 export type CompletionMode = 'any' | 'all';
 export type AssigneeStatus = 'pending' | 'accepted' | 'declined';
 
+export interface TaskGroup {
+  id: string;
+  created_by: string;
+  name: string;
+  color: string;
+  position: number;
+}
+
 export interface TaskInput {
   title: string;
+  group_id?: string | null;
   description?: string | null;
   due_date: string;              // yyyy-MM-dd
   due_time?: string | null;      // HH:mm
@@ -49,6 +58,7 @@ export interface TaskRow {
   recurrence_until: string | null;
   recurrence_count: number | null;
   is_active: boolean;
+  group_id: string | null;
   task_assignees?: { user_id: string; status: AssigneeStatus }[];
 }
 
@@ -65,6 +75,7 @@ export interface TaskOccurrenceRow {
   recurrence_freq: RecurrenceFreq;
   hotel_id: string | null;
   created_by: string;
+  group_id: string | null;
   my_assignee_status: AssigneeStatus | null;
   is_shared: boolean;
   assignees: { user_id: string; status: AssigneeStatus }[];
@@ -80,6 +91,7 @@ export interface NoteRow {
   content: string | null;
   is_shared: boolean;
   allow_edit: boolean;
+  group_id: string | null;
   created_at: string;
   updated_at: string;
   note_collaborators?: { user_id: string }[];
@@ -130,6 +142,7 @@ export function useTasks() {
     if (!user || !selectedHotel?.id) return null;
     const payload: any = {
       hotel_id: input.all_hotels ? null : selectedHotel.id,
+      group_id: input.group_id || null,
       title: input.title.trim(),
       description: input.description?.trim() || null,
       due_date: input.due_date,
@@ -252,16 +265,24 @@ export function useTasks() {
   }, [selectedHotel?.id]);
 
   const saveNote = useCallback(async (
-    input: { title: string; content: string; is_shared: boolean; allow_edit: boolean; collaborator_ids: string[]; all_hotels?: boolean },
+    input: { title: string; content: string; is_shared: boolean; allow_edit: boolean; collaborator_ids: string[]; all_hotels?: boolean; group_id?: string | null },
     existingNoteId?: string,
+    isOwner: boolean = true,
   ): Promise<string | null> => {
     if (!user || !selectedHotel?.id) return null;
-    const payload: any = {
+    // Colaborador com edição liberada só altera título/conteúdo — nunca
+    // compartilhamento, grupo ou unidade (que pertencem ao dono).
+    const payload: any = isOwner ? {
       hotel_id: input.all_hotels ? null : selectedHotel.id,
+      group_id: input.group_id || null,
       title: input.title.trim() || null,
       content: input.content,
       is_shared: input.is_shared,
       allow_edit: input.is_shared ? input.allow_edit : false,
+      updated_at: new Date().toISOString(),
+    } : {
+      title: input.title.trim() || null,
+      content: input.content,
       updated_at: new Date().toISOString(),
     };
 
@@ -277,6 +298,7 @@ export function useTasks() {
     }
 
     // Sincronizar colaboradores (só o dono consegue, RLS garante)
+    if (!isOwner) return noteId || null;
     const wanted = input.is_shared ? input.collaborator_ids.filter(id => id !== user.id) : [];
     const { data: current } = await supabase
       .from('note_collaborators')
@@ -376,7 +398,46 @@ export function useTasks() {
     await supabase.from('task_comments').delete().eq('id', commentId);
   }, []);
 
+  // ── Grupos (listas pessoais, estilo Microsoft To Do) ────────────────────
+  const fetchGroups = useCallback(async (): Promise<TaskGroup[]> => {
+    if (!user) return [];
+    const { data, error } = await supabase
+      .from('task_groups')
+      .select('*')
+      .order('position')
+      .order('created_at');
+    if (error) { console.error('[tasks] fetchGroups:', error.message); return []; }
+    return (data || []) as TaskGroup[];
+  }, [user]);
+
+  const saveGroup = useCallback(async (input: { name: string; color: string }, existingId?: string): Promise<TaskGroup | null> => {
+    if (!user || !input.name.trim()) return null;
+    if (existingId) {
+      const { data, error } = await supabase
+        .from('task_groups')
+        .update({ name: input.name.trim(), color: input.color })
+        .eq('id', existingId)
+        .select()
+        .single();
+      if (error) return null;
+      return data as TaskGroup;
+    }
+    const { data, error } = await supabase
+      .from('task_groups')
+      .insert({ created_by: user.id, name: input.name.trim(), color: input.color })
+      .select()
+      .single();
+    if (error) { console.error('[tasks] saveGroup:', error.message); return null; }
+    return data as TaskGroup;
+  }, [user]);
+
+  const deleteGroup = useCallback(async (groupId: string) => {
+    // Itens do grupo ficam "Sem grupo" (FK ON DELETE SET NULL)
+    await supabase.from('task_groups').delete().eq('id', groupId);
+  }, []);
+
   return {
+    fetchGroups, saveGroup, deleteGroup,
     fetchOccurrences, fetchTask, saveTask, deleteTask,
     completeOccurrence, uncompleteOccurrence, respondInvite,
     fetchNotes, saveNote, deleteNote,

@@ -6,16 +6,18 @@ import React, { useState, useEffect } from 'react';
 import { X, Loader2, Users, Search, Check, Lock, Pencil, Globe } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { useTasks, NoteRow } from '../../hooks/useTasks';
+import { useTasks, NoteRow, TaskGroup } from '../../hooks/useTasks';
 
 const inputCls = 'w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-colors';
 const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 
 interface Person { user_id: string; name: string; sector: string | null }
 
-export default function NoteFormModal({ note, hotelId, onClose, onSaved }: {
+export default function NoteFormModal({ note, hotelId, groups = [], defaultGroupId = null, onClose, onSaved }: {
   note: NoteRow | null;
   hotelId: string;
+  groups?: TaskGroup[];
+  defaultGroupId?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -30,6 +32,7 @@ export default function NoteFormModal({ note, hotelId, onClose, onSaved }: {
     allow_edit: note?.allow_edit || false,
     all_hotels: note ? note.hotel_id === null : false,
   });
+  const [groupId, setGroupId]       = useState<string>(note ? (note.group_id || '') : (defaultGroupId || ''));
   const [selUserIds, setSelUserIds] = useState<string[]>(
     (note?.note_collaborators || []).map(c => c.user_id)
   );
@@ -69,7 +72,8 @@ export default function NoteFormModal({ note, hotelId, onClose, onSaved }: {
         allow_edit: form.allow_edit,
         collaborator_ids: selUserIds,
         all_hotels: form.all_hotels,
-      }, note?.id);
+        group_id: groupId || null,
+      }, note?.id, isOwner);
       if (id) { onSaved(); onClose(); }
     } finally {
       setSaving(false);
@@ -115,6 +119,23 @@ export default function NoteFormModal({ note, hotelId, onClose, onSaved }: {
               disabled={!isOwner && !note?.allow_edit}
             />
           </div>
+
+          {/* Grupo — só o dono */}
+          {isOwner && groups.length > 0 && (
+            <div>
+              <label className={labelCls}>Grupo</label>
+              <select
+                value={groupId}
+                onChange={e => setGroupId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Sem grupo</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Compartilhamento — só o dono gerencia */}
           {isOwner && (
