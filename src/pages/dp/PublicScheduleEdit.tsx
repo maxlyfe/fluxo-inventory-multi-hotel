@@ -6,7 +6,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../../context/NotificationContext';
 import {
-  Loader2, AlertTriangle, Check, Zap, X, Calendar, Building2,
+  Loader2, AlertTriangle, Check, Zap, X, Calendar, Building2, Moon, Sun,
 } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO, differenceInCalendarDays, subWeeks } from 'date-fns';
 
@@ -701,6 +701,17 @@ export default function PublicScheduleEdit() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
 
+  // Tema local do link público (sem login): persiste no navegador do supervisor
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('public-schedule-theme');
+    if (saved) return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    localStorage.setItem('public-schedule-theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
+
   const [cellEditor, setCellEditor] = useState<{
     empId: string; dayDate: string; sector: string; entry: ScheduleEntry | null;
   } | null>(null);
@@ -806,6 +817,40 @@ export default function PublicScheduleEdit() {
     return targetWeekStart > currentWeekStart;
   }, [tokenData]);
 
+  // Um mesmo domingo aparece em duas escalas: coluna 8 da semana anterior e
+  // coluna 1 da semana seguinte. Replica a última edição para a escala gêmea
+  // (criando a escala da própria semana do domingo se preciso), para que o
+  // lançamento mais recente seja a verdade única do dia — evita o domingo
+  // antigo "voltar" e a duplicidade de transferências entre unidades.
+  const syncSundayTwin = async (partial: Partial<ScheduleEntry>, savedScheduleId: string) => {
+    try {
+      if (!tokenData || !partial.day_date || !partial.employee_id) return;
+      const d = parseISO(partial.day_date);
+      if (d.getDay() !== 0) return;
+      const ownWeek  = partial.day_date;
+      const prevWeek = format(subWeeks(d, 1), 'yyyy-MM-dd');
+      const { data: scheds } = await supabase.from('schedules')
+        .select('id, week_start').eq('hotel_id', tokenData.hotel_id).in('week_start', [ownWeek, prevWeek]);
+      const byWeek = new Map((scheds || []).map(s => [s.week_start as string, s.id as string]));
+      let ownId = byWeek.get(ownWeek);
+      if (!ownId) {
+        const { data: c } = await supabase.from('schedules')
+          .insert({ hotel_id: tokenData.hotel_id, week_start: ownWeek })
+          .select('id').single();
+        ownId = c?.id;
+      }
+      const targets = [ownId, byWeek.get(prevWeek)]
+        .filter((id): id is string => !!id && id !== savedScheduleId);
+      if (targets.length === 0) return;
+      const { id: _drop, ...clean } = partial as any;
+      await supabase.from('schedule_entries').upsert(
+        targets.map(sid => ({ ...clean, schedule_id: sid, updated_by: null })),
+        { onConflict: 'schedule_id,employee_id,day_date' });
+    } catch (e) {
+      console.error('Erro ao sincronizar domingo gêmeo:', e);
+    }
+  };
+
   const saveEntry = async (partial: Partial<ScheduleEntry>) => {
     if (!tokenData || isSaving) return;
 
@@ -838,6 +883,7 @@ export default function PublicScheduleEdit() {
           return [...prev, data as ScheduleEntry];
         });
       }
+      await syncSundayTwin(partial, tokenData.schedule_id);
     } catch (e) {
       console.error('Erro ao salvar célula:', e);
       addNotification('error', 'Erro ao salvar. Tente novamente.');
@@ -921,6 +967,11 @@ export default function PublicScheduleEdit() {
           ]);
         }
       }
+      // Sincroniza os domingos do intervalo com as escalas gêmeas não cobertas pelo loop
+      for (let i = 0; i < totalDays; i++) {
+        const d = addDays(startDate, i);
+        if (d.getDay() === 0) await syncSundayTwin({ ...base, day_date: format(d, 'yyyy-MM-dd') }, '');
+      }
       addNotification('success', `${totalDays} dia${totalDays > 1 ? 's' : ''} preenchido${totalDays > 1 ? 's' : ''} até ${format(endDate, 'dd/MM/yyyy')}.`);
     } catch (e) {
       console.error('Erro ao preencher intervalo:', e);
@@ -961,6 +1012,12 @@ export default function PublicScheduleEdit() {
           ...(data as ScheduleEntry[]),
         ]);
       }
+      // Domingos das colunas 1 e 8 também existem nas escalas vizinhas
+      for (const e of toInsert) {
+        if (e.day_date && parseISO(e.day_date).getDay() === 0) {
+          await syncSundayTwin(e, tokenData.schedule_id);
+        }
+      }
     } catch (e) {
       console.error('Erro ao preencher semana:', e);
       addNotification('error', 'Erro ao salvar. Tente novamente.');
@@ -997,7 +1054,7 @@ export default function PublicScheduleEdit() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
       {/* Modals */}
       {cellEditor && tokenData && (
         <CellEditor
@@ -1024,7 +1081,7 @@ export default function PublicScheduleEdit() {
       )}
 
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-4">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 shadow-sm px-4 py-4">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
@@ -1041,9 +1098,14 @@ export default function PublicScheduleEdit() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full font-bold">
+            <span className="text-[11px] text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2.5 py-1 rounded-full font-bold">
               Salvamento automático
             </span>
+            <button onClick={() => setDarkMode(d => !d)}
+              title={darkMode ? 'Modo claro' : 'Modo escuro'}
+              className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
           </div>
         </div>
       </div>
@@ -1066,7 +1128,7 @@ export default function PublicScheduleEdit() {
 
       {/* Table */}
       <div className="max-w-6xl mx-auto px-4 py-3">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-x-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-300 dark:border-gray-700 overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-800 text-white">
@@ -1089,20 +1151,20 @@ export default function PublicScheduleEdit() {
             </thead>
             <tbody>
               {/* Sector header */}
-              <tr className="bg-gray-100 dark:bg-gray-700">
-                <td colSpan={9} className="px-4 py-2 text-xs font-black text-gray-700 dark:text-gray-200 uppercase tracking-widest sticky left-0 bg-gray-100 dark:bg-gray-700">
+              <tr className="bg-gray-200 dark:bg-gray-700">
+                <td colSpan={9} className="px-4 py-2 text-xs font-black text-gray-800 dark:text-gray-200 uppercase tracking-widest sticky left-0 bg-gray-200 dark:bg-gray-700">
                   {tokenData?.sector}
                 </td>
               </tr>
 
               {employees.map((emp, ei) => (
                 <tr key={emp.id}
-                  className={`border-b border-gray-100 dark:border-gray-700 ${
-                    ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/40 dark:bg-gray-800/50'
+                  className={`border-b border-gray-200 dark:border-gray-700 ${
+                    ei % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-100/70 dark:bg-gray-800/50'
                   }`}>
                   {/* Name — click to auto-fill */}
                   <td onClick={() => isFutureWeek && setAutoFillEmp(emp)}
-                    className={`px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-100 dark:border-gray-700 group ${isFutureWeek ? 'cursor-pointer' : 'cursor-default'}`}>
+                    className={`px-3 py-2.5 sticky left-0 bg-inherit z-10 border-r border-gray-200 dark:border-gray-700 group ${isFutureWeek ? 'cursor-pointer' : 'cursor-default'}`}>
                     <div className="flex items-center gap-1">
                       <span className={`font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap transition-colors text-xs ${isFutureWeek ? 'group-hover:text-blue-600 dark:group-hover:text-blue-400' : ''}`}>
                         {emp.name.split(' ')[0]}&nbsp;
@@ -1132,7 +1194,7 @@ export default function PublicScheduleEdit() {
                       <td key={di}
                         onClick={(e) => openCell(e, emp.id, dayStr, emp.sector)}
                         className={`px-1 py-2 text-center cursor-pointer transition-all hover:ring-2 hover:ring-blue-400 hover:ring-inset ${
-                          style.bg || (isSun ? 'bg-gray-50/60 dark:bg-gray-800/60' : '')
+                          style.bg || (isSun ? 'bg-gray-200/50 dark:bg-gray-800/60' : '')
                         } ${isToday ? 'ring-1 ring-blue-200 dark:ring-blue-800' : ''}`}>
                         <p className={`text-[11px] font-bold leading-tight ${style.color}`}>
                           {text.line1}

@@ -1681,6 +1681,44 @@ export default function DPSchedule() {
 
   const [isSaving, setIsSaving] = useState(false);
 
+  // Um mesmo domingo aparece em duas escalas: coluna 8 da semana anterior e
+  // coluna 1 da semana seguinte. Replica a última edição para a escala gêmea
+  // (criando a escala da própria semana do domingo se preciso), para que o
+  // lançamento mais recente seja a verdade única do dia — evita o domingo
+  // antigo "voltar" e a duplicidade de transferências entre unidades.
+  const syncSundayTwin = async (
+    partial: Partial<ScheduleEntry>,
+    savedScheduleId: string,
+    ownerHotelId: string | null = hotelId,
+  ) => {
+    try {
+      if (!ownerHotelId || !partial.day_date || !partial.employee_id) return;
+      const d = parseISO(partial.day_date);
+      if (d.getDay() !== 0) return;
+      const ownWeek  = partial.day_date;
+      const prevWeek = format(subWeeks(d, 1), 'yyyy-MM-dd');
+      const { data: scheds } = await supabase.from('schedules')
+        .select('id, week_start').eq('hotel_id', ownerHotelId).in('week_start', [ownWeek, prevWeek]);
+      const byWeek = new Map((scheds || []).map(s => [s.week_start as string, s.id as string]));
+      let ownId = byWeek.get(ownWeek);
+      if (!ownId) {
+        const { data: c } = await supabase.from('schedules')
+          .insert({ hotel_id: ownerHotelId, week_start: ownWeek, created_by: user?.id })
+          .select('id').single();
+        ownId = c?.id;
+      }
+      const targets = [ownId, byWeek.get(prevWeek)]
+        .filter((id): id is string => !!id && id !== savedScheduleId);
+      if (targets.length === 0) return;
+      const { id: _drop, ...clean } = partial as any;
+      await supabase.from('schedule_entries').upsert(
+        targets.map(sid => ({ ...clean, schedule_id: sid, updated_by: user?.id })),
+        { onConflict: 'schedule_id,employee_id,day_date' });
+    } catch (e) {
+      console.error('Erro ao sincronizar domingo gêmeo:', e);
+    }
+  };
+
   const saveEntry = async (partial: Partial<ScheduleEntry>) => {
     if (!schedule || isSaving) return;
     setIsSaving(true);
@@ -1707,6 +1745,7 @@ export default function DPSchedule() {
           return [...prev, data as ScheduleEntry];
         });
       }
+      await syncSundayTwin(partial, schedule.id);
     } catch (e) {
       console.error('Erro ao salvar célula:', e);
       addNotification('error', 'Erro ao salvar. Tente novamente.');
@@ -1784,6 +1823,11 @@ export default function DPSchedule() {
           ]);
         }
       }
+      // Sincroniza os domingos do intervalo com as escalas gêmeas não cobertas pelo loop
+      for (let i = 0; i < totalDays; i++) {
+        const d = addDays(startDate, i);
+        if (d.getDay() === 0) await syncSundayTwin({ ...base, day_date: format(d, 'yyyy-MM-dd') }, '');
+      }
       addNotification('success', `${totalDays} dia${totalDays > 1 ? 's' : ''} preenchido${totalDays > 1 ? 's' : ''} até ${format(endDate, 'dd/MM/yyyy')}.`);
     } catch (e) {
       console.error('Erro ao preencher intervalo:', e);
@@ -1802,6 +1846,14 @@ export default function DPSchedule() {
       .single();
     if (data) {
       setTransferEntries(prev => prev.map(e => e.id === entryId ? data as ScheduleEntry : e));
+      // A escala editada pertence ao hotel de ORIGEM do colaborador — sincroniza
+      // o domingo gêmeo na escala daquele hotel, não do hotel visível.
+      const row = data as ScheduleEntry;
+      if (parseISO(row.day_date).getDay() === 0) {
+        const { data: sch } = await supabase.from('schedules')
+          .select('hotel_id').eq('id', row.schedule_id).single();
+        if (sch?.hotel_id) await syncSundayTwin(row, row.schedule_id, sch.hotel_id);
+      }
     }
   };
 
@@ -1829,6 +1881,12 @@ export default function DPSchedule() {
           ...prev.filter(e => !(e.employee_id === empId && dayDates.includes(e.day_date))),
           ...(data as ScheduleEntry[]),
         ]);
+      }
+      // Domingos das colunas 1 e 8 também existem nas escalas vizinhas
+      for (const e of toInsert) {
+        if (e.day_date && parseISO(e.day_date).getDay() === 0) {
+          await syncSundayTwin(e, schedule.id);
+        }
       }
     } catch (e) {
       console.error('Erro ao preencher semana:', e);
