@@ -453,7 +453,8 @@ export default function TasksPage() {
   const [occurrences, setOccurrences] = useState<TaskOccurrenceRow[]>([]);
   const [notes, setNotes]           = useState<NoteRow[]>([]);
   const [groups, setGroups]         = useState<TaskGroup[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<string>(''); // '' = Todas
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('__today__'); // abre em "Hoje"
+  const [showMobileGroups, setShowMobileGroups] = useState(false);
   const [showGroupForm, setShowGroupForm]     = useState(false);
   const [editingGroup, setEditingGroup]       = useState<TaskGroup | null>(null);
   const [userNames, setUserNames]   = useState<Map<string, string>>(new Map());
@@ -739,8 +740,91 @@ export default function TasksPage() {
     onDrop: (e: React.DragEvent) => handleDropOnGroup(e, groupId),
   });
 
+  // Itens de navegação (Hoje / Todas / grupos) — usados na sidebar (desktop)
+  // e no menu suspenso (mobile)
+  function renderNavItems(close?: () => void) {
+    const pick = (id: string) => { setSelectedGroupId(id); close?.(); };
+    return (
+      <>
+        <button
+          onClick={() => pick('__today__')}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors ${
+            isTodayView
+              ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-semibold'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <Sun className="w-4 h-4 shrink-0 text-amber-500" />
+          <span className="flex-1 truncate">Hoje</span>
+          {todayView.pendingCount > 0 && (
+            <span className="text-[10px] font-bold text-white bg-amber-500 rounded-full px-1.5 py-0.5">
+              {todayView.pendingCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => pick('')}
+          {...dropProps('__all__', null)}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors ${
+            dragOverGroup === '__all__'
+              ? 'ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'
+              : !selectedGroupId
+                ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+          }`}
+          title="Solte aqui para remover do grupo"
+        >
+          <List className="w-4 h-4 shrink-0" />
+          <span className="flex-1 truncate">Todas</span>
+          <span className="text-[10px] text-slate-400">
+            {(groupCounts.get('') || 0) + groups.reduce((s, g) => s + (groupCounts.get(g.id) || 0), 0)}
+          </span>
+        </button>
+
+        {groups.map(g => (
+          <button
+            key={g.id}
+            onClick={() => pick(g.id)}
+            onDoubleClick={() => { setEditingGroup(g); setShowGroupForm(true); close?.(); }}
+            {...dropProps(g.id, g.id)}
+            className={`group flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors ${
+              dragOverGroup === g.id
+                ? 'ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'
+                : selectedGroupId === g.id
+                  ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+            }`}
+            title="Arraste itens para cá · duplo clique para editar"
+          >
+            <Folder className="w-4 h-4 shrink-0" style={{ color: g.color }} />
+            <span className="flex-1 truncate">{g.name}</span>
+            {(groupCounts.get(g.id) || 0) > 0 && (
+              <span className="text-[10px] text-slate-400">{groupCounts.get(g.id)}</span>
+            )}
+            <span
+              role="button"
+              onClick={e => { e.stopPropagation(); setEditingGroup(g); setShowGroupForm(true); close?.(); }}
+              className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-all lg:opacity-0 lg:group-hover:opacity-100"
+              title="Editar grupo"
+            >
+              <Edit2 className="w-3 h-3" />
+            </span>
+          </button>
+        ))}
+
+        <button
+          onClick={() => { setEditingGroup(null); setShowGroupForm(true); close?.(); }}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-slate-400 hover:text-indigo-500 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+        >
+          <FolderPlus className="w-4 h-4 shrink-0" />
+          <span className="truncate">Novo grupo</span>
+        </button>
+      </>
+    );
+  }
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
+    <div className="max-w-7xl mx-auto px-4 py-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -763,88 +847,41 @@ export default function TasksPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[230px_1fr] gap-4 items-start">
-        {/* ── Sidebar de grupos (listas) ─────────────────────────────────── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-2 shadow-sm lg:sticky lg:top-4">
-          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible">
-            <button
-              onClick={() => setSelectedGroupId('__today__')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors shrink-0 lg:shrink ${
-                isTodayView
-                  ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-semibold'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-              }`}
-            >
-              <Sun className="w-4 h-4 shrink-0 text-amber-500" />
-              <span className="flex-1 truncate">Hoje</span>
-              {todayView.pendingCount > 0 && (
-                <span className="text-[10px] font-bold text-white bg-amber-500 rounded-full px-1.5 py-0.5">
-                  {todayView.pendingCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setSelectedGroupId('')}
-              {...dropProps('__all__', null)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors shrink-0 lg:shrink ${
-                dragOverGroup === '__all__'
-                  ? 'ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'
-                  : !selectedGroupId
-                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-              }`}
-              title="Solte aqui para remover do grupo"
-            >
-              <List className="w-4 h-4 shrink-0" />
-              <span className="flex-1 truncate">Todas</span>
-              <span className="text-[10px] text-slate-400 hidden lg:inline">
-                {(groupCounts.get('') || 0) + groups.reduce((s, g) => s + (groupCounts.get(g.id) || 0), 0)}
-              </span>
-            </button>
-
-            {groups.map(g => (
-              <button
-                key={g.id}
-                onClick={() => setSelectedGroupId(g.id)}
-                onDoubleClick={() => { setEditingGroup(g); setShowGroupForm(true); }}
-                {...dropProps(g.id, g.id)}
-                className={`group flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors shrink-0 lg:shrink ${
-                  dragOverGroup === g.id
-                    ? 'ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'
-                    : selectedGroupId === g.id
-                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                }`}
-                title="Arraste itens para cá · duplo clique para editar"
-              >
-                <Folder className="w-4 h-4 shrink-0" style={{ color: g.color }} />
-                <span className="flex-1 truncate">{g.name}</span>
-                {(groupCounts.get(g.id) || 0) > 0 && (
-                  <span className="text-[10px] text-slate-400 hidden lg:inline">{groupCounts.get(g.id)}</span>
-                )}
-                <span
-                  role="button"
-                  onClick={e => { e.stopPropagation(); setEditingGroup(g); setShowGroupForm(true); }}
-                  className="hidden lg:block opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
-                  title="Editar grupo"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </span>
-              </button>
-            ))}
-
-            <button
-              onClick={() => { setEditingGroup(null); setShowGroupForm(true); }}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-slate-400 hover:text-indigo-500 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors shrink-0 lg:shrink"
-            >
-              <FolderPlus className="w-4 h-4 shrink-0" />
-              <span className="truncate">Novo grupo</span>
-            </button>
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-4 items-start">
+        {/* ── Sidebar de grupos (desktop) ────────────────────────────────── */}
+        <div className="hidden lg:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-2 shadow-sm lg:sticky lg:top-4">
+          <div className="flex flex-col gap-1">
+            {renderNavItems()}
           </div>
         </div>
 
-        {/* ── Conteúdo ───────────────────────────────────────────────────── */}
-        <div>
+        {/* ── Grupos no mobile: pasta com menu suspenso ──────────────────── */}
+        <div className="lg:hidden relative">
+          <button
+            onClick={() => setShowMobileGroups(v => !v)}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-sm active:scale-95 transition-all"
+          >
+            {isTodayView
+              ? <><Sun className="w-4 h-4 text-amber-500" /> Hoje</>
+              : selectedGroup
+                ? <><Folder className="w-4 h-4" style={{ color: selectedGroup.color }} /> {selectedGroup.name}</>
+                : <><List className="w-4 h-4" /> Todas</>}
+            {showMobileGroups ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          </button>
+          {showMobileGroups && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setShowMobileGroups(false)} />
+              <div className="absolute z-40 mt-2 w-64 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl p-2">
+                <div className="flex flex-col gap-1">
+                  {renderNavItems(() => setShowMobileGroups(false))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Conteúdo (centralizado) ────────────────────────────────────── */}
+        <div className="min-w-0 w-full max-w-3xl mx-auto">
       {selectedGroup && (
         <div className="flex items-center gap-2 mb-3">
           <Folder className="w-4 h-4" style={{ color: selectedGroup.color }} />
