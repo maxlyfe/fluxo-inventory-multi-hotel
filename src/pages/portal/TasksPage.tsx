@@ -9,6 +9,7 @@ import {
   CheckSquare, Square, Plus, Loader2, Repeat, Clock, Users, Trash2,
   Edit2, Check, X, StickyNote, MessageSquare, ChevronDown, ChevronUp,
   Lock, Pencil, CheckCircle2, Folder, FolderPlus, List, Sun,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -668,50 +669,48 @@ export default function TasksPage() {
   const selectedGroup = groups.find(g => g.id === selectedGroupId) || null;
   const isTodayView = selectedGroupId === '__today__';
 
-  // ── Visão "Hoje": tarefas do dia organizadas por grupo + atrasadas ───────
+  // ── Visão "Hoje": navegação dia a dia (setas ‹ ›) ─────────────────────────
+  const [viewDate, setViewDate] = useState<Date>(() => startOfDay(new Date()));
+  const isViewingToday = isToday(viewDate);
+
   const todayView = useMemo(() => {
     const today = startOfDay(new Date());
-    // Atrasadas: 1 por tarefa (ocorrência pendente mais antiga)
+    const viewDateStr = format(viewDate, 'yyyy-MM-dd');
+
+    // Atrasadas (só quando o dia exibido é hoje): 1 por tarefa
     const overdueByTask = new Map<string, TaskOccurrenceRow>();
-    occurrences.forEach(o => {
-      if (o.status === 'done') return;
-      const d = parseISO(o.due_date);
-      if (!isBefore(d, today) || isToday(d)) return;
-      const cur = overdueByTask.get(o.task_id);
-      if (!cur || o.due_date < cur.due_date) overdueByTask.set(o.task_id, o);
-    });
+    if (isToday(viewDate)) {
+      occurrences.forEach(o => {
+        if (o.status === 'done') return;
+        const d = parseISO(o.due_date);
+        if (!isBefore(d, today) || isToday(d)) return;
+        const cur = overdueByTask.get(o.task_id);
+        if (!cur || o.due_date < cur.due_date) overdueByTask.set(o.task_id, o);
+      });
+    }
     const overdue = [...overdueByTask.values()].sort((a, b) => a.due_date.localeCompare(b.due_date));
 
-    // Do dia: agrupadas pelo grupo pessoal
-    const todays = occurrences
-      .filter(o => isToday(parseISO(o.due_date)))
+    // Tarefas do dia exibido, agrupadas pelo grupo pessoal
+    const dayTasks = occurrences
+      .filter(o => o.due_date === viewDateStr)
       .sort((a, b) => (a.due_time || '99').localeCompare(b.due_time || '99'));
     const byGroup = new Map<string, TaskOccurrenceRow[]>();
-    todays.forEach(o => {
+    dayTasks.forEach(o => {
       const k = o.group_id || '';
       if (!byGroup.has(k)) byGroup.set(k, []);
       byGroup.get(k)!.push(o);
     });
-    const pendingCount = todays.filter(o => o.status !== 'done').length + overdue.length;
 
-    // Próximos dias: seções por dia (amanhã, depois…), até 7 dias com tarefas
-    const futureByDay = new Map<string, TaskOccurrenceRow[]>();
-    occurrences
-      .filter(o => {
-        const d = parseISO(o.due_date);
-        return !isToday(d) && !isBefore(d, today);
-      })
-      .sort((a, b) => a.due_date.localeCompare(b.due_date) || (a.due_time || '99').localeCompare(b.due_time || '99'))
-      .forEach(o => {
-        if (!futureByDay.has(o.due_date)) {
-          if (futureByDay.size >= 7) return; // mostra os 7 próximos dias com tarefas
-          futureByDay.set(o.due_date, []);
-        }
-        futureByDay.get(o.due_date)!.push(o);
-      });
+    // Badge da sidebar: sempre relativo a HOJE, independente do dia exibido
+    const todayStr = format(today, 'yyyy-MM-dd');
+    const pendingToday = occurrences.filter(o => o.status !== 'done' && o.due_date === todayStr).length;
+    const overdueCount = new Set(
+      occurrences.filter(o => o.status !== 'done' && o.due_date < todayStr).map(o => o.task_id)
+    ).size;
+    const pendingCount = pendingToday + overdueCount;
 
-    return { overdue, byGroup, pendingCount, futureByDay };
-  }, [occurrences]);
+    return { overdue, byGroup, pendingCount };
+  }, [occurrences, viewDate]);
 
   // ── Drag and drop: arrastar item para um grupo da sidebar ────────────────
   const [dragOverGroup, setDragOverGroup] = useState<string | null>(null); // '' = Todas
@@ -880,27 +879,52 @@ export default function TasksPage() {
           <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
         </div>
       ) : isTodayView ? (
-        /* ── Visão "Hoje": tarefas do dia por grupo + atrasadas ─────────── */
+        /* ── Visão "Hoje": tarefas do dia por grupo, navegando dia a dia ── */
         <div className="space-y-6">
-          <div className="flex items-center gap-2">
-            <Sun className="w-5 h-5 text-amber-500" />
-            <h2 className="text-base font-bold text-slate-900 dark:text-white capitalize">
-              {format(new Date(), "EEEE, dd 'de' MMMM", { locale: ptBR })}
-            </h2>
+          <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-2.5 shadow-sm">
+            <button
+              onClick={() => setViewDate(d => addDays(d, -1))}
+              className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
+              title="Dia anterior"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <Sun className={`w-4 h-4 shrink-0 ${isViewingToday ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'}`} />
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white capitalize truncate">
+                {isViewingToday
+                  ? `Hoje · ${format(viewDate, "dd 'de' MMMM", { locale: ptBR })}`
+                  : isTomorrow(viewDate)
+                    ? `Amanhã · ${format(viewDate, "dd 'de' MMMM", { locale: ptBR })}`
+                    : format(viewDate, "EEEE, dd 'de' MMMM", { locale: ptBR })}
+              </h2>
+              {!isViewingToday && (
+                <button
+                  onClick={() => setViewDate(startOfDay(new Date()))}
+                  className="text-[11px] font-semibold text-indigo-500 hover:text-indigo-600 shrink-0 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                >
+                  Hoje
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setViewDate(d => addDays(d, 1))}
+              className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
+              title="Próximo dia"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
 
-          {todayView.overdue.length === 0 && todayView.byGroup.size === 0 && todayView.futureByDay.size === 0 ? (
+          {todayView.overdue.length === 0 && todayView.byGroup.size === 0 ? (
             <div className="text-center py-16">
               <Sun className="w-10 h-10 text-amber-200 dark:text-amber-900 mx-auto mb-3" />
-              <p className="text-sm text-slate-400 dark:text-slate-500">Nada para hoje. Dia livre!</p>
+              <p className="text-sm text-slate-400 dark:text-slate-500">
+                {isViewingToday ? 'Nada para hoje. Dia livre!' : 'Nada planejado para este dia.'}
+              </p>
             </div>
           ) : (
             <>
-              {todayView.overdue.length === 0 && todayView.byGroup.size === 0 && (
-                <p className="text-sm text-slate-400 dark:text-slate-500">
-                  Nada para hoje. Veja o que vem pela frente:
-                </p>
-              )}
               {todayView.overdue.length > 0 && (
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-red-500 mb-2">
@@ -962,45 +986,6 @@ export default function TasksPage() {
                     </div>
                   );
                 })}
-
-              {/* Próximos dias */}
-              {todayView.futureByDay.size > 0 && (
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-5">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-500 pt-2">
-                    Próximos dias
-                  </h3>
-                  {[...todayView.futureByDay.entries()].map(([dateStr, list]) => {
-                    const d = parseISO(dateStr);
-                    const label = isTomorrow(d)
-                      ? `Amanhã · ${format(d, "dd/MM (EEE)", { locale: ptBR })}`
-                      : format(d, "EEEE · dd/MM", { locale: ptBR });
-                    return (
-                      <div key={dateStr}>
-                        <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 capitalize">
-                          {label} <span className="text-slate-400">({list.length})</span>
-                        </h4>
-                        <div className="space-y-2">
-                          {list.map(o => (
-                            <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
-                              <TaskCard
-                                occ={o}
-                                userId={user!.id}
-                                userNames={userNames}
-                                groups={groups}
-                                onToggle={handleToggle}
-                                onEdit={handleEdit}
-                                onDelete={handleDelete}
-                                onRespond={handleRespond}
-                                onMoveToGroup={handleMoveTask}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </>
           )}
         </div>
