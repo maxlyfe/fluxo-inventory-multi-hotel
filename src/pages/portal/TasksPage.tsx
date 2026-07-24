@@ -8,7 +8,7 @@ import { ptBR } from 'date-fns/locale';
 import {
   CheckSquare, Square, Plus, Loader2, Repeat, Clock, Users, Trash2,
   Edit2, Check, X, StickyNote, MessageSquare, ChevronDown, ChevronUp,
-  Lock, Pencil, CheckCircle2, Folder, FolderPlus, List,
+  Lock, Pencil, CheckCircle2, Folder, FolderPlus, List, Sun,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -666,6 +666,35 @@ export default function TasksPage() {
   }
 
   const selectedGroup = groups.find(g => g.id === selectedGroupId) || null;
+  const isTodayView = selectedGroupId === '__today__';
+
+  // ── Visão "Hoje": tarefas do dia organizadas por grupo + atrasadas ───────
+  const todayView = useMemo(() => {
+    const today = startOfDay(new Date());
+    // Atrasadas: 1 por tarefa (ocorrência pendente mais antiga)
+    const overdueByTask = new Map<string, TaskOccurrenceRow>();
+    occurrences.forEach(o => {
+      if (o.status === 'done') return;
+      const d = parseISO(o.due_date);
+      if (!isBefore(d, today) || isToday(d)) return;
+      const cur = overdueByTask.get(o.task_id);
+      if (!cur || o.due_date < cur.due_date) overdueByTask.set(o.task_id, o);
+    });
+    const overdue = [...overdueByTask.values()].sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+    // Do dia: agrupadas pelo grupo pessoal
+    const todays = occurrences
+      .filter(o => isToday(parseISO(o.due_date)))
+      .sort((a, b) => (a.due_time || '99').localeCompare(b.due_time || '99'));
+    const byGroup = new Map<string, TaskOccurrenceRow[]>();
+    todays.forEach(o => {
+      const k = o.group_id || '';
+      if (!byGroup.has(k)) byGroup.set(k, []);
+      byGroup.get(k)!.push(o);
+    });
+    const pendingCount = todays.filter(o => o.status !== 'done').length + overdue.length;
+    return { overdue, byGroup, pendingCount };
+  }, [occurrences]);
 
   // ── Drag and drop: arrastar item para um grupo da sidebar ────────────────
   const [dragOverGroup, setDragOverGroup] = useState<string | null>(null); // '' = Todas
@@ -722,6 +751,22 @@ export default function TasksPage() {
         {/* ── Sidebar de grupos (listas) ─────────────────────────────────── */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-2 shadow-sm lg:sticky lg:top-4">
           <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible">
+            <button
+              onClick={() => setSelectedGroupId('__today__')}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors shrink-0 lg:shrink ${
+                isTodayView
+                  ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-semibold'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <Sun className="w-4 h-4 shrink-0 text-amber-500" />
+              <span className="flex-1 truncate">Hoje</span>
+              {todayView.pendingCount > 0 && (
+                <span className="text-[10px] font-bold text-white bg-amber-500 rounded-full px-1.5 py-0.5">
+                  {todayView.pendingCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setSelectedGroupId('')}
               {...dropProps('__all__', null)}
@@ -792,6 +837,7 @@ export default function TasksPage() {
       )}
 
       {/* Tabs */}
+      {!isTodayView && (
       <div className="flex gap-2 mb-5">
         <button onClick={() => setTab('tasks')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
@@ -810,10 +856,92 @@ export default function TasksPage() {
           <StickyNote className="w-4 h-4" /> Anotações
         </button>
       </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+        </div>
+      ) : isTodayView ? (
+        /* ── Visão "Hoje": tarefas do dia por grupo + atrasadas ─────────── */
+        <div className="space-y-6">
+          <div className="flex items-center gap-2">
+            <Sun className="w-5 h-5 text-amber-500" />
+            <h2 className="text-base font-bold text-slate-900 dark:text-white capitalize">
+              {format(new Date(), "EEEE, dd 'de' MMMM", { locale: ptBR })}
+            </h2>
+          </div>
+
+          {todayView.overdue.length === 0 && todayView.byGroup.size === 0 ? (
+            <div className="text-center py-16">
+              <Sun className="w-10 h-10 text-amber-200 dark:text-amber-900 mx-auto mb-3" />
+              <p className="text-sm text-slate-400 dark:text-slate-500">Nada para hoje. Dia livre!</p>
+            </div>
+          ) : (
+            <>
+              {todayView.overdue.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-red-500 mb-2">
+                    Atrasadas ({todayView.overdue.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {todayView.overdue.map(o => (
+                      <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
+                        <TaskCard
+                          occ={o}
+                          userId={user!.id}
+                          userNames={userNames}
+                          groups={groups}
+                          onToggle={handleToggle}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                          onRespond={handleRespond}
+                          onMoveToGroup={handleMoveTask}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {[...todayView.byGroup.entries()]
+                .sort(([a], [b]) => {
+                  const na = groups.find(g => g.id === a)?.name || 'zzz';
+                  const nb = groups.find(g => g.id === b)?.name || 'zzz';
+                  return na.localeCompare(nb);
+                })
+                .map(([gid, list]) => {
+                  const g = groups.find(x => x.id === gid) || null;
+                  return (
+                    <div key={gid || '__none__'}>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2 flex items-center gap-1.5">
+                        {g
+                          ? <><Folder className="w-3.5 h-3.5" style={{ color: g.color }} /> {g.name}</>
+                          : <><List className="w-3.5 h-3.5" /> Sem grupo</>}
+                        <span>({list.length})</span>
+                      </h3>
+                      <div className="space-y-2">
+                        {list.map(o => (
+                          <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
+                            <TaskCard
+                              occ={o}
+                              userId={user!.id}
+                              userNames={userNames}
+                              groups={groups}
+                              onToggle={handleToggle}
+                              onEdit={handleEdit}
+                              onDelete={handleDelete}
+                              onRespond={handleRespond}
+                              onMoveToGroup={handleMoveTask}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+            </>
+          )}
         </div>
       ) : tab === 'tasks' ? (
         <div className="space-y-6">
@@ -915,7 +1043,7 @@ export default function TasksPage() {
           task={editingTask}
           hotelId={selectedHotel.id}
           groups={groups}
-          defaultGroupId={selectedGroupId || null}
+          defaultGroupId={!isTodayView && selectedGroupId ? selectedGroupId : null}
           onClose={() => { setShowTaskForm(false); setEditingTask(null); }}
           onSaved={loadData}
         />
@@ -925,7 +1053,7 @@ export default function TasksPage() {
           note={editingNote}
           hotelId={selectedHotel.id}
           groups={groups}
-          defaultGroupId={selectedGroupId || null}
+          defaultGroupId={!isTodayView && selectedGroupId ? selectedGroupId : null}
           onClose={() => { setShowNoteForm(false); setEditingNote(null); }}
           onSaved={loadData}
         />
