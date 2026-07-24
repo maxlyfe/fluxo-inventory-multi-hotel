@@ -50,6 +50,7 @@ export const MODULES: Module[] = [
   { key: 'breakfast',            label: 'Café da Manhã',        description: 'Checklist salão e dashboard cozinha',      group: 'Área Administrativa', icon: 'Coffee'         },
   { key: 'whatsapp_inbox',       label: 'Mensagens WhatsApp',   description: 'Inbox de conversas, disparos e auto-respostas', group: 'Área Administrativa', icon: 'MessageCircle' },
   { key: 'internal_messages',   label: 'Chat Interno',         description: 'Mensagens internas entre colaboradores do grupo', group: 'Área Administrativa', icon: 'MessageSquare' },
+  { key: 'tasks',               label: 'Tarefas',              description: 'Todo list: tarefas recorrentes, compartilhadas e anotações', group: 'Área Administrativa', icon: 'CheckSquare' },
   // Administração (normalmente só Admin)
   { key: 'roles_management',     label: 'Gestão de Perfis',     description: 'Criar, editar e excluir perfis de acesso', group: 'Administração',       icon: 'UserCog'       },
   { key: 'sectors_management',   label: 'Gestão de Setores',    description: 'Setores por hotel, configuração de stock', group: 'Administração',       icon: 'LayoutGrid'    },

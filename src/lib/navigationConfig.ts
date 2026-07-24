@@ -22,6 +22,7 @@ import {
   MonitorSmartphone, Store, TrendingUp, Coffee,
   MessageCircle, Bot, Radio, Receipt, Truck, Calculator, Globe,
   ConciergeBell, HandCoins, Repeat, FileSearch, FileCheck, Wallet,
+  CheckSquare,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 
@@ -255,6 +256,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
           { module: 'employee_portal', label: 'Meu Portal',    href: '/portal',              icon: Home,     iconName: 'Home',     color: '#6366f1' },
           { module: 'employee_portal', label: 'Minha Escala',   href: '/portal/my-schedule',  icon: Clock,    iconName: 'Clock',    color: '#8b5cf6' },
           { module: 'employee_portal', label: 'Calendário',     href: '/portal/events',       icon: Calendar, iconName: 'Calendar', color: '#3b82f6' },
+          { module: 'tasks',           label: 'Tarefas',        href: '/portal/tasks',        icon: CheckSquare, iconName: 'CheckSquare', color: '#22c55e' },
           { module: 'employee_portal', label: 'Meus Docs',      href: '/portal/my-documents', icon: Shirt,    iconName: 'Shirt',    color: '#10b981' },
           { module: 'employee_portal', label: 'Mensagens',      href: '/portal/messages',     icon: Sparkles, iconName: 'Sparkles', color: '#f59e0b' },
         ],

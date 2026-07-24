@@ -55,6 +55,7 @@ import EmployeePortal        from './pages/portal/EmployeePortal';
 import MySchedule            from './pages/portal/MySchedule';
 import MyDocuments           from './pages/portal/MyDocuments';
 import EventsCalendar        from './pages/portal/EventsCalendar';
+import TasksPage             from './pages/portal/TasksPage';
 import MotivationalMessages  from './pages/portal/MotivationalMessages';
 
 // ── Pages — RH (Recrutamento & Seleção) ─────────────────────────────────────
@@ -502,6 +503,11 @@ function App() {
                     <Route path="/portal/events" element={
                       <PrivateRoute module="employee_portal">
                         <EventsCalendar />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/portal/tasks" element={
+                      <PrivateRoute module="tasks">
+                        <TasksPage />
                       </PrivateRoute>
                     } />
                     <Route path="/portal/messages" element={

@@ -19,6 +19,11 @@ const EVENT_ROUTE_MAP: Record<string, string> = {
   EXP_CONTRACT_ENDING_SOON: '/personnel-department',
   EXP_CONTRACT_ENDS_TODAY:  '/personnel-department',
   NEW_INTERNAL_MESSAGE:     '/chat',
+  TASK_ASSIGNED:            '/portal/tasks',
+  TASK_DUE:                 '/portal/tasks',
+  TASK_COMPLETED:           '/portal/tasks',
+  TASK_COMMENT:             '/portal/tasks',
+  NOTE_SHARED:              '/portal/tasks',
 };
 
 /**

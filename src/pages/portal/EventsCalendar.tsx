@@ -15,7 +15,9 @@ import {
   Calendar, ChevronLeft, ChevronRight, Plus, X, Clock,
   MapPin, AlertCircle, Loader2, Trash2, Edit2, Check,
   Tag, Eye, EyeOff, Users, Building2, Globe, Briefcase, Bell, Search,
+  CheckSquare, Square, Repeat,
 } from 'lucide-react';
+import { useTasks, TaskOccurrenceRow } from '../../hooks/useTasks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -582,10 +584,13 @@ function EventTypeManagerModal({ eventTypes, hotelId, onClose, onSaved }: {
 export default function EventsCalendar() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
-  const { isAdmin } = usePermissions();
+  const { isAdmin, can } = usePermissions();
+  const { fetchOccurrences, completeOccurrence, uncompleteOccurrence, respondInvite } = useTasks();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [events, setEvents]             = useState<EventItem[]>([]);
+  const [taskOccs, setTaskOccs]         = useState<TaskOccurrenceRow[]>([]);
+  const [showTasks, setShowTasks]       = useState(true);
   const [eventTypes, setEventTypes]     = useState<EventType[]>([]);
   const [myInvites, setMyInvites]       = useState<Record<string, string>>({}); // event_id → status
   const [loading, setLoading]           = useState(true);
@@ -641,9 +646,39 @@ export default function EventsCalendar() {
         (inv || []).forEach((i: any) => { inviteMap[i.event_id] = i.status; });
       }
       setMyInvites(inviteMap);
+
+      // Tarefas do período (mesma janela do calendário)
+      if (can('tasks')) {
+        setTaskOccs(await fetchOccurrences(monthStart, monthEnd));
+      }
     } finally {
       setLoading(false);
     }
+  }
+
+  // Tarefas agrupadas por data
+  const tasksByDate = useMemo(() => {
+    const map = new Map<string, TaskOccurrenceRow[]>();
+    if (!showTasks) return map;
+    taskOccs.forEach(o => {
+      if (!map.has(o.due_date)) map.set(o.due_date, []);
+      map.get(o.due_date)!.push(o);
+    });
+    return map;
+  }, [taskOccs, showTasks]);
+
+  async function handleTaskToggle(occ: TaskOccurrenceRow) {
+    if (occ.i_completed || occ.status === 'done') {
+      await uncompleteOccurrence(occ.occurrence_id);
+    } else {
+      await completeOccurrence(occ.occurrence_id, occ.title, occ.created_by);
+    }
+    loadData();
+  }
+
+  async function handleTaskInvite(taskId: string, status: 'accepted' | 'declined') {
+    await respondInvite(taskId, status);
+    loadData();
   }
 
   // Papel do usuário em relação ao evento
@@ -703,6 +738,7 @@ export default function EventsCalendar() {
   }, [visibleEvents]);
 
   const selectedDateEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
+  const selectedDateTasks  = selectedDate ? (tasksByDate.get(selectedDate) || []) : [];
 
   async function handleDeleteEvent(eventId: string) {
     await supabase.from('events').delete().eq('id', eventId);
@@ -753,9 +789,24 @@ export default function EventsCalendar() {
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="text-sm font-bold text-slate-800 dark:text-white capitalize">
-          {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-bold text-slate-800 dark:text-white capitalize">
+            {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
+          </span>
+          {can('tasks') && taskOccs.length > 0 && (
+            <button
+              onClick={() => setShowTasks(v => !v)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-all ${
+                showTasks
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                  : 'bg-slate-50 dark:bg-slate-700 text-slate-400 border-slate-200 dark:border-slate-600'
+              }`}
+              title={showTasks ? 'Ocultar tarefas' : 'Mostrar tarefas'}
+            >
+              <CheckSquare className="w-3 h-3" /> Tarefas
+            </button>
+          )}
+        </div>
         <button
           onClick={() => setCurrentMonth(m => addMonths(m, 1))}
           className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-all"
@@ -790,6 +841,7 @@ export default function EventsCalendar() {
               {calendarDays.map(day => {
                 const dateStr  = format(day, 'yyyy-MM-dd');
                 const dayEvs   = eventsByDate.get(dateStr) || [];
+                const dayTasks = tasksByDate.get(dateStr) || [];
                 const isCurrent  = isToday(day);
                 const isSelected = selectedDate === dateStr;
 
@@ -822,6 +874,16 @@ export default function EventsCalendar() {
                       {dayEvs.length > 3 && (
                         <span className="text-[10px] text-slate-400">+{dayEvs.length - 3}</span>
                       )}
+                      {dayTasks.slice(0, 3).map(t => (
+                        <div
+                          key={t.occurrence_id}
+                          className={`w-2 h-2 rounded-[3px] ${t.status === 'done' ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-emerald-500'}`}
+                          title={`Tarefa: ${t.title}`}
+                        />
+                      ))}
+                      {dayTasks.length > 3 && (
+                        <span className="text-[10px] text-emerald-500">+{dayTasks.length - 3}</span>
+                      )}
                     </div>
                   </button>
                 );
@@ -837,7 +899,7 @@ export default function EventsCalendar() {
                   {format(parseISO(selectedDate), "dd 'de' MMMM, EEEE", { locale: ptBR })}
                 </h3>
 
-                {selectedDateEvents.length === 0 ? (
+                {selectedDateEvents.length === 0 && selectedDateTasks.length === 0 ? (
                   <div className="text-center py-8">
                     <Calendar className="w-8 h-8 text-slate-200 dark:text-slate-700 mx-auto mb-2" />
                     <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum evento neste dia</p>
@@ -950,6 +1012,73 @@ export default function EventsCalendar() {
                         })()}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* ── Tarefas do dia ──────────────────────────────────── */}
+                {selectedDateTasks.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-emerald-500 mb-2 flex items-center gap-1">
+                      <CheckSquare className="w-3 h-3" /> Tarefas
+                    </h4>
+                    <div className="space-y-2">
+                      {selectedDateTasks.map(t => {
+                        const isTaskOwner = t.created_by === user?.id;
+                        const isPendingInvite = !isTaskOwner && t.my_assignee_status === 'pending';
+                        const isDone = t.status === 'done';
+                        return (
+                          <div key={t.occurrence_id}
+                            className={`p-3 rounded-xl border ${
+                              isPendingInvite
+                                ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-900/10'
+                                : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900'
+                            }`}>
+                            <div className="flex items-start gap-2">
+                              <button
+                                onClick={() => !isPendingInvite && handleTaskToggle(t)}
+                                disabled={isPendingInvite}
+                                className="mt-0.5 shrink-0 disabled:opacity-40"
+                              >
+                                {isDone || t.i_completed
+                                  ? <CheckSquare className="w-4 h-4 text-emerald-500" />
+                                  : <Square className="w-4 h-4 text-slate-300 dark:text-slate-600 hover:text-emerald-500 transition-colors" />}
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-semibold truncate ${
+                                  isDone ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-white'
+                                }`}>
+                                  {t.title}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                  {t.due_time && (
+                                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {t.due_time.slice(0, 5)}</span>
+                                  )}
+                                  {t.recurrence_freq !== 'none' && (
+                                    <span className="flex items-center gap-1 text-indigo-500"><Repeat className="w-3 h-3" /> Recorrente</span>
+                                  )}
+                                  {t.is_shared && (
+                                    <span className="flex items-center gap-1 text-violet-500"><Users className="w-3 h-3" /> Compartilhada</span>
+                                  )}
+                                </div>
+                                {isPendingInvite && (
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold mr-auto">Convite pendente</span>
+                                    <button onClick={() => handleTaskInvite(t.task_id, 'accepted')}
+                                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-medium transition-colors">
+                                      <Check className="w-3 h-3" /> Aceitar
+                                    </button>
+                                    <button onClick={() => handleTaskInvite(t.task_id, 'declined')}
+                                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium transition-colors">
+                                      <X className="w-3 h-3" /> Recusar
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </>
