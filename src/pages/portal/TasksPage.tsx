@@ -25,14 +25,16 @@ const FREQ_LABEL: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Card de uma ocorrência de tarefa
 // ---------------------------------------------------------------------------
-function TaskCard({ occ, userId, userNames, onToggle, onEdit, onDelete, onRespond }: {
+function TaskCard({ occ, userId, userNames, groups, onToggle, onEdit, onDelete, onRespond, onMoveToGroup }: {
   occ: TaskOccurrenceRow;
   userId: string;
   userNames: Map<string, string>;
+  groups: TaskGroup[];
   onToggle: (occ: TaskOccurrenceRow) => void;
   onEdit: (occ: TaskOccurrenceRow) => void;
   onDelete: (occ: TaskOccurrenceRow) => void;
   onRespond: (taskId: string, status: 'accepted' | 'declined') => void;
+  onMoveToGroup: (occ: TaskOccurrenceRow, groupId: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isOwner = occ.created_by === userId;
@@ -155,18 +157,33 @@ function TaskCard({ occ, userId, userNames, onToggle, onEdit, onDelete, onRespon
             </div>
           )}
 
-          {isOwner && (
-            <div className="flex items-center gap-3">
-              <button onClick={() => onEdit(occ)}
-                className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-1 transition-colors">
-                <Edit2 className="w-3 h-3" /> Editar tarefa
-              </button>
-              <button onClick={() => onDelete(occ)}
-                className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
-                <Trash2 className="w-3 h-3" /> Excluir {occ.recurrence_freq !== 'none' ? 'série' : ''}
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            {isOwner && (
+              <>
+                <button onClick={() => onEdit(occ)}
+                  className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-1 transition-colors">
+                  <Edit2 className="w-3 h-3" /> Editar tarefa
+                </button>
+                <button onClick={() => onDelete(occ)}
+                  className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
+                  <Trash2 className="w-3 h-3" /> Excluir {occ.recurrence_freq !== 'none' ? 'série' : ''}
+                </button>
+              </>
+            )}
+            {groups.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 ml-auto">
+                <Folder className="w-3 h-3" />
+                <select
+                  value={occ.group_id || ''}
+                  onChange={e => onMoveToGroup(occ, e.target.value || null)}
+                  className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs focus:outline-none"
+                >
+                  <option value="">Sem grupo</option>
+                  {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
 
           <CommentsPanel
             entityType="task"
@@ -274,12 +291,14 @@ function GroupFormModal({ group, onClose, onSaved, onDeleted }: {
 // ---------------------------------------------------------------------------
 // Card de anotação (clique abre o modal com o conteúdo)
 // ---------------------------------------------------------------------------
-function NoteCard({ note, userId, userNames, onOpen, onDelete }: {
+function NoteCard({ note, userId, userNames, groups, onOpen, onDelete, onMoveToGroup }: {
   note: NoteRow;
   userId: string;
   userNames: Map<string, string>;
+  groups: TaskGroup[];
   onOpen: (n: NoteRow) => void;
   onDelete: (n: NoteRow) => void;
+  onMoveToGroup: (n: NoteRow, groupId: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isOwner = note.created_by === userId;
@@ -324,7 +343,7 @@ function NoteCard({ note, userId, userNames, onOpen, onDelete }: {
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 space-y-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button onClick={() => onOpen(note)}
               className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-1 transition-colors">
               <Edit2 className="w-3 h-3" /> Abrir
@@ -334,6 +353,19 @@ function NoteCard({ note, userId, userNames, onOpen, onDelete }: {
                 className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
                 <Trash2 className="w-3 h-3" /> Excluir
               </button>
+            )}
+            {groups.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 ml-auto">
+                <Folder className="w-3 h-3" />
+                <select
+                  value={note.group_id || ''}
+                  onChange={e => onMoveToGroup(note, e.target.value || null)}
+                  className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs focus:outline-none"
+                >
+                  <option value="">Sem grupo</option>
+                  {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </label>
             )}
           </div>
           <CommentsPanel
@@ -357,7 +389,7 @@ export default function TasksPage() {
   const {
     fetchOccurrences, fetchTask, deleteTask,
     completeOccurrence, uncompleteOccurrence, respondInvite,
-    fetchNotes, deleteNote, fetchGroups,
+    fetchNotes, deleteNote, fetchGroups, setItemGroup,
   } = useTasks();
 
   const [tab, setTab]               = useState<'tasks' | 'notes'>('tasks');
@@ -482,6 +514,16 @@ export default function TasksPage() {
     loadData();
   }
 
+  async function handleMoveTask(occ: TaskOccurrenceRow, groupId: string | null) {
+    await setItemGroup('task', occ.task_id, groupId);
+    loadData();
+  }
+
+  async function handleMoveNote(n: NoteRow, groupId: string | null) {
+    await setItemGroup('note', n.id, groupId);
+    loadData();
+  }
+
   const myNotes     = filteredNotes.filter(n => n.created_by === user?.id);
   const sharedNotes = filteredNotes.filter(n => n.created_by !== user?.id);
 
@@ -494,16 +536,19 @@ export default function TasksPage() {
         </h3>
         <div className="space-y-2">
           {list.map(o => (
-            <TaskCard
-              key={o.occurrence_id}
-              occ={o}
-              userId={user!.id}
-              userNames={userNames}
-              onToggle={handleToggle}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onRespond={handleRespond}
-            />
+            <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
+              <TaskCard
+                occ={o}
+                userId={user!.id}
+                userNames={userNames}
+                groups={groups}
+                onToggle={handleToggle}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onRespond={handleRespond}
+                onMoveToGroup={handleMoveTask}
+              />
+            </div>
           ))}
         </div>
       </div>
@@ -511,6 +556,33 @@ export default function TasksPage() {
   }
 
   const selectedGroup = groups.find(g => g.id === selectedGroupId) || null;
+
+  // ── Drag and drop: arrastar item para um grupo da sidebar ────────────────
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null); // '' = Todas
+
+  function onDragStartItem(e: React.DragEvent, type: 'task' | 'note', id: string) {
+    e.dataTransfer.setData('application/json', JSON.stringify({ type, id }));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  async function handleDropOnGroup(e: React.DragEvent, groupId: string | null) {
+    e.preventDefault();
+    setDragOverGroup(null);
+    const raw = e.dataTransfer.getData('application/json');
+    if (!raw) return;
+    try {
+      const { type, id } = JSON.parse(raw);
+      if (!type || !id) return;
+      await setItemGroup(type, id, groupId);
+      loadData();
+    } catch { /* payload inválido */ }
+  }
+
+  const dropProps = (key: string, groupId: string | null) => ({
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragOverGroup(key); },
+    onDragLeave: () => setDragOverGroup(d => (d === key ? null : d)),
+    onDrop: (e: React.DragEvent) => handleDropOnGroup(e, groupId),
+  });
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -542,11 +614,15 @@ export default function TasksPage() {
           <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible">
             <button
               onClick={() => setSelectedGroupId('')}
+              {...dropProps('__all__', null)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors shrink-0 lg:shrink ${
-                !selectedGroupId
-                  ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                dragOverGroup === '__all__'
+                  ? 'ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'
+                  : !selectedGroupId
+                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
               }`}
+              title="Solte aqui para remover do grupo"
             >
               <List className="w-4 h-4 shrink-0" />
               <span className="flex-1 truncate">Todas</span>
@@ -560,12 +636,15 @@ export default function TasksPage() {
                 key={g.id}
                 onClick={() => setSelectedGroupId(g.id)}
                 onDoubleClick={() => { setEditingGroup(g); setShowGroupForm(true); }}
+                {...dropProps(g.id, g.id)}
                 className={`group flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-left transition-colors shrink-0 lg:shrink ${
-                  selectedGroupId === g.id
-                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                  dragOverGroup === g.id
+                    ? 'ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/30'
+                    : selectedGroupId === g.id
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
                 }`}
-                title="Duplo clique para editar"
+                title="Arraste itens para cá · duplo clique para editar"
               >
                 <Folder className="w-4 h-4 shrink-0" style={{ color: g.color }} />
                 <span className="flex-1 truncate">{g.name}</span>
@@ -648,16 +727,19 @@ export default function TasksPage() {
                   {showDone && (
                     <div className="space-y-2">
                       {sections.done.map(o => (
-                        <TaskCard
-                          key={o.occurrence_id}
-                          occ={o}
-                          userId={user!.id}
-                          userNames={userNames}
-                          onToggle={handleToggle}
-                          onEdit={handleEdit}
-                          onDelete={handleDelete}
-                          onRespond={handleRespond}
-                        />
+                        <div key={o.occurrence_id} draggable onDragStart={e => onDragStartItem(e, 'task', o.task_id)}>
+                          <TaskCard
+                            occ={o}
+                            userId={user!.id}
+                            userNames={userNames}
+                            groups={groups}
+                            onToggle={handleToggle}
+                            onEdit={handleEdit}
+                            onDelete={handleDelete}
+                            onRespond={handleRespond}
+                            onMoveToGroup={handleMoveTask}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}
@@ -682,9 +764,12 @@ export default function TasksPage() {
                   </h3>
                   <div className="space-y-2">
                     {myNotes.map(n => (
-                      <NoteCard key={n.id} note={n} userId={user!.id} userNames={userNames}
-                        onOpen={nn => { setEditingNote(nn); setShowNoteForm(true); }}
-                        onDelete={handleDeleteNote} />
+                      <div key={n.id} draggable onDragStart={e => onDragStartItem(e, 'note', n.id)}>
+                        <NoteCard note={n} userId={user!.id} userNames={userNames} groups={groups}
+                          onOpen={nn => { setEditingNote(nn); setShowNoteForm(true); }}
+                          onDelete={handleDeleteNote}
+                          onMoveToGroup={handleMoveNote} />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -696,9 +781,12 @@ export default function TasksPage() {
                   </h3>
                   <div className="space-y-2">
                     {sharedNotes.map(n => (
-                      <NoteCard key={n.id} note={n} userId={user!.id} userNames={userNames}
-                        onOpen={nn => { setEditingNote(nn); setShowNoteForm(true); }}
-                        onDelete={handleDeleteNote} />
+                      <div key={n.id} draggable onDragStart={e => onDragStartItem(e, 'note', n.id)}>
+                        <NoteCard note={n} userId={user!.id} userNames={userNames} groups={groups}
+                          onOpen={nn => { setEditingNote(nn); setShowNoteForm(true); }}
+                          onDelete={handleDeleteNote}
+                          onMoveToGroup={handleMoveNote} />
+                      </div>
                     ))}
                   </div>
                 </div>

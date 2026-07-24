@@ -138,11 +138,31 @@ export function useTasks() {
     return data as TaskRow;
   }, []);
 
+  // ── Vínculo pessoal item→grupo (cada usuário organiza o que vê) ─────────
+  const setItemGroup = useCallback(async (
+    entityType: 'task' | 'note',
+    entityId: string,
+    groupId: string | null,
+  ) => {
+    if (!user) return;
+    if (groupId) {
+      await supabase.from('task_item_groups').upsert(
+        { user_id: user.id, entity_type: entityType, entity_id: entityId, group_id: groupId },
+        { onConflict: 'user_id,entity_type,entity_id' },
+      );
+    } else {
+      await supabase.from('task_item_groups')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId);
+    }
+  }, [user]);
+
   const saveTask = useCallback(async (input: TaskInput, existingTaskId?: string): Promise<string | null> => {
     if (!user || !selectedHotel?.id) return null;
     const payload: any = {
       hotel_id: input.all_hotels ? null : selectedHotel.id,
-      group_id: input.group_id || null,
       title: input.title.trim(),
       description: input.description?.trim() || null,
       due_date: input.due_date,
@@ -193,6 +213,11 @@ export function useTasks() {
     // Materializar ocorrências da janela imediata
     await supabase.rpc('generate_task_occurrences', { p_task_id: taskId });
 
+    // Vínculo pessoal com grupo (organização de quem salvou)
+    if (input.group_id !== undefined) {
+      await setItemGroup('task', taskId!, input.group_id || null);
+    }
+
     // Notificar novos convidados (sino + push)
     if (toAdd.length && input.notify_on_create !== false) {
       for (const uid of toAdd) {
@@ -211,7 +236,7 @@ export function useTasks() {
     }
 
     return taskId || null;
-  }, [user, selectedHotel?.id]);
+  }, [user, selectedHotel?.id, setItemGroup]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     await supabase.from('tasks').delete().eq('id', taskId);
@@ -261,8 +286,23 @@ export function useTasks() {
       .or(`hotel_id.eq.${selectedHotel.id},hotel_id.is.null`)
       .order('updated_at', { ascending: false });
     if (error) { console.error('[tasks] fetchNotes:', error.message); return []; }
-    return (data || []) as NoteRow[];
-  }, [selectedHotel?.id]);
+    const rows = (data || []) as NoteRow[];
+
+    // group_id pessoal (organização de quem está logado)
+    if (rows.length && user) {
+      const { data: mappings } = await supabase
+        .from('task_item_groups')
+        .select('entity_id, group_id')
+        .eq('user_id', user.id)
+        .eq('entity_type', 'note')
+        .in('entity_id', rows.map(r => r.id));
+      const map = new Map((mappings || []).map((m: any) => [m.entity_id, m.group_id]));
+      rows.forEach(r => { r.group_id = map.get(r.id) || null; });
+    } else {
+      rows.forEach(r => { r.group_id = null; });
+    }
+    return rows;
+  }, [selectedHotel?.id, user]);
 
   const saveNote = useCallback(async (
     input: { title: string; content: string; is_shared: boolean; allow_edit: boolean; collaborator_ids: string[]; all_hotels?: boolean; group_id?: string | null },
@@ -274,7 +314,6 @@ export function useTasks() {
     // compartilhamento, grupo ou unidade (que pertencem ao dono).
     const payload: any = isOwner ? {
       hotel_id: input.all_hotels ? null : selectedHotel.id,
-      group_id: input.group_id || null,
       title: input.title.trim() || null,
       content: input.content,
       is_shared: input.is_shared,
@@ -295,6 +334,11 @@ export function useTasks() {
       const { data, error } = await supabase.from('notes').insert(payload).select('id').single();
       if (error || !data) { console.error('[tasks] note insert:', error?.message); return null; }
       noteId = data.id;
+    }
+
+    // Vínculo pessoal com grupo (qualquer participante organiza o seu)
+    if (input.group_id !== undefined) {
+      await setItemGroup('note', noteId!, input.group_id || null);
     }
 
     // Sincronizar colaboradores (só o dono consegue, RLS garante)
@@ -333,7 +377,7 @@ export function useTasks() {
     }
 
     return noteId || null;
-  }, [user, selectedHotel?.id]);
+  }, [user, selectedHotel?.id, setItemGroup]);
 
   const deleteNote = useCallback(async (noteId: string) => {
     await supabase.from('notes').delete().eq('id', noteId);
@@ -437,7 +481,7 @@ export function useTasks() {
   }, []);
 
   return {
-    fetchGroups, saveGroup, deleteGroup,
+    fetchGroups, saveGroup, deleteGroup, setItemGroup,
     fetchOccurrences, fetchTask, saveTask, deleteTask,
     completeOccurrence, uncompleteOccurrence, respondInvite,
     fetchNotes, saveNote, deleteNote,

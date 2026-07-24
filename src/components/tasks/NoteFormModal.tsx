@@ -120,8 +120,8 @@ export default function NoteFormModal({ note, hotelId, groups = [], defaultGroup
             />
           </div>
 
-          {/* Grupo — só o dono */}
-          {isOwner && groups.length > 0 && (
+          {/* Grupo — organização pessoal de quem está logado */}
+          {(isOwner || note?.allow_edit) && groups.length > 0 && (
             <div>
               <label className={labelCls}>Grupo</label>
               <select
