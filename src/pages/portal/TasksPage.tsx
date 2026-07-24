@@ -105,8 +105,8 @@ function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdi
             )}
           </div>
 
-          {/* Progresso no modo 'all': quem já concluiu */}
-          {occ.completion_mode === 'all' && occ.is_shared && occ.completions.length > 0 && (
+          {/* Quem já concluiu (compartilhadas: any e all) */}
+          {occ.is_shared && occ.completions.length > 0 && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               {occ.completions.map(c => (
                 <span key={c.user_id}
@@ -209,30 +209,42 @@ function TaskCard({ occ, others = [], userId, userNames, groups, onToggle, onEdi
                     const oOverdue = !oDone && isBefore(parseISO(o.due_date), today);
                     return (
                       <div key={o.occurrence_id}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900">
-                        <button
-                          onClick={() => !isPendingInvite && onToggle(o)}
-                          disabled={isPendingInvite}
-                          className="shrink-0 disabled:opacity-40"
-                          title={oDone || o.i_completed ? 'Desfazer conclusão' : 'Concluir esta data'}
-                        >
-                          {oDone || o.i_completed
-                            ? <CheckSquare className="w-4 h-4 text-emerald-500" />
-                            : <Square className={`w-4 h-4 ${oOverdue ? 'text-red-400' : 'text-slate-300 dark:text-slate-600'} hover:text-indigo-500 transition-colors`} />}
-                        </button>
-                        <span className={`text-xs flex-1 ${
-                          oDone ? 'text-slate-400 line-through'
-                          : oOverdue ? 'text-red-500 font-semibold'
-                          : 'text-slate-600 dark:text-slate-300'
-                        }`}>
-                          {format(parseISO(o.due_date), "dd/MM/yyyy (EEE)", { locale: ptBR })}
-                          {o.due_time ? ` · ${o.due_time.slice(0, 5)}` : ''}
-                        </span>
-                        {oOverdue && <span className="text-[10px] text-red-500 font-semibold shrink-0">Atrasada</span>}
-                        {oDone && o.completed_at && (
-                          <span className="text-[10px] text-slate-400 shrink-0" title="Concluída em">
-                            ✓ {format(parseISO(o.completed_at), 'dd/MM HH:mm')}
+                        className="px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => !isPendingInvite && onToggle(o)}
+                            disabled={isPendingInvite}
+                            className="shrink-0 disabled:opacity-40"
+                            title={oDone || o.i_completed ? 'Desfazer conclusão' : 'Concluir esta data'}
+                          >
+                            {oDone || o.i_completed
+                              ? <CheckSquare className="w-4 h-4 text-emerald-500" />
+                              : <Square className={`w-4 h-4 ${oOverdue ? 'text-red-400' : 'text-slate-300 dark:text-slate-600'} hover:text-indigo-500 transition-colors`} />}
+                          </button>
+                          <span className={`text-xs flex-1 ${
+                            oDone ? 'text-slate-400 line-through'
+                            : oOverdue ? 'text-red-500 font-semibold'
+                            : 'text-slate-600 dark:text-slate-300'
+                          }`}>
+                            {format(parseISO(o.due_date), "dd/MM/yyyy (EEE)", { locale: ptBR })}
+                            {o.due_time ? ` · ${o.due_time.slice(0, 5)}` : ''}
                           </span>
+                          {oOverdue && <span className="text-[10px] text-red-500 font-semibold shrink-0">Atrasada</span>}
+                        </div>
+                        {/* Quem concluiu esta data e quando */}
+                        {o.completions.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1 ml-6">
+                            {o.completions.map(c => (
+                              <span key={c.user_id}
+                                className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded-full">
+                                <CheckCircle2 className="w-2.5 h-2.5" />
+                                {c.user_id === userId ? 'Você' : (userNames.get(c.user_id) || 'Colaborador')}
+                                <span className="text-emerald-500/70">
+                                  · {format(parseISO(c.completed_at), 'dd/MM HH:mm')}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     );
