@@ -8,8 +8,10 @@ import {
   Inbox, RefreshCw, Search, Download, ShoppingCart, EyeOff, RotateCcw,
   Loader2, AlertCircle, CheckCircle, FileText, Bell, CheckCheck, XCircle, HelpCircle,
   ChevronDown, ChevronUp, Package, CreditCard, Building2, Hash, MapPin, Calendar,
+  FileArchive,
 } from 'lucide-react';
 import { nfService } from '../../lib/nfService';
+import NFExportXmlModal from './NFExportXmlModal';
 import type { NFReceived, NFHotelConfig, TipoManifestacao } from '../../types/nf';
 
 interface Props {
@@ -356,6 +358,7 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
   const [justModal, setJustModal] = useState<{ nfId: string; chave: string } | null>(null);
   const [justText, setJustText] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Cooldown da SEFAZ: após "nenhum documento" ou rejeição 656 (consumo
   // indevido), é obrigatório aguardar 1 hora antes de nova consulta.
@@ -536,6 +539,15 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
           <option value="lancada">Lançadas</option>
           <option value="ignorada">Ignoradas</option>
         </select>
+        <button
+          onClick={() => setShowExportModal(true)}
+          disabled={rows.length === 0}
+          title="Exportar XMLs em lote (.zip)"
+          className="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded-lg font-bold text-sm transition-all hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <FileArchive className="w-4 h-4" />
+          Exportar XMLs
+        </button>
         <button
           onClick={handleSync}
           disabled={syncing || cooldownActive}
@@ -744,6 +756,11 @@ const NFRecebidasTab: React.FC<Props> = ({ hotelId }) => {
             );
           })}
         </div>
+      )}
+
+      {/* Modal de exportação em lote de XMLs */}
+      {showExportModal && (
+        <NFExportXmlModal rows={rows} onClose={() => setShowExportModal(false)} />
       )}
 
       {/* Modal de justificativa para Op. não Realizada (210240) */}
