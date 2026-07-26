@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FileText, Search, Loader2, CheckCircle2, AlertTriangle, FileCheck,
   ChevronDown, ChevronUp, Calendar, User, Building2, Filter,
-  CheckSquare, Square, Zap, RefreshCw, Download, Eye, X,
+  CheckSquare, Square, Zap, RefreshCw, Download, Eye, X, CreditCard,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -56,6 +56,56 @@ interface ClassifiedReservation extends UnifiedReservation {
   issues: string[];
   /** Notas válidas emitidas em produção para esta reserva (qualquer tela de origem) */
   invoices: NFInvoice[];
+}
+
+/** Pagamento (crédito) da reserva, extraído do contas a receber da Erbon */
+interface PaymentInfo {
+  id: number;
+  method: string;      // descrição do crédito (ex.: "Integrado via Bee2Pay Rede Master Card")
+  paymentType: string; // rótulo do título (ex.: "Cartão de Débito")
+  value: number;
+  date?: string;
+}
+
+// Mapeia a forma de pagamento da Erbon para o tPag da SEFAZ (NFC-e).
+// A ordem importa: PIX antes de débito para "Pix Maquininha".
+const ERBON_PAY_TO_TPAG: Array<[RegExp, string]> = [
+  [/pix/i, '17'],
+  [/d[eé]bito/i, '04'],
+  [/cr[eé]dito/i, '03'],
+  [/dinheiro|esp[eé]cie|cash/i, '01'],
+  [/boleto/i, '15'],
+  [/transfer|ted|doc|carteira/i, '18'],
+];
+function payToTPag(s?: string): string | null {
+  if (!s) return null;
+  for (const [re, code] of ERBON_PAY_TO_TPAG) if (re.test(s)) return code;
+  return null;
+}
+
+// Constrói o mapa nºReserva → pagamentos a partir do contas a receber (uma
+// chamada traz todos os títulos do hotel; filtramos os créditos não cancelados).
+function buildPaymentsMap(arData: any[]): Map<string, PaymentInfo[]> {
+  const map = new Map<string, PaymentInfo[]>();
+  (arData || []).forEach((title: any) => {
+    if (title.isCanceled) return;
+    const bn = String(title.bookingNumber ?? '');
+    if (!bn) return;
+    for (const it of (title.currentAccountList || [])) {
+      if (!it.iscredit || it.iscanceled) continue;
+      const arr = map.get(bn) || [];
+      if (arr.some(p => p.id === it.id)) continue;
+      arr.push({
+        id: it.id,
+        method: it.description || title.paymentType || 'Pagamento',
+        paymentType: title.paymentType || '',
+        value: Number(it.valueTotal) || 0,
+        date: title.emissionDate,
+      });
+      map.set(bn, arr);
+    }
+  });
+  return map;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,6 +178,13 @@ export default function EmissaoNFPage() {
   const [reservations, setReservations] = useState<ClassifiedReservation[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('adequadas');
 
+  // Pesquisa por nº de reserva / hóspede
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searching, setSearching] = useState(false);
+
+  // Formas de pagamento por nº de reserva (contas a receber Erbon)
+  const [paymentsByBooking, setPaymentsByBooking] = useState<Map<string, PaymentInfo[]>>(new Map());
+
   // Selection for batch
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -147,12 +204,70 @@ export default function EmissaoNFPage() {
   // Forma de pagamento do lote (obrigatória para NFC-e, mesma regra do planning)
   const [batchTPag, setBatchTPag] = useState('');
 
+  // ── Classificação (reutilizada pela carga por período e pela busca) ────────
+
+  const buildClassified = useCallback(async (unified: UnifiedReservation[]): Promise<ClassifiedReservation[]> => {
+    const [invoicesRes, nfConfig] = await Promise.all([
+      supabase.from('nf_invoices')
+        .select('*')
+        .eq('hotel_id', hotelId)
+        .in('status', ['autorizada', 'contingencia']),
+      nfService.getConfig(hotelId),
+    ]);
+
+    // Lookup de notas por reserva (TODAS, não só a última): uma reserva pode
+    // ter NFS-e e NFC-e emitidas em telas diferentes (planning, esta página)
+    const invoiceMap = new Map<string, NFInvoice[]>();
+    const invoiceByErbonId = new Map<number, NFInvoice[]>();
+    (invoicesRes.data || []).forEach((inv: NFInvoice) => {
+      if (inv.booking_number) {
+        invoiceMap.set(inv.booking_number, [...(invoiceMap.get(inv.booking_number) || []), inv]);
+      }
+      if (inv.erbon_booking_id) {
+        invoiceByErbonId.set(inv.erbon_booking_id, [...(invoiceByErbonId.get(inv.erbon_booking_id) || []), inv]);
+      }
+    });
+
+    return unified.map(r => {
+      const found = [
+        ...(invoiceMap.get(r.bookingNumber) || []),
+        ...(r.bookingInternalId ? (invoiceByErbonId.get(r.bookingInternalId) || []) : []),
+      ];
+      // dedupe por id e mantém só notas do TIPO emitido em produção — homolog
+      // de um tipo não libera reemissão do outro
+      const seen = new Set<string>();
+      const blocking = found.filter(inv => {
+        if (seen.has(inv.id)) return false;
+        seen.add(inv.id);
+        return !isHomologForTipo(nfConfig, inv.tipo);
+      });
+
+      if (blocking.length > 0) {
+        return { ...r, tab: 'emitida' as TabKey, issues: [], invoices: blocking };
+      }
+
+      const issues: string[] = [];
+      if (!r.guestName || r.guestName === 'Hóspede') issues.push('Nome do hóspede ausente');
+      // NFS-e exige documento do tomador (mesma regra do planning);
+      // a NFC-e aceita consumidor sem identificação.
+      if (!r.guestDoc) issues.push('Documento ausente (necessário para NFS-e)');
+      if (r.totalValue <= 0) issues.push('Valor total zero');
+
+      if (issues.length > 0) {
+        return { ...r, tab: 'revisao' as TabKey, issues, invoices: [] };
+      }
+
+      return { ...r, tab: 'adequadas' as TabKey, issues: [], invoices: [] };
+    });
+  }, [hotelId]);
+
   // ── Load reservations ─────────────────────────────────────────────────────
 
   const loadReservations = useCallback(async () => {
     if (!hotelId) return;
     setLoading(true);
     setSelected(new Set());
+    setSearchTerm('');
 
     try {
       // Build array of dates in the period (Erbon API accepts one date per call)
@@ -162,7 +277,7 @@ export default function EmissaoNFPage() {
         dates.push(d.toISOString().slice(0, 10));
       }
 
-      // Fetch Erbon bookings for all dates in parallel, plus internal bookings, invoices, config
+      // Fetch Erbon bookings for all dates in parallel, plus internal bookings
       const erbonSettled = await Promise.allSettled(
         dates.map(date => erbonService.searchBookings(hotelId, { [dateKey]: date, status: 'CHECKOUT' }))
       );
@@ -177,78 +292,73 @@ export default function EmissaoNFPage() {
         }
       }
 
-      const [internalRes, invoicesRes, nfConfig] = await Promise.all([
+      const [internalRes, arData] = await Promise.all([
         supabase.from('internal_bookings')
           .select('*')
           .eq('hotel_id', hotelId)
           .eq('status', 'checkedout')
           .gte(filterBy === 'checkout' ? 'checkout' : 'checkin', period.from)
           .lte(filterBy === 'checkout' ? 'checkout' : 'checkin', period.to),
-        supabase.from('nf_invoices')
-          .select('*')
-          .eq('hotel_id', hotelId)
-          .in('status', ['autorizada', 'contingencia']),
-        nfService.getConfig(hotelId),
+        erbonService.fetchAccountsReceivable(hotelId).catch(() => [] as any[]),
       ]);
+
+      setPaymentsByBooking(buildPaymentsMap(arData as any[]));
 
       const unified: UnifiedReservation[] = [
         ...erbonBookings.map(erbonToUnified),
         ...(internalRes.data || []).map(internalToUnified),
       ];
 
-      // Lookup de notas por reserva (TODAS, não só a última): uma reserva pode
-      // ter NFS-e e NFC-e emitidas em telas diferentes (planning, esta página)
-      const invoiceMap = new Map<string, NFInvoice[]>();
-      const invoiceByErbonId = new Map<number, NFInvoice[]>();
-      (invoicesRes.data || []).forEach((inv: NFInvoice) => {
-        if (inv.booking_number) {
-          invoiceMap.set(inv.booking_number, [...(invoiceMap.get(inv.booking_number) || []), inv]);
-        }
-        if (inv.erbon_booking_id) {
-          invoiceByErbonId.set(inv.erbon_booking_id, [...(invoiceByErbonId.get(inv.erbon_booking_id) || []), inv]);
-        }
-      });
-
-      // Classify
-      const classified: ClassifiedReservation[] = unified.map(r => {
-        const found = [
-          ...(invoiceMap.get(r.bookingNumber) || []),
-          ...(r.bookingInternalId ? (invoiceByErbonId.get(r.bookingInternalId) || []) : []),
-        ];
-        // dedupe por id e mantém só notas do TIPO emitido em produção — homolog
-        // de um tipo não libera reemissão do outro
-        const seen = new Set<string>();
-        const blocking = found.filter(inv => {
-          if (seen.has(inv.id)) return false;
-          seen.add(inv.id);
-          return !isHomologForTipo(nfConfig, inv.tipo);
-        });
-
-        if (blocking.length > 0) {
-          return { ...r, tab: 'emitida' as TabKey, issues: [], invoices: blocking };
-        }
-
-        const issues: string[] = [];
-        if (!r.guestName || r.guestName === 'Hóspede') issues.push('Nome do hóspede ausente');
-        // NFS-e exige documento do tomador (mesma regra do planning);
-        // a NFC-e aceita consumidor sem identificação.
-        if (!r.guestDoc) issues.push('Documento ausente (necessário para NFS-e)');
-        if (r.totalValue <= 0) issues.push('Valor total zero');
-
-        if (issues.length > 0) {
-          return { ...r, tab: 'revisao' as TabKey, issues, invoices: [] };
-        }
-
-        return { ...r, tab: 'adequadas' as TabKey, issues: [], invoices: [] };
-      });
-
-      setReservations(classified);
+      setReservations(await buildClassified(unified));
     } catch (err: any) {
       addNotification('error', `Erro ao carregar reservas: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [hotelId, period, filterBy, addNotification]);
+  }, [hotelId, period, filterBy, addNotification, buildClassified]);
+
+  // ── Busca ativa por nº de reserva na Erbon (fora do período carregado) ─────
+
+  const handleSearchBooking = useCallback(async () => {
+    const term = searchTerm.trim();
+    if (!term) return;
+    // Só dispara busca na Erbon para número de reserva (dígitos)
+    if (!/^\d+$/.test(term)) return;
+    setSearching(true);
+    try {
+      const found = await erbonService.searchBookings(hotelId, { bookingNumber: term });
+      if (!found.length) {
+        addNotification('info', `Nenhuma reserva #${term} encontrada na Erbon.`);
+        return;
+      }
+      const classified = await buildClassified(found.map(erbonToUnified));
+
+      // Completa as formas de pagamento das reservas encontradas
+      const ar = await erbonService.fetchAccountsReceivable(hotelId).catch(() => [] as any[]);
+      const freshPayments = buildPaymentsMap(ar as any[]);
+      setPaymentsByBooking(prev => {
+        const next = new Map(prev);
+        for (const c of classified) {
+          const p = freshPayments.get(c.bookingNumber);
+          if (p) next.set(c.bookingNumber, p);
+        }
+        return next;
+      });
+
+      setReservations(prev => {
+        const byId = new Map(prev.map(r => [r.id, r]));
+        classified.forEach(c => byId.set(c.id, c));
+        return [...byId.values()];
+      });
+      // Leva o usuário para a aba onde a reserva encontrada caiu
+      setActiveTab(classified[0].tab);
+      setSelected(new Set());
+    } catch (err: any) {
+      addNotification('error', `Erro na busca: ${err.message}`);
+    } finally {
+      setSearching(false);
+    }
+  }, [searchTerm, hotelId, addNotification, buildClassified]);
 
   useEffect(() => {
     loadReservations();
@@ -262,7 +372,15 @@ export default function EmissaoNFPage() {
     return counts;
   }, [reservations]);
 
-  const filtered = useMemo(() => reservations.filter(r => r.tab === activeTab), [reservations, activeTab]);
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return reservations.filter(r => r.tab === activeTab && (
+      !term ||
+      r.bookingNumber.toLowerCase().includes(term) ||
+      r.guestName.toLowerCase().includes(term) ||
+      (r.guestDoc || '').toLowerCase().includes(term)
+    ));
+  }, [reservations, activeTab, searchTerm]);
 
   // ── Selection helpers ──────────────────────────────────────────────────────
 
@@ -285,15 +403,29 @@ export default function EmissaoNFPage() {
   // ── Batch emission ─────────────────────────────────────────────────────────
 
   const handleBatchStart = (tipo: NFTipo) => {
-    setBatchTPag('');
+    // Pré-seleciona a forma de pagamento da NFC-e quando todas as reservas
+    // selecionadas compartilham o mesmo meio (lido do contas a receber Erbon).
+    let prefill = '';
+    if (tipo === 'nfce') {
+      const codes = new Set<string>();
+      filtered.filter(r => selected.has(r.id)).forEach(r => {
+        const pays = paymentsByBooking.get(r.bookingNumber) || [];
+        const code = pays.map(p => payToTPag(p.paymentType) || payToTPag(p.method)).find(Boolean);
+        if (code) codes.add(code);
+      });
+      if (codes.size === 1) prefill = [...codes][0];
+    }
+    setBatchTPag(prefill);
     setBatchTipoNf(tipo);
   };
 
-  // Busca os lançamentos de débito da conta corrente Erbon (excluindo já emitidos)
+  // Busca os lançamentos de débito FATURADOS da conta corrente Erbon
+  // (excluindo já emitidos). Só itens com isInvoiced=true entram na NF —
+  // os não faturados ainda não foram pagos/fechados e não devem gerar nota.
   const fetchErbonDebits = async (bookingInternalId: number, emitted: Map<number, string>): Promise<CurrentAccountEntry[]> => {
     const account = await erbonService.fetchBookingAccount(hotelId, bookingInternalId);
     return (account || [])
-      .filter((e: any) => e.isDebit && !emitted.has(e.id))
+      .filter((e: any) => e.isDebit && e.isInvoiced && !emitted.has(e.id))
       .map((e: any) => ({
         id: e.id,
         description: e.description || 'Item',
@@ -582,6 +714,39 @@ export default function EmissaoNFPage() {
             <option value="checkin">Check-in</option>
           </select>
         </div>
+
+        {/* Busca por nº de reserva / hóspede */}
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSearchBooking(); }}
+              placeholder="Nº da reserva ou hóspede…"
+              className="w-56 text-sm border border-gray-300 dark:border-gray-600 rounded-lg pl-8 pr-8 py-1.5 bg-white dark:bg-gray-800"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                title="Limpar busca"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleSearchBooking}
+            disabled={searching || !/^\d+$/.test(searchTerm.trim())}
+            title="Buscar este nº de reserva na Erbon (mesmo fora do período)"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Buscar na Erbon
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -702,6 +867,7 @@ export default function EmissaoNFPage() {
             <ReservationCard
               key={r.id}
               reservation={r}
+              payments={paymentsByBooking.get(r.bookingNumber) || []}
               activeTab={activeTab}
               expanded={expandedId === r.id}
               isSelected={selected.has(r.id)}
@@ -767,6 +933,7 @@ export default function EmissaoNFPage() {
 
 interface ReservationCardProps {
   reservation: ClassifiedReservation;
+  payments: PaymentInfo[];
   activeTab: TabKey;
   expanded: boolean;
   isSelected: boolean;
@@ -779,10 +946,13 @@ interface ReservationCardProps {
   onMarkAdequate: () => void;
 }
 
-function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
+function ReservationCard({ reservation: r, payments, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
   };
+  const fmtMoney = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  // Rótulos resumidos das formas de pagamento (para o badge do cabeçalho)
+  const payLabels = Array.from(new Set(payments.map(p => p.paymentType).filter(Boolean)));
 
   return (
     <div className={`border rounded-xl transition-all ${
@@ -814,10 +984,15 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
               {r.source === 'erbon' ? 'Erbon' : 'Interna'}
             </span>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
             <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {r.roomDescription}</span>
             <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {fmtDate(r.checkIn)} → {fmtDate(r.checkOut)}</span>
             {r.guestDoc && <span>{r.guestDocType === 'cnpj' ? 'CNPJ' : r.guestDocType === 'passaporte' ? 'Pass.' : 'CPF'}: {r.guestDoc}</span>}
+            {payLabels.map((lbl, i) => (
+              <span key={i} className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                <CreditCard className="w-3 h-3" /> {lbl}
+              </span>
+            ))}
           </div>
         </div>
 
@@ -856,8 +1031,30 @@ function ReservationCard({ reservation: r, activeTab, expanded, isSelected, onTo
             <div><span className="text-gray-500 text-xs">Nome</span><br /><span className="font-medium">{r.guestName}</span></div>
             <div><span className="text-gray-500 text-xs">Documento</span><br /><span className="font-medium">{r.guestDoc || 'Não informado'}</span></div>
             <div><span className="text-gray-500 text-xs">E-mail</span><br /><span className="font-medium">{r.guestEmail || '—'}</span></div>
-            <div><span className="text-gray-500 text-xs">Valor Total</span><br /><span className="font-medium">R$ {r.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
+            <div><span className="text-gray-500 text-xs">Valor Total</span><br /><span className="font-medium">{fmtMoney(r.totalValue)}</span></div>
           </div>
+
+          {/* Formas de pagamento (contas a receber Erbon) */}
+          {payments.length > 0 && (
+            <div className="mb-3 p-3 rounded-lg bg-emerald-50/60 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30">
+              <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1.5">
+                <CreditCard className="w-3.5 h-3.5" /> Formas de pagamento
+              </p>
+              <div className="space-y-1">
+                {payments.map(p => (
+                  <div key={p.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-gray-600 dark:text-gray-300 truncate">
+                      {p.method}
+                      {p.paymentType && p.paymentType !== p.method && (
+                        <span className="text-gray-400"> · {p.paymentType}</span>
+                      )}
+                    </span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{fmtMoney(p.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-2 flex-wrap">
             {activeTab === 'adequadas' && canEmitNfse && (
