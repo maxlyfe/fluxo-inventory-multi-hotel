@@ -19,6 +19,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
 import { nfService, matchesEligibleService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData, type NfceEligibleService } from '../../lib/nfService';
+import { erbonService } from '../../lib/erbonService';
 import { printNFA4 } from './NFPrintA4';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
@@ -84,6 +85,22 @@ const TPAG_LABELS: Record<string, string> = {
 };
 function tPagLabel(code?: string | null): string {
   return code ? (TPAG_LABELS[code] || `Cód. ${code}`) : '';
+}
+
+// Mapeia a forma de pagamento da Erbon (texto) para o tPag da SEFAZ.
+// Ordem importa: PIX antes de débito p/ "Pix Maquininha".
+const ERBON_PAY_TO_TPAG: Array<[RegExp, string]> = [
+  [/pix/i, '17'],
+  [/d[eé]bito/i, '04'],
+  [/cr[eé]dito/i, '03'],
+  [/dinheiro|esp[eé]cie|cash/i, '01'],
+  [/boleto/i, '15'],
+  [/transfer|ted|doc|carteira/i, '18'],
+];
+function payToTPag(s?: string): string | null {
+  if (!s) return null;
+  for (const [re, code] of ERBON_PAY_TO_TPAG) if (re.test(s)) return code;
+  return null;
 }
 
 // Normaliza descrição para casar com o nome do serviço elegível (minúsculo, sem acento)
@@ -180,6 +197,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [pagUnico, setPagUnico] = useState('');
   const [pagRows, setPagRows] = useState<{ tPag: string; valor: string }[]>([{ tPag: '', valor: '' }]);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
+  // Formas de pagamento já registradas na reserva (contas a receber Erbon)
+  const [bookingPayments, setBookingPayments] = useState<{ label: string; tPag: string; value: number }[]>([]);
 
   // Inline error state (shown within the modal, not just toast)
   const [emitError, setEmitError] = useState<{ title: string; details: string; canRetry: boolean } | null>(null);
@@ -203,6 +222,34 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   // Derived from prop — available in render and effects
   const isProduct = tipo === 'nfe' || tipo === 'nfce';
+
+  // Carrega as formas de pagamento já registradas na reserva (contas a receber
+  // Erbon) para o operador selecionar em vez de digitar. Só p/ NFC-e/NF-e.
+  useEffect(() => {
+    if (!isOpen || !isProduct || viewInvoiceId) { setBookingPayments([]); return; }
+    const bn = booking?.erbonNumber;
+    if (bn == null) return;
+    let cancelled = false;
+    erbonService.fetchAccountsReceivable(hotelId).then((list: any[]) => {
+      if (cancelled) return;
+      const seen = new Set<number>();
+      const pays: { label: string; tPag: string; value: number }[] = [];
+      for (const t of (list || [])) {
+        if (t.isCanceled || String(t.bookingNumber) !== String(bn)) continue;
+        for (const it of (t.currentAccountList || [])) {
+          if (!it.iscredit || it.iscanceled || seen.has(it.id)) continue;
+          seen.add(it.id);
+          pays.push({
+            label: it.description || t.paymentType || 'Pagamento',
+            tPag: payToTPag(it.description) || payToTPag(t.paymentType) || '99',
+            value: Number(it.valueTotal) || 0,
+          });
+        }
+      }
+      setBookingPayments(pays);
+    }).catch(() => { /* best-effort */ });
+    return () => { cancelled = true; };
+  }, [isOpen, isProduct, viewInvoiceId, booking, hotelId]);
 
   // Reset step and items when modal closes
   useEffect(() => {
@@ -1361,6 +1408,32 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                         Mais de uma forma
                       </label>
                     </div>
+                    {bookingPayments.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30">
+                        <span className="w-full text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                          Formas registradas na reserva · clique para usar
+                        </span>
+                        {bookingPayments.map((p, i) => (
+                          <button
+                            key={i} type="button" title={p.label}
+                            onClick={() => {
+                              if (pagMulti) {
+                                setPagRows(rs => {
+                                  const idx = rs.findIndex(r => !r.tPag && !r.valor);
+                                  const row = { tPag: p.tPag, valor: p.value ? String(p.value) : '' };
+                                  return idx >= 0 ? rs.map((r, j) => j === idx ? row : r) : [...rs, row];
+                                });
+                              } else {
+                                setPagUnico(p.tPag);
+                              }
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                          >
+                            {tPagLabel(p.tPag)} · R$ {p.value.toFixed(2)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {!pagMulti ? (
                       <select value={pagUnico} onChange={e => setPagUnico(e.target.value)} className={selCls}>{opts}</select>
                     ) : (

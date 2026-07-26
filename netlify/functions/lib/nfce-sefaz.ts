@@ -81,6 +81,17 @@ function sanitizeNCM(ncm?: string): string {
   return d.length === 8 || d.length === 2 ? d : '00000000';
 }
 
+// xProd (e demais TString da NFe): o schema proíbe espaço no início/fim e
+// caracteres de controle. Descrições da Erbon vêm com espaço no fim
+// ("PIZZA MOZZARELLA DE BUFALA ") → rejeição 225. Normaliza e limita a 120.
+function sanitizeXProd(s?: string): string {
+  return (s || '')
+    .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120) || 'PRODUTO';
+}
+
 function fmtDec(v: number, decimals = 2): string {
   return v.toFixed(decimals);
 }
@@ -476,7 +487,7 @@ function buildNFCeXml(params: {
       `<prod>` +
       `<cProd>${xmlEsc(it.cProd)}</cProd>` +
       `<cEAN>SEM GTIN</cEAN>` +
-      `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : it.xProd)}</xProd>` +
+      `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : sanitizeXProd(it.xProd))}</xProd>` +
       `<NCM>${sanitizeNCM(it.ncm)}</NCM>` +
       `<CFOP>${it.cfop}</CFOP>` +
       `<uCom>${xmlEsc(it.uCom)}</uCom>` +
@@ -954,7 +965,7 @@ function buildNFeXml(params: {
       `<prod>` +
       `<cProd>${xmlEsc(it.cProd)}</cProd>` +
       `<cEAN>SEM GTIN</cEAN>` +
-      `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : it.xProd)}</xProd>` +
+      `<xProd>${xmlEsc(tpAmb === '2' && it.nItem === 1 ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : sanitizeXProd(it.xProd))}</xProd>` +
       `<NCM>${sanitizeNCM(it.ncm)}</NCM>` +
       `<CFOP>${it.cfop}</CFOP>` +
       `<uCom>${xmlEsc(it.uCom)}</uCom>` +
