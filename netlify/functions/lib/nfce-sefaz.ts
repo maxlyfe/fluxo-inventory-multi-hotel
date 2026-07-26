@@ -292,6 +292,16 @@ function buildPisCofins(tag: 'PIS' | 'COFINS', vProd: number, cst?: string, aliq
     `<${pTag}>0.00</${pTag}><${vTag}>0.00</${vTag}></${outr}></${tag}>`;
 }
 
+// Monta um <detPag>. Para cartão (tPag 03=crédito, 04=débito e vales 10-13) a
+// SEFAZ exige o grupo <card> — sem ele dá rejeição 391. tpIntegra=2 (pagamento
+// NÃO integrado / maquininha avulsa) é o mínimo aceito; CNPJ/bandeira/autorização
+// são opcionais nesse caso.
+function buildDetPag(p: { tPag: string; vPag: number }): string {
+  const cardTypes = ['03', '04', '10', '11', '12', '13'];
+  const card = cardTypes.includes(p.tPag) ? `<card><tpIntegra>2</tpIntegra></card>` : '';
+  return `<detPag><tPag>${p.tPag}</tPag><vPag>${fmtDec(p.vPag)}</vPag>${card}</detPag>`;
+}
+
 export interface NFCeConfig {
   certificado_base64: string;
   certificado_senha: string;
@@ -537,7 +547,7 @@ function buildNFCeXml(params: {
     ? params.pagamentos
     : [{ tPag, vPag: totalNota }];
   const pagXml = `<pag>` +
-    pagList.map(p => `<detPag><tPag>${p.tPag}</tPag><vPag>${fmtDec(p.vPag)}</vPag></detPag>`).join('') +
+    pagList.map(buildDetPag).join('') +
     `</pag>`;
 
   const infNFe =
@@ -1022,7 +1032,7 @@ function buildNFeXml(params: {
     ? params.pagamentos
     : [{ tPag, vPag: +vProd.toFixed(2) }];
   const pagXmlNfe = `<pag>` +
-    pagListNfe.map(p => `<detPag><tPag>${p.tPag}</tPag><vPag>${fmtDec(p.vPag)}</vPag></detPag>`).join('') +
+    pagListNfe.map(buildDetPag).join('') +
     `</pag>`;
 
   const infNFe =
