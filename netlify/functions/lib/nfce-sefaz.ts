@@ -271,20 +271,24 @@ export interface NFCeItem {
 // → grupo *Aliq com vBC/pAliq/vAliq; qualquer outro CST (ou ausência) → grupo
 // *Outr com CST 99 zerado (comportamento antigo, seguro para Simples).
 function buildPisCofins(tag: 'PIS' | 'COFINS', vProd: number, cst?: string, aliquota?: number): string {
-  const c = (cst || '').trim();
+  // O GRUPO (Aliq/NT/Outr) é definido pelo CST, não pela alíquota. CST 01/02
+  // SEMPRE vai em *Aliq (mesmo com alíquota 0); mandar CST 01 em *Outr é
+  // rejeição 225. CST 04-09 = não tributado (*NT); demais = *Outr.
+  const c = (cst || '').trim() || '99';
   const p = aliquota ?? 0;
-  if ((c === '01' || c === '02') && p > 0) {
+  const pTag = tag === 'PIS' ? 'pPIS' : 'pCOFINS';
+  const vTag = tag === 'PIS' ? 'vPIS' : 'vCOFINS';
+  if (c === '01' || c === '02') {
     const vBC = Math.round(vProd * 100) / 100;
     const v = Math.round(vBC * p) / 100;
-    const pTag = tag === 'PIS' ? 'pPIS' : 'pCOFINS';
-    const vTag = tag === 'PIS' ? 'vPIS' : 'vCOFINS';
     return `<${tag}><${tag}Aliq><CST>${c}</CST><vBC>${fmtDec(vBC)}</vBC>` +
       `<${pTag}>${fmtDec(p)}</${pTag}><${vTag}>${fmtDec(v)}</${vTag}></${tag}Aliq></${tag}>`;
   }
+  if (['04', '05', '06', '07', '08', '09'].includes(c)) {
+    return `<${tag}><${tag}NT><CST>${c}</CST></${tag}NT></${tag}>`;
+  }
   const outr = tag === 'PIS' ? 'PISOutr' : 'COFINSOutr';
-  const pTag = tag === 'PIS' ? 'pPIS' : 'pCOFINS';
-  const vTag = tag === 'PIS' ? 'vPIS' : 'vCOFINS';
-  return `<${tag}><${outr}><CST>${c || '99'}</CST><vBC>0.00</vBC>` +
+  return `<${tag}><${outr}><CST>${c}</CST><vBC>0.00</vBC>` +
     `<${pTag}>0.00</${pTag}><${vTag}>0.00</${vTag}></${outr}></${tag}>`;
 }
 

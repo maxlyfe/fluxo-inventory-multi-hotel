@@ -240,8 +240,10 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
           if (!it.iscredit || it.iscanceled || seen.has(it.id)) continue;
           seen.add(it.id);
           pays.push({
-            label: it.description || t.paymentType || 'Pagamento',
-            tPag: payToTPag(it.description) || payToTPag(t.paymentType) || '99',
+            // O tipo do título (paymentType, ex.: "Cartão de Débito") é a fonte
+            // autoritativa; a descrição pode conter "Pix Maquininha" e enganar.
+            label: t.paymentType || it.description || 'Pagamento',
+            tPag: payToTPag(t.paymentType) || payToTPag(it.description) || '99',
             value: Number(it.valueTotal) || 0,
           });
         }
