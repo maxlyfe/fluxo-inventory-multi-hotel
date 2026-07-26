@@ -12,6 +12,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X, Loader2, Users, CalendarRange, BedDouble, Wallet, UserPlus, Trash2,
   QrCode, Link2, Search, RefreshCw, CheckCircle2, LogIn, LogOut, Edit2,
+  ReceiptText,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { format, parseISO, differenceInCalendarDays } from 'date-fns';
@@ -21,6 +22,7 @@ import { createWCISession, WebCheckinGuest } from '../webcheckin/webCheckinServi
 import { ensureHotelWciCode } from '../../lib/wciCode';
 import { useNotification } from '../../context/NotificationContext';
 import BookingNFSection from '../../components/nf/BookingNFSection';
+import BookingExtratoSection from '../../components/nf/BookingExtratoSection';
 import GuestEditModal, { type UnifiedGuest } from '../../components/erbon/GuestEditModal';
 
 interface BookingDetailModalProps {
@@ -34,7 +36,7 @@ interface BookingDetailModalProps {
   onActionDone?: () => void;
 }
 
-type Tab = 'resumo' | 'hospedes' | 'conta';
+type Tab = 'resumo' | 'hospedes' | 'conta' | 'extrato';
 
 const fmtBRL = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -448,6 +450,7 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
           {tabBtn('resumo', 'Resumo', <CalendarRange className="w-3.5 h-3.5" />)}
           {tabBtn('hospedes', `Hóspedes (${guests.length})`, <Users className="w-3.5 h-3.5" />)}
           {tabBtn('conta', 'Conta Corrente', <Wallet className="w-3.5 h-3.5" />)}
+          {tabBtn('extrato', 'Extratos', <ReceiptText className="w-3.5 h-3.5" />)}
         </div>
 
         {/* Conteúdo */}
@@ -560,6 +563,18 @@ const BookingDetailModal: React.FC<BookingDetailModalProps> = ({ hotelId, bookin
 
               </div>
             )
+          )}
+
+          {/* ── EXTRATOS (itens FATURADOS · emissão global NFS-e / NFC-e) ── */}
+          {tab === 'extrato' && (
+            <BookingExtratoSection
+              hotelId={hotelId}
+              bookingInternalId={booking.bookingInternalID}
+              bookingNumber={booking.erbonNumber}
+              roomDescription={booking.roomDescription}
+              guestList={booking.guestList}
+              onEmitted={() => setAccount(null)}
+            />
           )}
         </div>
       </div>
