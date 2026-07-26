@@ -546,6 +546,10 @@ export default function EmissaoNFPage() {
                     cfop: f.cfop || '5102',
                     icms_aliquota: f.tax_percentage ?? null,
                     icms_valor: f.tax_percentage != null ? e.amount * (f.tax_percentage / 100) : null,
+                    pis_cst: f.pis_cst ?? null,
+                    pis_aliquota: f.pis_aliquota ?? null,
+                    cofins_cst: f.cofins_cst ?? null,
+                    cofins_aliquota: f.cofins_aliquota ?? null,
                   } : {}),
                 };
               });

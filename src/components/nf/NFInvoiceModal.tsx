@@ -545,9 +545,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         valor_total: e.amount,
         ...(isProduct && !elig && fiscal ? {
           ncm: fiscal.ncm || null,
-          cfop: '5102',
+          cfop: fiscal.cfop || '5102',
           icms_aliquota: fiscal.tax_percentage ?? null,
           icms_valor: fiscal.tax_percentage != null ? e.amount * (fiscal.tax_percentage / 100) : null,
+          pis_cst: fiscal.pis_cst ?? null,
+          pis_aliquota: fiscal.pis_aliquota ?? null,
+          cofins_cst: fiscal.cofins_cst ?? null,
+          cofins_aliquota: fiscal.cofins_aliquota ?? null,
         } : {}),
         ...(tipo === 'nfse' && svc ? {
           codigo_servico: svc.codigo_servico ?? null,

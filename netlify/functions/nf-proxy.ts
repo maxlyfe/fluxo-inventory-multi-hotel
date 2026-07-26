@@ -314,6 +314,10 @@ const handler: Handler = async (event: HandlerEvent) => {
           icms_vBC: it.icms_vBC ?? 0,
           icms_pICMS: it.icms_pICMS ?? 0,
           icms_vICMS: it.icms_vICMS ?? 0,
+          pis_cst: it.pis_cst || undefined,
+          pis_aliquota: it.pis_aliquota ?? undefined,
+          cofins_cst: it.cofins_cst || undefined,
+          cofins_aliquota: it.cofins_aliquota ?? undefined,
         })),
         config: {
           certificado_base64,

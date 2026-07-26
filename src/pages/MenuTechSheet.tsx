@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Search, Printer, Link2, Unlink, UtensilsCrossed, Loader2, Beer, Package, Settings, GripVertical, Palette } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Search, Printer, Link2, Unlink, UtensilsCrossed, Loader2, Beer, Package, Settings, GripVertical, Palette, Receipt } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
@@ -1206,6 +1206,41 @@ function emptyFiscal() {
   return {
     nfce_ncm: '', nfce_cest: '', nfce_cfop: '5102', nfce_origem: '0',
     nfce_csosn: '', nfce_cst: '', nfce_icms_aliquota: '', nfce_unidade: 'UN', nfce_codigo: '',
+    nfce_pis_cst: '01', nfce_pis_aliquota: '', nfce_cofins_cst: '01', nfce_cofins_aliquota: '',
+  };
+}
+
+// Padrões fiscais do hotel (nf_hotel_config) que pré-preenchem novas fichas.
+// `crt` é o regime tributário informado em /admin/nfe (1/2=Simples, 3=Normal).
+interface FiscalDefaults {
+  crt: number | null;
+  prod_icms_aliquota: number | null;
+  prod_pis_cst: string | null;
+  prod_pis_aliquota: number | null;
+  prod_cofins_cst: string | null;
+  prod_cofins_aliquota: number | null;
+}
+// Monta o fiscal do formulário para uma NOVA ficha, já preenchido conforme o
+// regime tributário do hotel e os padrões fiscais (tudo editável na aba).
+function fiscalFromDefaults(d: FiscalDefaults | null): ReturnType<typeof emptyFiscal> {
+  const base = emptyFiscal();
+  if (!d) return base;
+  const simples = d.crt === 1 || d.crt === 2;
+  return {
+    ...base,
+    // Simples Nacional → ICMS por CSOSN 102 (sem CST/alíquota destacada);
+    // Regime Normal → ICMS CST 00 com alíquota.
+    nfce_csosn: simples ? '102' : '',
+    nfce_cst: simples ? '' : '00',
+    nfce_icms_aliquota: (!simples && d.prod_icms_aliquota != null && d.prod_icms_aliquota > 0)
+      ? String(d.prod_icms_aliquota) : '',
+    // Simples não destaca PIS/COFINS por alíquota → CST 49; Normal usa o padrão.
+    nfce_pis_cst: simples ? '49' : (d.prod_pis_cst || '01'),
+    nfce_pis_aliquota: (!simples && d.prod_pis_aliquota != null && d.prod_pis_aliquota > 0)
+      ? String(d.prod_pis_aliquota) : '',
+    nfce_cofins_cst: simples ? '49' : (d.prod_cofins_cst || '01'),
+    nfce_cofins_aliquota: (!simples && d.prod_cofins_aliquota != null && d.prod_cofins_aliquota > 0)
+      ? String(d.prod_cofins_aliquota) : '',
   };
 }
 
@@ -1239,7 +1274,8 @@ function ImpostosFields({ fiscal, onChange }: {
         <p className="text-xs text-violet-700 dark:text-violet-300">
           Preencha o <b>NCM</b> para que esta ficha seja tratada como <b>produto próprio</b> na
           NFC-e (linha única do prato). Sem NCM, a nota continua decompondo a ficha nos ingredientes.
-          Depois de salvar, vincule em <b>/admin/erbon → Pratos</b>.
+          Os campos já vêm <b>pré-preenchidos conforme o regime tributário do hotel</b> (/admin/nfe)
+          e os padrões fiscais, mas você pode editar. Depois de salvar, vincule em <b>/admin/erbon → Pratos</b>.
         </p>
       </div>
 
@@ -1284,7 +1320,7 @@ function ImpostosFields({ fiscal, onChange }: {
         <div>
           <label className={labelCls}>Alíquota ICMS (%)</label>
           <input value={fiscal.nfce_icms_aliquota} onChange={set('nfce_icms_aliquota')} className={inputCls}
-            placeholder="Ex: 18" inputMode="decimal" />
+            placeholder="Ex: 14" inputMode="decimal" />
         </div>
         <div>
           <label className={labelCls}>Código do Produto (opcional)</label>
@@ -1293,11 +1329,133 @@ function ImpostosFields({ fiscal, onChange }: {
         </div>
       </div>
 
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 pt-1">PIS / COFINS</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelCls}>CST PIS</label>
+          <input value={fiscal.nfce_pis_cst} onChange={set('nfce_pis_cst')} className={inputCls}
+            placeholder="Ex: 01" inputMode="numeric" maxLength={2} />
+        </div>
+        <div>
+          <label className={labelCls}>Alíquota PIS (%)</label>
+          <input value={fiscal.nfce_pis_aliquota} onChange={set('nfce_pis_aliquota')} className={inputCls}
+            placeholder="Ex: 1,65" inputMode="decimal" />
+        </div>
+        <div>
+          <label className={labelCls}>CST COFINS</label>
+          <input value={fiscal.nfce_cofins_cst} onChange={set('nfce_cofins_cst')} className={inputCls}
+            placeholder="Ex: 01" inputMode="numeric" maxLength={2} />
+        </div>
+        <div>
+          <label className={labelCls}>Alíquota COFINS (%)</label>
+          <input value={fiscal.nfce_cofins_aliquota} onChange={set('nfce_cofins_aliquota')} className={inputCls}
+            placeholder="Ex: 7,60" inputMode="decimal" />
+        </div>
+      </div>
+
       <p className="text-[11px] text-slate-400">
-        NCM, CFOP e alíquota de ICMS entram direto na NFC-e. Origem, CSOSN/CST, unidade e código
-        ficam cadastrados no produto; a emissão atual aplica o padrão do regime tributário do hotel
-        para esses campos.
+        NCM, CFOP, alíquota de ICMS e PIS/COFINS entram direto na NFC-e. Origem, CSOSN/CST, unidade
+        e código ficam cadastrados no produto; a emissão atual aplica o padrão do regime tributário
+        do hotel para esses campos. Deixe PIS/COFINS em branco para usar o padrão do hotel.
       </p>
+    </div>
+  );
+}
+
+// Modal para definir os impostos PADRÃO dos produtos (nf_hotel_config). Esses
+// valores pré-preenchem cada nova ficha e servem de fallback na emissão.
+function FiscalDefaultsModal({ hotelId, current, onClose, onSaved }: {
+  hotelId: string;
+  current: FiscalDefaults | null;
+  onClose: () => void;
+  onSaved: (d: FiscalDefaults) => void;
+}) {
+  const { addNotification } = useNotification();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    icms: current?.prod_icms_aliquota != null ? String(current.prod_icms_aliquota) : '',
+    pisCst: current?.prod_pis_cst || '01',
+    pis: current?.prod_pis_aliquota != null ? String(current.prod_pis_aliquota) : '',
+    cofinsCst: current?.prod_cofins_cst || '01',
+    cofins: current?.prod_cofins_aliquota != null ? String(current.prod_cofins_aliquota) : '',
+  });
+  const num = (v: string) => (v.trim() ? parseFloat(v.replace(',', '.')) : 0);
+
+  async function save() {
+    setSaving(true);
+    try {
+      // Não grava o crt aqui (regime é definido em /admin/nfe) — só os padrões.
+      const dbPayload = {
+        prod_icms_aliquota: num(form.icms),
+        prod_pis_cst: form.pisCst.trim() || '01',
+        prod_pis_aliquota: num(form.pis),
+        prod_cofins_cst: form.cofinsCst.trim() || '01',
+        prod_cofins_aliquota: num(form.cofins),
+      };
+      const { error } = await supabase.from('nf_hotel_config').update(dbPayload).eq('hotel_id', hotelId);
+      if (error) throw error;
+      addNotification('Padrões fiscais salvos.', 'success');
+      onSaved({ crt: current?.crt ?? null, ...dbPayload });
+    } catch (err: any) {
+      addNotification(sanitizeError(err), 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Impostos padrão dos produtos</h3>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <p className="text-[11px] text-slate-400">
+            Estes valores já vêm preenchidos ao criar uma ficha nova e podem ser editados produto a produto.
+          </p>
+          <div>
+            <label className={labelCls}>Alíquota ICMS padrão (%)</label>
+            <input value={form.icms} onChange={(e) => setForm({ ...form, icms: e.target.value })}
+              className={inputCls} placeholder="Ex: 14" inputMode="decimal" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>CST PIS</label>
+              <input value={form.pisCst} onChange={(e) => setForm({ ...form, pisCst: e.target.value })}
+                className={inputCls} placeholder="01" inputMode="numeric" maxLength={2} />
+            </div>
+            <div>
+              <label className={labelCls}>Alíquota PIS (%)</label>
+              <input value={form.pis} onChange={(e) => setForm({ ...form, pis: e.target.value })}
+                className={inputCls} placeholder="Ex: 1,65" inputMode="decimal" />
+            </div>
+            <div>
+              <label className={labelCls}>CST COFINS</label>
+              <input value={form.cofinsCst} onChange={(e) => setForm({ ...form, cofinsCst: e.target.value })}
+                className={inputCls} placeholder="01" inputMode="numeric" maxLength={2} />
+            </div>
+            <div>
+              <label className={labelCls}>Alíquota COFINS (%)</label>
+              <input value={form.cofins} onChange={(e) => setForm({ ...form, cofins: e.target.value })}
+                className={inputCls} placeholder="Ex: 7,60" inputMode="decimal" />
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2 px-5 py-4 border-t border-slate-100 dark:border-slate-700">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+            Cancelar
+          </button>
+          <button onClick={save} disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl transition-colors">
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Salvar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1334,18 +1492,10 @@ function DishesTab({
     production_sector_id: string;
     ingredients: { ingredient_id: string; quantity: string; unit: UnitType }[];
     sides: { side_id: string; quantity: string }[];
-    fiscal: {
-      nfce_ncm: string;
-      nfce_cest: string;
-      nfce_cfop: string;
-      nfce_origem: string;
-      nfce_csosn: string;
-      nfce_cst: string;
-      nfce_icms_aliquota: string;
-      nfce_unidade: string;
-      nfce_codigo: string;
-    };
+    fiscal: ReturnType<typeof emptyFiscal>;
   }>({ name: '', production_sector_id: '', ingredients: [], sides: [], fiscal: emptyFiscal() });
+  const [fiscalDefaults, setFiscalDefaults] = useState<FiscalDefaults | null>(null);
+  const [showFiscalDefaults, setShowFiscalDefaults] = useState(false);
 
   // Suppress unused import warnings
   void onCategoriesChange;
@@ -1387,7 +1537,24 @@ function DishesTab({
     setSectors(data || []);
   }, [hotelId]);
 
-  useEffect(() => { loadDishes(); loadIngredients(); loadSides(); loadSectors(); }, [loadDishes, loadIngredients, loadSides, loadSectors]);
+  const loadFiscalDefaults = useCallback(async () => {
+    const { data } = await supabase
+      .from('nf_hotel_config')
+      .select('crt, prod_icms_aliquota, prod_pis_cst, prod_pis_aliquota, prod_cofins_cst, prod_cofins_aliquota')
+      .eq('hotel_id', hotelId)
+      .maybeSingle();
+    setFiscalDefaults((data as FiscalDefaults) || null);
+  }, [hotelId]);
+
+  useEffect(() => { loadDishes(); loadIngredients(); loadSides(); loadSectors(); loadFiscalDefaults(); }, [loadDishes, loadIngredients, loadSides, loadSectors, loadFiscalDefaults]);
+
+  // Abre o formulário de NOVA ficha já com os impostos padrão preenchidos
+  function openNewDish() {
+    setEditingId(null);
+    setModalTab('ficha');
+    setFormData({ name: '', production_sector_id: '', ingredients: [], sides: [], fiscal: fiscalFromDefaults(fiscalDefaults) });
+    setShowForm(true);
+  }
 
   const filteredDishes = search.trim()
     ? dishes.filter((d) => d.name.toLowerCase().includes(search.toLowerCase()))
@@ -1423,6 +1590,12 @@ function DishesTab({
           ? parseFloat(f.nfce_icms_aliquota.replace(',', '.')) : 0,
         nfce_unidade: trimOrNull(f.nfce_unidade) || 'UN',
         nfce_codigo: trimOrNull(f.nfce_codigo),
+        nfce_pis_cst: trimOrNull(f.nfce_pis_cst),
+        nfce_pis_aliquota: f.nfce_pis_aliquota.trim()
+          ? parseFloat(f.nfce_pis_aliquota.replace(',', '.')) : null,
+        nfce_cofins_cst: trimOrNull(f.nfce_cofins_cst),
+        nfce_cofins_aliquota: f.nfce_cofins_aliquota.trim()
+          ? parseFloat(f.nfce_cofins_aliquota.replace(',', '.')) : null,
       };
 
       let currentDishId = editingId;
@@ -1515,6 +1688,10 @@ function DishesTab({
         nfce_icms_aliquota: dish.nfce_icms_aliquota != null ? String(dish.nfce_icms_aliquota) : '',
         nfce_unidade: dish.nfce_unidade || 'UN',
         nfce_codigo: dish.nfce_codigo || '',
+        nfce_pis_cst: dish.nfce_pis_cst || '01',
+        nfce_pis_aliquota: dish.nfce_pis_aliquota != null ? String(dish.nfce_pis_aliquota) : '',
+        nfce_cofins_cst: dish.nfce_cofins_cst || '01',
+        nfce_cofins_aliquota: dish.nfce_cofins_aliquota != null ? String(dish.nfce_cofins_aliquota) : '',
       },
     });
     setShowForm(true);
@@ -1576,7 +1753,15 @@ function DishesTab({
             />
           </div>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => setShowFiscalDefaults(true)}
+            title="Definir os impostos padrão que já vêm preenchidos ao criar uma ficha"
+            className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
+          >
+            <Receipt size={16} />
+            Padrões fiscais
+          </button>
+          <button
+            onClick={openNewDish}
             className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 rounded-xl transition-colors text-sm font-semibold shadow-sm"
           >
             <Plus size={16} />
@@ -1584,6 +1769,16 @@ function DishesTab({
           </button>
         </div>
       </div>
+
+      {/* Modal de padrões fiscais do hotel */}
+      {showFiscalDefaults && (
+        <FiscalDefaultsModal
+          hotelId={hotelId}
+          current={fiscalDefaults}
+          onClose={() => setShowFiscalDefaults(false)}
+          onSaved={(d) => { setFiscalDefaults(d); setShowFiscalDefaults(false); }}
+        />
+      )}
 
       {/* Modal Form */}
       {showForm && (

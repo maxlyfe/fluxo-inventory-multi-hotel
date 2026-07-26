@@ -55,6 +55,10 @@ export interface Dish {
   nfce_icms_aliquota?: number | null;
   nfce_unidade?: string | null;
   nfce_codigo?: string | null;
+  nfce_pis_cst?: string | null;
+  nfce_pis_aliquota?: number | null;
+  nfce_cofins_cst?: string | null;
+  nfce_cofins_aliquota?: number | null;
 }
 
 export interface DishIngredient {

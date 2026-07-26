@@ -44,6 +44,10 @@ export interface FiscalLineItem {
   cst?: string | null;
   unidade?: string | null;
   codigo?: string | null;
+  pis_cst?: string | null;
+  pis_aliquota?: number | null;
+  cofins_cst?: string | null;
+  cofins_aliquota?: number | null;
 }
 
 export interface FiscalResolutionResult {
@@ -131,12 +135,14 @@ async function resolveEntryFiscalData(
     name: string; ncm: string | null; cfop: string | null; cest: string | null;
     origem: string | null; csosn: string | null; cst: string | null;
     icms_aliquota: number; unidade: string | null; codigo: string | null;
+    pis_cst: string | null; pis_aliquota: number | null;
+    cofins_cst: string | null; cofins_aliquota: number | null;
   }>();
 
   if (neededDishIds.size > 0) {
     const { data: dishes } = await supabase
       .from('dishes')
-      .select('id, name, nfce_ncm, nfce_cfop, nfce_cest, nfce_origem, nfce_csosn, nfce_cst, nfce_icms_aliquota, nfce_unidade, nfce_codigo')
+      .select('id, name, nfce_ncm, nfce_cfop, nfce_cest, nfce_origem, nfce_csosn, nfce_cst, nfce_icms_aliquota, nfce_unidade, nfce_codigo, nfce_pis_cst, nfce_pis_aliquota, nfce_cofins_cst, nfce_cofins_aliquota')
       .in('id', Array.from(neededDishIds));
 
     const dishNameMap = new Map<string, string>();
@@ -153,6 +159,10 @@ async function resolveEntryFiscalData(
         icms_aliquota: d.nfce_icms_aliquota ?? 0,
         unidade: d.nfce_unidade || null,
         codigo: d.nfce_codigo || null,
+        pis_cst: d.nfce_pis_cst || null,
+        pis_aliquota: d.nfce_pis_aliquota ?? null,
+        cofins_cst: d.nfce_cofins_cst || null,
+        cofins_aliquota: d.nfce_cofins_aliquota ?? null,
       });
     });
 
@@ -272,6 +282,10 @@ async function resolveEntryFiscalData(
           cst: df.cst,
           unidade: df.unidade,
           codigo: df.codigo,
+          pis_cst: df.pis_cst,
+          pis_aliquota: df.pis_aliquota,
+          cofins_cst: df.cofins_cst,
+          cofins_aliquota: df.cofins_aliquota,
         });
         continue;
       }
@@ -720,6 +734,10 @@ interface CreateInvoiceInput {
     cfop?: string | null;
     icms_aliquota?: number | null;
     icms_valor?: number | null;
+    pis_cst?: string | null;
+    pis_aliquota?: number | null;
+    cofins_cst?: string | null;
+    cofins_aliquota?: number | null;
     codigo_servico?: string | null;
     iss_aliquota?: number | null;
     iss_valor?: number | null;
@@ -763,6 +781,10 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
     cfop: it.cfop ?? null,
     icms_aliquota: it.icms_aliquota ?? null,
     icms_valor: it.icms_valor ?? null,
+    pis_cst: it.pis_cst ?? null,
+    pis_aliquota: it.pis_aliquota ?? null,
+    cofins_cst: it.cofins_cst ?? null,
+    cofins_aliquota: it.cofins_aliquota ?? null,
     codigo_servico: it.codigo_servico ?? null,
     iss_aliquota: it.iss_aliquota ?? null,
     iss_valor: it.iss_valor ?? null,
@@ -1022,6 +1044,11 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           icms_vBC: (fiscalCfg.crt === 3) ? i.valor_total : 0,
           icms_pICMS: (fiscalCfg.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
           icms_vICMS: (fiscalCfg.crt === 3) ? (i.icms_valor ?? 0) : 0,
+          // PIS/COFINS: valor do item (ficha) e, na falta, padrão do hotel
+          pis_cst: (i as any).pis_cst ?? fiscalCfg.prod_pis_cst ?? undefined,
+          pis_aliquota: (i as any).pis_aliquota ?? fiscalCfg.prod_pis_aliquota ?? undefined,
+          cofins_cst: (i as any).cofins_cst ?? fiscalCfg.prod_cofins_cst ?? undefined,
+          cofins_aliquota: (i as any).cofins_aliquota ?? fiscalCfg.prod_cofins_aliquota ?? undefined,
         })),
         acrescimo: Math.round(acrescimoTotal * 100) / 100,
         taxa_na_base_icms: !!fiscalCfg.nfce_taxa_na_base_icms,

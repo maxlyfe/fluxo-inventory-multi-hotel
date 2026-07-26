@@ -245,9 +245,36 @@ export interface NFCeItem {
   icms_vBC?: number;
   icms_pICMS?: number;
   icms_vICMS?: number;
+  // PIS/COFINS — quando pis_cst é 01/02 emite PISAliq/COFINSAliq com alíquota;
+  // caso contrário (ou vazio) cai no padrão CST 99 zerado.
+  pis_cst?: string;
+  pis_aliquota?: number;
+  cofins_cst?: string;
+  cofins_aliquota?: number;
   // IBS/CBS (NT 2025.002 — obrigatório CRT 3 a partir de 03/Ago/2026)
   ibs_cbs_cst?: string;        // CST IBS/CBS — 000=tributado integral
   ibs_cbs_cClassTrib?: string; // Código Classificação Tributária (6 dígitos)
+}
+
+// Monta o grupo PIS ou COFINS de um item. CST 01/02 (tributável por alíquota)
+// → grupo *Aliq com vBC/pAliq/vAliq; qualquer outro CST (ou ausência) → grupo
+// *Outr com CST 99 zerado (comportamento antigo, seguro para Simples).
+function buildPisCofins(tag: 'PIS' | 'COFINS', vProd: number, cst?: string, aliquota?: number): string {
+  const c = (cst || '').trim();
+  const p = aliquota ?? 0;
+  if ((c === '01' || c === '02') && p > 0) {
+    const vBC = Math.round(vProd * 100) / 100;
+    const v = Math.round(vBC * p) / 100;
+    const pTag = tag === 'PIS' ? 'pPIS' : 'pCOFINS';
+    const vTag = tag === 'PIS' ? 'vPIS' : 'vCOFINS';
+    return `<${tag}><${tag}Aliq><CST>${c}</CST><vBC>${fmtDec(vBC)}</vBC>` +
+      `<${pTag}>${fmtDec(p)}</${pTag}><${vTag}>${fmtDec(v)}</${vTag}></${tag}Aliq></${tag}>`;
+  }
+  const outr = tag === 'PIS' ? 'PISOutr' : 'COFINSOutr';
+  const pTag = tag === 'PIS' ? 'pPIS' : 'pCOFINS';
+  const vTag = tag === 'PIS' ? 'vPIS' : 'vCOFINS';
+  return `<${tag}><${outr}><CST>${c || '99'}</CST><vBC>0.00</vBC>` +
+    `<${pTag}>0.00</${pTag}><${vTag}>0.00</${vTag}></${outr}></${tag}>`;
 }
 
 export interface NFCeConfig {
@@ -396,6 +423,7 @@ function buildNFCeXml(params: {
   // det (items)
   let detXml = '';
   let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
+  let totPIS = 0, totCOFINS = 0;
   for (let idx = 0; idx < items.length; idx++) {
     const it = items[idx];
     const vOutro_i = vOutroItem[idx] || 0;
@@ -464,11 +492,16 @@ function buildNFCeXml(params: {
       `</prod>` +
       `<imposto>` +
       `<ICMS>${icmsXml}</ICMS>` +
-      `<PIS><PISOutr><CST>99</CST><vBC>0.00</vBC><pPIS>0.00</pPIS><vPIS>0.00</vPIS></PISOutr></PIS>` +
-      `<COFINS><COFINSOutr><CST>99</CST><vBC>0.00</vBC><pCOFINS>0.00</pCOFINS><vCOFINS>0.00</vCOFINS></COFINSOutr></COFINS>` +
+      buildPisCofins('PIS', it.vProd, it.pis_cst, it.pis_aliquota) +
+      buildPisCofins('COFINS', it.vProd, it.cofins_cst, it.cofins_aliquota) +
       ibsCbs.xml +
       `</imposto>` +
       `</det>`;
+
+    if ((it.pis_cst === '01' || it.pis_cst === '02') && (it.pis_aliquota ?? 0) > 0)
+      totPIS = Math.round(totPIS * 100 + (Math.round(it.vProd * 100) / 100) * (it.pis_aliquota ?? 0)) / 100;
+    if ((it.cofins_cst === '01' || it.cofins_cst === '02') && (it.cofins_aliquota ?? 0) > 0)
+      totCOFINS = Math.round(totCOFINS * 100 + (Math.round(it.vProd * 100) / 100) * (it.cofins_aliquota ?? 0)) / 100;
   }
 
   // dest (optional for NFC-e)
@@ -551,8 +584,8 @@ function buildNFCeXml(params: {
     `<vII>0.00</vII>` +
     `<vIPI>0.00</vIPI>` +
     `<vIPIDevol>0.00</vIPIDevol>` +
-    `<vPIS>0.00</vPIS>` +
-    `<vCOFINS>0.00</vCOFINS>` +
+    `<vPIS>${fmtDec(totPIS)}</vPIS>` +
+    `<vCOFINS>${fmtDec(totCOFINS)}</vCOFINS>` +
     `<vOutro>${fmtDec(vOutroSum)}</vOutro>` +
     `<vNF>${fmtDec(vProd + vOutroSum)}</vNF>` +
     `</ICMSTot>` +
