@@ -31,9 +31,19 @@ export interface FiscalLineItem {
   ncm: string | null;
   tax_percentage: number;
   // Origem
-  source: 'product' | 'dish_ingredient' | 'unmapped';
+  source: 'product' | 'dish_ingredient' | 'dish_fiscal' | 'unmapped';
   dish_name: string | null;
   warnings: string[];
+  // Dados fiscais próprios da ficha (quando a ficha tem NCM cadastrado) — usados
+  // no lugar da decomposição por ingredientes. cfop já flui à NFC-e; os demais
+  // ficam disponíveis para a emissão honrar por item.
+  cfop?: string | null;
+  cest?: string | null;
+  origem?: string | null;
+  csosn?: string | null;
+  cst?: string | null;
+  unidade?: string | null;
+  codigo?: string | null;
 }
 
 export interface FiscalResolutionResult {
@@ -116,14 +126,35 @@ async function resolveEntryFiscalData(
     tax_percentage: number;
   }> = [];
 
+  // Dados fiscais próprios da ficha (NCM cadastrado → produto fiscal único)
+  const dishFiscalMap = new Map<string, {
+    name: string; ncm: string | null; cfop: string | null; cest: string | null;
+    origem: string | null; csosn: string | null; cst: string | null;
+    icms_aliquota: number; unidade: string | null; codigo: string | null;
+  }>();
+
   if (neededDishIds.size > 0) {
     const { data: dishes } = await supabase
       .from('dishes')
-      .select('id, name')
+      .select('id, name, nfce_ncm, nfce_cfop, nfce_cest, nfce_origem, nfce_csosn, nfce_cst, nfce_icms_aliquota, nfce_unidade, nfce_codigo')
       .in('id', Array.from(neededDishIds));
 
     const dishNameMap = new Map<string, string>();
-    (dishes ?? []).forEach((d: { id: string; name: string }) => dishNameMap.set(d.id, d.name));
+    (dishes ?? []).forEach((d: any) => {
+      dishNameMap.set(d.id, d.name);
+      dishFiscalMap.set(d.id, {
+        name: d.name,
+        ncm: d.nfce_ncm || null,
+        cfop: d.nfce_cfop || null,
+        cest: d.nfce_cest || null,
+        origem: d.nfce_origem || null,
+        csosn: d.nfce_csosn || null,
+        cst: d.nfce_cst || null,
+        icms_aliquota: d.nfce_icms_aliquota ?? 0,
+        unidade: d.nfce_unidade || null,
+        codigo: d.nfce_codigo || null,
+      });
+    });
 
     const { data: diRows } = await supabase
       .from('dish_ingredients')
@@ -216,6 +247,35 @@ async function resolveEntryFiscalData(
 
     // Rota A: Ficha técnica (dish)
     if (mapping.dish_id) {
+      // A.0: Ficha com NCM próprio → produto fiscal único (não decompõe em
+      // ingredientes). Usa os impostos cadastrados na ficha técnica.
+      const df = dishFiscalMap.get(mapping.dish_id);
+      if (df && df.ncm) {
+        items.push({
+          erbon_entry_id: entry.id,
+          erbon_description: entry.description,
+          erbon_service_id: mapping.svcId,
+          quantidade: 1,
+          valor_unitario: entry.amount,
+          valor_total: entry.amount,
+          product_id: null,
+          product_name: df.name,
+          ncm: df.ncm,
+          tax_percentage: df.icms_aliquota ?? 0,
+          source: 'dish_fiscal',
+          dish_name: df.name,
+          warnings: [],
+          cfop: df.cfop,
+          cest: df.cest,
+          origem: df.origem,
+          csosn: df.csosn,
+          cst: df.cst,
+          unidade: df.unidade,
+          codigo: df.codigo,
+        });
+        continue;
+      }
+
       const ingredients = dishIngredients.filter(di => di.dish_id === mapping!.dish_id);
       if (ingredients.length === 0) {
         items.push({

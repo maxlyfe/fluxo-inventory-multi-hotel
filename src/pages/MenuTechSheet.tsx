@@ -1201,6 +1201,107 @@ function SideCard({ side, isExpanded, onToggle, onEdit, onDelete }: {
 
 interface DishWithCost extends Dish { cost: number; }
 
+// Valores fiscais em branco para o formulário (com defaults sensatos)
+function emptyFiscal() {
+  return {
+    nfce_ncm: '', nfce_cest: '', nfce_cfop: '5102', nfce_origem: '0',
+    nfce_csosn: '', nfce_cst: '', nfce_icms_aliquota: '', nfce_unidade: 'UN', nfce_codigo: '',
+  };
+}
+
+// Origem da mercadoria (SEFAZ) — 0 a 8
+const ORIGEM_OPTIONS: Array<[string, string]> = [
+  ['0', '0 - Nacional'],
+  ['1', '1 - Estrangeira (importação direta)'],
+  ['2', '2 - Estrangeira (mercado interno)'],
+  ['3', '3 - Nacional, conteúdo import. > 40%'],
+  ['4', '4 - Nacional (processos produtivos)'],
+  ['5', '5 - Nacional, conteúdo import. <= 40%'],
+  ['6', '6 - Estrangeira (import. direta, sem similar)'],
+  ['7', '7 - Estrangeira (mercado interno, sem similar)'],
+  ['8', '8 - Nacional, conteúdo import. > 70%'],
+];
+// Unidades comerciais mais comuns em A&B
+const UNIDADE_OPTIONS = ['UN', 'KG', 'G', 'L', 'ML', 'PC', 'DZ', 'CX'];
+
+type FiscalForm = ReturnType<typeof emptyFiscal>;
+
+// Aba de Impostos do modal de ficha técnica: campos fiscais da NFC-e.
+function ImpostosFields({ fiscal, onChange }: {
+  fiscal: FiscalForm;
+  onChange: (patch: Partial<FiscalForm>) => void;
+}) {
+  const set = (k: keyof FiscalForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    onChange({ [k]: e.target.value } as Partial<FiscalForm>);
+  return (
+    <div className="space-y-5">
+      <div className="p-3 rounded-xl bg-violet-50/70 dark:bg-violet-900/15 border border-violet-100 dark:border-violet-900/40">
+        <p className="text-xs text-violet-700 dark:text-violet-300">
+          Preencha o <b>NCM</b> para que esta ficha seja tratada como <b>produto próprio</b> na
+          NFC-e (linha única do prato). Sem NCM, a nota continua decompondo a ficha nos ingredientes.
+          Depois de salvar, vincule em <b>/admin/erbon → Pratos</b>.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelCls}>NCM</label>
+          <input value={fiscal.nfce_ncm} onChange={set('nfce_ncm')} className={inputCls}
+            placeholder="Ex: 21069090" inputMode="numeric" maxLength={10} />
+        </div>
+        <div>
+          <label className={labelCls}>CEST (opcional)</label>
+          <input value={fiscal.nfce_cest} onChange={set('nfce_cest')} className={inputCls}
+            placeholder="Ex: 1700100" inputMode="numeric" maxLength={9} />
+        </div>
+        <div>
+          <label className={labelCls}>CFOP</label>
+          <input value={fiscal.nfce_cfop} onChange={set('nfce_cfop')} className={inputCls}
+            placeholder="Ex: 5102" inputMode="numeric" maxLength={4} />
+        </div>
+        <div>
+          <label className={labelCls}>Unidade Comercial</label>
+          <select value={fiscal.nfce_unidade} onChange={set('nfce_unidade')} className={selectCls}>
+            {UNIDADE_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className={labelCls}>Origem da Mercadoria</label>
+          <select value={fiscal.nfce_origem} onChange={set('nfce_origem')} className={selectCls}>
+            {ORIGEM_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>CSOSN (Simples Nacional)</label>
+          <input value={fiscal.nfce_csosn} onChange={set('nfce_csosn')} className={inputCls}
+            placeholder="Ex: 102" inputMode="numeric" maxLength={3} />
+        </div>
+        <div>
+          <label className={labelCls}>CST ICMS (regime normal)</label>
+          <input value={fiscal.nfce_cst} onChange={set('nfce_cst')} className={inputCls}
+            placeholder="Ex: 00" inputMode="numeric" maxLength={2} />
+        </div>
+        <div>
+          <label className={labelCls}>Alíquota ICMS (%)</label>
+          <input value={fiscal.nfce_icms_aliquota} onChange={set('nfce_icms_aliquota')} className={inputCls}
+            placeholder="Ex: 18" inputMode="decimal" />
+        </div>
+        <div>
+          <label className={labelCls}>Código do Produto (opcional)</label>
+          <input value={fiscal.nfce_codigo} onChange={set('nfce_codigo')} className={inputCls}
+            placeholder="cProd — usa o ID se vazio" />
+        </div>
+      </div>
+
+      <p className="text-[11px] text-slate-400">
+        NCM, CFOP e alíquota de ICMS entram direto na NFC-e. Origem, CSOSN/CST, unidade e código
+        ficam cadastrados no produto; a emissão atual aplica o padrão do regime tributário do hotel
+        para esses campos.
+      </p>
+    </div>
+  );
+}
+
 function DishesTab({
   hotelId,
   categoryId,
@@ -1227,12 +1328,24 @@ function DishesTab({
   const [search, setSearch] = useState('');
   const [movingDishId, setMovingDishId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [modalTab, setModalTab] = useState<'ficha' | 'impostos'>('ficha');
   const [formData, setFormData] = useState<{
     name: string;
     production_sector_id: string;
     ingredients: { ingredient_id: string; quantity: string; unit: UnitType }[];
     sides: { side_id: string; quantity: string }[];
-  }>({ name: '', production_sector_id: '', ingredients: [], sides: [] });
+    fiscal: {
+      nfce_ncm: string;
+      nfce_cest: string;
+      nfce_cfop: string;
+      nfce_origem: string;
+      nfce_csosn: string;
+      nfce_cst: string;
+      nfce_icms_aliquota: string;
+      nfce_unidade: string;
+      nfce_codigo: string;
+    };
+  }>({ name: '', production_sector_id: '', ingredients: [], sides: [], fiscal: emptyFiscal() });
 
   // Suppress unused import warnings
   void onCategoriesChange;
@@ -1283,15 +1396,33 @@ function DishesTab({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (saving) return;
+    if (!formData.name.trim()) {
+      setModalTab('ficha');
+      addNotification('Informe o nome da ficha técnica.', 'error');
+      return;
+    }
     setSaving(true);
 
     try {
+      const f = formData.fiscal;
+      const trimOrNull = (v: string) => (v.trim() ? v.trim() : null);
       const dishData = {
         name: formData.name,
         production_sector_id: formData.production_sector_id || null,
         type: 'dish' as const,
         category_id: categoryId,
-        hotel_id: hotelId
+        hotel_id: hotelId,
+        // Fiscal (NFC-e)
+        nfce_ncm: trimOrNull(f.nfce_ncm),
+        nfce_cest: trimOrNull(f.nfce_cest),
+        nfce_cfop: trimOrNull(f.nfce_cfop),
+        nfce_origem: trimOrNull(f.nfce_origem) || '0',
+        nfce_csosn: trimOrNull(f.nfce_csosn),
+        nfce_cst: trimOrNull(f.nfce_cst),
+        nfce_icms_aliquota: f.nfce_icms_aliquota.trim()
+          ? parseFloat(f.nfce_icms_aliquota.replace(',', '.')) : 0,
+        nfce_unidade: trimOrNull(f.nfce_unidade) || 'UN',
+        nfce_codigo: trimOrNull(f.nfce_codigo),
       };
 
       let currentDishId = editingId;
@@ -1364,6 +1495,7 @@ function DishesTab({
       supabase.from('dish_sides').select('*').eq('dish_id', dish.id),
     ]);
     setEditingId(dish.id);
+    setModalTab('ficha');
     setFormData({
       name: dish.name,
       production_sector_id: dish.production_sector_id || '',
@@ -1373,6 +1505,17 @@ function DishesTab({
         unit: di.unit || (ingredients.find(i => i.id === di.ingredient_id)?.unit || 'und')
       })),
       sides: (sidesRes.data || []).map((ds: any) => ({ side_id: ds.side_id, quantity: ds.quantity.toString() })),
+      fiscal: {
+        nfce_ncm: dish.nfce_ncm || '',
+        nfce_cest: dish.nfce_cest || '',
+        nfce_cfop: dish.nfce_cfop || '5102',
+        nfce_origem: dish.nfce_origem || '0',
+        nfce_csosn: dish.nfce_csosn || '',
+        nfce_cst: dish.nfce_cst || '',
+        nfce_icms_aliquota: dish.nfce_icms_aliquota != null ? String(dish.nfce_icms_aliquota) : '',
+        nfce_unidade: dish.nfce_unidade || 'UN',
+        nfce_codigo: dish.nfce_codigo || '',
+      },
     });
     setShowForm(true);
   }
@@ -1394,7 +1537,8 @@ function DishesTab({
   }
 
   function resetForm() {
-    setFormData({ name: '', production_sector_id: '', ingredients: [], sides: [] });
+    setFormData({ name: '', production_sector_id: '', ingredients: [], sides: [], fiscal: emptyFiscal() });
+    setModalTab('ficha');
     setShowForm(false);
     setEditingId(null);
   }
@@ -1463,7 +1607,23 @@ function DishesTab({
             </div>
             {/* Scrollable body */}
             <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              {/* Abas internas: Ficha Técnica × Impostos */}
+              <div className="flex gap-1 px-5 pt-3 border-b border-slate-100 dark:border-slate-700 flex-shrink-0">
+                {(['ficha', 'impostos'] as const).map((key) => (
+                  <button
+                    key={key} type="button" onClick={() => setModalTab(key)}
+                    className={`px-4 py-2 text-xs font-bold rounded-t-lg border-b-2 -mb-px transition-colors ${
+                      modalTab === key
+                        ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    {key === 'ficha' ? 'Ficha Técnica' : 'Impostos'}
+                  </button>
+                ))}
+              </div>
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {modalTab === 'ficha' && (<>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Nome da Ficha Técnica</label>
@@ -1598,6 +1758,14 @@ function DishesTab({
                     ))}
                   </div>
                 </div>
+                </>)}
+
+                {modalTab === 'impostos' && (
+                  <ImpostosFields
+                    fiscal={formData.fiscal}
+                    onChange={(patch) => setFormData({ ...formData, fiscal: { ...formData.fiscal, ...patch } })}
+                  />
+                )}
               </div>
               {/* Footer with action buttons */}
               <div className="flex gap-2 px-5 py-4 border-t border-slate-100 dark:border-slate-700 flex-shrink-0">

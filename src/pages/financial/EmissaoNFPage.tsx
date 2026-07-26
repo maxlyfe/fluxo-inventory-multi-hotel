@@ -543,7 +543,7 @@ export default function EmissaoNFPage() {
                   valor_total: e.amount,
                   ...(!elig && f ? {
                     ncm: f.ncm || null,
-                    cfop: '5102',
+                    cfop: f.cfop || '5102',
                     icms_aliquota: f.tax_percentage ?? null,
                     icms_valor: f.tax_percentage != null ? e.amount * (f.tax_percentage / 100) : null,
                   } : {}),

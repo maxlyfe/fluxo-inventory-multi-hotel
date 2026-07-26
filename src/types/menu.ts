@@ -44,6 +44,17 @@ export interface Dish {
   created_at: string;
   hotel_id?: string | null;
   production_sector_id?: string | null;
+  // Dados fiscais (NFC-e) — quando nfce_ncm está preenchido, a ficha é
+  // tratada como produto fiscal próprio na emissão (linha única do prato).
+  nfce_ncm?: string | null;
+  nfce_cest?: string | null;
+  nfce_cfop?: string | null;
+  nfce_origem?: string | null;
+  nfce_csosn?: string | null;
+  nfce_cst?: string | null;
+  nfce_icms_aliquota?: number | null;
+  nfce_unidade?: string | null;
+  nfce_codigo?: string | null;
 }
 
 export interface DishIngredient {
