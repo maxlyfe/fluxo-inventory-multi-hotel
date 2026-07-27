@@ -292,13 +292,15 @@ function buildPisCofins(tag: 'PIS' | 'COFINS', vProd: number, cst?: string, aliq
     `<${pTag}>0.00</${pTag}><${vTag}>0.00</${vTag}></${outr}></${tag}>`;
 }
 
-// Monta um <detPag>. Para cartão (tPag 03=crédito, 04=débito e vales 10-13) a
-// SEFAZ exige o grupo <card> — sem ele dá rejeição 391. tpIntegra=2 (pagamento
-// NÃO integrado / maquininha avulsa) é o mínimo aceito; CNPJ/bandeira/autorização
-// são opcionais nesse caso.
+// Monta um <detPag>. NT 2023.004 (regra N17.1-10): SEFAZ exige o grupo <card>
+// para tPag 03/04/10-13/15/17-19/26-29. Sem ele dá rejeição 391.
+// tpIntegra=2 (pagamento NÃO integrado) é o mínimo aceito.
 function buildDetPag(p: { tPag: string; vPag: number }): string {
-  const cardTypes = ['03', '04', '10', '11', '12', '13'];
-  const card = cardTypes.includes(p.tPag) ? `<card><tpIntegra>2</tpIntegra></card>` : '';
+  const needsCard = new Set([
+    '03', '04', '10', '11', '12', '13', '15',
+    '17', '18', '19', '26', '27', '28', '29',
+  ]);
+  const card = needsCard.has(p.tPag) ? `<card><tpIntegra>2</tpIntegra></card>` : '';
   return `<detPag><tPag>${p.tPag}</tPag><vPag>${fmtDec(p.vPag)}</vPag>${card}</detPag>`;
 }
 
