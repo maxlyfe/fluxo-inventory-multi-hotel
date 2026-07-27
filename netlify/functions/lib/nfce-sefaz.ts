@@ -234,7 +234,7 @@ export interface NFCeEmitente {
 
 export interface NFCeDestinatario {
   cpf_cnpj: string | null;
-  doc_tipo: 'cpf' | 'cnpj' | null;
+  doc_tipo: 'cpf' | 'cnpj' | 'passaporte' | null;
   nome: string | null;
   email?: string | null;
 }
@@ -534,7 +534,15 @@ function buildNFCeXml(params: {
   if (destinatario.cpf_cnpj) {
     const docLimpo = destinatario.cpf_cnpj.replace(/\D/g, '');
     const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length === 14;
-    if ((isCnpj && docLimpo.length === 14) || (!isCnpj && docLimpo.length === 11)) {
+    const isEstrangeiro = destinatario.doc_tipo === 'passaporte';
+    if (isEstrangeiro) {
+      const idEst = destinatario.cpf_cnpj.trim().substring(0, 20);
+      destXml = '<dest>';
+      destXml += `<idEstrangeiro>${xmlEsc(idEst)}</idEstrangeiro>`;
+      if (destinatario.nome) destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
+      destXml += '<indIEDest>9</indIEDest>';
+      destXml += '</dest>';
+    } else if ((isCnpj && docLimpo.length === 14) || (!isCnpj && docLimpo.length === 11)) {
       destXml = '<dest>';
       destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
       if (destinatario.nome) destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
@@ -883,7 +891,7 @@ export async function statusServicoNFCe(params: {
 
 export interface NFeDestinatario {
   cpf_cnpj: string;
-  doc_tipo: 'cpf' | 'cnpj';
+  doc_tipo: 'cpf' | 'cnpj' | 'passaporte';
   nome: string;
   ie?: string | null;
   indIEDest: '1' | '2' | '9'; // 1=contribuinte, 2=isento, 9=não contribuinte
@@ -1007,8 +1015,14 @@ function buildNFeXml(params: {
   // dest (obrigatório para NF-e modelo 55)
   const docLimpo = destinatario.cpf_cnpj.replace(/\D/g, '');
   const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length === 14;
+  const isEstrangeiro55 = destinatario.doc_tipo === 'passaporte';
   let destXml = '<dest>';
-  destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
+  if (isEstrangeiro55) {
+    const idEst = destinatario.cpf_cnpj.trim().substring(0, 20);
+    destXml += `<idEstrangeiro>${xmlEsc(idEst)}</idEstrangeiro>`;
+  } else {
+    destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
+  }
   destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
   if (destinatario.endereco_logradouro) {
     destXml += '<enderDest>';

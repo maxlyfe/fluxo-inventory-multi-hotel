@@ -16,6 +16,73 @@ const NF_PROXY = import.meta.env.PROD
   ? '/.netlify/functions/nf-proxy'
   : '/.netlify/functions/nf-proxy';
 
+// Tradução de erros SEFAZ para linguagem acessível ao operador
+function translateSefazError(raw: string): string {
+  if (!raw) return raw;
+
+  // Extrair código cStat e mensagem
+  const cStatMatch = raw.match(/SEFAZ\s+(\d{3})/i);
+  const cStat = cStatMatch?.[1];
+
+  // Elemento do schema que falhou (rejeição 225)
+  const elemMatch = raw.match(/Elemento:\s*([^\)]+)/i);
+  const elem = elemMatch?.[1]?.trim();
+
+  const translations: Record<string, string> = {
+    '204': 'Duplicidade de NF-e — já existe uma nota com essa numeração.',
+    '207': 'CNPJ do emitente inválido ou não cadastrado na SEFAZ.',
+    '209': 'Inscrição Estadual do emitente inválida.',
+    '215': 'Rejeição de schema: o XML da nota tem um campo fora do formato obrigatório.',
+    '225': 'Campo obrigatório ausente ou formato inválido no XML da nota.',
+    '233': 'Série/numeração da NF-e inválida ou duplicada.',
+    '301': 'Uso denegado — emitente com irregularidade fiscal.',
+    '302': 'Uso denegado — destinatário com irregularidade fiscal.',
+    '316': 'Chave de acesso duplicada — a nota já foi transmitida anteriormente.',
+    '388': 'Código do município do emitente inválido.',
+    '391': 'Rejeição no grupo de pagamento — campo obrigatório ausente (ex: tpIntegra para cartão).',
+    '394': 'QR-Code inválido — verifique as configurações de CSC.',
+    '539': 'Duplicidade de NFC-e com diferença de valores.',
+    '613': 'Em homologação o nome do produto do primeiro item precisa ser o texto padrão.',
+    '778': 'Informado NCM inexistente na tabela de NCM.',
+  };
+
+  // Tradução específica por elemento do schema (225)
+  const elemTranslations: Record<string, string> = {
+    'dest/CPF': 'CPF do destinatário ausente ou com formato inválido (precisa ter 11 dígitos, só números).',
+    'dest/CNPJ': 'CNPJ do destinatário ausente ou com formato inválido (precisa ter 14 dígitos, só números).',
+    'emit/CNPJ': 'CNPJ do emitente não configurado ou inválido.',
+    'emit/IE': 'Inscrição Estadual do emitente não configurada ou inválida.',
+    'prod/NCM': 'NCM de um produto está com formato inválido (precisa ter 8 dígitos, só números).',
+    'prod/CFOP': 'CFOP de um produto está inválido.',
+    'prod/cEAN': 'Código de barras (EAN) de um produto está inválido.',
+    'prod/xProd': 'Nome do produto está vazio ou com caracteres inválidos.',
+    'ICMSTot': 'Totalizador de ICMS com valor incorreto.',
+    'infNFeSupl': 'Informações suplementares da NFC-e (QR-Code) com formato inválido.',
+    'pag/detPag': 'Dados de pagamento incompletos ou com formato inválido.',
+    'pag/detPag/tPag': 'Código da forma de pagamento não informado ou inválido.',
+  };
+
+  let friendly = '';
+
+  if (cStat === '225' && elem) {
+    // Tentar encontrar tradução pelo elemento mais específico primeiro
+    for (const [key, msg] of Object.entries(elemTranslations)) {
+      if (elem.includes(key)) {
+        friendly = msg;
+        break;
+      }
+    }
+    if (!friendly) {
+      friendly = `Campo com problema no XML: "${elem}". Verifique os dados preenchidos.`;
+    }
+  } else if (cStat && translations[cStat]) {
+    friendly = translations[cStat];
+  }
+
+  if (!friendly) return raw;
+  return `${friendly}\n\n(Código SEFAZ ${cStat}: ${raw})`;
+}
+
 // ─── Tipos para resolução fiscal ─────────────────────────────────────────────
 
 export interface FiscalLineItem {
@@ -1138,7 +1205,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           xml_retorno: result.xml_retorno || null,
         })
         .eq('id', invoiceId);
-      return { success: false, message: result.message || result.error || 'Erro ao emitir nota fiscal' };
+      const rawMsg = result.message || result.error || 'Erro ao emitir nota fiscal';
+      return { success: false, message: translateSefazError(rawMsg) };
     }
 
     const updateData: Record<string, unknown> = {

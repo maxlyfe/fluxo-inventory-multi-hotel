@@ -462,7 +462,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         },
         destinatario: {
           cpf_cnpj: tomador_cpf_cnpj,
-          doc_tipo: tomador_doc_tipo === 'cnpj' ? 'cnpj' : 'cpf',
+          doc_tipo: tomador_doc_tipo === 'cnpj' ? 'cnpj' : tomador_doc_tipo === 'passaporte' ? 'passaporte' : 'cpf',
           nome: tomador_nome,
           ie: tomador_ie || null,
           indIEDest: tomador_ind_ie || '9',
