@@ -533,12 +533,14 @@ function buildNFCeXml(params: {
   let destXml = '';
   if (destinatario.cpf_cnpj) {
     const docLimpo = destinatario.cpf_cnpj.replace(/\D/g, '');
-    const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length > 11;
-    destXml = '<dest>';
-    destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
-    if (destinatario.nome) destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
-    destXml += '<indIEDest>9</indIEDest>';
-    destXml += '</dest>';
+    const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length === 14;
+    if ((isCnpj && docLimpo.length === 14) || (!isCnpj && docLimpo.length === 11)) {
+      destXml = '<dest>';
+      destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
+      if (destinatario.nome) destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
+      destXml += '<indIEDest>9</indIEDest>';
+      destXml += '</dest>';
+    }
   }
 
   // Formas de pagamento: uma ou várias (grupo <pag> com N <detPag>)
@@ -1004,7 +1006,7 @@ function buildNFeXml(params: {
 
   // dest (obrigatório para NF-e modelo 55)
   const docLimpo = destinatario.cpf_cnpj.replace(/\D/g, '');
-  const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length > 11;
+  const isCnpj = destinatario.doc_tipo === 'cnpj' || docLimpo.length === 14;
   let destXml = '<dest>';
   destXml += isCnpj ? `<CNPJ>${docLimpo}</CNPJ>` : `<CPF>${docLimpo}</CPF>`;
   destXml += `<xNome>${xmlEsc(destinatario.nome)}</xNome>`;
