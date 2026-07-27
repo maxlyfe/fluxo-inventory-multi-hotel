@@ -6,9 +6,10 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { erbonService, type ErbonBooking } from '../../lib/erbonService';
-import { nfService, type BatchEmissionProgress } from '../../lib/nfService';
+import { nfService, type BatchEmissionProgress, type WCIGuestData } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
 import { matchesEligibleService, isHomologForTipo } from '../../lib/nfService';
@@ -49,7 +50,25 @@ interface UnifiedReservation {
   raw: any;
 }
 
-type TabKey = 'adequadas' | 'revisao' | 'emitida';
+type TabKey = 'adequadas' | 'revisao' | 'nfse_emitida' | 'nfce_emitida' | 'todas_emitida';
+const isEmitidaTab = (tab: TabKey) => tab === 'nfse_emitida' || tab === 'nfce_emitida' || tab === 'todas_emitida';
+
+interface EnrichedBatchReservation {
+  reservation: ClassifiedReservation;
+  tomador: {
+    nome: string;
+    cpfCnpj: string;
+    docTipo: 'cpf' | 'cnpj' | 'passaporte';
+    nacionalidade: string | null;
+    email: string | null;
+    endereco: string | null;
+  };
+  resolvedTPag: string | null;
+  resolvedTPagSource: string | null;
+  issues: string[];
+  warnings: string[];
+  ready: boolean;
+}
 
 interface ClassifiedReservation extends UnifiedReservation {
   tab: TabKey;
@@ -169,6 +188,7 @@ function internalToUnified(b: any): UnifiedReservation {
 export default function EmissaoNFPage() {
   const { selectedHotel } = useHotel();
   const { addNotification } = useNotification();
+  const { user } = useAuth();
   const hotelId = selectedHotel?.id || '';
   const { can } = usePermissions();
 
@@ -201,8 +221,9 @@ export default function EmissaoNFPage() {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchEmissionProgress | null>(null);
   const [batchTipoNf, setBatchTipoNf] = useState<NFTipo | null>(null);
-  // Forma de pagamento do lote (obrigatória para NFC-e, mesma regra do planning)
-  const [batchTPag, setBatchTPag] = useState('');
+  const [batchEnriched, setBatchEnriched] = useState<EnrichedBatchReservation[] | null>(null);
+  const [batchEnriching, setBatchEnriching] = useState(false);
+  const [batchEnrichProgress, setBatchEnrichProgress] = useState({ done: 0, total: 0 });
 
   // ── Classificação (reutilizada pela carga por período e pela busca) ────────
 
@@ -243,7 +264,13 @@ export default function EmissaoNFPage() {
       });
 
       if (blocking.length > 0) {
-        return { ...r, tab: 'emitida' as TabKey, issues: [], invoices: blocking };
+        const hasNfse = blocking.some(inv => inv.tipo === 'nfse');
+        const hasNfce = blocking.some(inv => inv.tipo === 'nfce' || inv.tipo === 'nfe');
+        let tab: TabKey;
+        if (hasNfse && hasNfce) tab = 'todas_emitida';
+        else if (hasNfce) tab = 'nfce_emitida';
+        else tab = 'nfse_emitida';
+        return { ...r, tab, issues: [], invoices: blocking };
       }
 
       const issues: string[] = [];
@@ -367,7 +394,7 @@ export default function EmissaoNFPage() {
   // ── Tab counts ─────────────────────────────────────────────────────────────
 
   const tabCounts = useMemo(() => {
-    const counts = { adequadas: 0, revisao: 0, emitida: 0 };
+    const counts = { adequadas: 0, revisao: 0, nfse_emitida: 0, nfce_emitida: 0, todas_emitida: 0 };
     reservations.forEach(r => counts[r.tab]++);
     return counts;
   }, [reservations]);
@@ -402,21 +429,97 @@ export default function EmissaoNFPage() {
 
   // ── Batch emission ─────────────────────────────────────────────────────────
 
-  const handleBatchStart = (tipo: NFTipo) => {
-    // Pré-seleciona a forma de pagamento da NFC-e quando todas as reservas
-    // selecionadas compartilham o mesmo meio (lido do contas a receber Erbon).
-    let prefill = '';
-    if (tipo === 'nfce') {
-      const codes = new Set<string>();
-      filtered.filter(r => selected.has(r.id)).forEach(r => {
+  const formatWCIAddress = (wci: WCIGuestData): string | null => {
+    if (!wci.address_street?.trim()) return null;
+    const parts = [wci.address_street];
+    if (wci.address_neighborhood) parts.push(wci.address_neighborhood);
+    if (wci.address_city && wci.address_state) parts.push(`${wci.address_city} - ${wci.address_state}`);
+    else if (wci.address_city) parts.push(wci.address_city);
+    if (wci.address_zipcode) parts.push(`CEP ${wci.address_zipcode}`);
+    return parts.join(', ');
+  };
+
+  const enrichBatchReservations = async (selectedRes: ClassifiedReservation[], tipo: NFTipo): Promise<EnrichedBatchReservation[]> => {
+    setBatchEnriching(true);
+    const total = selectedRes.length;
+    setBatchEnrichProgress({ done: 0, total });
+
+    let done = 0;
+    const wciResults = await Promise.allSettled(
+      selectedRes.map(r =>
+        nfService.lookupWCIGuest(hotelId, r.bookingNumber, r.guestName)
+          .finally(() => { done++; setBatchEnrichProgress({ done, total }); })
+      )
+    );
+
+    const enriched: EnrichedBatchReservation[] = selectedRes.map((r, i) => {
+      const wci = wciResults[i].status === 'fulfilled' ? wciResults[i].value : null;
+      const issues: string[] = [];
+      const warnings: string[] = [];
+
+      // Merge tomador: WCI overlays Erbon
+      const wciDocTipo = wci?.document_type?.toLowerCase() || '';
+      let docTipo: 'cpf' | 'cnpj' | 'passaporte' = r.guestDocType || 'cpf';
+      let cpfCnpj = r.guestDoc || '';
+      if (wci?.document_number) {
+        cpfCnpj = wci.document_number;
+        if (wciDocTipo.includes('cnpj')) docTipo = 'cnpj';
+        else if (wciDocTipo.includes('passaporte') || wciDocTipo.includes('passport')) docTipo = 'passaporte';
+        else docTipo = 'cpf';
+      }
+
+      const nome = wci?.name || r.guestName;
+      const nacionalidade = wci?.nationality || r.guestNationality || null;
+      const email = wci?.email || r.guestEmail || null;
+      const endereco = wci ? formatWCIAddress(wci) : null;
+
+      if (!wci) warnings.push('Ficha de check-in não encontrada, usando dados da reserva');
+
+      // Resolve tPag from Erbon payments
+      let resolvedTPag: string | null = null;
+      let resolvedTPagSource: string | null = null;
+      if (tipo === 'nfce') {
         const pays = paymentsByBooking.get(r.bookingNumber) || [];
-        const code = pays.map(p => payToTPag(p.paymentType) || payToTPag(p.method)).find(Boolean);
-        if (code) codes.add(code);
-      });
-      if (codes.size === 1) prefill = [...codes][0];
-    }
-    setBatchTPag(prefill);
+        const codes = pays
+          .map(p => ({ code: payToTPag(p.paymentType) || payToTPag(p.method), label: p.paymentType || p.method }))
+          .filter(c => c.code);
+        const uniqueCodes = new Set(codes.map(c => c.code));
+        if (uniqueCodes.size === 1) {
+          resolvedTPag = codes[0].code!;
+          resolvedTPagSource = codes[0].label;
+        } else if (uniqueCodes.size > 1) {
+          warnings.push('Múltiplas formas de pagamento detectadas');
+        }
+        if (!resolvedTPag) {
+          issues.push('Forma de pagamento não detectada');
+        }
+      }
+
+      // NFS-e requires document
+      if (tipo === 'nfse' && !cpfCnpj) {
+        issues.push('Documento do tomador ausente (obrigatório para NFS-e)');
+      }
+
+      return {
+        reservation: r,
+        tomador: { nome, cpfCnpj, docTipo, nacionalidade, email, endereco },
+        resolvedTPag,
+        resolvedTPagSource,
+        issues,
+        warnings,
+        ready: issues.length === 0,
+      };
+    });
+
+    setBatchEnriching(false);
+    return enriched;
+  };
+
+  const handleBatchStart = async (tipo: NFTipo) => {
     setBatchTipoNf(tipo);
+    const selectedRes = filtered.filter(r => selected.has(r.id));
+    const enriched = await enrichBatchReservations(selectedRes, tipo);
+    setBatchEnriched(enriched);
   };
 
   // Busca os lançamentos de débito FATURADOS da conta corrente Erbon
@@ -447,12 +550,11 @@ export default function EmissaoNFPage() {
     return (data || []).filter((c: any) => !c.invoice_id);
   };
 
-  const handleBatchConfirm = async () => {
-    if (!batchTipoNf || selected.size === 0) return;
-    if (batchTipoNf === 'nfce' && !batchTPag) {
-      addNotification('error', 'Selecione a forma de pagamento antes de emitir NFC-e em lote.');
-      return;
-    }
+  const handleBatchConfirm = async (enrichedList: EnrichedBatchReservation[]) => {
+    if (!batchTipoNf) return;
+    const readyItems = enrichedList.filter(e => e.ready);
+    if (readyItems.length === 0) return;
+
     setBatchRunning(true);
     setBatchProgress(null);
 
@@ -462,7 +564,6 @@ export default function EmissaoNFPage() {
     const chargesByInvoice: Record<string, string[]> = {};
 
     try {
-      const selectedReservations = filtered.filter(r => selected.has(r.id));
       const [nfceEligible, emitted] = await Promise.all([
         nfService.getNfceEligibleServices(hotelId).catch(() => []),
         nfService.getEmittedEntries(hotelId).catch(() => new Map<number, string>()),
@@ -470,17 +571,10 @@ export default function EmissaoNFPage() {
       const isAcrescimo = (e: { description: string }) =>
         nfceEligible.some(s => matchesEligibleService(e.description, s));
 
-      // 1. Monta o rascunho de cada reserva com os itens reais da conta,
-      //    aplicando as mesmas regras do modal (serviços × produtos separados)
-      for (const r of selectedReservations) {
+      for (const enriched of readyItems) {
+        const r = enriched.reservation;
         const label = `${r.guestName} (#${r.bookingNumber})`;
         try {
-          // NFC-e aceita consumidor sem identificação; NFS-e exige documento
-          if (batchTipoNf === 'nfse' && !r.guestDoc) {
-            failures.push({ label, error: 'Sem documento do tomador (obrigatório para NFS-e). Emita individualmente informando o documento.' });
-            continue;
-          }
-
           let internalChargeIds: string[] = [];
           let items: Array<{
             erbon_entry_id: number | null; descricao: string; quantidade: number;
@@ -555,7 +649,6 @@ export default function EmissaoNFPage() {
               });
             }
           } else {
-            // Reserva interna: lançamentos do catálogo de serviços
             if (batchTipoNf !== 'nfse') {
               failures.push({ label, error: 'Reserva interna: apenas NFS-e é suportada em lote.' });
               continue;
@@ -591,19 +684,19 @@ export default function EmissaoNFPage() {
             erbon_booking_id: r.bookingInternalId,
             booking_number: r.bookingNumber,
             room_description: r.roomDescription || null,
-            tomador_nome: r.guestName,
-            tomador_cpf_cnpj: r.guestDoc || '',
-            tomador_doc_tipo: r.guestDocType || 'cpf',
-            tomador_nacionalidade: r.guestNationality,
-            tomador_email: r.guestEmail,
-            tomador_endereco: null,
+            tomador_nome: enriched.tomador.nome,
+            tomador_cpf_cnpj: enriched.tomador.cpfCnpj,
+            tomador_doc_tipo: enriched.tomador.docTipo,
+            tomador_nacionalidade: enriched.tomador.nacionalidade,
+            tomador_email: enriched.tomador.email,
+            tomador_endereco: enriched.tomador.endereco,
             items,
-            emitido_por: null,
+            emitido_por: user?.id || null,
           });
           invoiceIds.push(draft.id);
-          if (batchTipoNf === 'nfce') {
-            const total = +items.reduce((s, i) => s + i.valor_total, 0).toFixed(2);
-            pagamentosById[draft.id] = [{ tPag: batchTPag, vPag: total }];
+          if (batchTipoNf === 'nfce' && enriched.resolvedTPag) {
+            const total = +items.reduce((s, it) => s + it.valor_total, 0).toFixed(2);
+            pagamentosById[draft.id] = [{ tPag: enriched.resolvedTPag, vPag: total }];
           }
           if (r.source === 'internal' && internalChargeIds.length > 0) {
             chargesByInvoice[draft.id] = internalChargeIds;
@@ -613,10 +706,8 @@ export default function EmissaoNFPage() {
         }
       }
 
-      // 2. Emite os rascunhos criados
       if (invoiceIds.length > 0) {
         const result = await nfService.batchEmitInvoices(invoiceIds, hotelId, setBatchProgress, 1000, pagamentosById);
-        // Vincula lançamentos internos faturados às notas autorizadas
         for (const invId of result.successes) {
           const chargeIds = chargesByInvoice[invId];
           if (chargeIds?.length) {
@@ -639,7 +730,7 @@ export default function EmissaoNFPage() {
     } finally {
       setBatchRunning(false);
       setBatchTipoNf(null);
-      setBatchTPag('');
+      setBatchEnriched(null);
       setSelected(new Set());
     }
   };
@@ -687,7 +778,9 @@ export default function EmissaoNFPage() {
   const tabs: { key: TabKey; label: string; icon: React.ReactNode; color: string; count: number }[] = [
     { key: 'adequadas', label: 'Adequadas', icon: <CheckCircle2 className="w-4 h-4" />, color: 'green', count: tabCounts.adequadas },
     { key: 'revisao', label: 'Revisão', icon: <AlertTriangle className="w-4 h-4" />, color: 'amber', count: tabCounts.revisao },
-    { key: 'emitida', label: 'NF Emitida', icon: <FileCheck className="w-4 h-4" />, color: 'blue', count: tabCounts.emitida },
+    { key: 'nfse_emitida', label: 'NFS-e Emitida', icon: <FileCheck className="w-4 h-4" />, color: 'violet', count: tabCounts.nfse_emitida },
+    { key: 'nfce_emitida', label: 'NFC-e Emitida', icon: <FileCheck className="w-4 h-4" />, color: 'purple', count: tabCounts.nfce_emitida },
+    { key: 'todas_emitida', label: 'Todas NF', icon: <FileCheck className="w-4 h-4" />, color: 'blue', count: tabCounts.todas_emitida },
   ];
 
   return (
@@ -761,6 +854,8 @@ export default function EmissaoNFPage() {
             green: active ? 'bg-green-500 text-white' : 'text-green-700 dark:text-green-400',
             amber: active ? 'bg-amber-500 text-white' : 'text-amber-700 dark:text-amber-400',
             blue: active ? 'bg-blue-500 text-white' : 'text-blue-700 dark:text-blue-400',
+            violet: active ? 'bg-violet-500 text-white' : 'text-violet-700 dark:text-violet-400',
+            purple: active ? 'bg-purple-500 text-white' : 'text-purple-700 dark:text-purple-400',
           };
           return (
             <button
@@ -801,39 +896,18 @@ export default function EmissaoNFPage() {
         </div>
       )}
 
-      {/* Batch confirmation dialog */}
+      {/* Batch Review Modal */}
       {batchTipoNf && !batchRunning && (
-        <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
-          <p className="font-semibold text-amber-800 dark:text-amber-200">
-            Emitir {selected.size} {batchTipoNf === 'nfse' ? 'NFS-e' : 'NFC-e'}(s) em lote?
-          </p>
-          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-            {batchTipoNf === 'nfse'
-              ? 'Somente os lançamentos de serviço de cada conta entram na nota. As notas serão emitidas sequencialmente com intervalo de 1s.'
-              : 'Somente os lançamentos de produto de cada conta entram na nota. As notas serão emitidas sequencialmente com intervalo de 1s.'}
-          </p>
-          {batchTipoNf === 'nfce' && (
-            <div className="mt-3">
-              <label className="block text-xs font-semibold text-amber-800 dark:text-amber-200 mb-1">Forma de pagamento (obrigatória)</label>
-              <select
-                value={batchTPag}
-                onChange={e => setBatchTPag(e.target.value)}
-                className="text-sm border border-amber-300 dark:border-amber-700 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800"
-              >
-                <option value="">Selecione...</option>
-                {TPAG_OPTIONS.map(([code, lbl]) => <option key={code} value={code}>{lbl}</option>)}
-              </select>
-            </div>
-          )}
-          <div className="flex gap-2 mt-3">
-            <button
-              onClick={handleBatchConfirm}
-              disabled={batchTipoNf === 'nfce' && !batchTPag}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium"
-            >Confirmar</button>
-            <button onClick={() => setBatchTipoNf(null)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-medium">Cancelar</button>
-          </div>
-        </div>
+        <BatchReviewModal
+          tipo={batchTipoNf}
+          enriching={batchEnriching}
+          enrichProgress={batchEnrichProgress}
+          enriched={batchEnriched}
+          userName={user?.email || user?.user_metadata?.full_name || 'Usuário'}
+          onUpdateEnriched={setBatchEnriched}
+          onConfirm={handleBatchConfirm}
+          onCancel={() => { setBatchTipoNf(null); setBatchEnriched(null); }}
+        />
       )}
 
       {/* Batch progress */}
@@ -863,7 +937,7 @@ export default function EmissaoNFPage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <FileText className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p className="text-lg">Nenhuma reserva {activeTab === 'emitida' ? 'com NF emitida' : activeTab === 'revisao' ? 'para revisão' : 'pronta para emissão'} no período.</p>
+          <p className="text-lg">Nenhuma reserva {isEmitidaTab(activeTab) ? 'com NF emitida' : activeTab === 'revisao' ? 'para revisão' : 'pronta para emissão'} no período.</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -972,7 +1046,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
 
   return (
     <div className={`border rounded-xl transition-all ${
-      activeTab === 'emitida' ? 'border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10'
+      isEmitidaTab(activeTab) ? 'border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10'
       : activeTab === 'revisao' ? 'border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-900/10'
       : isSelected ? 'border-green-400 dark:border-green-600 bg-green-50/50 dark:bg-green-900/20 ring-1 ring-green-300'
       : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
@@ -1023,7 +1097,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
               ))}
             </div>
           )}
-          {activeTab === 'emitida' && r.invoices.length > 0 && (
+          {isEmitidaTab(activeTab) && r.invoices.length > 0 && (
             <div className="flex flex-col items-end gap-0.5">
               {r.invoices.map(inv => (
                 <span key={inv.id} className="text-xs font-medium text-blue-600 dark:text-blue-400">
@@ -1088,7 +1162,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                 <CheckCircle2 className="w-4 h-4" /> Marcar como Adequada
               </button>
             )}
-            {activeTab === 'emitida' && (
+            {isEmitidaTab(activeTab) && (
               <>
                 {r.invoices.map(inv => (
                   <React.Fragment key={inv.id}>
@@ -1130,6 +1204,277 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Batch Review Modal ──────────────────────────────────────────────────────
+
+interface BatchReviewModalProps {
+  tipo: NFTipo;
+  enriching: boolean;
+  enrichProgress: { done: number; total: number };
+  enriched: EnrichedBatchReservation[] | null;
+  userName: string;
+  onUpdateEnriched: (updated: EnrichedBatchReservation[]) => void;
+  onConfirm: (enriched: EnrichedBatchReservation[]) => void;
+  onCancel: () => void;
+}
+
+function BatchReviewModal({ tipo, enriching, enrichProgress, enriched, userName, onUpdateEnriched, onConfirm, onCancel }: BatchReviewModalProps) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const fmtMoney = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  const tipoLabel = tipo === 'nfse' ? 'NFS-e' : tipo === 'nfce' ? 'NFC-e' : 'NF-e';
+
+  const readyCount = enriched?.filter(e => e.ready).length || 0;
+  const issueCount = enriched ? enriched.length - readyCount : 0;
+  const totalValue = enriched?.reduce((s, e) => s + e.reservation.totalValue, 0) || 0;
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  };
+
+  const updateItem = (index: number, patch: Partial<EnrichedBatchReservation>) => {
+    if (!enriched) return;
+    const updated = [...enriched];
+    const item = { ...updated[index], ...patch };
+    // Recalculate readiness
+    const issues: string[] = [];
+    if (tipo === 'nfce' && !item.resolvedTPag) issues.push('Forma de pagamento não detectada');
+    if (tipo === 'nfse' && !item.tomador.cpfCnpj) issues.push('Documento do tomador ausente (obrigatório para NFS-e)');
+    item.issues = issues;
+    item.ready = issues.length === 0;
+    updated[index] = item;
+    onUpdateEnriched(updated);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+              Revisao do Lote — {enriched?.length || enrichProgress.total} {tipoLabel}
+            </h2>
+            <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Enrichment progress */}
+        {enriching && (
+          <div className="px-6 py-8 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-3" />
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Consultando fichas de check-in... ({enrichProgress.done}/{enrichProgress.total})
+            </p>
+            <div className="w-full max-w-xs mx-auto bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-3">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all"
+                style={{ width: `${enrichProgress.total > 0 ? (enrichProgress.done / enrichProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Summary bar + list */}
+        {!enriching && enriched && (
+          <>
+            <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 flex items-center gap-4 flex-wrap text-sm">
+              <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400 font-semibold">
+                <CheckCircle2 className="w-4 h-4" /> {readyCount} pronta(s)
+              </span>
+              {issueCount > 0 && (
+                <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-semibold">
+                  <AlertTriangle className="w-4 h-4" /> {issueCount} com pendencia(s)
+                </span>
+              )}
+              <span className="text-gray-500 ml-auto font-semibold">{fmtMoney(totalValue)}</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2">
+              {enriched.map((item, idx) => {
+                const r = item.reservation;
+                const isExpanded = expandedIds.has(r.id) || !item.ready;
+                return (
+                  <div
+                    key={r.id}
+                    className={`border rounded-xl transition-all ${
+                      item.ready
+                        ? 'border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10'
+                        : 'border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10'
+                    }`}
+                  >
+                    {/* Collapsed row */}
+                    <div
+                      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+                      onClick={() => item.ready && toggleExpand(r.id)}
+                    >
+                      {item.ready
+                        ? <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        : <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                      }
+                      <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{item.tomador.nome}</span>
+                      <span className="text-xs text-gray-500">#{r.bookingNumber}</span>
+                      <span className="text-xs text-gray-500">{r.roomDescription}</span>
+                      <span className="ml-auto font-semibold text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                        {fmtMoney(r.totalValue)}
+                      </span>
+                      {tipo === 'nfce' && item.resolvedTPag && (
+                        <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">
+                          {TPAG_OPTIONS.find(([c]) => c === item.resolvedTPag)?.[1] || item.resolvedTPag}
+                        </span>
+                      )}
+                      {item.tomador.endereco && (
+                        <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">WCI</span>
+                      )}
+                      {item.ready && (
+                        isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />
+                      )}
+                    </div>
+
+                    {/* Expanded details */}
+                    {isExpanded && (
+                      <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-3 space-y-3">
+                        {/* Issues */}
+                        {item.issues.length > 0 && (
+                          <div className="space-y-1">
+                            {item.issues.map((issue, i) => (
+                              <p key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> {issue}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Warnings */}
+                        {item.warnings.length > 0 && (
+                          <div className="space-y-0.5">
+                            {item.warnings.map((w, i) => (
+                              <p key={i} className="text-xs text-gray-500 italic">{w}</p>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Tomador info grid */}
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <span className="text-gray-500 text-xs">Nome</span>
+                            <p className="font-medium text-gray-900 dark:text-white">{item.tomador.nome}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 text-xs">Documento</span>
+                            <p className="font-medium text-gray-900 dark:text-white">
+                              {item.tomador.cpfCnpj
+                                ? `${item.tomador.docTipo === 'cnpj' ? 'CNPJ' : item.tomador.docTipo === 'passaporte' ? 'Pass.' : 'CPF'}: ${item.tomador.cpfCnpj}`
+                                : 'Nao informado'}
+                            </p>
+                          </div>
+                          {item.tomador.email && (
+                            <div>
+                              <span className="text-gray-500 text-xs">E-mail</span>
+                              <p className="font-medium text-gray-900 dark:text-white">{item.tomador.email}</p>
+                            </div>
+                          )}
+                          {item.tomador.endereco && (
+                            <div className="col-span-2">
+                              <span className="text-gray-500 text-xs">Endereco (WCI)</span>
+                              <p className="font-medium text-gray-900 dark:text-white text-xs">{item.tomador.endereco}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Payment fix for NFC-e */}
+                        {tipo === 'nfce' && !item.resolvedTPag && (
+                          <div>
+                            <label className="block text-xs font-semibold text-amber-800 dark:text-amber-200 mb-1">
+                              Forma de pagamento (obrigatoria)
+                            </label>
+                            <select
+                              value=""
+                              onChange={e => updateItem(idx, { resolvedTPag: e.target.value, resolvedTPagSource: 'Manual' })}
+                              className="text-sm border border-amber-300 dark:border-amber-700 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 w-full"
+                            >
+                              <option value="">Selecione...</option>
+                              {TPAG_OPTIONS.map(([code, lbl]) => <option key={code} value={code}>{lbl}</option>)}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Override payment for NFC-e (already resolved) */}
+                        {tipo === 'nfce' && item.resolvedTPag && (
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">
+                              Pagamento {item.resolvedTPagSource ? `(detectado: ${item.resolvedTPagSource})` : ''}
+                            </label>
+                            <select
+                              value={item.resolvedTPag}
+                              onChange={e => updateItem(idx, { resolvedTPag: e.target.value, resolvedTPagSource: 'Manual' })}
+                              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 w-full"
+                            >
+                              {TPAG_OPTIONS.map(([code, lbl]) => <option key={code} value={code}>{lbl}</option>)}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Document fix for NFS-e */}
+                        {tipo === 'nfse' && !item.tomador.cpfCnpj && (
+                          <div className="flex gap-2 items-end">
+                            <div className="flex-1">
+                              <label className="block text-xs font-semibold text-amber-800 dark:text-amber-200 mb-1">CPF/CNPJ (obrigatorio)</label>
+                              <input
+                                type="text"
+                                placeholder="Informe o CPF ou CNPJ"
+                                className="w-full text-sm border border-amber-300 dark:border-amber-700 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800"
+                                onBlur={e => {
+                                  const val = e.target.value.replace(/\D/g, '');
+                                  if (val) {
+                                    const docTipo = val.length === 14 ? 'cnpj' as const : 'cpf' as const;
+                                    updateItem(idx, {
+                                      tomador: { ...item.tomador, cpfCnpj: val, docTipo },
+                                    });
+                                  }
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3">
+              <button onClick={onCancel} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-medium">
+                Cancelar
+              </button>
+              <div className="flex-1 text-xs text-gray-500 text-center">
+                Emitido por: {userName}
+              </div>
+              <button
+                onClick={() => enriched && onConfirm(enriched)}
+                disabled={readyCount === 0}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium"
+              >
+                Emitir {readyCount} {tipoLabel}(s)
+              </button>
+            </div>
+
+            <p className="px-6 pb-3 text-xs text-gray-400 text-center">
+              Todos os lancamentos elegiveis serao incluidos. Para selecionar itens individualmente, emita reserva por reserva.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
