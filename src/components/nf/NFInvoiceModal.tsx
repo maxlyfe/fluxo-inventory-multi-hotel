@@ -15,6 +15,8 @@ import {
   CheckCircle,
   AlertCircle,
   Printer,
+  Building2,
+  Search,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
@@ -217,6 +219,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [tomadorBairro, setTomadorBairro] = useState('');
   const [tomadorCidade, setTomadorCidade] = useState('');
   const [tomadorUf, setTomadorUf] = useState('');
+
+  // Busca de empresas cadastradas (fornecedores PJ) para preencher tomador
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierResults, setSupplierResults] = useState<any[]>([]);
+  const [supplierLoading, setSupplierLoading] = useState(false);
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false);
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -641,6 +649,44 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const searchSuppliers = async (term: string) => {
+    if (!hotelId) return;
+    setSupplierLoading(true);
+    try {
+      let query = supabase
+        .from('suppliers')
+        .select('id, cnpj, razao_social, nome_fantasia, email, telefone, endereco_logradouro, endereco_numero, endereco_complemento, endereco_bairro, endereco_municipio, endereco_uf, endereco_cep')
+        .eq('hotel_id', hotelId)
+        .eq('type', 'juridica')
+        .eq('status', 'ativo');
+      if (term.trim()) {
+        const t = `%${term.trim()}%`;
+        query = query.or(`razao_social.ilike.${t},nome_fantasia.ilike.${t},cnpj.ilike.${t}`);
+      }
+      const { data } = await query.order('razao_social').limit(20);
+      setSupplierResults(data || []);
+    } finally {
+      setSupplierLoading(false);
+    }
+  };
+
+  const fillFromSupplier = (s: any) => {
+    setTomadorDocTipo('cnpj');
+    setTomadorNome(s.razao_social || s.nome_fantasia || '');
+    setTomadorCpfCnpj(s.cnpj || '');
+    setTomadorEmail(s.email || '');
+    if (s.endereco_logradouro) setTomadorLogradouro(s.endereco_logradouro);
+    if (s.endereco_numero) setTomadorNumero(s.endereco_numero);
+    if (s.endereco_complemento) setTomadorComplemento(s.endereco_complemento);
+    if (s.endereco_bairro) setTomadorBairro(s.endereco_bairro);
+    if (s.endereco_municipio) setTomadorCidade(s.endereco_municipio);
+    if (s.endereco_uf) setTomadorUf(s.endereco_uf);
+    if (s.endereco_cep) setTomadorCep(s.endereco_cep);
+    setShowSupplierPicker(false);
+    setSupplierSearch('');
+    setFormErrors({});
   };
 
   const validateConfig = (): { valid: boolean; errors: string[] } => {
@@ -1119,6 +1165,63 @@ img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; obj
               <div>
                 <h4 className="text-sm font-bold text-gray-800 dark:text-white mb-1">Dados do Tomador (Destinatário)</h4>
                 <p className="text-xs text-gray-400">Preencha as informações do hóspede responsável pelo pagamento.</p>
+              </div>
+
+              {/* Buscar empresa cadastrada */}
+              <div className="relative">
+                {!showSupplierPicker ? (
+                  <button
+                    type="button"
+                    onClick={() => { setShowSupplierPicker(true); searchSuppliers(''); }}
+                    className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-400 transition-colors w-full"
+                  >
+                    <Building2 className="w-4 h-4" />
+                    Preencher com empresa cadastrada (fornecedores)
+                  </button>
+                ) : (
+                  <div className="border border-indigo-200 dark:border-indigo-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-indigo-100 dark:border-indigo-800">
+                      <Search className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={supplierSearch}
+                        onChange={(e) => { setSupplierSearch(e.target.value); searchSuppliers(e.target.value); }}
+                        placeholder="Buscar por razão social, nome fantasia ou CNPJ…"
+                        className="flex-1 text-sm bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
+                        autoFocus
+                      />
+                      <button type="button" onClick={() => { setShowSupplierPicker(false); setSupplierSearch(''); }} className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
+                        <X className="w-3.5 h-3.5 text-gray-400" />
+                      </button>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {supplierLoading ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                        </div>
+                      ) : supplierResults.length === 0 ? (
+                        <p className="text-center text-xs text-gray-400 py-4">Nenhuma empresa encontrada.</p>
+                      ) : (
+                        supplierResults.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => fillFromSupplier(s)}
+                            className="w-full text-left px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border-b border-gray-100 dark:border-gray-800 last:border-0 transition-colors"
+                          >
+                            <span className="text-sm font-medium text-gray-900 dark:text-white block truncate">
+                              {s.nome_fantasia || s.razao_social}
+                            </span>
+                            <span className="text-[10px] text-gray-500 block">
+                              {s.razao_social !== s.nome_fantasia && s.razao_social && <>{s.razao_social} · </>}
+                              CNPJ: {s.cnpj}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* WCI auto-fill indicator */}
