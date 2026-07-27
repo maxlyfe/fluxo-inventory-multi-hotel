@@ -197,7 +197,7 @@ export default function EmissaoNFPage() {
     genericItems?: GenericNFItem[];
     internalChargeIds?: string[];
   } | null>(null);
-  const [viewerInvoiceId, setViewerInvoiceId] = useState<string | null>(null);
+  const [viewerInvoice, setViewerInvoice] = useState<{ id: string; tipo: NFTipo } | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchEmissionProgress | null>(null);
   const [batchTipoNf, setBatchTipoNf] = useState<NFTipo | null>(null);
@@ -880,7 +880,7 @@ export default function EmissaoNFPage() {
               canEmitNfse={can('nf.emit.nfse')}
               canEmitNfce={can('nf.emit.nfce')}
               onEmit={(tipo) => handleOpenEmission(r, tipo)}
-              onViewNF={(invoiceId) => setViewerInvoiceId(invoiceId)}
+              onViewNF={(invoiceId, tipo) => setViewerInvoice({ id: invoiceId, tipo: tipo || 'nfse' })}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
             />
           ))}
@@ -920,12 +920,24 @@ export default function EmissaoNFPage() {
         />
       )}
 
-      {/* NF Viewer Modal */}
-      {viewerInvoiceId && (
+      {/* NF Viewer: NFC-e abre cupom fiscal (NFInvoiceModal view); NFS-e/NF-e abre A4 */}
+      {viewerInvoice && viewerInvoice.tipo === 'nfce' && (
+        <NFInvoiceModal
+          isOpen
+          onClose={() => setViewerInvoice(null)}
+          tipo="nfce"
+          hotelId={hotelId}
+          booking={{}}
+          selectedEntries={[]}
+          viewInvoiceId={viewerInvoice.id}
+          onSuccess={() => setViewerInvoice(null)}
+        />
+      )}
+      {viewerInvoice && viewerInvoice.tipo !== 'nfce' && (
         <NFViewerModal
           isOpen
-          onClose={() => setViewerInvoiceId(null)}
-          invoiceId={viewerInvoiceId}
+          onClose={() => setViewerInvoice(null)}
+          invoiceId={viewerInvoice.id}
           hotelId={hotelId}
         />
       )}
@@ -946,7 +958,7 @@ interface ReservationCardProps {
   canEmitNfse: boolean;
   canEmitNfce: boolean;
   onEmit: (tipo: NFTipo) => void;
-  onViewNF: (invoiceId: string) => void;
+  onViewNF: (invoiceId: string, tipo?: NFTipo) => void;
   onMarkAdequate: () => void;
 }
 
@@ -1080,7 +1092,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
               <>
                 {r.invoices.map(inv => (
                   <React.Fragment key={inv.id}>
-                    <button onClick={() => onViewNF(inv.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
+                    <button onClick={() => onViewNF(inv.id, inv.tipo)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
                       <Eye className="w-4 h-4" /> Ver {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}{inv.numero_nf ? ` nº ${inv.numero_nf}` : ''}
                     </button>
                     {inv.xml_retorno && (

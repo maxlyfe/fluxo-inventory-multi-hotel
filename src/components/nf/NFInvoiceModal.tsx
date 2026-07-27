@@ -762,7 +762,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 
 .mt-1 { margin-top: 3px; }
 .mb-1 { margin-bottom: 3px; }
 svg { display: block; margin: 4px auto 0; width: 32mm !important; height: 32mm !important; }
-img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; object-fit: contain; }
+img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; object-fit: contain; -webkit-print-color-adjust: exact; print-color-adjust: exact; filter: contrast(1.3); }
 .flex { display: flex; }
 .justify-between { justify-content: space-between; }
 .items-start { align-items: flex-start; }
@@ -1585,7 +1585,7 @@ img { display: block; margin: 0 auto 4px; max-height: 16mm; max-width: 55mm; obj
                 <div className="bg-white border border-gray-200 dark:border-gray-700 rounded-xl p-4 font-mono text-[11px] text-gray-900 dark:text-gray-100 leading-relaxed mx-auto" style={{ maxWidth: '300px' }} id="nf-receipt-print">
                   {receiptConfig?.logo_url && (
                     <div className="text-center mb-2">
-                      <img src={receiptConfig.logo_url} alt="" className="mx-auto" style={{ maxHeight: '40px', maxWidth: '120px', objectFit: 'contain' }} />
+                      <img src={receiptConfig.logo_url} alt="" className="mx-auto" style={{ maxHeight: '48px', maxWidth: '140px', objectFit: 'contain', filter: 'contrast(1.2)' }} />
                     </div>
                   )}
                   <div className="text-center font-bold text-sm">{receiptConfig?.nome_fantasia || 'Hotel'}</div>
