@@ -15,15 +15,15 @@ interface NFViewerModalProps {
 
 interface InvoiceItem {
   id: string;
-  description: string;
+  descricao: string;
   quantidade: number;
   valor_unitario: number;
   valor_total: number;
-  ncm?: string;
-  cfop?: string;
-  codigo_servico?: string;
-  aliquota_iss?: number;
-  aliquota_icms?: number;
+  ncm?: string | null;
+  cfop?: string | null;
+  codigo_servico?: string | null;
+  iss_aliquota?: number | null;
+  icms_aliquota?: number | null;
 }
 
 export default function NFViewerModal({ isOpen, onClose, invoiceId, hotelId }: NFViewerModalProps) {
@@ -62,14 +62,9 @@ export default function NFViewerModal({ isOpen, onClose, invoiceId, hotelId }: N
 
   function handlePrintA4() {
     if (!invoice || !config) return;
-    printNFA4(invoice, items.map(it => ({
-      description: it.description,
-      quantity: it.quantidade,
-      unitValue: it.valor_unitario,
-      totalValue: it.valor_total,
-      ncm: it.ncm,
-      cfop: it.cfop,
-    })), config);
+    // As linhas de nf_invoice_items já estão no formato esperado pelo printNFA4
+    // (descricao/quantidade/valor_unitario/valor_total).
+    printNFA4(invoice, items, config);
   }
 
   function handleDownloadXml() {
@@ -204,7 +199,7 @@ export default function NFViewerModal({ isOpen, onClose, invoiceId, hotelId }: N
                   <tbody>
                     {items.map((item) => (
                       <tr key={item.id} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="py-1.5 pr-2 text-gray-900 dark:text-white">{item.description}</td>
+                        <td className="py-1.5 pr-2 text-gray-900 dark:text-white">{item.descricao}</td>
                         <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-300">{item.quantidade}</td>
                         <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-300">{item.valor_unitario.toFixed(2)}</td>
                         <td className="py-1.5 pl-2 text-right font-semibold text-gray-900 dark:text-white">{item.valor_total.toFixed(2)}</td>

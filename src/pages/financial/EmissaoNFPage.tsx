@@ -14,6 +14,7 @@ import { PeriodFilter, defaultPeriod, type Period } from '../../components/finan
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
 import { matchesEligibleService, isHomologForTipo } from '../../lib/nfService';
 import NFViewerModal from '../../components/nf/NFViewerModal';
+import { NFAvulsaModal } from '../../components/nf/NFAvulsaModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -50,7 +51,7 @@ interface UnifiedReservation {
   raw: any;
 }
 
-type TabKey = 'adequadas' | 'revisao' | 'nfse_emitida' | 'nfce_emitida' | 'todas_emitida';
+type TabKey = 'adequadas' | 'revisao' | 'nfse_emitida' | 'nfce_emitida' | 'todas_emitida' | 'avulsas';
 const isEmitidaTab = (tab: TabKey) => tab === 'nfse_emitida' || tab === 'nfce_emitida' || tab === 'todas_emitida';
 
 interface EnrichedBatchReservation {
@@ -218,6 +219,10 @@ export default function EmissaoNFPage() {
     internalChargeIds?: string[];
   } | null>(null);
   const [viewerInvoice, setViewerInvoice] = useState<{ id: string; tipo: NFTipo } | null>(null);
+  // NF avulsa (sem reserva)
+  const [avulsaOpen, setAvulsaOpen] = useState(false);
+  const [avulsas, setAvulsas] = useState<NFInvoice[]>([]);
+  const [loadingAvulsas, setLoadingAvulsas] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchEmissionProgress | null>(null);
   const [batchTipoNf, setBatchTipoNf] = useState<NFTipo | null>(null);
@@ -391,13 +396,40 @@ export default function EmissaoNFPage() {
     loadReservations();
   }, [loadReservations]);
 
+  // ── Notas avulsas (sem reserva) ────────────────────────────────────────────
+
+  const loadAvulsas = useCallback(async () => {
+    if (!hotelId) return;
+    setLoadingAvulsas(true);
+    try {
+      const { data } = await supabase
+        .from('nf_invoices')
+        .select('*')
+        .eq('hotel_id', hotelId)
+        .is('erbon_booking_id', null)
+        .is('booking_number', null)
+        .in('status', ['autorizada', 'contingencia'])
+        .gte('created_at', period.from)
+        .lte('created_at', period.to + 'T23:59:59')
+        .order('created_at', { ascending: false });
+      setAvulsas((data || []) as NFInvoice[]);
+    } finally {
+      setLoadingAvulsas(false);
+    }
+  }, [hotelId, period]);
+
+  useEffect(() => {
+    loadAvulsas();
+  }, [loadAvulsas]);
+
   // ── Tab counts ─────────────────────────────────────────────────────────────
 
   const tabCounts = useMemo(() => {
-    const counts = { adequadas: 0, revisao: 0, nfse_emitida: 0, nfce_emitida: 0, todas_emitida: 0 };
+    const counts = { adequadas: 0, revisao: 0, nfse_emitida: 0, nfce_emitida: 0, todas_emitida: 0, avulsas: 0 };
     reservations.forEach(r => counts[r.tab]++);
+    counts.avulsas = avulsas.length;
     return counts;
-  }, [reservations]);
+  }, [reservations, avulsas]);
 
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -781,6 +813,7 @@ export default function EmissaoNFPage() {
     { key: 'nfse_emitida', label: 'NFS-e Emitida', icon: <FileCheck className="w-4 h-4" />, color: 'violet', count: tabCounts.nfse_emitida },
     { key: 'nfce_emitida', label: 'NFC-e Emitida', icon: <FileCheck className="w-4 h-4" />, color: 'purple', count: tabCounts.nfce_emitida },
     { key: 'todas_emitida', label: 'Todas NF', icon: <FileCheck className="w-4 h-4" />, color: 'blue', count: tabCounts.todas_emitida },
+    { key: 'avulsas', label: 'Avulsas', icon: <FileText className="w-4 h-4" />, color: 'teal', count: tabCounts.avulsas },
   ];
 
   return (
@@ -792,7 +825,12 @@ export default function EmissaoNFPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">Emissão de NF</h1>
         </div>
         <div className="flex-1" />
-        <button onClick={loadReservations} disabled={loading} className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors">
+        {(can('nf.emit.nfse') || can('nf.emit.nfce')) && (
+          <button onClick={() => setAvulsaOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold transition-colors">
+            <FileText className="w-4 h-4" /> Nova NF
+          </button>
+        )}
+        <button onClick={() => { loadReservations(); loadAvulsas(); }} disabled={loading} className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
         </button>
       </div>
@@ -856,6 +894,7 @@ export default function EmissaoNFPage() {
             blue: active ? 'bg-blue-500 text-white' : 'text-blue-700 dark:text-blue-400',
             violet: active ? 'bg-violet-500 text-white' : 'text-violet-700 dark:text-violet-400',
             purple: active ? 'bg-purple-500 text-white' : 'text-purple-700 dark:text-purple-400',
+            teal: active ? 'bg-teal-500 text-white' : 'text-teal-700 dark:text-teal-400',
           };
           return (
             <button
@@ -928,8 +967,81 @@ export default function EmissaoNFPage() {
         </div>
       )}
 
-      {/* List */}
-      {loading ? (
+      {/* Lista de notas avulsas (sem reserva) */}
+      {activeTab === 'avulsas' ? (
+        loadingAvulsas ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
+            <span className="ml-3 text-gray-500">Carregando notas avulsas...</span>
+          </div>
+        ) : avulsas.length === 0 ? (
+          <div className="text-center py-20 text-gray-400">
+            <FileText className="w-12 h-12 mx-auto mb-3 opacity-40" />
+            <p className="text-lg">Nenhuma NF avulsa emitida no período.</p>
+            <p className="text-sm mt-1">Use o botão "Nova NF" para emitir sem vínculo com reserva.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {avulsas
+              .filter(inv => {
+                const term = searchTerm.trim().toLowerCase();
+                return !term ||
+                  (inv.tomador_nome || '').toLowerCase().includes(term) ||
+                  (inv.numero_nf || '').toLowerCase().includes(term) ||
+                  (inv.tomador_cpf_cnpj || '').toLowerCase().includes(term);
+              })
+              .map(inv => (
+                <div key={inv.id} className="bg-white dark:bg-gray-800 border border-teal-200 dark:border-teal-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                    inv.tipo === 'nfse'
+                      ? 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-400'
+                      : 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-400'
+                  }`}>
+                    {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}
+                    {inv.numero_nf ? ` nº ${inv.numero_nf}` : ''}
+                  </span>
+                  {inv.status === 'contingencia' && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">contingência</span>
+                  )}
+                  <div className="flex-1 min-w-[140px]">
+                    <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">{inv.tomador_nome || 'Consumidor final'}</span>
+                    <span className="block text-xs text-gray-400">
+                      {new Date(inv.created_at).toLocaleDateString('pt-BR')} às {new Date(inv.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      {inv.tomador_cpf_cnpj ? ` · ${inv.tomador_cpf_cnpj}` : ''}
+                    </span>
+                  </div>
+                  <span className="font-bold text-gray-900 dark:text-white whitespace-nowrap">
+                    R$ {Number(inv.valor_total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setViewerInvoice({ id: inv.id, tipo: inv.tipo })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Eye className="w-4 h-4" /> Ver
+                    </button>
+                    {inv.xml_retorno && (
+                      <button
+                        onClick={() => {
+                          const blob = new Blob([inv.xml_retorno!], { type: 'application/xml' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `NF_${inv.numero_nf || inv.id}.xml`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <Download className="w-4 h-4" /> XML
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )
+      ) : loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
           <span className="ml-3 text-gray-500">Carregando reservas...</span>
@@ -991,6 +1103,19 @@ export default function EmissaoNFPage() {
             setInvoiceModal(null);
             loadReservations();
           }}
+        />
+      )}
+
+      {/* NF avulsa (sem reserva) */}
+      {avulsaOpen && (
+        <NFAvulsaModal
+          isOpen
+          hotelId={hotelId}
+          canNfse={can('nf.emit.nfse')}
+          canNfce={can('nf.emit.nfce')}
+          onClose={() => setAvulsaOpen(false)}
+          onEmitted={() => { loadAvulsas(); setActiveTab('avulsas'); }}
+          onView={(id, tipo) => setViewerInvoice({ id, tipo })}
         />
       )}
 
