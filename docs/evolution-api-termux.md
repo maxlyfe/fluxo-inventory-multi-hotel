@@ -222,8 +222,22 @@ Salve com `Ctrl+O`, `Enter`, `Ctrl+X`.
 cd /root/evolution-api && npm run db:deploy
 ```
 
+Não use `npm run build`. O script é `tsc --noEmit && tsup`, e o typecheck falha em
+vários arquivos do repositório. Como falha antes do `tsup`, o `dist/` nem chega a
+ser criado, e o `start:prod` morre com `Cannot find module dist/main`.
+
+O typecheck não é necessário para gerar o bundle. Chame o `tsup` direto:
+
 ```bash
-cd /root/evolution-api && npm run build
+cd /root/evolution-api && npx tsup
+```
+
+Se o `tsup` também falhar, rode direto do TypeScript com `tsx`, sem build. Neste
+caso troque `start:prod` por `start` em todos os passos seguintes, inclusive no
+script da Parte 6:
+
+```bash
+cd /root/evolution-api && npm run start
 ```
 
 ### 4.6 Primeiro teste
@@ -413,6 +427,7 @@ cd /root/evolution-api && git pull && npm install && npm run db:deploy && npm ru
 | Para de responder depois de horas | Wake lock ou otimização de bateria. Revise a Parte 2. |
 | Não sobe depois de reiniciar | Termux:Boot não instalado, ou Autostart desativado. |
 | `npm install` falha em `sharp` | `apt install -y build-essential python3` e tente novamente. |
+| `Cannot find module dist/main` | O `npm run build` falhou no typecheck. Use `npx tsup`, ou rode com `npm run start`. |
 | `db:deploy` falha com timeout ou "no route to host" | Você usou a conexão direta, que é IPv6 only. Troque pelo Session pooler. |
 | `db:deploy` falha com erro de prepared statement | Você usou o Transaction pooler (6543). Troque pelo Session pooler (5432). |
 | `db:deploy` falha com senha inválida | A senha do banco não é a service_role. Pegue ou redefina em Project Settings › Database. |
