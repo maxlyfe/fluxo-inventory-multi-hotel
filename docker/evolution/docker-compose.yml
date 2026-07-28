@@ -1,0 +1,120 @@
+# Evolution API v2 + PostgreSQL + Redis + Caddy (HTTPS automático)
+#
+# Uso:
+#   1. cp .env.example .env  e preencha os valores
+#   2. docker compose up -d
+#   3. docker compose logs -f evolution
+#
+# O Caddy emite e renova o certificado TLS sozinho pelo Let's Encrypt, desde que
+# o domínio em EVOLUTION_DOMAIN aponte para o IP desta máquina e as portas 80 e
+# 443 estejam abertas.
+
+services:
+
+  evolution:
+    # Tag fixa de propósito: latest já mudou contrato entre minor versions.
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: evolution_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SERVER_URL: https://${EVOLUTION_DOMAIN}
+      SERVER_PORT: 8080
+
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_fluxo
+
+      # A sessão do WhatsApp precisa persistir, senão o QR é pedido a cada restart
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      # O Fluxo guarda as mensagens no Supabase. Manter cópia aqui só incha o disco.
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      DATABASE_SAVE_DATA_LABELS: "false"
+      DATABASE_SAVE_DATA_HISTORIC: "false"
+
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution_fluxo
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+
+      # O webhook é configurado por instância pela própria UI do Fluxo,
+      # então o webhook global fica desligado.
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      WEBHOOK_REQUEST_TIMEOUT_MS: "30000"
+      WEBHOOK_RETRY_MAX_ATTEMPTS: "5"
+      WEBHOOK_RETRY_INITIAL_DELAY_SECONDS: "5"
+
+      CONFIG_SESSION_PHONE_CLIENT: Fluxo
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      CONFIG_SESSION_PHONE_VERSION: 2.3000.1023204200
+
+      QRCODE_LIMIT: "10"
+      DEL_INSTANCE: "false"
+      LANGUAGE: pt-BR
+      LOG_LEVEL: ERROR,WARN
+      LOG_BAILEYS: error
+    volumes:
+      - evolution_instances:/evolution/instances
+    # Sem ports: o acesso externo passa apenas pelo Caddy
+    expose:
+      - "8080"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: evolution_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: evolution_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: evolution_caddy
+    restart: unless-stopped
+    depends_on:
+      - evolution
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      EVOLUTION_DOMAIN: ${EVOLUTION_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  evolution_instances:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

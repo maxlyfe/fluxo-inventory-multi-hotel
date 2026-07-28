@@ -207,6 +207,9 @@ const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
           bodyParams: isUnified
             ? [greeting, groupName || hotelName, mainLink]
             : [greeting, hotelName, mainLink],
+          // A Meta ignora este campo e usa o template aprovado. O Evolution envia
+          // a mensagem personalizada exatamente como aparece na prévia.
+          bodyText: resolveMessage(contact),
         });
 
         if (result.success) {

@@ -1,8 +1,12 @@
 // src/lib/whatsappService.ts
-// Serviço de integração com WhatsApp Business Cloud API (Meta)
+// Serviço de integração WhatsApp com dois providers:
+//   • meta      → WhatsApp Business Cloud API (oficial, templates aprovados, janela de 24h)
+//   • evolution → Evolution API self-hosted (Baileys, texto livre, sem janela)
+// O provider é definido por hotel em whatsapp_configs.provider.
 
 import { supabase } from './supabase';
 import { differenceInHours } from 'date-fns';
+import { evolutionApi, renderTemplateBody, type EvolutionCredentials } from './evolutionService';
 
 const WHATSAPP_PROXY = '/.netlify/functions/whatsapp-proxy';
 
@@ -70,14 +74,31 @@ export interface WaAutoResponse {
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
 
+export type WhatsAppProvider = 'meta' | 'evolution';
+
 export interface WhatsAppConfig {
   id: string;
   hotel_id: string | null;
-  phone_number_id: string;
-  waba_id: string;
-  access_token: string;
+  provider: WhatsAppProvider;
+  /** Meta Cloud API */
+  phone_number_id: string | null;
+  waba_id: string | null;
+  access_token: string | null;
+  /** Evolution API */
+  base_url: string | null;
+  api_key: string | null;
+  instance_name: string | null;
+  connection_status: string | null;
+  connected_at: string | null;
   display_phone: string | null;
   is_active: boolean;
+}
+
+/** Extrai as credenciais do Evolution de uma config, ou null se incompleta */
+export function evolutionCredentials(cfg: WhatsAppConfig | null): EvolutionCredentials | null {
+  if (!cfg || cfg.provider !== 'evolution') return null;
+  if (!cfg.base_url || !cfg.api_key || !cfg.instance_name) return null;
+  return { base_url: cfg.base_url, api_key: cfg.api_key, instance_name: cfg.instance_name };
 }
 
 export interface ContactCategory {
@@ -111,6 +132,8 @@ export interface WhatsAppMessageTemplate {
   description: string | null;
   language_code: string;
   parameter_mappings: Record<string, string>;
+  /** Corpo em texto puro com placeholders {{1}}, usado pelo provider evolution */
+  body_text: string | null;
   is_active: boolean;
 }
 
@@ -134,6 +157,14 @@ export interface SendTemplateParams {
   languageCode?: string;
   bodyParams?: string[];
   headerImageUrl?: string;
+  /**
+   * Corpo em texto puro para o provider evolution. Quando omitido, o corpo é
+   * buscado em whatsapp_message_templates.body_text pelo templateName.
+   * Ignorado pelo provider meta, que usa o template aprovado na Meta.
+   */
+  bodyText?: string;
+  /** Atraso de digitação simulado no envio via evolution, em ms */
+  delay?: number;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -197,11 +228,38 @@ export const whatsappService = {
     return globalConfig;
   },
 
-  async saveConfig(config: Partial<WhatsAppConfig> & { phone_number_id: string; waba_id: string; access_token: string }): Promise<WhatsAppConfig> {
+  async saveConfig(config: Partial<WhatsAppConfig>): Promise<WhatsAppConfig> {
     const hotelId = config.hotel_id || null;
+    const provider: WhatsAppProvider = config.provider || 'meta';
+
+    // Valida o conjunto mínimo de campos do provider escolhido antes de bater no
+    // banco, para devolver uma mensagem melhor que a violação de CHECK constraint.
+    if (provider === 'meta') {
+      if (!config.phone_number_id || !config.access_token) {
+        throw new Error('Provider Meta exige Phone Number ID e Access Token.');
+      }
+    } else {
+      if (!config.base_url || !config.api_key || !config.instance_name) {
+        throw new Error('Provider Evolution exige URL base, API Key e nome da instância.');
+      }
+    }
+
+    // Campos do provider não usado ficam nulos, evitando credencial órfã ativa
+    const payload = {
+      provider,
+      phone_number_id: provider === 'meta' ? config.phone_number_id!.trim() : null,
+      waba_id:         provider === 'meta' ? (config.waba_id?.trim() || null) : null,
+      access_token:    provider === 'meta' ? config.access_token!.trim() : null,
+      base_url:        provider === 'evolution' ? config.base_url!.trim().replace(/\/+$/, '') : null,
+      api_key:         provider === 'evolution' ? config.api_key!.trim() : null,
+      instance_name:   provider === 'evolution' ? config.instance_name!.trim() : null,
+      display_phone:   config.display_phone?.trim() || null,
+      is_active:       config.is_active ?? true,
+      updated_at:      new Date().toISOString(),
+    };
 
     // Buscar existente
-    let query = supabase.from('whatsapp_configs').select('*');
+    let query = supabase.from('whatsapp_configs').select('id');
     if (hotelId) {
       query = query.eq('hotel_id', hotelId);
     } else {
@@ -212,40 +270,60 @@ export const whatsappService = {
     if (existing) {
       const { data, error } = await supabase
         .from('whatsapp_configs')
-        .update({
-          phone_number_id: config.phone_number_id,
-          waba_id: config.waba_id,
-          access_token: config.access_token,
-          display_phone: config.display_phone || null,
-          is_active: config.is_active ?? true,
-          updated_at: new Date().toISOString(),
-        })
+        .update(payload)
         .eq('id', existing.id)
         .select()
         .single();
       if (error) throw error;
       return data;
-    } else {
-      const { data, error } = await supabase
-        .from('whatsapp_configs')
-        .insert({
-          hotel_id: hotelId,
-          phone_number_id: config.phone_number_id,
-          waba_id: config.waba_id,
-          access_token: config.access_token,
-          display_phone: config.display_phone || null,
-          is_active: config.is_active ?? true,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
     }
+
+    const { data, error } = await supabase
+      .from('whatsapp_configs')
+      .insert({ hotel_id: hotelId, ...payload })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** Persiste o estado de conexão reportado pelo Evolution */
+  async updateConnectionStatus(configId: string, status: string): Promise<void> {
+    await supabase
+      .from('whatsapp_configs')
+      .update({
+        connection_status: status,
+        connected_at: status === 'open' ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', configId);
   },
 
   // ── Test Connection ────────────────────────────────────────────────────
 
-  async testConnection(config: Pick<WhatsAppConfig, 'phone_number_id' | 'access_token'>): Promise<{ success: boolean; phoneName?: string; error?: string }> {
+  async testConnection(
+    config: Partial<WhatsAppConfig>,
+  ): Promise<{ success: boolean; phoneName?: string; error?: string }> {
+    if ((config.provider || 'meta') === 'evolution') {
+      if (!config.base_url || !config.api_key || !config.instance_name) {
+        return { success: false, error: 'Preencha URL base, API Key e nome da instância.' };
+      }
+      const res = await evolutionApi.getState({
+        base_url: config.base_url.replace(/\/+$/, ''),
+        api_key: config.api_key,
+        instance_name: config.instance_name,
+      });
+      if (!res.success) return { success: false, error: res.error };
+      if (res.state !== 'open') {
+        return { success: false, error: `Instância alcançada, mas não conectada (estado: ${res.state}). Leia o QR Code.` };
+      }
+      return { success: true, phoneName: `Instância ${config.instance_name} conectada` };
+    }
+
+    if (!config.phone_number_id || !config.access_token) {
+      return { success: false, error: 'Preencha Phone Number ID e Access Token.' };
+    }
+
     try {
       const res = await fetch(WHATSAPP_PROXY, {
         method: 'GET',
@@ -274,7 +352,54 @@ export const whatsappService = {
     const config = await this.getConfig(params.hotelId);
     if (!config) return { success: false, error: 'WhatsApp não configurado para este hotel' };
 
-    // Montar payload Meta Cloud API
+    // ── Evolution: template vira texto puro interpolado ──────────────────
+    if (config.provider === 'evolution') {
+      const creds = evolutionCredentials(config);
+      if (!creds) return { success: false, error: 'Configuração Evolution incompleta.' };
+
+      let bodyText = params.bodyText;
+
+      if (!bodyText) {
+        const { data: tpl } = await supabase
+          .from('whatsapp_message_templates')
+          .select('body_text')
+          .eq('template_name', params.templateName)
+          .maybeSingle();
+        bodyText = tpl?.body_text || undefined;
+      }
+
+      if (!bodyText) {
+        return {
+          success: false,
+          error: `O template "${params.templateName}" não tem corpo de texto cadastrado. Preencha body_text em Integração WhatsApp › Templates.`,
+        };
+      }
+
+      const text = renderTemplateBody(bodyText, params.bodyParams);
+      const result = await evolutionApi.sendText(creds, {
+        number: formatWhatsAppNumber(params.recipientPhone),
+        text,
+        delay: params.delay,
+      });
+
+      // A imagem de header do template Meta é enviada como mídia separada
+      if (result.success && params.headerImageUrl) {
+        await evolutionApi.sendMedia(creds, {
+          number: formatWhatsAppNumber(params.recipientPhone),
+          media: params.headerImageUrl,
+          mediatype: 'image',
+          delay: 800,
+        });
+      }
+
+      return result;
+    }
+
+    // ── Meta: payload de template aprovado ───────────────────────────────
+    if (!config.phone_number_id || !config.access_token) {
+      return { success: false, error: 'Credenciais Meta incompletas para este hotel.' };
+    }
+
     const components: any[] = [];
 
     // Header com imagem (se houver)
@@ -642,7 +767,7 @@ export const waInboxService = {
     return (data || []) as WaMessage[];
   },
 
-  /** Envia texto livre (só válido dentro da janela de 24h) */
+  /** Envia texto livre. No provider meta só vale dentro da janela de 24h. */
   async sendText(params: {
     conversationId: string;
     hotelId: string;
@@ -653,29 +778,47 @@ export const waInboxService = {
     const cfg = await whatsappService.getConfig(params.hotelId);
     if (!cfg) return { success: false, error: 'WhatsApp não configurado para este hotel' };
 
-    const payload = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: formatWhatsAppNumber(params.recipientPhone),
-      type: 'text',
-      text: { preview_url: false, body: params.text },
-    };
-
     try {
-      const res = await fetch(WHATSAPP_PROXY, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-wa-phone-number-id': cfg.phone_number_id,
-          'x-wa-access-token': cfg.access_token,
-          'x-wa-action': 'send',
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) return { success: false, error: data?.error?.message || 'Erro ao enviar' };
+      let waMessageId: string | null = null;
 
-      const waMessageId = data?.messages?.[0]?.id || null;
+      if (cfg.provider === 'evolution') {
+        const creds = evolutionCredentials(cfg);
+        if (!creds) return { success: false, error: 'Configuração Evolution incompleta.' };
+
+        const sent = await evolutionApi.sendText(creds, {
+          number: formatWhatsAppNumber(params.recipientPhone),
+          text: params.text,
+        });
+        if (!sent.success) return { success: false, error: sent.error };
+        waMessageId = sent.messageId || null;
+      } else {
+        if (!cfg.phone_number_id || !cfg.access_token) {
+          return { success: false, error: 'Credenciais Meta incompletas para este hotel.' };
+        }
+
+        const payload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: formatWhatsAppNumber(params.recipientPhone),
+          type: 'text',
+          text: { preview_url: false, body: params.text },
+        };
+
+        const res = await fetch(WHATSAPP_PROXY, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wa-phone-number-id': cfg.phone_number_id,
+            'x-wa-access-token': cfg.access_token,
+            'x-wa-action': 'send',
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { success: false, error: data?.error?.message || 'Erro ao enviar' };
+
+        waMessageId = data?.messages?.[0]?.id || null;
+      }
 
       // persist locally
       await supabase.from('whatsapp_messages').insert({
@@ -831,7 +974,13 @@ export const waInboxService = {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  isWithin24hWindow(conv: WaConversation): boolean {
+  /**
+   * A janela de 24h é uma restrição da Meta Cloud API. O Evolution API roda em
+   * cima do WhatsApp Web e aceita texto livre a qualquer momento, então quando o
+   * provider é evolution a janela é sempre considerada aberta.
+   */
+  isWithin24hWindow(conv: WaConversation, provider?: WhatsAppProvider | null): boolean {
+    if (provider === 'evolution') return true;
     if (!conv.last_customer_message_at) return false;
     return differenceInHours(new Date(), new Date(conv.last_customer_message_at)) < 24;
   },

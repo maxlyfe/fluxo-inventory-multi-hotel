@@ -1,0 +1,30 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$EVOLUTION_DOMAIN} {
+	encode gzip
+
+	# O Manager web do Evolution fica exposto em /manager. Ele aceita a apikey
+	# global, o que dá acesso total a todas as instâncias. Fica bloqueado porque
+	# a operação inteira acontece pela UI do Fluxo.
+	@manager path /manager /manager/*
+	respond @manager 404
+
+	reverse_proxy evolution:8080 {
+		header_up X-Real-IP {remote_host}
+
+		# Conexão inicial da instância e download de mídia podem passar de 30s
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
+}

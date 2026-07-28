@@ -9,7 +9,7 @@ import {
 import { useHotel } from '../../context/HotelContext';
 import { useAuth } from '../../context/AuthContext';
 import { waInboxService, WaConversation, WaMessage, WaLabel, WhatsAppMessageTemplate } from '../../lib/whatsappService';
-import { whatsappService } from '../../lib/whatsappService';
+import { whatsappService, WhatsAppProvider } from '../../lib/whatsappService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
 import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -83,6 +83,7 @@ const WhatsAppInbox: React.FC = () => {
   const [messages, setMessages]           = useState<WaMessage[]>([]);
   const [labels, setLabels]               = useState<WaLabel[]>([]);
   const [templates, setTemplates]         = useState<WhatsAppMessageTemplate[]>([]);
+  const [provider, setProvider]           = useState<WhatsAppProvider>('meta');
 
   const [loading, setLoading]           = useState(true);
   const [loadingMsgs, setLoadingMsgs]   = useState(false);
@@ -110,7 +111,10 @@ const WhatsAppInbox: React.FC = () => {
     [conversations, selectedId],
   );
 
-  const within24h = selectedConv ? waInboxService.isWithin24hWindow(selectedConv) : false;
+  // No Evolution não existe janela de 24h, então texto livre fica sempre liberado
+  const freeTextAllowed = selectedConv
+    ? waInboxService.isWithin24hWindow(selectedConv, provider)
+    : false;
 
   // ── load ───────────────────────────────────────────────────────────────────
   const loadConversations = useCallback(async () => {
@@ -155,8 +159,16 @@ const WhatsAppInbox: React.FC = () => {
     try { setTemplates(await whatsappService.getTemplates()); } catch { /* noop */ }
   }, []);
 
+  const loadProvider = useCallback(async () => {
+    if (!selectedHotel) return;
+    try {
+      const cfg = await whatsappService.getConfig(selectedHotel.id);
+      setProvider(cfg?.provider || 'meta');
+    } catch { /* noop */ }
+  }, [selectedHotel]);
+
   useEffect(() => { loadConversations(); }, [loadConversations]);
-  useEffect(() => { loadLabels(); loadTemplates(); }, [loadLabels, loadTemplates]);
+  useEffect(() => { loadLabels(); loadTemplates(); loadProvider(); }, [loadLabels, loadTemplates, loadProvider]);
 
   useEffect(() => {
     if (selectedId) loadMessages(selectedId);
@@ -231,7 +243,7 @@ const WhatsAppInbox: React.FC = () => {
   // ── send ───────────────────────────────────────────────────────────────────
   const handleSend = async () => {
     if (!messageText.trim() || !selectedConv || !selectedHotel || sending) return;
-    if (!within24h) return;
+    if (!freeTextAllowed) return;
     setSending(true);
     const text = messageText.trim();
     setMessageText('');
@@ -515,9 +527,10 @@ const WhatsAppInbox: React.FC = () => {
                 <span className="text-xs text-gray-400 flex items-center gap-1">
                   <Phone className="w-3 h-3" />{selectedConv.contact_phone}
                 </span>
-                {within24h ? (
+                {freeTextAllowed ? (
                   <span className="text-xs text-green-500 font-semibold flex items-center gap-1">
-                    <Unlock className="w-3 h-3" />Janela aberta
+                    <Unlock className="w-3 h-3" />
+                    {provider === 'evolution' ? 'Texto livre' : 'Janela aberta'}
                   </span>
                 ) : (
                   <span className="text-xs text-amber-500 font-semibold flex items-center gap-1">
@@ -676,7 +689,7 @@ const WhatsAppInbox: React.FC = () => {
 
           {/* Compose area */}
           <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 p-3 shrink-0">
-            {!within24h && (
+            {!freeTextAllowed && (
               <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 flex items-center gap-2">
                 <Lock className="w-4 h-4 text-amber-500 shrink-0" />
                 <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -723,8 +736,8 @@ const WhatsAppInbox: React.FC = () => {
                 value={messageText}
                 onChange={e => setMessageText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={within24h ? 'Digite uma mensagem... (Enter para enviar)' : 'Selecione um template →'}
-                disabled={!within24h || selectedConv.status === 'closed'}
+                placeholder={freeTextAllowed ? 'Digite uma mensagem... (Enter para enviar)' : 'Selecione um template →'}
+                disabled={!freeTextAllowed || selectedConv.status === 'closed'}
                 rows={1}
                 className="flex-1 px-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-green-400 text-gray-800 dark:text-gray-100 placeholder-gray-400 resize-none disabled:opacity-50 disabled:cursor-not-allowed max-h-32"
                 style={{ minHeight: 42 }}
@@ -733,7 +746,7 @@ const WhatsAppInbox: React.FC = () => {
               {/* Send button */}
               <button
                 onClick={handleSend}
-                disabled={!messageText.trim() || !within24h || selectedConv.status === 'closed' || sending}
+                disabled={!messageText.trim() || !freeTextAllowed || selectedConv.status === 'closed' || sending}
                 className="w-9 h-9 rounded-xl bg-green-500 flex items-center justify-center text-white hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

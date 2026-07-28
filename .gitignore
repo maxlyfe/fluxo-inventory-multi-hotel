@@ -32,3 +32,11 @@ android-webcheckin/
 # Claude & Gemini temporary directories
 .claude/
 .gemini/
+
+# Variáveis de ambiente. Use .env.example como modelo.
+.env
+.env.*
+!.env.example
+
+# Segredos do stack do Evolution API (apikey e senha do Postgres)
+docker/evolution/.env
