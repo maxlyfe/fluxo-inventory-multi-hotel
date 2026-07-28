@@ -121,6 +121,8 @@ const MultiHotelPurchase = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedBudgets, setGeneratedBudgets] = useState<GeneratedBudget[]>([]);
   const [unifiedLink, setUnifiedLink] = useState<string | null>(null);
+  // Id do orcamento unificado, necessario para o log e para os contatos vinculados
+  const [unifiedBudgetId, setUnifiedBudgetId] = useState<string | null>(null);
   const [copiedBudgetId, setCopiedBudgetId] = useState<string | null>(null);
   const [showWhatsAppPicker, setShowWhatsAppPicker] = useState(false);
   const [budgetCustomName, setBudgetCustomName] = useState('');
@@ -456,6 +458,10 @@ const MultiHotelPurchase = () => {
     }
 
     setIsGenerating(true);
+    // Limpa o resultado anterior: gerar sem unificar depois de ter unificado
+    // deixaria o link unificado antigo em tela e ele iria na mensagem.
+    setUnifiedLink(null);
+    setUnifiedBudgetId(null);
     try {
       const budgets: GeneratedBudget[] = [];
       const timestamp = new Date().toLocaleDateString('pt-BR');
@@ -558,6 +564,7 @@ const MultiHotelPurchase = () => {
 
           if (uItemsError) throw uItemsError;
 
+          setUnifiedBudgetId(unifiedBudget.id);
           setUnifiedLink(`${window.location.origin}/quote/${unifiedBudget.id}`);
         }
       }
@@ -679,7 +686,7 @@ const MultiHotelPurchase = () => {
             <MessageSquare className="w-4 h-4" /> Enviar via WhatsApp
           </button>
           <button
-            onClick={() => { setGeneratedBudgets([]); setUnifiedLink(null); }}
+            onClick={() => { setGeneratedBudgets([]); setUnifiedLink(null); setUnifiedBudgetId(null); }}
             className="flex-1 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg font-semibold hover:bg-gray-300 dark:hover:bg-gray-600"
           >
             Novo Orçamento Multi-Hotel
@@ -695,9 +702,15 @@ const MultiHotelPurchase = () => {
         <WhatsAppContactPicker
           isOpen={showWhatsAppPicker}
           onClose={() => setShowWhatsAppPicker(false)}
-          budgetIds={generatedBudgets.map(b => b.budgetId)}
+          // O orçamento unificado entra primeiro: é dele que saem os contatos
+          // vinculados e é o id que fica no log do envio.
+          budgetIds={[
+            ...(unifiedBudgetId ? [unifiedBudgetId] : []),
+            ...generatedBudgets.map(b => b.budgetId),
+          ]}
           links={generatedBudgets.map(b => ({ budgetId: b.budgetId, link: b.link, hotelName: b.hotelName }))}
           isUnified={!!unifiedLink}
+          unifiedLink={unifiedLink || undefined}
           groupName={budgetCustomName || undefined}
         />
       </div>

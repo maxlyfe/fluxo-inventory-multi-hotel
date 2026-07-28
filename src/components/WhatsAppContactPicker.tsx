@@ -27,6 +27,12 @@ interface WhatsAppContactPickerProps {
   budgetIds: string[];
   links: { budgetId: string; link: string; hotelName?: string }[];
   isUnified?: boolean;
+  /**
+   * Link do orçamento unificado. Quando existe, é ele que vai na mensagem: uma
+   * cotação unificada propaga as respostas para os hotéis do grupo, enquanto
+   * mandar o link de um hotel só deixa os outros sem nenhuma resposta.
+   */
+  unifiedLink?: string;
   groupName?: string;
 }
 
@@ -55,7 +61,7 @@ const LS_KEY_SINGLE = 'whatsapp_msg_template_single';
 const LS_KEY_GROUP = 'whatsapp_msg_template_group';
 
 const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
-  isOpen, onClose, budgetIds, links, isUnified = false, groupName,
+  isOpen, onClose, budgetIds, links, isUnified = false, unifiedLink, groupName,
 }) => {
   const { selectedHotel } = useHotel();
   const { user } = useAuth();
@@ -160,10 +166,18 @@ const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
     });
   };
 
+  /**
+   * Link que vai na mensagem.
+   *
+   * Com cotação unificada é o link unificado, porque ele propaga as respostas do
+   * fornecedor para todos os hotéis do grupo. Mandar o link de um hotel só faria
+   * os demais orçamentos ficarem sem nenhuma resposta.
+   */
+  const mainLink = (isUnified && unifiedLink) ? unifiedLink : (links[0]?.link || '');
+
   // Resolver placeholders para um contato específico
   const resolveMessage = (contact: SupplierContact): string => {
     const greeting = getGreeting();
-    const mainLink = links[0]?.link || '';
     return messageTemplate
       .replace(/\{saudacao\}/gi, greeting)
       .replace(/\{contato\}/gi, contact.company_name || contact.contact_name || '')
@@ -177,11 +191,10 @@ const WhatsAppContactPicker: React.FC<WhatsAppContactPickerProps> = ({
     : messageTemplate
         .replace(/\{saudacao\}/gi, getGreeting())
         .replace(/\{contato\}/gi, 'Empresa Exemplo')
-        .replace(/\{link\}/gi, links[0]?.link || 'https://...');
+        .replace(/\{link\}/gi, mainLink || 'https://...');
 
   const greeting = getGreeting();
   const hotelName = selectedHotel?.name || 'Hotel';
-  const mainLink = links[0]?.link || '';
 
   const handleSend = async () => {
     if (!selectedHotel || selectedIds.size === 0) return;
