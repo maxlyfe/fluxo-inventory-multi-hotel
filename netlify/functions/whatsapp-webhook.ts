@@ -19,14 +19,31 @@ const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'fluxo_whatsap
  */
 let _supabase: SupabaseClient | null = null;
 
+/**
+ * Aceita as duas grafias, igual às outras functions do projeto.
+ *
+ * Manter só SUPABASE_URL obrigava a cadastrar no Netlify uma variável cujo valor
+ * também está escrito em arquivos do repositório (scripts SQL de cron, Chatbot).
+ * O secrets scanning do Netlify então reprova o build inteiro. Como VITE_SUPABASE_URL
+ * já existe, tem o mesmo valor e não é tratada como segredo, ela serve de fallback.
+ * A URL do projeto não é segredo: já vai no bundle do navegador.
+ */
+function supabaseUrl(): string | undefined {
+  return process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+}
+
+function supabaseServiceKey(): string | undefined {
+  return process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+}
+
 function getSupabase(): SupabaseClient {
   if (_supabase) return _supabase;
 
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = supabaseUrl();
+  const key = supabaseServiceKey();
 
   const missing = [
-    !url && 'SUPABASE_URL',
+    !url && 'SUPABASE_URL (ou VITE_SUPABASE_URL)',
     !key && 'SUPABASE_SERVICE_ROLE_KEY',
   ].filter(Boolean);
 
@@ -62,15 +79,15 @@ const handler: Handler = async (event: HandlerEvent) => {
     // Health check: GET sem os parâmetros da Meta reporta se o ambiente está
     // configurado. Só booleanos, nunca o valor das credenciais.
     if (!mode && !token) {
-      const ok = Boolean(process.env.SUPABASE_URL) && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const ok = Boolean(supabaseUrl()) && Boolean(supabaseServiceKey());
       return {
         statusCode: ok ? 200 : 503,
         headers,
         body: JSON.stringify({
           status: ok ? 'ok' : 'misconfigured',
           env: {
-            SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
-            SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+            url: Boolean(supabaseUrl()),
+            serviceKey: Boolean(supabaseServiceKey()),
           },
           hint: ok
             ? undefined

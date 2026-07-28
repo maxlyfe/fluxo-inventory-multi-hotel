@@ -19,11 +19,9 @@
   status = 200
   force = true
 
-# Netlify Functions: NÃO interceptar — deixar o runtime tratar
-[[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
+# Não existe regra para /.netlify/functions/*: o Netlify recusa esse caminho em
+# redirects ("path field must not start with /.netlify") e já trata as functions
+# antes do catch-all abaixo. A regra que existia aqui só gerava aviso no build.
 
 # SPA catch-all: tudo que não seja function vai para index.html
 [[redirects]]
