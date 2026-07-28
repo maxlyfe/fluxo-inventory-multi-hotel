@@ -1,0 +1,101 @@
+# Evolution API + Caddy, para VM de 1 GB de RAM
+#
+# Variante do docker-compose.yml para o Oracle VM.Standard.E2.1.Micro, onde o
+# stack completo não cabe: só o Postgres e o Redis locais já consumiriam metade
+# da memória disponível.
+#
+# O que muda:
+#   • sem container de Postgres: usa o Supabase, via Session pooler
+#   • sem Redis: cache em memória do próprio Evolution
+#   • limites de memória explícitos, para o Docker matar o container em vez de
+#     deixar o kernel escolher a vítima do OOM
+#
+# Cabe uma instância do WhatsApp. Uma segunda pediria o shape A1 (ARM, 6 GB).
+#
+# Uso:
+#   docker compose -f docker-compose.micro.yml up -d
+
+services:
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: evolution_api
+    restart: unless-stopped
+    environment:
+      SERVER_URL: https://${EVOLUTION_DOMAIN}
+      SERVER_PORT: 8080
+
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      # Session pooler do Supabase, porta 5432. A conexão direta é IPv6 only e o
+      # Transaction pooler (6543) não suporta os prepared statements do Prisma.
+      DATABASE_CONNECTION_URI: ${DATABASE_CONNECTION_URI}
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_fluxo
+
+      # A sessão do WhatsApp precisa persistir, senão o QR é pedido a cada restart
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      # O Fluxo guarda as mensagens. Duplicar aqui só gasta banco e memória.
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      DATABASE_SAVE_DATA_LABELS: "false"
+      DATABASE_SAVE_DATA_HISTORIC: "false"
+
+      # Sem Redis nesta variante
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      WEBHOOK_REQUEST_TIMEOUT_MS: "30000"
+      WEBHOOK_RETRY_MAX_ATTEMPTS: "5"
+      WEBHOOK_RETRY_INITIAL_DELAY_SECONDS: "5"
+
+      CONFIG_SESSION_PHONE_CLIENT: Fluxo
+      CONFIG_SESSION_PHONE_NAME: Chrome
+
+      QRCODE_LIMIT: "10"
+      DEL_INSTANCE: "false"
+      LANGUAGE: pt-BR
+      LOG_LEVEL: ERROR,WARN
+      LOG_BAILEYS: error
+
+      # Node respeita este teto e roda o GC antes de estourar o limite do container
+      NODE_OPTIONS: --max-old-space-size=420
+    volumes:
+      - evolution_instances:/evolution/instances
+    expose:
+      - "8080"
+    deploy:
+      resources:
+        limits:
+          memory: 560M
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: evolution_caddy
+    restart: unless-stopped
+    depends_on:
+      - evolution
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      EVOLUTION_DOMAIN: ${EVOLUTION_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+volumes:
+  evolution_instances:
+  caddy_data:
+  caddy_config:

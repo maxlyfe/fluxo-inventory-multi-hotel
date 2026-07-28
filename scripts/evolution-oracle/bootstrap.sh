@@ -35,6 +35,30 @@ fi
 [ -n "$EVOLUTION_DOMAIN" ] || die "Domínio é obrigatório."
 [ -n "$ACME_EMAIL" ] || die "E-mail é obrigatório."
 
+# ── 1b. Modo micro, para VM de 1 GB ──────────────────────────────────────────
+# No E2.1.Micro da Oracle (1 GB) o stack completo não cabe: só Postgres e Redis
+# locais consumiriam metade da memória. Nesse caso usamos o Postgres do Supabase
+# e dispensamos o Redis, cabendo uma instância do WhatsApp.
+RAM_MB="$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)"
+COMPOSE_FILE="docker-compose.yml"
+MICRO=0
+
+if [ "$RAM_MB" -lt 1900 ]; then
+  MICRO=1
+  COMPOSE_FILE="docker-compose.micro.yml"
+  warn "Detectado ${RAM_MB} MB de RAM. Usando a variante enxuta: Postgres externo, sem Redis."
+
+  if [ -z "${DATABASE_CONNECTION_URI:-}" ] && [ ! -f "$DEST/.env" ]; then
+    echo
+    echo "    Precisa da string do Postgres. No Supabase: Connect > Direct >"
+    echo "    Connection string > escolha o SESSION POOLER (porta 5432)."
+    echo "    Acrescente ?schema=evolution_api no final."
+    echo
+    read -rp "    DATABASE_CONNECTION_URI: " DATABASE_CONNECTION_URI
+    [ -n "$DATABASE_CONNECTION_URI" ] || die "String de conexão é obrigatória no modo micro."
+  fi
+fi
+
 # ── 2. Conferir o DNS antes de tudo ──────────────────────────────────────────
 # Sem o DNS resolvendo para esta VM, o Caddy não consegue emitir o certificado e
 # o serviço sobe sem HTTPS. Melhor descobrir agora que depois.
@@ -94,8 +118,27 @@ sudo mkdir -p "$DEST"
 sudo chown "$USER":"$USER" "$DEST"
 cd "$DEST"
 
-curl -fsSL "$REPO_RAW/docker-compose.yml" -o docker-compose.yml
+curl -fsSL "$REPO_RAW/$COMPOSE_FILE" -o "$COMPOSE_FILE"
 curl -fsSL "$REPO_RAW/Caddyfile" -o Caddyfile
+
+# ── 5b. Swap, só no modo micro ───────────────────────────────────────────────
+# Com 1 GB o pico de memória do upload de mídia estoura sem swap, e o kernel mata
+# o processo do Evolution, derrubando a sessão do WhatsApp.
+if [ "$MICRO" -eq 1 ]; then
+  if [ -f /swapfile ]; then
+    msg "Swap já configurado"
+  else
+    msg "Criando 2 GB de swap"
+    sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+    # Prioriza manter processo em RAM: swap é rede de segurança, não uso rotineiro
+    echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-evolution-swap.conf >/dev/null
+    sudo sysctl -q -p /etc/sysctl.d/99-evolution-swap.conf
+  fi
+fi
 
 # ── 6. Segredos ──────────────────────────────────────────────────────────────
 # Preserva o .env existente: reexecutar não deve invalidar a instância já
@@ -106,32 +149,41 @@ if [ -f .env ]; then
 else
   msg "Gerando segredos"
   API_KEY="$(openssl rand -hex 32)"
-  PG_PASS="$(openssl rand -hex 24)"
-  cat > .env <<EOF
-EVOLUTION_DOMAIN=$EVOLUTION_DOMAIN
-ACME_EMAIL=$ACME_EMAIL
-EVOLUTION_API_KEY=$API_KEY
-POSTGRES_PASSWORD=$PG_PASS
-EOF
+  {
+    echo "EVOLUTION_DOMAIN=$EVOLUTION_DOMAIN"
+    echo "ACME_EMAIL=$ACME_EMAIL"
+    echo "EVOLUTION_API_KEY=$API_KEY"
+    if [ "$MICRO" -eq 1 ]; then
+      echo "DATABASE_CONNECTION_URI=$DATABASE_CONNECTION_URI"
+    else
+      echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+    fi
+  } > .env
   chmod 600 .env
 fi
 
 # ── 7. Subir ─────────────────────────────────────────────────────────────────
 msg "Subindo os containers"
-sudo docker compose pull
-sudo docker compose up -d
+sudo docker compose -f "$COMPOSE_FILE" pull
+sudo docker compose -f "$COMPOSE_FILE" up -d
 
 msg "Aguardando o Evolution responder"
+# A porta 8080 não é publicada no host: só o Caddy alcança o Evolution, pela rede
+# interna do compose. Então o teste roda dentro do container, com o node que já
+# está na imagem, em vez de curl no localhost do host.
+PROBE='require("http").get("http://localhost:8080/",r=>process.exit(r.statusCode===200?0:1)).on("error",()=>process.exit(1))'
 OK=0
 for _ in $(seq 1 30); do
-  if curl -fsS --max-time 5 http://localhost:8080/ >/dev/null 2>&1; then OK=1; break; fi
+  if sudo docker compose -f "$COMPOSE_FILE" exec -T evolution node -e "$PROBE" >/dev/null 2>&1; then
+    OK=1; break
+  fi
   sleep 5
 done
 
 if [ "$OK" -eq 1 ]; then
-  echo "    Evolution respondendo na porta interna."
+  echo "    Evolution respondendo na rede interna."
 else
-  warn "O Evolution não respondeu em 150s. Veja: sudo docker compose logs evolution"
+  warn "O Evolution não respondeu em 150s. Veja: sudo docker compose -f $COMPOSE_FILE logs evolution"
 fi
 
 msg "Conferindo o HTTPS (o certificado pode levar 1 a 2 minutos)"
@@ -159,10 +211,10 @@ cat <<EOF
  Se nao respondeu 200:
    1. Security List da subnet no painel da Oracle, portas 80 e 443
    2. O registro A do dominio aponta para ${IP_PUBLICO:-o IP desta VM}
-   3. sudo docker compose logs caddy
+   3. sudo docker compose -f $COMPOSE_FILE logs caddy
 
- Logs      : cd $DEST && sudo docker compose logs -f
- Reiniciar : cd $DEST && sudo docker compose restart
+ Logs      : cd $DEST && sudo docker compose -f $COMPOSE_FILE logs -f
+ Reiniciar : cd $DEST && sudo docker compose -f $COMPOSE_FILE restart
  Backup    : sudo docker compose exec -T postgres pg_dump -U evolution evolution | gzip > evo-\$(date +%F).sql.gz
 ────────────────────────────────────────────────────────────────
 
