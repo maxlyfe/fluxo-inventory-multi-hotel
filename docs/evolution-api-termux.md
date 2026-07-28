@@ -74,20 +74,53 @@ Faça o mesmo para o Termux:Boot.
 
 ## Parte 3: Banco no Supabase
 
-No painel do Supabase: Project Settings › Database › Connection string › **URI**.
+No painel do Supabase: Project Settings › Database › Connection string.
 
-Use a conexão direta (porta 5432), não o pooler, porque o Prisma precisa rodar
-migrations. Acrescente o schema no final para isolar as tabelas do Evolution das
-do Fluxo:
+Existem três opções ali, e a escolha importa:
+
+| Opção | Porta | Serve? |
+|---|---|---|
+| Direct connection | 5432 | **Não.** É IPv6 only. Em rede móvel costuma falhar. |
+| **Session pooler** | 5432 | **Sim.** Aceita IPv4 e suporta as migrations do Prisma. |
+| Transaction pooler | 6543 | Não. Sem prepared statements, quebra o Prisma. |
+
+Copie a string do **Session pooler**. Ela tem este formato, com o host em
+`pooler.supabase.com` e o usuário incluindo o ref do projeto:
 
 ```
-postgresql://postgres:SUA_SENHA@db.SEU_REF.supabase.co:5432/postgres?schema=evolution_api
+postgresql://postgres.SEU_REF:SUA_SENHA@aws-0-SUA_REGIAO.pooler.supabase.com:5432/postgres?schema=evolution_api
 ```
 
-Guarde essa string: ela vai no `.env` do Evolution.
+Acrescente `?schema=evolution_api` no final para isolar as tabelas do Evolution
+das do Fluxo.
+
+Confira se a conexão direta do seu projeto realmente não tem IPv4:
+
+```bash
+nslookup -type=A db.SEU_REF.supabase.co
+```
+
+Sem registro A, use o pooler. Com registro A, qualquer um dos dois funciona.
 
 > A senha do banco é uma credencial separada do JWT. Rotacionar as chaves da API
 > do Supabase não invalida esta conexão.
+
+### Alternativa: PostgreSQL local
+
+Se o pooler der problema, dá para rodar o Postgres dentro do proot. Custa uns
+300 MB de RAM e exige subir o serviço manualmente, porque `service` não funciona
+em proot:
+
+```bash
+apt install -y postgresql && pg_ctlcluster 16 main start
+```
+
+```bash
+su postgres -c "psql -c \"CREATE USER evolution WITH PASSWORD 'trocar'; CREATE DATABASE evolution OWNER evolution;\""
+```
+
+A URI fica `postgresql://evolution:trocar@localhost:5432/evolution?schema=public`,
+e o `pg_ctlcluster` precisa entrar no script de start da Parte 6.
 
 ---
 
@@ -154,7 +187,7 @@ AUTHENTICATION_API_KEY=cole-aqui-a-chave-do-passo-4.3
 
 DATABASE_ENABLED=true
 DATABASE_PROVIDER=postgresql
-DATABASE_CONNECTION_URI=postgresql://postgres:SENHA@db.SEU_REF.supabase.co:5432/postgres?schema=evolution_api
+DATABASE_CONNECTION_URI=postgresql://postgres.SEU_REF:SENHA@aws-0-SUA_REGIAO.pooler.supabase.com:5432/postgres?schema=evolution_api
 
 # Sessão precisa persistir, senão o QR é pedido a cada restart
 DATABASE_SAVE_DATA_INSTANCE=true
@@ -380,7 +413,9 @@ cd /root/evolution-api && git pull && npm install && npm run db:deploy && npm ru
 | Para de responder depois de horas | Wake lock ou otimização de bateria. Revise a Parte 2. |
 | Não sobe depois de reiniciar | Termux:Boot não instalado, ou Autostart desativado. |
 | `npm install` falha em `sharp` | `apt install -y build-essential python3` e tente novamente. |
-| Erro de conexão no `db:deploy` | Use a porta 5432 (direta), não 6543 (pooler). Confira a senha. |
+| `db:deploy` falha com timeout ou "no route to host" | Você usou a conexão direta, que é IPv6 only. Troque pelo Session pooler. |
+| `db:deploy` falha com erro de prepared statement | Você usou o Transaction pooler (6543). Troque pelo Session pooler (5432). |
+| `db:deploy` falha com senha inválida | A senha do banco não é a service_role. Pegue ou redefina em Project Settings › Database. |
 | Instância cai ao trocar wifi e dados | Normal, o Baileys reconecta. Se ficar em `close`, leia o QR de novo. |
 | QR Code não aparece no Fluxo | Confira se o túnel está no ar abrindo a URL base no navegador. |
 | Envio funciona mas não recebe nada | A URL base mudou e o webhook ficou no endereço antigo. Clique em **Reaplicar webhook**. |
