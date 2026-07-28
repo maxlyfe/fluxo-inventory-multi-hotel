@@ -455,6 +455,48 @@ export const whatsappService = {
     }
   },
 
+  // ── Envio de imagem com legenda ────────────────────────────────────────
+
+  /**
+   * Envia uma imagem em base64 com legenda, usada no disparo do pedido de compra.
+   *
+   * Só funciona no provider evolution: a Meta Cloud API exige que a mídia esteja
+   * em uma URL pública, e a imagem do pedido é gerada no navegador com html2canvas,
+   * sem passar por storage. Para a Meta seria preciso subir o arquivo antes.
+   */
+  async sendImageBase64(params: {
+    hotelId: string;
+    recipientPhone: string;
+    imageBase64: string;
+    caption: string;
+    fileName?: string;
+    delay?: number;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const config = await this.getConfig(params.hotelId);
+    if (!config) return { success: false, error: 'WhatsApp não configurado para este hotel' };
+
+    if (config.provider !== 'evolution') {
+      return {
+        success: false,
+        error: 'O envio automático da imagem do pedido requer o provider Evolution. '
+          + 'Na Meta Cloud API a mídia precisa estar em uma URL pública.',
+      };
+    }
+
+    const creds = evolutionCredentials(config);
+    if (!creds) return { success: false, error: 'Configuração Evolution incompleta.' };
+
+    return evolutionApi.sendMedia(creds, {
+      number: formatWhatsAppNumber(params.recipientPhone),
+      media: params.imageBase64,
+      mediatype: 'image',
+      mimetype: 'image/png',
+      fileName: params.fileName || 'pedido.png',
+      caption: params.caption,
+      delay: params.delay,
+    });
+  },
+
   // ── Log ────────────────────────────────────────────────────────────────
 
   async logMessage(entry: {

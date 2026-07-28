@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { History, ArrowLeft, Download, Calendar, Search, Filter, X, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Eye, DollarSign, Package, ShoppingBag, Truck, CheckCircle, XCircle, Clock, Ban, ThumbsUp, Send, Archive, ListFilter, Image as ImageIcon, Globe, ExternalLink, CreditCard, ShoppingCart } from 'lucide-react';
+import { History, ArrowLeft, Download, Calendar, Search, Filter, X, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Eye, DollarSign, Package, ShoppingBag, Truck, CheckCircle, XCircle, Clock, Ban, ThumbsUp, Send, Archive, ListFilter, Image as ImageIcon, Globe, ExternalLink, CreditCard, ShoppingCart, Loader2, MessageSquare } from 'lucide-react';
 import { format, parseISO, isAfter, isBefore, isEqual, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import { getBudgetHistory, cancelBudget, updateBudgetStatus, markBudgetPurchased, supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { dispatchOrderForBudget, describeDispatch } from '../lib/orderDispatch';
 import * as XLSX from 'xlsx';
 
 const unitOptions = [
@@ -28,6 +29,7 @@ interface BudgetItem {
 
 interface Budget {
   id: string; created_at: string; total_value: number; budget_items: BudgetItem[];
+  hotel_id: string;
   status: 'pending' | 'approved' | 'on_the_way' | 'delivered' | 'cancelled' | null;
   approved_by_user_email?: string | null; approved_at?: string | null; is_online?: boolean | null;
   purchased_at?: string | null; actual_value?: number | null; purchased_by_email?: string | null;
@@ -43,6 +45,8 @@ const BudgetHistory = () => {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [filteredAndSortedBudgets, setFilteredAndSortedBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
+  // id do orçamento cujo pedido está sendo enviado, para travar só aquele botão
+  const [dispatching, setDispatching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedBudget, setExpandedBudget] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('pending');
@@ -164,6 +168,37 @@ const BudgetHistory = () => {
     navigate('/inventory/new-purchase', { state: { budgetData: budget } });
   };
 
+  /**
+   * Reenvio manual do pedido. Cobre os dois casos que deixam o orçamento parado
+   * em 'aprovado': nenhum fornecedor tinha contato quando foi aprovado, ou o
+   * envio automático falhou. includeAlreadySent permite reenviar de propósito.
+   */
+  const handleDispatchOrder = async (budget: Budget) => {
+    if (!window.confirm('Enviar a imagem do pedido aos fornecedores com contato vinculado?')) return;
+    try {
+      setDispatching(budget.id);
+      const summary = await dispatchOrderForBudget({
+        budgetId: budget.id,
+        hotelId: budget.hotel_id,
+        includeAlreadySent: true,
+      });
+      const { message, kind } = describeDispatch(summary);
+      addNotification(message, kind);
+
+      summary.results
+        .filter(r => !r.success)
+        .forEach(r => addNotification(`${r.supplierName}: ${r.error}`, 'error'));
+
+      if (summary.anySent) {
+        setBudgets(prev => prev.map(b => b.id === budget.id ? { ...b, status: 'on_the_way' } : b));
+      }
+    } catch (err) {
+      addNotification(`Erro ao enviar pedido: ${err instanceof Error ? err.message : 'Desconhecido'}`, 'error');
+    } finally {
+      setDispatching(null);
+    }
+  };
+
   const handleSetOnTheWay = async (budgetId: string) => {
     if (!window.confirm('Marcar como "A Caminho"?')) return;
     try { setLoading(true); const result = await updateBudgetStatus(budgetId, 'on_the_way'); if (result.success) { addNotification('Status atualizado!', 'success'); setBudgets(prev => prev.map(b => b.id === budgetId ? { ...b, status: 'on_the_way' } : b)); } else throw new Error(result.error); }
@@ -268,6 +303,7 @@ const BudgetHistory = () => {
             <div className="flex flex-wrap gap-1.5">
               {!isOnline && isPending && <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-xl transition-all"><Truck className="h-3.5 w-3.5" />Entrada</button>}
               {!isOnline && isApproved && (<>
+                <button onClick={() => handleDispatchOrder(budget)} disabled={dispatching === budget.id} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-green-600 hover:bg-green-700 disabled:opacity-50 active:scale-95 text-white rounded-xl transition-all">{dispatching === budget.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />}Enviar Pedido</button>
                 <button onClick={() => handleSetOnTheWay(budget.id)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 active:scale-95 text-white rounded-xl transition-all"><Send className="h-3.5 w-3.5" />A Caminho</button>
                 <button onClick={() => handleRegisterEntry(budget)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-xl transition-all"><Truck className="h-3.5 w-3.5" />Entrada</button>
               </>)}

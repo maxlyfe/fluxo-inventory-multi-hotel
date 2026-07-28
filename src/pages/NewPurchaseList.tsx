@@ -8,6 +8,8 @@ import { useHotel } from '../context/HotelContext';
 import { useNotification } from '../context/NotificationContext';
 import { supabase, saveBudget, getHotelInventory } from '../lib/supabase';
 import { createNotification } from "../lib/notifications";
+import { saveOrderRecipients } from '../lib/orderDispatch';
+import OrderRecipientsPanel, { type RecipientMap } from '../components/OrderRecipientsPanel';
 
 interface Product {
   id: string;
@@ -96,6 +98,8 @@ const NewPurchaseList = () => {
     supplier: '',
   });
   const [searchTerm, setSearchTerm] = useState("");
+  // Contato de WhatsApp por fornecedor, para o disparo automático na aprovação
+  const [recipients, setRecipients] = useState<RecipientMap>({});
   
   // --- ALTERAÇÃO: Lógica de inicialização para aceitar dados pré-preenchidos da análise ---
   const [products, setProducts] = useState<EditableProduct[]>(() => {
@@ -254,6 +258,22 @@ const NewPurchaseList = () => {
     [products]
   );
 
+  /**
+   * Fornecedores distintos da lista, na mesma grafia que vai para
+   * budget_items.supplier. É a chave do vínculo com o contato de WhatsApp.
+   */
+  const suppliersInList = useMemo(() => {
+    const norm = (s: string) =>
+      s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    const out: string[] = [];
+    for (const p of products) {
+      const s = (p.editedSupplier || p.supplier || '').trim();
+      if (!s) continue;
+      if (!out.some(e => norm(e) === norm(s))) out.push(s);
+    }
+    return out;
+  }, [products]);
+
   const saveBudgetToDatabase = async () => {
     if (!selectedHotel?.id) {
       setError('Hotel não selecionado. Impossível salvar o orçamento.');
@@ -313,7 +333,25 @@ const NewPurchaseList = () => {
 
       if (result.success && result.data) {
         addNotification('Orçamento salvo com sucesso!', 'success');
-        
+
+        // Vínculos fornecedor → contato, consumidos pelo disparo na aprovação.
+        // Falha aqui não invalida o orçamento já salvo: o operador ainda pode
+        // enviar manualmente pelo histórico.
+        try {
+          const entries = suppliersInList.map(supplier => ({
+            supplierName: supplier,
+            contactId: recipients[supplier]?.contactId || null,
+            whatsappNumber: recipients[supplier]?.whatsappNumber || null,
+          }));
+          await saveOrderRecipients(result.data.id, entries);
+        } catch (recipientsError) {
+          console.error('Erro ao salvar contatos dos fornecedores:', recipientsError);
+          addNotification(
+            'Orçamento salvo, mas os contatos dos fornecedores não foram gravados. O envio será manual.',
+            'warning',
+          );
+        }
+
         try {
           const mainSupplier = budgetItems.find(item => item.supplier && item.supplier !== 'Não especificado')?.supplier || 'Não especificado';
           
@@ -720,6 +758,14 @@ CNPJ: ${selectedHotel?.cnpj || '39.232.073/0001-44'}
             <span>{today}</span>
           </div>
         </div>
+
+        {/* Contato de WhatsApp por fornecedor, para o disparo na aprovação */}
+        <OrderRecipientsPanel
+          suppliers={suppliersInList}
+          value={recipients}
+          onChange={setRecipients}
+          disabled={isSaving}
+        />
 
         {/* Add Items Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
