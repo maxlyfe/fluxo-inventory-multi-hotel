@@ -94,6 +94,27 @@ export async function saveOrderRecipients(
 
 // ── Disparo ──────────────────────────────────────────────────────────────────
 
+/**
+ * Erros que valem nova tentativa: o socket do Baileys caiu, não o pedido está
+ * errado. Enviar mídia exige várias idas e voltas no WebSocket (refreshMediaConn,
+ * upload, envio), então é bem mais sensível a instabilidade que o texto, que é um
+ * envio único. Em conexão ruim é comum a primeira falhar e a seguinte passar.
+ */
+function isTransientSendError(error?: string): boolean {
+  const e = (error || '').toLowerCase();
+  return e.includes('connection closed')
+    || e.includes('precondition required')
+    || e.includes('timeout')
+    || e.includes('timed out')
+    || e.includes('socket')
+    || e.includes('econnreset')
+    || e.includes('http 500')
+    || e.includes('502')
+    || e.includes('503');
+}
+
+const RETRY_DELAYS_MS = [4000, 12000];
+
 /** Número de destino: o do contato cadastrado, ou o digitado direto */
 function resolvePhone(r: OrderRecipient): string | null {
   const doContato = r.contact?.whatsapp_number?.trim();
@@ -165,24 +186,41 @@ export async function dispatchOrderToSuppliers(params: {
     let resultado: { success: boolean; messageId?: string; error?: string };
 
     try {
+      // A imagem é gerada uma vez e reaproveitada nas tentativas: html2canvas é
+      // a parte cara e o problema está no envio, não na renderização.
       const imageBase64 = await generateOrderImageBase64({
         hotel,
         supplierName: r.supplier_name,
         items: doFornecedor,
       });
 
-      resultado = await whatsappService.sendImageBase64({
+      const params = {
         hotelId,
         recipientPhone: phone,
         imageBase64,
         caption: buildOrderMessageText(hotel, r.supplier_name),
         fileName: `pedido-${r.supplier_name.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase()}.png`,
-      });
+      };
+
+      resultado = await whatsappService.sendImageBase64(params);
+
+      for (let tentativa = 0; !resultado.success && tentativa < RETRY_DELAYS_MS.length; tentativa++) {
+        if (!isTransientSendError(resultado.error)) break;
+        await new Promise(r2 => setTimeout(r2, RETRY_DELAYS_MS[tentativa]));
+        resultado = await whatsappService.sendImageBase64(params);
+      }
     } catch (err: unknown) {
       resultado = {
         success: false,
         error: err instanceof Error ? err.message : 'Erro ao gerar a imagem do pedido.',
       };
+    }
+
+    // Distingue falha de infraestrutura de erro de dados, senão o operador vê
+    // "Connection Closed" e não tem como saber que o problema é o servidor.
+    if (!resultado.success && isTransientSendError(resultado.error)) {
+      resultado.error = 'Conexão do WhatsApp instável no servidor, após 3 tentativas. '
+        + 'O pedido segue como aprovado: reenvie quando a conexão estabilizar.';
     }
 
     results.push({
