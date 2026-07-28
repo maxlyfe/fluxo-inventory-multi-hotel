@@ -153,20 +153,31 @@ IP da instância. Espere resolver antes de seguir:
 nslookup evolution.seudominio.com.br
 ```
 
-### 5. Instalar o Docker
+### 5. Rodar o bootstrap
+
+Um script cuida do resto: instala o Docker, abre as portas no iptables interno,
+baixa o stack, gera os segredos, sobe os containers e confere o HTTPS.
+
+Conecte por SSH na VM e rode:
 
 ```bash
-curl -fsSL https://get.docker.com | sudo sh
+curl -fsSL https://raw.githubusercontent.com/maxlyfe/fluxo-inventory-multi-hotel/main/scripts/evolution-oracle/bootstrap.sh -o bootstrap.sh
 ```
 
 ```bash
-sudo usermod -aG docker $USER && newgrp docker
+EVOLUTION_DOMAIN=evolution.seudominio.com.br ACME_EMAIL=voce@empresa.com bash bootstrap.sh
 ```
 
-### 6. Subir o stack
+Sem as variáveis ele pergunta. No fim imprime a **API Key** gerada, que é o valor
+do campo API Key na tela do Fluxo.
 
-Copie os três arquivos de `docker/evolution/` para a VM e siga a partir do
-passo 3 de [Deploy na VPS](#deploy-na-vps).
+O script confere o DNS antes de começar e avisa se o domínio não aponta para a
+VM, porque nesse caso o Caddy não conseguiria emitir o certificado.
+
+Reexecutar é seguro: ele preserva o `.env` existente, então a instância já
+pareada não perde a sessão e você não precisa ler o QR Code de novo.
+
+Se preferir fazer à mão, os passos estão em [Deploy na VPS](#deploy-na-vps).
 
 ---
 
