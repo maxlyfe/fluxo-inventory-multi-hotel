@@ -222,6 +222,14 @@ Salve com `Ctrl+O`, `Enter`, `Ctrl+X`.
 cd /root/evolution-api && npm run db:deploy
 ```
 
+Primeiro gere o client do Prisma. O `db:deploy` roda `migrate deploy`, que aplica
+as migrations mas **não** gera o client, e sem ele o servidor sobe e morre com
+`@prisma/client did not initialize yet`:
+
+```bash
+cd /root/evolution-api && npx prisma generate --schema ./prisma/postgresql-schema.prisma
+```
+
 Não use `npm run build`. O script é `tsc --noEmit && tsup`, e o typecheck falha em
 vários arquivos do repositório. Como falha antes do `tsup`, o `dist/` nem chega a
 ser criado, e o `start:prod` morre com `Cannot find module dist/main`.
@@ -242,17 +250,23 @@ cd /root/evolution-api && npm run start
 
 ### 4.6 Primeiro teste
 
+Suba em background, para não precisar de uma segunda sessão:
+
 ```bash
-cd /root/evolution-api && npm run start:prod
+cd /root/evolution-api && nohup npm run start:prod > /root/evolution.log 2>&1 &
 ```
 
-Em outra aba do Termux (deslize da esquerda › New session):
+Espere uns 15 segundos e teste na mesma sessão:
 
 ```bash
 curl -s http://localhost:8080/ | head -c 200
 ```
 
-Deve devolver um JSON com nome e versão. Se sim, pare com `Ctrl+C` e siga.
+Deve devolver um JSON com nome e versão. Se não responder, veja o motivo:
+
+```bash
+tail -20 /root/evolution.log
+```
 
 ---
 
@@ -266,12 +280,19 @@ curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloud
 
 ### 5.2 Túnel rápido, para validar
 
+Rode gravando a saída em arquivo, senão o endereço se perde no meio do log:
+
 ```bash
-cloudflared tunnel --url http://localhost:8080
+nohup cloudflared tunnel --url http://localhost:8080 > /root/tunnel.log 2>&1 &
 ```
 
-Ele imprime um endereço `https://algo-aleatorio.trycloudflare.com`. Esse é o
-valor do campo **URL base** no Fluxo.
+Espere uns 15 segundos e extraia o endereço:
+
+```bash
+grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /root/tunnel.log | head -1
+```
+
+Esse é o valor do campo **URL base** no Fluxo.
 
 **O endereço muda a cada reinício.** Para validar tudo funcionando serve, mas
 para uso diário vá para o passo 5.3.
@@ -428,6 +449,7 @@ cd /root/evolution-api && git pull && npm install && npm run db:deploy && npm ru
 | Não sobe depois de reiniciar | Termux:Boot não instalado, ou Autostart desativado. |
 | `npm install` falha em `sharp` | `apt install -y build-essential python3` e tente novamente. |
 | `Cannot find module dist/main` | O `npm run build` falhou no typecheck. Use `npx tsup`, ou rode com `npm run start`. |
+| `@prisma/client did not initialize yet` | Falta gerar o client: `npx prisma generate --schema ./prisma/postgresql-schema.prisma`. |
 | `db:deploy` falha com timeout ou "no route to host" | Você usou a conexão direta, que é IPv6 only. Troque pelo Session pooler. |
 | `db:deploy` falha com erro de prepared statement | Você usou o Transaction pooler (6543). Troque pelo Session pooler (5432). |
 | `db:deploy` falha com senha inválida | A senha do banco não é a service_role. Pegue ou redefina em Project Settings › Database. |
