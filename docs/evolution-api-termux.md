@@ -338,51 +338,47 @@ Agora a URL base é `https://evolution.lyfehoteles.com.br`, estável.
 
 ---
 
-## Parte 6: Subir tudo com um comando
+## Parte 6: Supervisor
 
-Crie o script de inicialização dentro do Ubuntu:
+Existem **dois** modos de falha, e eles precisam de tratamento diferente:
+
+| Falha | O processo morre? | Como detectar |
+|---|---|---|
+| Android mata o Termux | Sim | O laço de reinício percebe na hora |
+| Socket do Baileys cai | **Não** | Só um watchdog percebe |
+
+O segundo é o traiçoeiro: o processo continua vivo, o `connectionState` segue
+dizendo `open` porque é cache, e todo envio falha com `Connection Closed` e
+HTTP 428. Um supervisor comum não resolve, porque não há processo morto para
+reiniciar. O watchdog consulta o próprio número pareado da instância a cada 5
+minutos, o que exige socket vivo e não envia mensagem, e mata o processo de
+propósito quando falha.
+
+O script está em `scripts/evolution-termux/start.sh` neste repositório.
+
+### 6.1 Instalar o supervisor
+
+Copie o conteúdo de `scripts/evolution-termux/start.sh` para dentro do Ubuntu:
 
 ```bash
 nano /root/start-evolution.sh
 ```
 
 ```bash
-#!/bin/bash
-# Sobe o Evolution e o túnel, reiniciando cada um se cair.
-
-cd /root/evolution-api
-
-while true; do
-  npm run start:prod >> /root/evolution.log 2>&1
-  echo "[$(date)] evolution caiu, reiniciando em 10s" >> /root/evolution.log
-  sleep 10
-done &
-
-while true; do
-  cloudflared tunnel run fluxo-evolution >> /root/tunnel.log 2>&1
-  echo "[$(date)] tunel caiu, reiniciando em 10s" >> /root/tunnel.log
-  sleep 10
-done &
-
-wait
-```
-
-```bash
 chmod +x /root/start-evolution.sh
 ```
 
-### Autostart no boot
+Se você usa o túnel nomeado, edite a linha do `TUNNEL_NAME` no topo, ou passe na
+chamada. Sem isso ele usa o túnel rápido, cujo endereço muda a cada início.
 
-Saia do Ubuntu (`exit`) e, no Termux:
+Ajuste também `INSTANCE` se o nome da sua instância não for `compras-meridiana`.
+
+### 6.2 Autostart no boot
+
+Saia do Ubuntu (`exit`) e, no Termux, use `scripts/evolution-termux/boot.sh`:
 
 ```bash
 mkdir -p ~/.termux/boot && nano ~/.termux/boot/evolution
-```
-
-```bash
-#!/data/data/com.termux/files/usr/bin/sh
-termux-wake-lock
-proot-distro login ubuntu -- /root/start-evolution.sh
 ```
 
 ```bash
@@ -391,11 +387,32 @@ chmod +x ~/.termux/boot/evolution
 
 Reinicie o celular para confirmar que sobe sozinho.
 
-### Iniciar manualmente
+### 6.3 Iniciar manualmente
 
 ```bash
 termux-wake-lock && proot-distro login ubuntu -- /root/start-evolution.sh
 ```
+
+Com túnel nomeado:
+
+```bash
+termux-wake-lock && proot-distro login ubuntu -- env TUNNEL_NAME=fluxo-evolution /root/start-evolution.sh
+```
+
+### 6.4 Acompanhar
+
+```bash
+proot-distro login ubuntu -- tail -f /root/logs/supervisor.log
+```
+
+O `supervisor.log` registra cada reinício e cada vez que o watchdog derrubou o
+processo por socket morto. Se ele estiver reiniciando de minuto em minuto, o
+problema é outro: veja `/root/logs/evolution.log`.
+
+> **O túnel rápido continua sendo o elo fraco.** O supervisor mantém tudo no ar,
+> mas a cada reinício do `cloudflared` o endereço muda, e você tem que atualizar
+> a URL base no Fluxo e clicar em **Reaplicar webhook**. O túnel nomeado da
+> Parte 5.3 elimina isso de vez, e é gratuito.
 
 ---
 
