@@ -9,11 +9,21 @@
 
 const EVOLUTION_PROXY = '/.netlify/functions/evolution-proxy';
 
-/** Eventos que o Fluxo consome. SEND_MESSAGE fica de fora porque o envio já é
- *  persistido localmente no momento da chamada, e receber o eco duplicaria. */
+/**
+ * Eventos que o Fluxo consome.
+ *
+ * SEND_MESSAGE é necessário: quando a mensagem sai pela API, o Evolution emite
+ * 'send.message', não 'messages.upsert'. Sem assinar, tudo que o sistema envia
+ * (link de cotação, disparo em massa, imagem do pedido) fica invisível no inbox,
+ * porque só o sendText do inbox grava a linha localmente.
+ *
+ * Não duplica: o índice único em whatsapp_message_id, combinado com upsert
+ * ignoreDuplicates no webhook, descarta o eco do que já foi gravado no envio.
+ */
 export const EVOLUTION_WEBHOOK_EVENTS = [
   'MESSAGES_UPSERT',
   'MESSAGES_UPDATE',
+  'SEND_MESSAGE',
   'CONNECTION_UPDATE',
 ] as const;
 

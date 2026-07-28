@@ -58,7 +58,10 @@ function getSupabase(): SupabaseClient {
   return _supabase;
 }
 
-const EVOLUTION_WEBHOOK_EVENTS = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'];
+// SEND_MESSAGE ('send.message') é o evento do que sai pela API. Sem ele, tudo que
+// o sistema envia fica invisível no inbox, porque só o sendText do inbox grava a
+// linha localmente. Ver comentário em src/lib/evolutionService.ts.
+const EVOLUTION_WEBHOOK_EVENTS = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'SEND_MESSAGE', 'CONNECTION_UPDATE'];
 
 const handler: Handler = async (event: HandlerEvent) => {
   const headers = {
@@ -196,10 +199,14 @@ async function handleEvolution(body: any): Promise<void> {
       return;
     }
 
-    case 'MESSAGES_UPSERT': {
+    case 'MESSAGES_UPSERT':
+    case 'SEND_MESSAGE': {
+      // Mesmo formato de payload nos dois. A diferença é a origem: messages.upsert
+      // traz o que chega e o que o operador manda pelo celular; send.message traz
+      // o que sai pela API. Em send.message forçamos fromMe, porque é sempre nosso.
       const items = Array.isArray(body.data) ? body.data : [body.data];
       for (const item of items) {
-        await processEvolutionMessage(config, item);
+        await processEvolutionMessage(config, item, evt === 'SEND_MESSAGE');
       }
       return;
     }
@@ -305,7 +312,32 @@ function parseEvolutionContent(msg: any): { type: string; content: Record<string
   return { type: 'unknown', content: { raw: inner }, preview: `[${kind}]` };
 }
 
-async function processEvolutionMessage(config: EvolutionConfig, item: any): Promise<void> {
+/**
+ * Nome da empresa a partir do número, para conversas criadas por mensagem que sai.
+ *
+ * Compara pelos 8 últimos dígitos porque whatsapp_number é digitado à mão e varia
+ * em formatação, código de país e nono dígito.
+ */
+async function lookupContactName(phone: string): Promise<string | null> {
+  const ultimos = phone.replace(/\D/g, '').slice(-8);
+  if (ultimos.length < 8) return null;
+
+  const { data } = await getSupabase()
+    .from('supplier_contacts')
+    .select('company_name')
+    .ilike('whatsapp_number', `%${ultimos}%`)
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle();
+
+  return data?.company_name || null;
+}
+
+async function processEvolutionMessage(
+  config: EvolutionConfig,
+  item: any,
+  forceFromMe = false,
+): Promise<void> {
   const key = item?.key || {};
   const remoteJid: string = key.remoteJid || '';
   const waMessageId: string = key.id || '';
@@ -314,11 +346,15 @@ async function processEvolutionMessage(config: EvolutionConfig, item: any): Prom
   // Grupos e status broadcast ficam fora do inbox
   if (isGroupJid(remoteJid) || remoteJid === 'status@broadcast') return;
 
-  const fromMe: boolean = key.fromMe === true;
+  const fromMe: boolean = forceFromMe || key.fromMe === true;
   const contactPhone = fromJid(remoteJid);
   if (!contactPhone) return;
 
-  const contactName: string = fromMe ? contactPhone : (item.pushName || contactPhone);
+  // Em mensagem que sai não existe pushName. Sem isso, cada link de cotação
+  // enviado criaria uma conversa nomeada só com o número cru.
+  const contactName: string = fromMe
+    ? (await lookupContactName(contactPhone) || contactPhone)
+    : (item.pushName || contactPhone);
   const sentAt = item.messageTimestamp
     ? new Date(Number(item.messageTimestamp) * 1000).toISOString()
     : new Date().toISOString();
