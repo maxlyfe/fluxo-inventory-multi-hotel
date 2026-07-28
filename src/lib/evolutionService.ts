@@ -178,6 +178,45 @@ export const evolutionApi = {
     return { success: true, state };
   },
 
+  /**
+   * Verifica se o socket com o WhatsApp está realmente vivo.
+   *
+   * connectionState devolve estado em cache: quando o processo do Evolution é
+   * suspenso (Android em doze, máquina hibernando), o socket do Baileys morre mas
+   * a instância continua reportando 'open'. O envio então falha com
+   * "Connection Closed" e HTTP 428, que o proxy repassa como 400.
+   *
+   * Consulta o próprio número da instância, o que exige o socket e não envia
+   * mensagem nenhuma.
+   */
+  async pingSocket(cfg: EvolutionCredentials): Promise<{ alive: boolean; error?: string }> {
+    const instancias = await call(cfg, 'fetch-instances');
+    if (!instancias.ok) return { alive: false, error: instancias.error };
+
+    const lista = Array.isArray(instancias.data) ? instancias.data : [];
+    const minha = lista.find((i: any) => i?.name === cfg.instance_name);
+    const ownerJid: string | undefined = minha?.ownerJid;
+
+    // Sem ownerJid a instância nunca completou o pareamento
+    if (!ownerJid) return { alive: false, error: 'Instância sem número pareado. Leia o QR Code.' };
+
+    const numero = fromJid(ownerJid);
+    const res = await call(cfg, 'check-numbers', { numbers: [numero] });
+
+    if (res.ok) return { alive: true };
+
+    const msg = (res.error || '').toLowerCase();
+    if (msg.includes('connection closed') || res.status === 428) {
+      return {
+        alive: false,
+        error: 'A instância reporta conectado, mas o socket com o WhatsApp caiu. '
+          + 'Reinicie o processo do Evolution e verifique o wake lock.',
+      };
+    }
+
+    return { alive: false, error: res.error };
+  },
+
   async logout(cfg: EvolutionCredentials): Promise<{ success: boolean; error?: string }> {
     const res = await call(cfg, 'logout');
     return res.ok ? { success: true } : { success: false, error: res.error };

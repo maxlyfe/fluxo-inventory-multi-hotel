@@ -19,7 +19,9 @@ type EvoAction =
   | 'send-text'
   | 'send-media'
   | 'set-webhook'
-  | 'find-webhook';
+  | 'find-webhook'
+  | 'fetch-instances'
+  | 'check-numbers';
 
 const ROUTES: Record<EvoAction, { method: string; path: (instance: string) => string }> = {
   'create':       { method: 'POST',   path: ()  => '/instance/create' },
@@ -31,6 +33,10 @@ const ROUTES: Record<EvoAction, { method: string; path: (instance: string) => st
   'send-media':   { method: 'POST',   path: (i) => `/message/sendMedia/${encodeURIComponent(i)}` },
   'set-webhook':  { method: 'POST',   path: (i) => `/webhook/set/${encodeURIComponent(i)}` },
   'find-webhook': { method: 'GET',    path: (i) => `/webhook/find/${encodeURIComponent(i)}` },
+  // Não exigem instância na rota, mas são usados no diagnóstico de conexão
+  'fetch-instances': { method: 'GET',  path: ()  => '/instance/fetchInstances' },
+  // Consulta se números existem no WhatsApp. Exige socket vivo e não envia nada.
+  'check-numbers':   { method: 'POST', path: (i) => `/chat/whatsappNumbers/${encodeURIComponent(i)}` },
 };
 
 const CORS = {
@@ -125,7 +131,10 @@ const handler: Handler = async (event: HandlerEvent) => {
     };
   }
 
-  if (action !== 'create' && !instance) {
+  // Estas duas não levam a instância na rota
+  const dispensamInstancia: EvoAction[] = ['create', 'fetch-instances'];
+
+  if (!dispensamInstancia.includes(action) && !instance) {
     return {
       statusCode: 400,
       headers: jsonHeaders,

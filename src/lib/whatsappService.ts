@@ -317,6 +317,16 @@ export const whatsappService = {
       if (res.state !== 'open') {
         return { success: false, error: `Instância alcançada, mas não conectada (estado: ${res.state}). Leia o QR Code.` };
       }
+
+      // O estado 'open' vem de cache e sobrevive à queda do socket, então um
+      // teste que pare aqui mostraria verde enquanto todo envio falha.
+      const ping = await evolutionApi.pingSocket({
+        base_url: config.base_url.replace(/\/+$/, ''),
+        api_key: config.api_key,
+        instance_name: config.instance_name,
+      });
+      if (!ping.alive) return { success: false, error: ping.error };
+
       return { success: true, phoneName: `Instância ${config.instance_name} conectada` };
     }
 
