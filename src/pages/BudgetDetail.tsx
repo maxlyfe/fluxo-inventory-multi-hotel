@@ -21,6 +21,7 @@ import {
 } from '../lib/supabase';
 import { createNotification } from '../lib/notifications';
 import { whatsappService, getGreeting } from '../lib/whatsappService';
+import { getOrderRecipients, dispatchOrderForBudget, describeDispatch } from '../lib/orderDispatch';
 import * as XLSX from 'xlsx';
 
 // ── Opções de unidade ──────────────────────────────────────────────────────────
@@ -321,8 +322,42 @@ const BudgetDetail = () => {
           });
         } catch (e) { console.error(e); }
 
-        // Tentar enviar notificação WhatsApp ao fornecedor
+        // Disparo do pedido.
+        //
+        // Com contato vinculado em /purchases/list, usa o envio novo: imagem por
+        // fornecedor com só os itens dele, e status vai para 'a caminho'.
+        //
+        // Sem contato vinculado, mantém exatamente o comportamento anterior,
+        // que é o template fluxo_compra_aprovada procurando o contato pelo nome
+        // do fornecedor. O status fica em 'aprovado' para tratamento manual.
+        let usouDisparoNovo = false;
         try {
+          const recipients = await getOrderRecipients(budgetId);
+          if (recipients.length > 0) {
+            usouDisparoNovo = true;
+            setSendingWhatsApp(true);
+            const summary = await dispatchOrderForBudget({
+              budgetId,
+              hotelId: result.data.hotel_id,
+            });
+            const { message, kind } = describeDispatch(summary);
+            addNotification(message, kind);
+            summary.results
+              .filter(r => !r.success)
+              .forEach(r => console.error(`[Pedido] Falha ao enviar para ${r.supplierName}:`, r.error));
+            setSendingWhatsApp(false);
+          }
+        } catch (dispatchError) {
+          console.error('Erro no disparo do pedido:', dispatchError);
+          setSendingWhatsApp(false);
+          addNotification(
+            'Aprovado, mas o envio do pedido falhou. Reenvie em Histórico de orçamentos.',
+            'warning',
+          );
+        }
+
+        // Comportamento anterior, preservado para quando não há contato vinculado
+        if (!usouDisparoNovo) try {
           const hotelId = result.data.hotel_id;
           const supplierName = getMainSupplier();
           const contacts = await whatsappService.getBudgetContacts(budgetId);
