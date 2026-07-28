@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   MessageSquare, Settings, FileText, Clock, Loader2, CheckCircle, AlertCircle,
   Wifi, WifiOff, RefreshCw, Eye, EyeOff, QrCode, Cloud, Server, Copy, Check,
-  LogOut, Save, Link2,
+  LogOut, Save, Link2, Share2,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -52,6 +52,12 @@ const WhatsAppIntegration: React.FC = () => {
   const [showToken, setShowToken] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isGlobal, setIsGlobal] = useState(false);
+
+  // Compartilhamento do WhatsApp entre unidades do mesmo grupo
+  const [hotels, setHotels] = useState<Array<{ id: string; name: string }>>([]);
+  const [sourceHotelId, setSourceHotelId] = useState<string | null>(null);
+  const [attachedHotels, setAttachedHotels] = useState<Array<{ id: string; name: string }>>([]);
+  const [savingSource, setSavingSource] = useState(false);
   const [provider, setProvider] = useState<WhatsAppProvider>('meta');
   const [configForm, setConfigForm] = useState({
     phone_number_id: '',
@@ -151,6 +157,52 @@ const WhatsAppIntegration: React.FC = () => {
 
   // Encerra o polling ao desmontar ou trocar de hotel
   useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, [selectedHotel]);
+
+  // ── Compartilhamento entre unidades ──────────────────────────────────────
+  const loadSharing = useCallback(async () => {
+    if (!selectedHotel) return;
+    try {
+      const [{ data: lista }, anexados, ownerId] = await Promise.all([
+        supabase.from('hotels').select('id, name, whatsapp_source_hotel_id').order('name'),
+        whatsappService.getAttachedHotels(selectedHotel.id),
+        whatsappService.resolveConfigHotelId(selectedHotel.id),
+      ]);
+
+      // Só pode servir de origem quem não está delegando para outro
+      setHotels(
+        (lista || [])
+          .filter((h: any) => h.id !== selectedHotel.id && !h.whatsapp_source_hotel_id)
+          .map((h: any) => ({ id: h.id, name: h.name })),
+      );
+      setAttachedHotels(anexados);
+      setSourceHotelId(ownerId === selectedHotel.id ? null : ownerId);
+    } catch (err) {
+      console.error('Erro ao carregar compartilhamento:', err);
+    }
+  }, [selectedHotel]);
+
+  useEffect(() => { loadSharing(); }, [loadSharing]);
+
+  const handleSaveSource = async (novoSourceId: string | null) => {
+    if (!selectedHotel) return;
+    setSavingSource(true);
+    try {
+      await whatsappService.setConfigSource(selectedHotel.id, novoSourceId);
+      setSourceHotelId(novoSourceId);
+      addNotification(
+        novoSourceId
+          ? 'Esta unidade passou a usar o WhatsApp da unidade escolhida.'
+          : 'Esta unidade voltou a ter configuração própria.',
+        'success',
+      );
+      await loadSharing();
+    } catch (err: unknown) {
+      // O trigger no banco recusa cadeia de delegação com mensagem explicativa
+      addNotification(err instanceof Error ? err.message : 'Erro ao salvar', 'error');
+    } finally {
+      setSavingSource(false);
+    }
+  };
 
   // ── Save config ──────────────────────────────────────────────────────────
   const handleSaveConfig = async () => {
@@ -428,7 +480,48 @@ const WhatsAppIntegration: React.FC = () => {
             <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>
           ) : (
             <>
-              {/* Provider selector */}
+              {/* ── Compartilhamento entre unidades ─────────────────── */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                <label className={labelCls}>
+                  <Share2 className="inline w-3.5 h-3.5 mr-1" />
+                  WhatsApp desta unidade
+                </label>
+                <select
+                  value={sourceHotelId || ''}
+                  onChange={e => handleSaveSource(e.target.value || null)}
+                  disabled={savingSource || attachedHotels.length > 0}
+                  className={inputCls}
+                >
+                  <option value="">Configuração própria</option>
+                  {hotels.map(h => (
+                    <option key={h.id} value={h.id}>Usar o WhatsApp de {h.name}</option>
+                  ))}
+                </select>
+
+                {attachedHotels.length > 0 && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    {attachedHotels.map(h => h.name).join(', ')}{' '}
+                    {attachedHotels.length > 1 ? 'usam' : 'usa'} o WhatsApp desta unidade.
+                    Para anexar esta a outra, reaponte {attachedHotels.length > 1 ? 'essas unidades' : 'essa unidade'} primeiro.
+                  </p>
+                )}
+
+                {sourceHotelId && (
+                  <div className="mt-3 flex items-start gap-2.5 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl">
+                    <AlertCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      Esta unidade usa as credenciais de{' '}
+                      <strong>{hotels.find(h => h.id === sourceHotelId)?.name || 'outra unidade'}</strong>.
+                      Como o número é o mesmo, o inbox, as etiquetas e as auto respostas
+                      também são compartilhados: a resposta do fornecedor chega em um
+                      número único, sem indicar a qual unidade se referia.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Credenciais só existem em quem tem configuração própria */}
+              {!sourceHotelId && (<>
               <div>
                 <label className={labelCls}>Provider</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -723,6 +816,7 @@ const WhatsAppIntegration: React.FC = () => {
                   )}
                 </div>
               )}
+              </>)}
             </>
           )}
         </div>

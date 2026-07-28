@@ -321,7 +321,22 @@ export default function WhatsAppBroadcast() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'send' | 'history'>('send');
 
-  const hotelId = selectedHotel?.id;
+  /**
+   * Hotel dono da configuracao de WhatsApp. Unidades do mesmo grupo podem
+   * compartilhar um numero, e nesse caso tudo (conversas, etiquetas, regras)
+   * fica sob o hotel de origem, porque a mensagem chega em um numero unico.
+   */
+  const [hotelId, setHotelId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selectedHotel) { setHotelId(undefined); return; }
+    let ativo = true;
+    whatsappService.resolveConfigHotelId(selectedHotel.id)
+      .then(id => { if (ativo) setHotelId(id); })
+      .catch(() => { if (ativo) setHotelId(selectedHotel.id); });
+    return () => { ativo = false; };
+  }, [selectedHotel]);
+
   const isEvolution = config?.provider === 'evolution';
 
   /**

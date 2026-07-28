@@ -84,6 +84,13 @@ const WhatsAppInbox: React.FC = () => {
   const [labels, setLabels]               = useState<WaLabel[]>([]);
   const [templates, setTemplates]         = useState<WhatsAppMessageTemplate[]>([]);
   const [provider, setProvider]           = useState<WhatsAppProvider>('meta');
+  /**
+   * Hotel dono da configuração de WhatsApp. Unidades do mesmo grupo podem
+   * compartilhar um número (Costa do Sol e Brava Club, por exemplo), e nesse caso
+   * as conversas ficam sob o hotel de origem: a resposta do fornecedor chega em
+   * um número único, sem informação de qual unidade era.
+   */
+  const [waHotelId, setWaHotelId]         = useState<string | null>(null);
 
   const [loading, setLoading]           = useState(true);
   const [loadingMsgs, setLoadingMsgs]   = useState(false);
@@ -118,10 +125,10 @@ const WhatsAppInbox: React.FC = () => {
 
   // ── load ───────────────────────────────────────────────────────────────────
   const loadConversations = useCallback(async () => {
-    if (!selectedHotel) return;
+    if (!waHotelId) return;
     try {
       setLoading(true);
-      const data = await waInboxService.getConversations(selectedHotel.id, {
+      const data = await waInboxService.getConversations(waHotelId, {
         status: statusFilter,
         labelId: labelFilter || undefined,
         search: search || undefined,
@@ -132,7 +139,7 @@ const WhatsAppInbox: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedHotel, statusFilter, labelFilter, search]);
+  }, [waHotelId, statusFilter, labelFilter, search]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setLoadingMsgs(true);
@@ -151,24 +158,35 @@ const WhatsAppInbox: React.FC = () => {
   }, []);
 
   const loadLabels = useCallback(async () => {
-    if (!selectedHotel) return;
-    try { setLabels(await waInboxService.getLabels(selectedHotel.id)); } catch { /* noop */ }
-  }, [selectedHotel]);
+    if (!waHotelId) return;
+    try { setLabels(await waInboxService.getLabels(waHotelId)); } catch { /* noop */ }
+  }, [waHotelId]);
 
   const loadTemplates = useCallback(async () => {
     try { setTemplates(await whatsappService.getTemplates()); } catch { /* noop */ }
   }, []);
 
-  const loadProvider = useCallback(async () => {
+  /**
+   * Resolve o hotel dono do WhatsApp antes de qualquer consulta. Sem isso, uma
+   * unidade anexada abriria o inbox vazio, porque as conversas estão gravadas
+   * sob o hotel de origem.
+   */
+  const loadWaContext = useCallback(async () => {
     if (!selectedHotel) return;
     try {
+      const ownerId = await whatsappService.resolveConfigHotelId(selectedHotel.id);
+      setWaHotelId(ownerId);
       const cfg = await whatsappService.getConfig(selectedHotel.id);
       setProvider(cfg?.provider || 'meta');
-    } catch { /* noop */ }
+    } catch {
+      // Sem conseguir resolver, usa o próprio hotel
+      setWaHotelId(selectedHotel.id);
+    }
   }, [selectedHotel]);
 
+  useEffect(() => { loadWaContext(); }, [loadWaContext]);
   useEffect(() => { loadConversations(); }, [loadConversations]);
-  useEffect(() => { loadLabels(); loadTemplates(); loadProvider(); }, [loadLabels, loadTemplates, loadProvider]);
+  useEffect(() => { loadLabels(); loadTemplates(); }, [loadLabels, loadTemplates]);
 
   useEffect(() => {
     if (selectedId) loadMessages(selectedId);
@@ -231,7 +249,7 @@ const WhatsAppInbox: React.FC = () => {
 
   useRealtimeSubscription<any>(
     'whatsapp_conversations',
-    `hotel_id=eq.${selectedHotel?.id}`,
+    `hotel_id=eq.${waHotelId}`,
     handleConvRealtime,
   );
   useRealtimeSubscription<any>(
@@ -242,7 +260,7 @@ const WhatsAppInbox: React.FC = () => {
 
   // ── send ───────────────────────────────────────────────────────────────────
   const handleSend = async () => {
-    if (!messageText.trim() || !selectedConv || !selectedHotel || sending) return;
+    if (!messageText.trim() || !selectedConv || !waHotelId || sending) return;
     if (!freeTextAllowed) return;
     setSending(true);
     const text = messageText.trim();
@@ -250,7 +268,7 @@ const WhatsAppInbox: React.FC = () => {
     try {
       const res = await waInboxService.sendText({
         conversationId: selectedConv.id,
-        hotelId: selectedHotel.id,
+        hotelId: waHotelId,
         recipientPhone: selectedConv.contact_phone,
         text,
         sentBy: user?.id,
@@ -266,13 +284,13 @@ const WhatsAppInbox: React.FC = () => {
   };
 
   const handleSendTemplate = async (template: WhatsAppMessageTemplate) => {
-    if (!selectedConv || !selectedHotel) return;
+    if (!selectedConv || !waHotelId) return;
     setShowTemplateMenu(false);
     setSending(true);
     try {
       await waInboxService.sendTemplateFromInbox({
         conversationId: selectedConv.id,
-        hotelId: selectedHotel.id,
+        hotelId: waHotelId,
         recipientPhone: selectedConv.contact_phone,
         templateName: template.template_name,
         languageCode: template.language_code,
@@ -771,7 +789,7 @@ const WhatsAppInbox: React.FC = () => {
       {showLabelManager && (
         <LabelManagerModal
           labels={labels}
-          hotelId={selectedHotel!.id}
+          hotelId={waHotelId!}
           onClose={() => { setShowLabelManager(false); loadLabels(); }}
         />
       )}

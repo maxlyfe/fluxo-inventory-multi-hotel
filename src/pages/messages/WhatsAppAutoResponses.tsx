@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
-import { waInboxService, WaAutoResponse } from '../../lib/whatsappService';
+import { waInboxService, WaAutoResponse, whatsappService } from '../../lib/whatsappService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -294,7 +294,22 @@ export default function WhatsAppAutoResponses() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const hotelId = selectedHotel?.id;
+  /**
+   * Hotel dono da configuracao de WhatsApp. Unidades do mesmo grupo podem
+   * compartilhar um numero, e nesse caso tudo (conversas, etiquetas, regras)
+   * fica sob o hotel de origem, porque a mensagem chega em um numero unico.
+   */
+  const [hotelId, setHotelId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selectedHotel) { setHotelId(undefined); return; }
+    let ativo = true;
+    whatsappService.resolveConfigHotelId(selectedHotel.id)
+      .then(id => { if (ativo) setHotelId(id); })
+      .catch(() => { if (ativo) setHotelId(selectedHotel.id); });
+    return () => { ativo = false; };
+  }, [selectedHotel]);
+
 
   useEffect(() => {
     if (!hotelId) return;

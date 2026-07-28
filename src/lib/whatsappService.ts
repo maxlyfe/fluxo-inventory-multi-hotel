@@ -205,13 +205,54 @@ export const whatsappService = {
 
   // ── Config ──────────────────────────────────────────────────────────────
 
+  /**
+   * Resolve para qual hotel devemos ler a configuração de WhatsApp.
+   *
+   * Unidades do mesmo grupo podem compartilhar um número: Costa do Sol e Brava
+   * Club, por exemplo. A unidade anexada não guarda credencial e aponta para o
+   * hotel de origem via hotels.whatsapp_source_hotel_id.
+   *
+   * A delegação é de um nível só, garantido por trigger no banco, então não há
+   * cadeia para percorrer.
+   */
+  async resolveConfigHotelId(hotelId: string): Promise<string> {
+    const { data } = await supabase
+      .from('hotels')
+      .select('whatsapp_source_hotel_id')
+      .eq('id', hotelId)
+      .maybeSingle();
+    return data?.whatsapp_source_hotel_id || hotelId;
+  },
+
+  /** Unidades que usam o WhatsApp deste hotel, para avisar na tela de config */
+  async getAttachedHotels(hotelId: string): Promise<Array<{ id: string; name: string }>> {
+    const { data } = await supabase
+      .from('hotels')
+      .select('id, name')
+      .eq('whatsapp_source_hotel_id', hotelId)
+      .order('name');
+    return (data || []) as Array<{ id: string; name: string }>;
+  },
+
+  /** Define ou remove o compartilhamento do WhatsApp com outra unidade */
+  async setConfigSource(hotelId: string, sourceHotelId: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('hotels')
+      .update({ whatsapp_source_hotel_id: sourceHotelId })
+      .eq('id', hotelId);
+    // O trigger no banco recusa cadeia de delegação com mensagem explicativa
+    if (error) throw new Error(error.message);
+  },
+
   /** Busca config do hotel, com fallback para config global (hotel_id IS NULL) */
   async getConfig(hotelId: string): Promise<WhatsAppConfig | null> {
-    // Primeiro tenta config específica do hotel
+    // Unidade anexada usa a configuração da unidade de origem
+    const ownerId = await this.resolveConfigHotelId(hotelId);
+
     const { data: hotelConfig } = await supabase
       .from('whatsapp_configs')
       .select('*')
-      .eq('hotel_id', hotelId)
+      .eq('hotel_id', ownerId)
       .eq('is_active', true)
       .maybeSingle();
 
