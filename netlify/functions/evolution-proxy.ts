@@ -21,7 +21,8 @@ type EvoAction =
   | 'set-webhook'
   | 'find-webhook'
   | 'fetch-instances'
-  | 'check-numbers';
+  | 'check-numbers'
+  | 'get-media-base64';
 
 const ROUTES: Record<EvoAction, { method: string; path: (instance: string) => string }> = {
   'create':       { method: 'POST',   path: ()  => '/instance/create' },
@@ -37,6 +38,10 @@ const ROUTES: Record<EvoAction, { method: string; path: (instance: string) => st
   'fetch-instances': { method: 'GET',  path: ()  => '/instance/fetchInstances' },
   // Consulta se números existem no WhatsApp. Exige socket vivo e não envia nada.
   'check-numbers':   { method: 'POST', path: (i) => `/chat/whatsappNumbers/${encodeURIComponent(i)}` },
+  // Descriptografa mídia recebida. O corpo carrega o WebMessageInfo bruto que o
+  // webhook guardou, porque o Evolution roda com DATABASE_SAVE_DATA_NEW_MESSAGE
+  // desligado e não tem a mensagem para consultar por conta própria.
+  'get-media-base64': { method: 'POST', path: (i) => `/chat/getBase64FromMediaMessage/${encodeURIComponent(i)}` },
 };
 
 const CORS = {

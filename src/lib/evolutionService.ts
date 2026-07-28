@@ -227,6 +227,36 @@ export const evolutionApi = {
     return { alive: false, error: res.error };
   },
 
+  /**
+   * Descriptografa uma mídia recebida e devolve base64.
+   *
+   * A mídia no WhatsApp é criptografada: a url que vem no payload não abre no
+   * navegador. Quem descriptografa é o Evolution, mas ele precisa do
+   * WebMessageInfo original, e roda aqui com DATABASE_SAVE_DATA_NEW_MESSAGE
+   * desligado para não inflar o banco. Por isso o webhook guarda o objeto bruto
+   * em content.raw e ele é devolvido aqui.
+   */
+  async getMediaBase64(
+    cfg: EvolutionCredentials,
+    rawMessage: unknown,
+  ): Promise<{ success: boolean; base64?: string; mimetype?: string; error?: string }> {
+    if (!rawMessage) {
+      return { success: false, error: 'Mensagem original não foi guardada, não há como descriptografar.' };
+    }
+
+    const res = await call(cfg, 'get-media-base64', {
+      message: rawMessage,
+      convertToMp4: false,
+    });
+
+    if (!res.ok) return { success: false, error: res.error };
+
+    const base64: string | undefined = res.data?.base64 || res.data?.media;
+    if (!base64) return { success: false, error: 'O Evolution respondeu sem a mídia.' };
+
+    return { success: true, base64, mimetype: res.data?.mimetype };
+  },
+
   async logout(cfg: EvolutionCredentials): Promise<{ success: boolean; error?: string }> {
     const res = await call(cfg, 'logout');
     return res.ok ? { success: true } : { success: false, error: res.error };

@@ -250,7 +250,7 @@ function parseEvolutionContent(msg: any): { type: string; content: Record<string
     const im = inner.imageMessage;
     return {
       type: 'image',
-      content: { caption: im.caption, mime_type: im.mimetype, media_url: im.url, media_key: im.mediaKey },
+      content: { caption: im.caption, mime_type: im.mimetype, media_url: im.url, media_key: im.mediaKey, raw: msg },
       preview: im.caption ? `📷 ${im.caption}`.slice(0, 80) : '📷 Imagem',
     };
   }
@@ -259,7 +259,7 @@ function parseEvolutionContent(msg: any): { type: string; content: Record<string
     const am = inner.audioMessage;
     return {
       type: 'audio',
-      content: { mime_type: am.mimetype, media_url: am.url, media_key: am.mediaKey, seconds: am.seconds },
+      content: { mime_type: am.mimetype, media_url: am.url, media_key: am.mediaKey, seconds: am.seconds, raw: msg },
       preview: '🎵 Áudio',
     };
   }
@@ -268,7 +268,7 @@ function parseEvolutionContent(msg: any): { type: string; content: Record<string
     const vm = inner.videoMessage;
     return {
       type: 'video',
-      content: { caption: vm.caption, mime_type: vm.mimetype, media_url: vm.url, media_key: vm.mediaKey },
+      content: { caption: vm.caption, mime_type: vm.mimetype, media_url: vm.url, media_key: vm.mediaKey, raw: msg },
       preview: vm.caption ? `🎥 ${vm.caption}`.slice(0, 80) : '🎥 Vídeo',
     };
   }
@@ -277,7 +277,7 @@ function parseEvolutionContent(msg: any): { type: string; content: Record<string
     const dm = inner.documentMessage;
     return {
       type: 'document',
-      content: { filename: dm.fileName, caption: dm.caption, mime_type: dm.mimetype, media_url: dm.url, media_key: dm.mediaKey },
+      content: { filename: dm.fileName, caption: dm.caption, mime_type: dm.mimetype, media_url: dm.url, media_key: dm.mediaKey, raw: msg },
       preview: dm.fileName ? `📄 ${dm.fileName}`.slice(0, 80) : '📄 Documento',
     };
   }

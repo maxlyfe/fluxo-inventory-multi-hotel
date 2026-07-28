@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   MessageCircle, Search, X, Check, CheckCheck, Clock, Tag,
-  User, Users, ChevronDown, Send, Paperclip, MoreVertical,
+  User, Users, ChevronDown, Send, MoreVertical,
   Phone, Archive, RefreshCw, Loader2, Plus, Trash2, Edit3,
   Bot, ArrowLeft, AlertCircle, Lock, Unlock,
 } from 'lucide-react';
@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { waInboxService, WaConversation, WaMessage, WaLabel, WhatsAppMessageTemplate } from '../../lib/whatsappService';
 import { whatsappService, WhatsAppProvider } from '../../lib/whatsappService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
+import WaMediaBubble from '../../components/WaMediaBubble';
 import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -188,10 +189,35 @@ const WhatsAppInbox: React.FC = () => {
   useEffect(() => { loadConversations(); }, [loadConversations]);
   useEffect(() => { loadLabels(); loadTemplates(); }, [loadLabels, loadTemplates]);
 
+  /**
+   * Recarrega a thread ao trocar de conversa e sempre que a conversa aberta
+   * receber mensagem nova. Depender de last_message_at faz a thread acompanhar
+   * tanto o realtime quanto o poll abaixo, sem precisar de lógica separada.
+   */
+  const lastMessageAt = selectedConv?.last_message_at;
   useEffect(() => {
     if (selectedId) loadMessages(selectedId);
     else setMessages([]);
-  }, [selectedId, loadMessages]);
+  }, [selectedId, lastMessageAt, loadMessages]);
+
+  /**
+   * Poll de segurança.
+   *
+   * O realtime do Supabase depende da tabela estar na publicação e da conexão
+   * websocket se manter. Quando qualquer um dos dois falha, ele para em silêncio
+   * e a tela congela sem nenhum erro. O poll cobre isso, e o refresh ao voltar
+   * para a aba cobre o caso de o navegador ter suspendido a conexão em background.
+   */
+  useEffect(() => {
+    if (!waHotelId) return;
+    const timer = window.setInterval(() => { loadConversations(); }, 20_000);
+    const aoFocar = () => loadConversations();
+    window.addEventListener('focus', aoFocar);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', aoFocar);
+    };
+  }, [waHotelId, loadConversations]);
 
   // auto-scroll
   useEffect(() => {
@@ -666,17 +692,15 @@ const WhatsAppInbox: React.FC = () => {
                               </div>
                               <p className="text-sm">{tplName}</p>
                             </div>
-                          ) : msg.type === 'image' ? (
-                            <div>
-                              <div className="w-48 h-32 bg-black/10 rounded-lg flex items-center justify-center mb-1">
-                                <Paperclip className="w-6 h-6 opacity-40" />
-                              </div>
-                              {(msg.content?.caption as string) && <p className="text-sm">{msg.content.caption as string}</p>}
-                            </div>
-                          ) : msg.type === 'audio' ? (
-                            <p className="text-sm flex items-center gap-1.5 opacity-80">🎵 Mensagem de voz</p>
-                          ) : msg.type === 'document' ? (
-                            <p className="text-sm flex items-center gap-1.5">📄 {(msg.content?.filename as string) || 'Documento'}</p>
+                          ) : (msg.type === 'image' || msg.type === 'audio' || msg.type === 'video'
+                                || msg.type === 'document' || msg.type === 'sticker') ? (
+                            <WaMediaBubble
+                              messageId={msg.id}
+                              hotelId={waHotelId!}
+                              type={msg.type as 'image' | 'audio' | 'video' | 'document' | 'sticker'}
+                              content={msg.content || {}}
+                              isOut={isOut}
+                            />
                           ) : msg.type === 'location' ? (
                             <p className="text-sm flex items-center gap-1.5">📍 {(msg.content?.name as string) || 'Localização'}</p>
                           ) : (

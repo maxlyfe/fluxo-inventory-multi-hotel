@@ -548,6 +548,42 @@ export const whatsappService = {
     });
   },
 
+  // ── Mídia recebida ─────────────────────────────────────────────────────
+
+  /**
+   * Baixa e descriptografa a mídia de uma mensagem, devolvendo um data URI
+   * pronto para <img>, <audio>, <video> ou download.
+   *
+   * Só existe no provider evolution. Na Meta a mídia é buscada por media_id em
+   * outro endpoint, que este projeto ainda não usa.
+   */
+  async getMessageMedia(params: {
+    hotelId: string;
+    rawMessage: unknown;
+    fallbackMime?: string;
+  }): Promise<{ success: boolean; dataUri?: string; error?: string }> {
+    const config = await this.getConfig(params.hotelId);
+    if (!config) return { success: false, error: 'WhatsApp não configurado para este hotel' };
+
+    if (config.provider !== 'evolution') {
+      return { success: false, error: 'A exibição de mídia está disponível apenas no provider Evolution.' };
+    }
+
+    const creds = evolutionCredentials(config);
+    if (!creds) return { success: false, error: 'Configuração Evolution incompleta.' };
+
+    const res = await evolutionApi.getMediaBase64(creds, params.rawMessage);
+    if (!res.success || !res.base64) return { success: false, error: res.error };
+
+    const mime = res.mimetype || params.fallbackMime || 'application/octet-stream';
+    // O Evolution às vezes devolve o data URI completo, às vezes só o base64
+    const dataUri = res.base64.startsWith('data:')
+      ? res.base64
+      : `data:${mime};base64,${res.base64}`;
+
+    return { success: true, dataUri };
+  },
+
   // ── Log ────────────────────────────────────────────────────────────────
 
   async logMessage(entry: {
