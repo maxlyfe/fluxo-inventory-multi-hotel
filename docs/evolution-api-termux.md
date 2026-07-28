@@ -405,6 +405,15 @@ termux-wake-lock && proot-distro login ubuntu -- env TUNNEL_NAME=fluxo-evolution
 proot-distro login ubuntu -- tail -f /root/logs/supervisor.log
 ```
 
+Endereço atual do túnel, quando estiver usando o túnel rápido:
+
+```bash
+proot-distro login ubuntu -- cat /root/logs/tunnel-url
+```
+
+O supervisor grava esse arquivo a cada início e zera o `tunnel.log`, para não
+haver dúvida entre o endereço atual e um antigo já morto.
+
 O `supervisor.log` registra cada reinício e cada vez que o watchdog derrubou o
 processo por socket morto. Se ele estiver reiniciando de minuto em minuto, o
 problema é outro: veja `/root/logs/evolution.log`.

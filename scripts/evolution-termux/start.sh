@@ -60,8 +60,21 @@ run_tunnel() {
       log "subindo tunel nomeado $TUNNEL_NAME"
       cloudflared tunnel run "$TUNNEL_NAME" >> "$LOG_DIR/tunnel.log" 2>&1
     else
+      # Zera o log a cada início: o túnel rápido sorteia um endereço novo, e um
+      # log acumulado faz confundir o endereço atual com um antigo já morto.
+      : > "$LOG_DIR/tunnel.log"
       log "subindo tunel rapido (endereco vai mudar)"
-      cloudflared tunnel --url "http://localhost:$PORT" >> "$LOG_DIR/tunnel.log" 2>&1
+      cloudflared tunnel --url "http://localhost:$PORT" >> "$LOG_DIR/tunnel.log" 2>&1 &
+      local pid=$!
+
+      # Publica o endereço em arquivo próprio, para consulta sem grep no log
+      ( sleep 20
+        grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG_DIR/tunnel.log" \
+          | tail -1 > "$LOG_DIR/tunnel-url" 2>/dev/null
+        log "tunel em $(cat "$LOG_DIR/tunnel-url" 2>/dev/null || echo 'endereco nao encontrado')"
+      ) &
+
+      wait "$pid"
     fi
     log "tunel saiu, reiniciando em 10s"
     sleep 10
