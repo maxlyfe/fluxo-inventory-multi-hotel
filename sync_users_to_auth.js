@@ -8,7 +8,7 @@ import 'dotenv/config'; // Para carregar variáveis do arquivo .env
 
 // 1. O script agora tentará ler VITE_SUPABASE_URL e VITE_SUPABASE_SERVICE_ROLE_KEY do seu arquivo .env
 // Certifique-se de que seu arquivo .env contém:
-// VITE_SUPABASE_URL=https://bnmyflgyrlskhljrbyfc.supabase.co
+// VITE_SUPABASE_URL=https://SEU_PROJETO.supabase.co
 // VITE_SUPABASE_SERVICE_ROLE_KEY="SUA_CHAVE_SERVICE_ROLE_AQUI"
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;

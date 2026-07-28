@@ -24,7 +24,7 @@ SELECT cron.schedule(
   '0 * * * *',  -- de hora em hora (no minuto 0)
   $$
   SELECT net.http_post(
-    url     := 'https://bnmyflgyrlskhljrbyfc.supabase.co/functions/v1/event-reminders',
+    url     := 'https://SEU_PROJETO.supabase.co/functions/v1/event-reminders',
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
       'Authorization', 'Bearer <SERVICE_ROLE_KEY>'

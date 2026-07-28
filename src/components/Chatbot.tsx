@@ -9,7 +9,10 @@ interface Message {
   sender: 'user' | 'bot';
 }
 
-const FUNCTION_URL = 'https://bnmyflgyrlskhljrbyfc.supabase.co/functions/v1/ask-chatbot';
+// Derivada da env em vez de fixa: a URL fixa amarrava o build a um projeto
+// Supabase e fazia o secrets scanning do Netlify reprovar o deploy, por
+// encontrar no repositório o mesmo valor de uma variável de ambiente.
+const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ask-chatbot`;
 
 export default function Chatbot() {
   const [isOpen, setIsOpen] = useState(false);

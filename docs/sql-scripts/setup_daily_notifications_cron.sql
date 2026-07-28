@@ -28,7 +28,7 @@ SELECT cron.schedule(
   '0 11 * * *',
   $$
   SELECT net.http_post(
-    url     := 'https://bnmyflgyrlskhljrbyfc.supabase.co/functions/v1/daily-notifications',
+    url     := 'https://SEU_PROJETO.supabase.co/functions/v1/daily-notifications',
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
       'Authorization', 'Bearer <SERVICE_ROLE_KEY>'
@@ -44,7 +44,7 @@ SELECT jobid, jobname, schedule, active FROM cron.job WHERE jobname = 'daily-not
 -- ============================================================================
 -- TESTE MANUAL (opcional) — dispara a função agora, sem esperar as 08:00:
 --   SELECT net.http_post(
---     url     := 'https://bnmyflgyrlskhljrbyfc.supabase.co/functions/v1/daily-notifications',
+--     url     := 'https://SEU_PROJETO.supabase.co/functions/v1/daily-notifications',
 --     headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer <SERVICE_ROLE_KEY>'),
 --     body    := '{}'::jsonb
 --   );
