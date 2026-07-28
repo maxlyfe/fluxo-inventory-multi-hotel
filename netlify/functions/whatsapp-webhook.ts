@@ -5,14 +5,41 @@
 // Persiste mensagens recebidas, status updates e dispara auto respostas.
 
 import type { Handler, HandlerEvent } from '@netlify/functions';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'fluxo_whatsapp_verify_2024';
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+/**
+ * Cliente criado sob demanda, não no carregamento do módulo.
+ *
+ * Com createClient no topo do arquivo, SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY
+ * ausentes derrubavam a função inteira com 502 antes de qualquer linha rodar.
+ * O provider interpretava como falha temporária, tentava de novo algumas vezes e
+ * desistia, então a mensagem recebida se perdia sem nenhum rastro de diagnóstico.
+ */
+let _supabase: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient {
+  if (_supabase) return _supabase;
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const missing = [
+    !url && 'SUPABASE_URL',
+    !key && 'SUPABASE_SERVICE_ROLE_KEY',
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Variáveis de ambiente ausentes no Netlify: ${missing.join(', ')}. ` +
+      'Configure em Site settings › Environment variables e refaça o deploy.',
+    );
+  }
+
+  _supabase = createClient(url!, key!);
+  return _supabase;
+}
 
 const EVOLUTION_WEBHOOK_EVENTS = ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'];
 
@@ -31,6 +58,27 @@ const handler: Handler = async (event: HandlerEvent) => {
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       return { statusCode: 200, headers, body: challenge || '' };
     }
+
+    // Health check: GET sem os parâmetros da Meta reporta se o ambiente está
+    // configurado. Só booleanos, nunca o valor das credenciais.
+    if (!mode && !token) {
+      const ok = Boolean(process.env.SUPABASE_URL) && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+      return {
+        statusCode: ok ? 200 : 503,
+        headers,
+        body: JSON.stringify({
+          status: ok ? 'ok' : 'misconfigured',
+          env: {
+            SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
+            SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+          },
+          hint: ok
+            ? undefined
+            : 'Configure as variáveis em Netlify › Site settings › Environment variables e refaça o deploy.',
+        }),
+      };
+    }
+
     return { statusCode: 403, headers, body: JSON.stringify({ error: 'Verification failed' }) };
   }
 
@@ -85,7 +133,7 @@ async function handleEvolution(body: any): Promise<void> {
 
   if (!EVOLUTION_WEBHOOK_EVENTS.includes(evt)) return;
 
-  const { data: cfg } = await supabaseAdmin
+  const { data: cfg } = await getSupabase()
     .from('whatsapp_configs')
     .select('id, hotel_id, base_url, api_key, instance_name')
     .eq('provider', 'evolution')
@@ -104,7 +152,7 @@ async function handleEvolution(body: any): Promise<void> {
     case 'CONNECTION_UPDATE': {
       const state = body.data?.state || body.data?.instance?.state;
       if (!state) return;
-      await supabaseAdmin
+      await getSupabase()
         .from('whatsapp_configs')
         .update({
           connection_status: state,
@@ -123,7 +171,7 @@ async function handleEvolution(body: any): Promise<void> {
         if (!waId) continue;
         const mapped = mapEvolutionStatus(u?.status);
         if (!mapped) continue;
-        await supabaseAdmin
+        await getSupabase()
           .from('whatsapp_messages')
           .update({ status: mapped })
           .eq('whatsapp_message_id', waId);
@@ -267,7 +315,7 @@ async function processEvolutionMessage(config: EvolutionConfig, item: any): Prom
   // reconexão, e o envio pelo Fluxo já gravou a linha outbound. Com
   // ignoreDuplicates, uma linha já existente volta como array vazio, o que
   // sinaliza replay e evita incrementar unread_count de novo.
-  const { data: inserted, error: insertErr } = await supabaseAdmin
+  const { data: inserted, error: insertErr } = await getSupabase()
     .from('whatsapp_messages')
     .upsert({
       conversation_id: conv.id,
@@ -300,7 +348,7 @@ async function processEvolutionMessage(config: EvolutionConfig, item: any): Prom
     convUpdate.unread_count = (conv.unread_count || 0) + 1;
   }
 
-  await supabaseAdmin.from('whatsapp_conversations').update(convUpdate).eq('id', conv.id);
+  await getSupabase().from('whatsapp_conversations').update(convUpdate).eq('id', conv.id);
 
   // Auto respostas apenas para texto recebido do contato
   if (!fromMe && type === 'text' && config.hotel_id) {
@@ -324,7 +372,7 @@ async function findOrCreateConversation(
   contactPhone: string,
   contactName: string,
 ): Promise<{ id: string; unread_count: number } | null> {
-  let q = supabaseAdmin
+  let q = getSupabase()
     .from('whatsapp_conversations')
     .select('id, unread_count, contact_name')
     .eq('contact_phone', contactPhone);
@@ -336,7 +384,7 @@ async function findOrCreateConversation(
   if (existing) {
     // Preenche o nome quando o contato ainda estava só com o número
     if (contactName && contactName !== contactPhone && existing.contact_name !== contactName) {
-      await supabaseAdmin
+      await getSupabase()
         .from('whatsapp_conversations')
         .update({ contact_name: contactName })
         .eq('id', existing.id);
@@ -344,7 +392,7 @@ async function findOrCreateConversation(
     return { id: existing.id, unread_count: existing.unread_count || 0 };
   }
 
-  const { data: created, error } = await supabaseAdmin
+  const { data: created, error } = await getSupabase()
     .from('whatsapp_conversations')
     .insert({
       hotel_id: hotelId,
@@ -359,8 +407,8 @@ async function findOrCreateConversation(
   if (error) {
     // Corrida entre dois eventos simultâneos: relê a linha criada pelo outro
     const { data: retry } = await (hotelId
-      ? supabaseAdmin.from('whatsapp_conversations').select('id, unread_count').eq('contact_phone', contactPhone).eq('hotel_id', hotelId)
-      : supabaseAdmin.from('whatsapp_conversations').select('id, unread_count').eq('contact_phone', contactPhone).is('hotel_id', null)
+      ? getSupabase().from('whatsapp_conversations').select('id, unread_count').eq('contact_phone', contactPhone).eq('hotel_id', hotelId)
+      : getSupabase().from('whatsapp_conversations').select('id, unread_count').eq('contact_phone', contactPhone).is('hotel_id', null)
     ).maybeSingle();
     if (retry) return { id: retry.id, unread_count: retry.unread_count || 0 };
     console.error('[Webhook] Falha ao criar conversa:', error);
@@ -386,7 +434,7 @@ async function handleMeta(body: any): Promise<void> {
       let hotelId: string | null = null;
       let accessToken: string | null = null;
       if (phoneNumberId) {
-        const { data: cfg } = await supabaseAdmin
+        const { data: cfg } = await getSupabase()
           .from('whatsapp_configs')
           .select('hotel_id, access_token')
           .eq('provider', 'meta')
@@ -400,7 +448,7 @@ async function handleMeta(body: any): Promise<void> {
       // ── Status updates (delivered, read, failed) ──────────────────
       if (Array.isArray(value.statuses)) {
         for (const st of value.statuses) {
-          await supabaseAdmin
+          await getSupabase()
             .from('whatsapp_messages')
             .update({ status: st.status === 'read' ? 'read' : st.status === 'delivered' ? 'delivered' : st.status === 'failed' ? 'failed' : 'sent' })
             .eq('whatsapp_message_id', st.id);
@@ -460,7 +508,7 @@ async function handleMeta(body: any): Promise<void> {
               preview = `[${type}]`;
           }
 
-          const { data: inserted } = await supabaseAdmin.from('whatsapp_messages').upsert({
+          const { data: inserted } = await getSupabase().from('whatsapp_messages').upsert({
             conversation_id: conv.id,
             hotel_id: hotelId,
             whatsapp_message_id: msg.id,
@@ -474,7 +522,7 @@ async function handleMeta(body: any): Promise<void> {
           // Reentrega do mesmo evento pela Meta: não conta como nova mensagem
           if (!inserted || inserted.length === 0) continue;
 
-          await supabaseAdmin.from('whatsapp_conversations').update({
+          await getSupabase().from('whatsapp_conversations').update({
             last_message_preview: preview,
             last_message_at: new Date().toISOString(),
             last_customer_message_at: new Date().toISOString(),
@@ -516,7 +564,7 @@ async function processAutoResponses(args: {
   const { hotelId, conversationId, recipientPhone, incomingText, sender } = args;
 
   try {
-    const { data: rules } = await supabaseAdmin
+    const { data: rules } = await getSupabase()
       .from('whatsapp_auto_responses')
       .select('*')
       .or(`hotel_id.eq.${hotelId},hotel_id.is.null`)
@@ -528,7 +576,7 @@ async function processAutoResponses(args: {
     const textLower = incomingText.toLowerCase().trim();
 
     // Conta mensagens recebidas para o gatilho first_message
-    const { count } = await supabaseAdmin
+    const { count } = await getSupabase()
       .from('whatsapp_messages')
       .select('id', { count: 'exact', head: true })
       .eq('conversation_id', conversationId)
@@ -557,7 +605,7 @@ async function processAutoResponses(args: {
       const sent = await sendAutoResponse(sender, recipientPhone, rule.response_text);
 
       if (sent.success) {
-        await supabaseAdmin.from('whatsapp_messages').upsert({
+        await getSupabase().from('whatsapp_messages').upsert({
           conversation_id: conversationId,
           hotel_id: hotelId,
           whatsapp_message_id: sent.messageId || null,
@@ -568,7 +616,7 @@ async function processAutoResponses(args: {
           sent_at: new Date().toISOString(),
         }, { onConflict: 'whatsapp_message_id', ignoreDuplicates: true });
 
-        await supabaseAdmin.from('whatsapp_conversations').update({
+        await getSupabase().from('whatsapp_conversations').update({
           last_message_preview: rule.response_text.slice(0, 80),
           last_message_at: new Date().toISOString(),
         }).eq('id', conversationId);

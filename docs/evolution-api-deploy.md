@@ -8,12 +8,13 @@ sai na hospedagem, não na licença.
 
 1. [Como funciona](#como-funciona)
 2. [O que você precisa antes de começar](#o-que-você-precisa-antes-de-começar)
-3. [Deploy na VPS](#deploy-na-vps)
-4. [Configuração no Fluxo](#configuração-no-fluxo)
-5. [Variáveis no Netlify](#variáveis-no-netlify)
-6. [Operação e manutenção](#operação-e-manutenção)
-7. [Riscos e limites](#riscos-e-limites)
-8. [Diagnóstico de problemas](#diagnóstico-de-problemas)
+3. [Oracle Cloud Always Free](#oracle-cloud-always-free) (gratuito, recomendado)
+4. [Deploy na VPS](#deploy-na-vps)
+5. [Configuração no Fluxo](#configuração-no-fluxo)
+6. [Variáveis no Netlify](#variáveis-no-netlify)
+7. [Operação e manutenção](#operação-e-manutenção)
+8. [Riscos e limites](#riscos-e-limites)
+9. [Diagnóstico de problemas](#diagnóstico-de-problemas)
 
 ---
 
@@ -48,11 +49,13 @@ endpoint usado pela Meta: ele identifica o provider pelo formato do payload.
 | Janela de 24h | Fora dela só template | Não existe |
 | Homologado pela Meta | Sim | Não |
 | Risco de bloqueio | Praticamente nulo | Real |
-| Número | Dedicado à API | Número comum, some do celular |
+| Número | Dedicado à API | Número comum, segue no celular |
 
-Atenção ao último ponto: ao conectar um número no Evolution ele passa a funcionar
-como um aparelho vinculado. Não use o número que a recepção usa no celular no dia
-a dia, porque o inbox do Fluxo e o WhatsApp do aparelho vão brigar pelo controle.
+O celular continua funcionando normalmente. O Evolution entra como **aparelho
+vinculado**, e o celular segue sendo o principal. Como o webhook captura as duas
+direções, o que a equipe responder pelo celular também aparece no inbox do Fluxo.
+
+O que não se pode é conectar o mesmo número em duas instâncias do Evolution.
 
 ---
 
@@ -79,6 +82,91 @@ Detalhes e limitações em [Rodando no próprio PC](#rodando-no-próprio-pc).
 ### Em qualquer cenário
 
 - Um chip de WhatsApp por hotel, de preferência já com histórico de conversas.
+
+---
+
+## Oracle Cloud Always Free
+
+Caminho recomendado para quem não quer custo mensal. A VM é ARM e a imagem do
+Evolution tem build `linux/arm64`, então o `docker-compose.yml` deste repositório
+roda sem alteração.
+
+O Always Free dá até 4 OCPU e 24 GB de RAM em instâncias A1, permanentemente, sem
+trial que expira. O cartão é pedido só para verificação de identidade.
+
+### 1. Criar a conta
+
+Em [oracle.com/cloud/free](https://www.oracle.com/cloud/free/). Escolha a região
+mais próxima na criação: ela vira sua *home region* e não muda depois.
+
+### 2. Criar a instância
+
+Compute › Instances › Create instance:
+
+- **Image**: Ubuntu 24.04
+- **Shape**: `VM.Standard.A1.Flex`, com **1 OCPU e 6 GB** de RAM
+- **SSH keys**: salve a chave privada, é o único acesso à máquina
+
+> **"Out of host capacity"** é o erro mais comum aqui: a capacidade ARM gratuita
+> costuma estar esgotada. Tente outro *availability domain* no mesmo formulário,
+> ou repita depois de algumas horas. Não é problema da sua conta.
+
+Anote o **Public IP** da instância.
+
+### 3. Liberar as portas, nos dois lugares
+
+Isto pega quase todo mundo: a Oracle bloqueia em duas camadas independentes, e é
+preciso abrir nas duas.
+
+**Camada 1, na nuvem.** Na página da instância, clique na *Subnet* › *Security
+List* › Add Ingress Rules. Crie duas regras:
+
+| Source CIDR | Protocolo | Porta |
+|---|---|---|
+| `0.0.0.0/0` | TCP | 80 |
+| `0.0.0.0/0` | TCP | 443 |
+
+**Camada 2, dentro da VM.** As imagens Ubuntu da Oracle vêm com iptables
+bloqueando tudo menos SSH. Depois de conectar por SSH:
+
+```bash
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+```
+
+```bash
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+```
+
+```bash
+sudo netfilter-persistent save
+```
+
+Sem a camada 2, o Caddy nunca consegue emitir o certificado e você fica com erro
+de HTTPS sem entender o motivo.
+
+### 4. Apontar o DNS
+
+Crie um registro **A** para `evolution.seudominio.com.br` apontando para o Public
+IP da instância. Espere resolver antes de seguir:
+
+```bash
+nslookup evolution.seudominio.com.br
+```
+
+### 5. Instalar o Docker
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+```
+
+```bash
+sudo usermod -aG docker $USER && newgrp docker
+```
+
+### 6. Subir o stack
+
+Copie os três arquivos de `docker/evolution/` para a VM e siga a partir do
+passo 3 de [Deploy na VPS](#deploy-na-vps).
 
 ---
 

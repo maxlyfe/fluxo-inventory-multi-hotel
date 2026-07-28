@@ -27,6 +27,7 @@ import { useAuth } from "../context/AuthContext";
 import { useNotification } from "../context/NotificationContext";
 import { getBudgetHistory, updateBudgetStatus, getHotels, updateBudgetItems, updateBudgetItemStatus, updateBudgetItemPayment } from "../lib/supabase";
 import { createNotification } from "../lib/notifications";
+import { dispatchOrderForBudget, describeDispatch } from "../lib/orderDispatch";
 
 const unitOptions = [
   { value: "", label: "Selecione" },
@@ -273,6 +274,30 @@ const AuthorizationsPage: React.FC = () => {
         } catch (notificationError) {
           console.error('Erro ao enviar notificação de orçamento aprovado:', notificationError);
         }
+
+        // Disparo automático do pedido aos fornecedores com contato vinculado em
+        // /purchases/list. Se algum envio funcionar, dispatchOrderForBudget move o
+        // status para 'on_the_way'; sem contato o orçamento fica em 'approved'
+        // para tratamento manual. Nunca deixa a aprovação falhar por causa disso.
+        try {
+          const summary = await dispatchOrderForBudget({
+            budgetId,
+            hotelId: result.data.hotel_id,
+          });
+          const { message, kind } = describeDispatch(summary);
+          addNotification(message, kind);
+
+          summary.results
+            .filter(r => !r.success)
+            .forEach(r => console.error(`[Pedido] Falha ao enviar para ${r.supplierName}:`, r.error));
+        } catch (dispatchError) {
+          console.error('Erro no disparo do pedido:', dispatchError);
+          addNotification(
+            'Orçamento aprovado, mas o envio do pedido falhou. Reenvie em Histórico de orçamentos.',
+            'warning',
+          );
+        }
+
         fetchAllBudgetsAndHotels(activeHotelFilter);
       } else {
         throw new Error(result.error || "Falha ao aprovar orçamento");
