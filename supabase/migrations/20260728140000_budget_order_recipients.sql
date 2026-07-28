@@ -63,7 +63,6 @@ CREATE POLICY "rls_budget_order_recipients"
 ALTER TABLE budgets
   ADD COLUMN IF NOT EXISTS order_dispatched_at timestamptz;
 
-COMMENT ON COLUMN budgets.order_dispatched_at IS
-  'Momento em que a imagem do pedido foi enviada aos fornecedores com contato. '
-  'Preenchido no disparo automático da aprovação. NULL significa que o pedido '
-  'segue em approved para tratamento manual.';
+-- Uma linha só de propósito: concatenação implícita de literais em linhas
+-- separadas quebra quando o editor SQL junta as linhas antes de enviar.
+COMMENT ON COLUMN budgets.order_dispatched_at IS 'Momento em que a imagem do pedido foi enviada aos fornecedores com contato. Preenchido no disparo automatico da aprovacao. NULL significa que o pedido segue em approved para tratamento manual.';
