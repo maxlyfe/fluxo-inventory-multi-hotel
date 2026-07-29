@@ -97,6 +97,9 @@ export interface ELNacionalConfig {
   aliquota_iss: number;                // percentual (ex. 5)
   optante_simples: boolean;
   telefone?: string | null;
+  // 1 = ISSQN não retido (padrão, caso da hospedagem) · 2 = retido pelo tomador
+  // · 3 = retido pelo intermediário. Ver tribMun em buildDpsXml.
+  tp_ret_issqn?: 1 | 2 | 3 | null;
   // Reforma Tributária (IBS/CBS, NT 2025.002) — bloco <IBSCBS> por DPS (não por
   // item: nf_invoice_items ainda não tem vínculo com services.id).
   ibs_cbs_cst?: string | null;         // CST IBS/CBS (3 díg). '000' = tributação integral
@@ -187,6 +190,10 @@ export function buildDpsXml(
   const cMun = config.codigo_municipio || '3300233';
   const tpAmb = config.ambiente === 'producao' ? 1 : 2;
 
+  // Retenção de ISSQN pelo tomador é exceção (serviço tomado por PJ obrigada a
+  // reter). Para hospedagem o padrão é 1 = não retido.
+  const tpRetISSQN = config.tp_ret_issqn ?? 1;
+
   const digits = (config.codigo_servico || '9.01').replace(/\D/g, '');
   const cTribNac = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const cIntContrib = (config.codigo_servico_municipal || '').replace(/\s/g, '');
@@ -260,8 +267,16 @@ export function buildDpsXml(
     `<trib>` +
     `<tribMun>` +
     `<tribISSQN>1</tribISSQN>` +
-    `<tpRetISSQN>2</tpRetISSQN>` +
-    `<pAliq>${aliq.toFixed(2)}</pAliq>` +
+    // tpRetISSQN: 1=não retido · 2=retido pelo tomador · 3=retido pelo
+    // intermediário. Estava fixo em 2, o que é falso para hospedagem (o hotel
+    // recolhe o próprio ISS) e disparava a rejeição E0237, que exige o endereço
+    // nacional do tomador sempre que o ISSQN é retido por ele.
+    `<tpRetISSQN>${tpRetISSQN}</tpRetISSQN>` +
+    // pAliq só entra quando há retenção: sem retenção a Plataforma Nacional
+    // aplica a alíquota do município conveniado, e informar aqui devolve a
+    // rejeição E0625 ("não é permitido informar alíquota quando não há
+    // indicação de retenção do ISSQN").
+    (tpRetISSQN === 1 ? '' : `<pAliq>${aliq.toFixed(2)}</pAliq>`) +
     `</tribMun>` +
     `<totTrib>` +
     `<vTotTrib>` +

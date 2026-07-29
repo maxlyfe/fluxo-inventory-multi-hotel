@@ -40,6 +40,22 @@ const elItems = [
   { description: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
 ] as any[];
 
+describe('DPS Nacional — retenção de ISSQN (tribMun)', () => {
+  it('marca o ISSQN como não retido por padrão e omite pAliq', () => {
+    // tpRetISSQN=2 (retido pelo tomador) era o valor fixo antigo: além de ser
+    // falso para hospedagem, disparava a rejeição E0237 (exige endereço
+    // nacional do tomador). E informar pAliq sem retenção dá E0625.
+    const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
+    expect(xml).toContain('<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>');
+    expect(xml).not.toContain('<pAliq>');
+  });
+
+  it('informa pAliq quando há retenção pelo tomador', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), tp_ret_issqn: 2 }, elTomador, elItems, '1', 1);
+    expect(xml).toContain('<tpRetISSQN>2</tpRetISSQN><pAliq>5.00</pAliq>');
+  });
+});
+
 describe("NFS-e Nacional via E&L ('el-nacional') — bloco IBSCBS", () => {
   it('não emite o bloco quando o hotel não tem CST/cClassTrib configurados', () => {
     const { xml } = buildDpsXml(elConfig(false), elTomador, elItems, '1', 1);

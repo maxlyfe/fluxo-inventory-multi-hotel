@@ -103,7 +103,14 @@ export interface DPSTomador {
   doc_numero: string | null;
   nacionalidade?: string | null;
   email?: string | null;
+  // Endereço nacional do tomador. Obrigatório quando o ISSQN é retido pelo
+  // tomador (rejeição E0237); fora desse caso é opcional, mas mandamos quando
+  // existe para a NFS-e sair completa.
   endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  codigo_municipio?: string | null;
+  cep?: string | null;
 }
 
 export interface DPSItem {
@@ -152,6 +159,11 @@ function toELTomador(tomador: DPSTomador): ELNacionalTomador {
     cpf_cnpj: tomador.doc_numero ?? null,
     doc_tipo: tomador.doc_tipo,
     razao_social: tomador.nome,
+    endereco: tomador.endereco ?? null,
+    numero: tomador.numero ?? null,
+    bairro: tomador.bairro ?? null,
+    codigo_municipio: tomador.codigo_municipio ?? null,
+    cep: tomador.cep ?? null,
   };
 }
 
