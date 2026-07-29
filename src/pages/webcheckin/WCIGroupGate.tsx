@@ -2,8 +2,9 @@
 // Tela inicial do app de Web Check-in: o operador informa o slug do grupo.
 // Uma vez configurado, o app mostra apenas os hotéis daquele grupo.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { resolveWciGroupBySlug, WciGroup } from './webCheckinService';
+import { isRateLimit, SLUG_RATE_LIMIT_MESSAGE, SLUG_RATE_LIMIT_SECONDS } from '../../lib/rateLimit';
 import { Building2, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 interface Props {
@@ -14,11 +15,18 @@ export default function WCIGroupGate({ onResolved }: Props) {
   const [slug, setSlug]       = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown(s => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = slug.trim().toLowerCase();
-    if (!clean) return;
+    if (!clean || cooldown > 0) return;
     setLoading(true);
     setError('');
     try {
@@ -28,8 +36,14 @@ export default function WCIGroupGate({ onResolved }: Props) {
         return;
       }
       onResolved(group);
-    } catch {
-      setError('Não foi possível validar o grupo. Tente novamente.');
+    } catch (err) {
+      // 429 = guarda anti-enumeração do banco (5 códigos errados em 30s).
+      if (isRateLimit(err)) {
+        setError(SLUG_RATE_LIMIT_MESSAGE);
+        setCooldown(SLUG_RATE_LIMIT_SECONDS);
+      } else {
+        setError('Não foi possível validar o grupo. Tente novamente.');
+      }
     } finally {
       setLoading(false);
     }
@@ -95,17 +109,17 @@ export default function WCIGroupGate({ onResolved }: Props) {
             </div>
           )}
 
-          <button type="submit" disabled={loading || !slug.trim()}
+          <button type="submit" disabled={loading || !slug.trim() || cooldown > 0}
             style={{
               width: '100%', marginTop: 16, padding: '0.95rem', borderRadius: 16,
-              border: 'none', cursor: loading || !slug.trim() ? 'not-allowed' : 'pointer',
-              opacity: loading || !slug.trim() ? 0.5 : 1,
+              border: 'none', cursor: loading || !slug.trim() || cooldown > 0 ? 'not-allowed' : 'pointer',
+              opacity: loading || !slug.trim() || cooldown > 0 ? 0.5 : 1,
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               background: 'linear-gradient(135deg, #0085ae, #006688)', color: '#fff',
               fontSize: '0.95rem', fontWeight: 800,
             }}>
             {loading ? <Loader2 size={18} className="wci-spin" style={{ animation: 'wci-spin 0.8s linear infinite' }} /> : <ArrowRight size={18} />}
-            {loading ? 'Validando...' : 'Continuar'}
+            {cooldown > 0 ? `Aguarde ${cooldown}s` : loading ? 'Validando...' : 'Continuar'}
           </button>
         </form>
       </div>

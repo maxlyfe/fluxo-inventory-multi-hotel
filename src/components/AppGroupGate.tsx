@@ -3,28 +3,44 @@
 // Valida o slug (get_group_by_slug), salva no dispositivo e recarrega na rota
 // /grupo/<slug>/login (o basename só é calculado no load → precisa de reload).
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { setAppGroupSlug } from '../lib/appGroup';
 import LoginBackdrop from './LoginBackdrop';
+import { isRateLimit, SLUG_RATE_LIMIT_MESSAGE, SLUG_RATE_LIMIT_SECONDS } from '../lib/rateLimit';
 import { Building2, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 export default function AppGroupGate() {
   const [slug, setSlug]       = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown(s => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = slug.trim().toLowerCase();
-    if (!clean) return;
+    if (!clean || cooldown > 0) return;
     setLoading(true);
     setError('');
     try {
-      const { data } = await supabase.rpc('get_group_by_slug', { p_slug: clean });
+      const { data, error: rpcErr } = await supabase.rpc('get_group_by_slug', { p_slug: clean });
+      // 429 = guarda anti-enumeração do banco (5 códigos errados em 30s).
+      if (isRateLimit(rpcErr)) {
+        setError(SLUG_RATE_LIMIT_MESSAGE);
+        setCooldown(SLUG_RATE_LIMIT_SECONDS);
+        setLoading(false);
+        return;
+      }
       const g = Array.isArray(data) ? data[0] : data;
       if (!g) {
         setError('Grupo não encontrado. Confira o código com o responsável.');
+        setLoading(false);
         return;
       }
       setAppGroupSlug(g.slug);
@@ -75,11 +91,11 @@ export default function AppGroupGate() {
                 </div>
               )}
 
-              <button type="submit" disabled={loading || !slug.trim()}
+              <button type="submit" disabled={loading || !slug.trim() || cooldown > 0}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold transition-all disabled:opacity-40"
                 style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.2) 0%, rgba(59,130,246,0.2) 100%)', border: '1px solid rgba(245,158,11,0.3)', color: 'white' }}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {loading ? 'Validando...' : 'Continuar'}
+                {cooldown > 0 ? `Aguarde ${cooldown}s` : loading ? 'Validando...' : 'Continuar'}
               </button>
             </form>
           </div>

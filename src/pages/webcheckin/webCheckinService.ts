@@ -4,6 +4,7 @@
 // para evitar múltiplas instâncias GoTrueClient no mesmo contexto.
 
 import { supabase as anonClient } from '../../lib/supabase';
+import { isRateLimit, SlugRateLimitError } from '../../lib/rateLimit';
 import { erbonService, ErbonBooking, ErbonGuest, ErbonGuestPayload } from '../../lib/erbonService';
 
 // ── Grupo do app de Web Check-in (multi-tenant) ─────────────────────────────
@@ -29,11 +30,16 @@ export function setStoredWciGroup(group: WciGroup | null): void {
   } catch { /* ignore */ }
 }
 
-/** Resolve um grupo ativo pelo slug (RPC pública get_group_by_slug). */
+/**
+ * Resolve um grupo ativo pelo slug (RPC pública get_group_by_slug).
+ * Lança SlugRateLimitError quando a guarda anti-enumeração do banco responde
+ * 429 (5 códigos inexistentes em 30s vindos do mesmo IP).
+ */
 export async function resolveWciGroupBySlug(slug: string): Promise<WciGroup | null> {
   const clean = (slug || '').trim().toLowerCase();
   if (!clean) return null;
-  const { data } = await anonClient.rpc('get_group_by_slug', { p_slug: clean });
+  const { data, error } = await anonClient.rpc('get_group_by_slug', { p_slug: clean });
+  if (isRateLimit(error)) throw new SlugRateLimitError();
   const g = Array.isArray(data) ? data[0] : data;
   return g ? { id: g.id, name: g.name, slug: g.slug } : null;
 }

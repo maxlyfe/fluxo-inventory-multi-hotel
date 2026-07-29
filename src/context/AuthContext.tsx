@@ -27,7 +27,11 @@ interface AuthContextType {
   needsName: boolean;
   isCompatibilityMode: boolean;
   refreshProfile: (forceFullCheck?: boolean) => Promise<void>;
-  login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: AppUser | null }>;
+  login: (
+    identifier: string,
+    password: string,
+    opts?: { groupSlug?: string; captchaToken?: string }
+  ) => Promise<{ success: boolean; message?: string; retryAfter?: number; user?: AppUser | null }>;
   loginWithGoogle: (redirectPath?: string) => Promise<{ success: boolean; message?: string }>;
   saveName: (fullName: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<{ success: boolean; message?: string }>;
@@ -170,12 +174,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { supabase.removeChannel(channel); };
   }, [user?.id]);
 
-  const login = async (email: string, password: string) => {
+  // Login por senha SEMPRE via edge function `auth-login`: é lá que o lockout
+  // (3 tentativas + 30s, gravado no banco) é aplicado. Não chamamos
+  // signInWithPassword direto no browser — isso pularia a contagem.
+  // O identifier pode ser e-mail ou username; a tradução acontece no servidor.
+  const login = async (
+    identifier: string,
+    password: string,
+    opts?: { groupSlug?: string; captchaToken?: string }
+  ) => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { success: false, message: error.message };
-      if (data.user) return { success: true, user: mapSupabaseUserToAppUser(data.user) };
+      const { data, error } = await supabase.functions.invoke('auth-login', {
+        body: {
+          identifier,
+          password,
+          group_slug: opts?.groupSlug ?? null,
+          captchaToken: opts?.captchaToken ?? null,
+        },
+      });
+
+      // functions.invoke trata status >= 400 como erro e não expõe o corpo
+      // diretamente — é preciso ler o Response anexado para pegar retry_after.
+      if (error) {
+        const res = (error as { context?: Response }).context;
+        if (res && typeof res.json === 'function') {
+          try {
+            const body = await res.json();
+            return {
+              success: false,
+              message: body?.error || 'Não foi possível entrar.',
+              retryAfter: Number(body?.retry_after) || undefined,
+            };
+          } catch {
+            /* corpo não-JSON: cai na mensagem genérica abaixo */
+          }
+        }
+        return { success: false, message: 'Não foi possível entrar. Tente novamente.' };
+      }
+
+      if (!data?.access_token || !data?.refresh_token) {
+        return { success: false, message: 'Sessão não retornada.' };
+      }
+
+      // Aplica a sessão localmente — daqui para frente refresh, PKCE e
+      // onAuthStateChange seguem exatamente como antes.
+      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+      });
+      if (sessionError) return { success: false, message: sessionError.message };
+      if (sessionData.user) return { success: true, user: mapSupabaseUserToAppUser(sessionData.user) };
       return { success: false, message: 'Usuário não retornado.' };
     } catch (e: unknown) {
       return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };

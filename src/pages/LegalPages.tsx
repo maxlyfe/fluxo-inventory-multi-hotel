@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Shield, FileText, Trash2 } from 'lucide-react';
 
 const COMPANY = 'LyFe Hoteles';
-const DOMAIN = 'meridiana.netlify.app';
+const DOMAIN = 'lyfehoteles.com.br';
 const EMAIL = 'contato@lyfehoteles.com.br';
 
 function LegalLayout({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {

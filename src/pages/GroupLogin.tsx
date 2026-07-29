@@ -2,7 +2,7 @@
 // Login escopado por grupo — rota pública /grupo/:slug (e /grupo/:slug/login)
 // Resolve o grupo pelo slug e valida que a conta logada pertence a ele.
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useGroup } from '../context/GroupContext';
@@ -10,7 +10,9 @@ import { usePermissions } from '../hooks/usePermissions';
 import { supabase } from '../lib/supabase';
 import LoginBackdrop from '../components/LoginBackdrop';
 import MobileAppModal from '../components/MobileAppModal';
+import Turnstile, { TurnstileHandle } from '../components/Turnstile';
 import { useIsNative, setAppGroupSlug } from '../lib/appGroup';
+import { isRateLimit, SLUG_RATE_LIMIT_MESSAGE } from '../lib/rateLimit';
 import { Lock, User, Eye, EyeOff, AlertCircle, Loader2, Building2, Smartphone, Settings } from 'lucide-react';
 
 const GoogleIcon = () => (
@@ -43,14 +45,28 @@ export default function GroupLogin() {
   const [pendingVerify, setPendingVerify] = useState(false);
   const [blocked, setBlocked]   = useState(false); // sessão de outro grupo
   const [showAppModal, setShowAppModal] = useState(false);
+  const [cooldown, setCooldown] = useState(0);     // segundos restantes de lockout
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileHandle>(null);
+
+  // Contador regressivo do bloqueio por tentativas (o bloqueio real é do
+  // servidor; isto só evita que a pessoa fique batendo no botão à toa).
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown(s => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
 
   // Resolve o grupo pelo slug
+  const [slugRateLimited, setSlugRateLimited] = useState(false);
   useEffect(() => {
     let active = true;
     (async () => {
       setResolving(true);
-      const { data } = await supabase.rpc('get_group_by_slug', { p_slug: slug });
+      const { data, error: rpcErr } = await supabase.rpc('get_group_by_slug', { p_slug: slug });
       if (!active) return;
+      // 429 = guarda anti-enumeração do banco. Não é "grupo inexistente".
+      setSlugRateLimited(isRateLimit(rpcErr));
       const g = Array.isArray(data) ? data[0] : data;
       const resolved = g ? { id: g.id, name: g.name, slug: g.slug } : null;
       setGroup(resolved);
@@ -120,34 +136,29 @@ export default function GroupLogin() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cooldown > 0) return;
     setError('');
     setLoading(true);
     setPendingVerify(true);
     try {
-      let emailToLogin = loginId;
+      // Username ou e-mail: quem traduz é a edge function `auth-login`, com
+      // service_role. Resolver aqui exporia os e-mails do grupo ao público.
+      const result = await login(loginId, password, {
+        groupSlug: group?.slug ?? slug,
+        captchaToken: captchaToken ?? undefined,
+      });
 
-      // Se não contém @, é um username — resolve para o email via RPC
-      if (!loginId.includes('@') && group) {
-        const { data, error: rpcErr } = await supabase.rpc('resolve_username_email', {
-          p_username: loginId, p_group_id: group.id,
-        });
-        if (rpcErr || !data) {
-          setError('Usuário não encontrado.');
-          setPendingVerify(false);
-          setLoading(false);
-          return;
-        }
-        emailToLogin = data;
-      }
-
-      const result = await login(emailToLogin, password);
       if (!result.success) {
         setError(result.message || 'Credenciais inválidas.');
+        if (result.retryAfter) setCooldown(result.retryAfter);
         setPendingVerify(false);
+        // O token do Turnstile é de uso único — pede outro para a próxima vez.
+        turnstileRef.current?.reset();
       }
     } catch {
       setError('Ocorreu um erro. Tente novamente.');
       setPendingVerify(false);
+      turnstileRef.current?.reset();
     } finally {
       setLoading(false);
     }
@@ -201,8 +212,14 @@ export default function GroupLogin() {
               <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}>
                 <AlertCircle className="h-7 w-7 text-red-400" />
               </div>
-              <h1 className="text-lg font-bold text-white">Grupo indisponível</h1>
-              <p className="text-sm text-white/40 mt-2">O link <span className="font-mono">/grupo/{slug}</span> não existe ou está inativo. Confira o link com o responsável.</p>
+              <h1 className="text-lg font-bold text-white">
+                {slugRateLimited ? 'Muitas tentativas' : 'Grupo indisponível'}
+              </h1>
+              <p className="text-sm text-white/40 mt-2">
+                {slugRateLimited
+                  ? `${SLUG_RATE_LIMIT_MESSAGE} Depois recarregue a página.`
+                  : <>O link <span className="font-mono">/grupo/{slug}</span> não existe ou está inativo. Confira o link com o responsável.</>}
+              </p>
             </div>
           ) : (
             <>
@@ -260,17 +277,22 @@ export default function GroupLogin() {
                     </button>
                   </div>
 
+                  {/* Verificação anti-robô: sem ela, o bloqueio por tentativas
+                      seria contornável chamando o Supabase Auth direto. */}
+                  <Turnstile ref={turnstileRef} onToken={setCaptchaToken} theme="dark" />
+
                   {error && (
                     <div className="flex items-center gap-2 text-red-400 text-xs px-3 py-2.5 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />{error}
+                      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      {cooldown > 0 ? `Muitas tentativas. Aguarde ${cooldown}s antes de tentar novamente.` : error}
                     </div>
                   )}
 
-                  <button type="submit" disabled={loading || googleLoading}
+                  <button type="submit" disabled={loading || googleLoading || cooldown > 0}
                     className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold transition-all disabled:opacity-40 mt-1"
                     style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.2) 0%, rgba(59,130,246,0.2) 100%)', border: '1px solid rgba(245,158,11,0.3)', color: 'white' }}>
                     {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {loading ? 'Entrando...' : 'Entrar'}
+                    {cooldown > 0 ? `Aguarde ${cooldown}s` : loading ? 'Entrando...' : 'Entrar'}
                   </button>
                 </form>
               </div>

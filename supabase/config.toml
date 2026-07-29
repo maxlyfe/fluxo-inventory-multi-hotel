@@ -1,4 +1,11 @@
 
+# Login por senha com lockout (3 tentativas + 30s). Sem verify_jwt: é o próprio
+# login, o usuário ainda não tem token quando chama.
+[functions.auth-login]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/auth-login/index.ts"
+
 [functions.learn-knowledge]
 enabled = true
 verify_jwt = true

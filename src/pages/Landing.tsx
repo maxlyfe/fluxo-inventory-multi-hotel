@@ -5,10 +5,13 @@
 
 import React, { useState, useEffect } from 'react';
 import LoginBackdrop from '../components/LoginBackdrop';
+import { supabase } from '../lib/supabase';
+import { isRateLimit, SLUG_RATE_LIMIT_MESSAGE, SLUG_RATE_LIMIT_SECONDS } from '../lib/rateLimit';
 import {
   Boxes, Users, Wrench, ShoppingCart, BedDouble, CalendarDays, BarChart3,
   CreditCard, Bell, ShieldCheck, ArrowRight, Sparkles, Hotel, ChevronRight,
-  Smartphone, Layers, Building2, X,
+  Smartphone, Layers, Building2, X, Lock, Database, KeyRound, History,
+  FileCheck, ExternalLink, Loader2, AlertCircle,
 } from 'lucide-react';
 
 const MODULES = [
@@ -29,18 +32,68 @@ const HIGHLIGHTS = [
   { icon: ShieldCheck, title: 'Seguro por grupo',      desc: 'Cada cliente isolado; acesso por hotel liberado individualmente.' },
 ];
 
+// Só afirmações verdadeiras e verificáveis — nada de selo decorativo.
+const SECURITY = [
+  { icon: Lock,      title: 'Conexão criptografada',   desc: 'HTTPS com TLS 1.3 e certificado válido em todas as páginas, com HSTS ativo.' },
+  { icon: Database,  title: 'Dados protegidos',        desc: 'Criptografia AES-256 em repouso na infraestrutura Supabase sobre AWS.' },
+  { icon: Building2, title: 'Isolamento por grupo',    desc: 'Row Level Security no banco: cada grupo enxerga apenas os próprios dados.' },
+  { icon: KeyRound,  title: 'Acesso protegido',        desc: 'Verificação anti-robô e bloqueio automático após tentativas de senha erradas.' },
+  { icon: History,   title: 'Backup diário',           desc: 'Cópias automáticas com restauração para um ponto no tempo.' },
+  { icon: FileCheck, title: 'Conforme a LGPD',         desc: 'Tratamento de dados pessoais documentado na Política de Privacidade.' },
+];
+
+// Relatórios públicos gerados por terceiros — qualquer visitante pode conferir.
+const AUDITS = [
+  { label: 'SSL Labs',        detail: 'Qualidade do certificado', href: 'https://www.ssllabs.com/ssltest/analyze.html?d=lyfehoteles.com.br' },
+  { label: 'Security Headers', detail: 'Cabeçalhos de segurança', href: 'https://securityheaders.com/?q=lyfehoteles.com.br&followRedirects=on' },
+  { label: 'Mozilla Observatory', detail: 'Auditoria da Mozilla',  href: 'https://developer.mozilla.org/en-US/observatory/analyze?host=lyfehoteles.com.br' },
+];
+
 export default function Landing() {
   const [mounted, setMounted] = useState(false);
   const [showAccess, setShowAccess] = useState(false);
   const [slug, setSlug] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [accessError, setAccessError] = useState('');
+  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 60); return () => clearTimeout(t); }, []);
 
-  const goToGroup = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown(s => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
+
+  // Valida o grupo ANTES de redirecionar. A guarda anti-enumeração vive na
+  // própria RPC (5 slugs inexistentes em 30s por IP → 429), então este
+  // caminho não é a proteção: é só a experiência de quem errou o nome.
+  const goToGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     const s = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    // Reload de página (não SPA): cruza o basename → /grupo/<slug> é recalculado
-    if (s) window.location.assign(`/grupo/${s}`);
+    if (!s || checking || cooldown > 0) return;
+
+    setChecking(true);
+    setAccessError('');
+    try {
+      const { data, error } = await supabase.rpc('get_group_by_slug', { p_slug: s });
+      if (isRateLimit(error)) {
+        setAccessError(SLUG_RATE_LIMIT_MESSAGE);
+        setCooldown(SLUG_RATE_LIMIT_SECONDS);
+        return;
+      }
+      const g = Array.isArray(data) ? data[0] : data;
+      if (!g) {
+        setAccessError('Grupo não encontrado. Confira o nome com o responsável pela conta.');
+        return;
+      }
+      // Reload de página (não SPA): cruza o basename → /grupo/<slug> é recalculado
+      window.location.assign(`/grupo/${g.slug}`);
+    } catch {
+      setAccessError('Não foi possível validar agora. Tente novamente.');
+    } finally {
+      setChecking(false);
+    }
   };
 
   return (
@@ -162,8 +215,71 @@ export default function Landing() {
         </div>
       </section>
 
-      <footer className="relative z-10 text-center py-8 text-[11px] tracking-widest uppercase text-white/20">
-        LyFe Hoteles · Todos os direitos reservados
+      {/* ── Segurança ─────────────────────────────────────────────── */}
+      <section id="seguranca" className="relative z-10 max-w-6xl mx-auto px-5 sm:px-8 py-12">
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-4 text-xs font-bold uppercase tracking-widest"
+            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)', color: '#4ade80' }}>
+            <ShieldCheck className="w-3.5 h-3.5" /> Segurança
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black">Seus dados protegidos em cada camada</h2>
+          <p className="text-white/45 mt-2 text-sm sm:text-base max-w-2xl mx-auto">
+            Da conexão ao banco de dados — e auditável por qualquer pessoa, a qualquer momento.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {SECURITY.map(s => {
+            const Icon = s.icon;
+            return (
+              <div key={s.title} className="flex items-start gap-3.5 p-5 rounded-2xl"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'rgba(34,197,94,0.13)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                  <Icon className="text-emerald-300" style={{ width: 18, height: 18 }} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm">{s.title}</h4>
+                  <p className="text-xs text-white/45 mt-1 leading-relaxed">{s.desc}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Verificação independente — os relatórios são gerados por terceiros */}
+        <div className="mt-8">
+          <p className="text-center text-[11px] tracking-widest uppercase text-white/25 mb-4">
+            Verifique você mesmo
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {AUDITS.map(a => (
+              <a key={a.label} href={a.href} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl transition-all hover:-translate-y-0.5"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span className="text-left">
+                  <span className="block text-[13px] font-bold leading-tight">{a.label}</span>
+                  <span className="block text-[11px] text-white/35 leading-tight">{a.detail}</span>
+                </span>
+                <ExternalLink className="w-3.5 h-3.5 text-white/25 flex-shrink-0" />
+              </a>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <footer className="relative z-10 max-w-6xl mx-auto px-5 sm:px-8 py-10 text-center">
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-white/40">
+          <a href="/privacy" className="hover:text-white/70 transition-colors">Política de Privacidade</a>
+          <span className="text-white/15">·</span>
+          <a href="/terms" className="hover:text-white/70 transition-colors">Termos de Uso</a>
+          <span className="text-white/15">·</span>
+          <a href="#seguranca" className="hover:text-white/70 transition-colors">Segurança</a>
+        </div>
+        <p className="mt-5 text-[11px] tracking-widest uppercase text-white/20">
+          LyFe Hoteles · Todos os direitos reservados
+        </p>
       </footer>
 
       {/* ── Modal: acessar grupo ──────────────────────────────────── */}
@@ -178,13 +294,26 @@ export default function Landing() {
               <p className="text-sm text-white/50 leading-relaxed">Digite o <b className="text-white/80">nome do seu grupo</b> para acessar o login.</p>
               <div className="flex items-center rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
                 <span className="pl-3 text-xs text-white/30 font-mono whitespace-nowrap">/grupo/</span>
-                <input autoFocus value={slug} onChange={e => setSlug(e.target.value)} placeholder="seu-grupo"
+                <input autoFocus value={slug} onChange={e => { setSlug(e.target.value); setAccessError(''); }} placeholder="seu-grupo"
                   className="flex-1 bg-transparent px-2 py-3 text-sm text-white placeholder-white/25 focus:outline-none font-mono" />
               </div>
-              <button type="submit" disabled={!slug.trim()}
+
+              {accessError && (
+                <div className="flex items-start gap-2 text-red-300 text-xs px-3 py-2.5 rounded-xl"
+                  style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                  <span>{cooldown > 0 ? `Muitas tentativas. Aguarde ${cooldown}s antes de tentar de novo.` : accessError}</span>
+                </div>
+              )}
+
+              <button type="submit" disabled={!slug.trim() || checking || cooldown > 0}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold text-slate-900 disabled:opacity-40 transition-all"
                 style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}>
-                Continuar <ArrowRight className="w-4 h-4" />
+                {checking
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Verificando…</>
+                  : cooldown > 0
+                    ? `Aguarde ${cooldown}s`
+                    : <>Continuar <ArrowRight className="w-4 h-4" /></>}
               </button>
               <p className="text-[11px] text-white/25 text-center">Não tem o link do seu grupo? Fale com o responsável pela conta.</p>
             </form>

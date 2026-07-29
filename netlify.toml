@@ -29,6 +29,57 @@
   to = "/index.html"
   status = 200
 
+# ── Segurança: aplicado a todas as respostas ────────────────────────────────
+# Sem estes headers o site é enquadrável em iframe (clickjacking), vaza URLs
+# internas no Referer e tira nota baixa em securityheaders.com / Observatory —
+# justamente os relatórios que a landing linka na seção "Verifique você mesmo".
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # 2 anos + subdomínios + elegível à preload list dos navegadores.
+    # (A Netlify já enviava 1 ano sem includeSubDomains; isto substitui.)
+    Strict-Transport-Security  = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options     = "nosniff"
+    X-Frame-Options            = "DENY"
+    Referrer-Policy            = "strict-origin-when-cross-origin"
+    Permissions-Policy         = "camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()"
+    # allow-popups (e não same-origin puro) porque o login com Google abre popup
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # CSP em REPORT-ONLY: reporta violações no console sem bloquear nada.
+    #
+    # ANTES DE PROMOVER: navegue por login, dashboard, compras, diretoria,
+    # web check-in e APK com o console aberto. Só quando não sobrar nenhuma
+    # violação, renomeie a chave abaixo para `Content-Security-Policy`
+    # (sem o sufixo -Report-Only) e faça novo deploy.
+    #
+    # Hosts declarados e por quê:
+    #   challenges.cloudflare.com → widget Turnstile no login
+    #   accounts.google.com       → OAuth do Google
+    #   www.gstatic.com           → SDK do Firebase (push)
+    #   cdnjs.cloudflare.com      → pdf.js (WCICompanionEntry)
+    #   fonts.googleapis/gstatic  → @import de fonte nos relatórios da diretoria
+    #   erbon / omnibees / viacep / open-meteo / cnpja / mercadolibre → APIs de
+    #     integração chamadas do cliente
+    # ─────────────────────────────────────────────────────────────────────────
+    # Nota: o `\` no fim de cada linha é continuação de linha do TOML — o valor
+    # final é uma única linha, sem quebras nem indentação.
+    Content-Security-Policy-Report-Only = """\
+default-src 'self'; \
+script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://cdnjs.cloudflare.com; \
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
+font-src 'self' data: https://fonts.gstatic.com; \
+img-src 'self' data: blob: https:; \
+media-src 'self' data: blob: https:; \
+worker-src 'self' blob:; \
+connect-src 'self' blob: https://bnmyflgyrlskhljrbyfc.supabase.co wss://bnmyflgyrlskhljrbyfc.supabase.co https://*.googleapis.com https://*.firebaseio.com https://www.gstatic.com https://challenges.cloudflare.com https://cdnjs.cloudflare.com https://api.erbonsoftware.com https://pms.omnibees.com https://media.omnibees.com https://viacep.com.br https://api.open-meteo.com https://api.cnpja.com https://api.mercadolibre.com; \
+frame-src 'self' https://challenges.cloudflare.com https://accounts.google.com; \
+frame-ancestors 'none'; \
+base-uri 'self'; \
+form-action 'self'; \
+object-src 'none'"""
+
 # Manifesto de atualização: nunca cachear (sempre versão mais recente)
 [[headers]]
   for = "/update-manifest.json"
