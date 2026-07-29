@@ -42,6 +42,8 @@ interface EditForm {
   nbs_code: string;
   ibs_cbs_cst: string;
   ibs_cbs_cclasstrib: string;
+  ibs_aliquota: string;
+  cbs_aliquota: string;
   nfce_eligible: boolean;
   nfce_ncm: string;
   nfce_cfop: string;
@@ -54,6 +56,7 @@ const EMPTY_FORM: EditForm = {
   lc116_code: '09.01', municipal_tax_code: '', cnae: '',
   iss_rate: '5', iss_retained: false, iss_exigibilidade: '1', nbs_code: '',
   ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
+  ibs_aliquota: '0,10', cbs_aliquota: '0,90',
   nfce_eligible: false, nfce_ncm: '', nfce_cfop: '5102',
   nfse_taxa_isenta: false,
 };
@@ -141,6 +144,8 @@ const ServiceCatalog: React.FC = () => {
       nbs_code: s.nbs_code || '',
       ibs_cbs_cst: (s as any).ibs_cbs_cst || '000',
       ibs_cbs_cclasstrib: (s as any).ibs_cbs_cclasstrib || '000001',
+      ibs_aliquota: s.ibs_aliquota != null ? String(s.ibs_aliquota).replace('.', ',') : '0,10',
+      cbs_aliquota: s.cbs_aliquota != null ? String(s.cbs_aliquota).replace('.', ',') : '0,90',
       nfce_eligible: (s as any).nfce_eligible ?? false,
       nfce_ncm: (s as any).nfce_ncm || '',
       nfce_cfop: (s as any).nfce_cfop || '5102',
@@ -175,6 +180,8 @@ const ServiceCatalog: React.FC = () => {
         nbs_code: form.nbs_code.trim() || null,
         ibs_cbs_cst: form.ibs_cbs_cst.trim() || '000',
         ibs_cbs_cclasstrib: form.ibs_cbs_cclasstrib.trim() || '000001',
+        ibs_aliquota: form.ibs_aliquota.trim() ? parseFloat(form.ibs_aliquota.replace(',', '.')) || 0 : 0.10,
+        cbs_aliquota: form.cbs_aliquota.trim() ? parseFloat(form.cbs_aliquota.replace(',', '.')) || 0 : 0.90,
         nfce_eligible: form.nfce_eligible,
         nfce_ncm: form.nfce_ncm.trim() || null,
         nfce_cfop: form.nfce_cfop.trim() || '5102',
@@ -453,7 +460,19 @@ const ServiceCatalog: React.FC = () => {
                     <label className={labelCls}>Cód. Class. Tributária (cClassTrib)</label>
                     <input type="text" value={form.ibs_cbs_cclasstrib} onChange={e => setForm(p => ({ ...p, ibs_cbs_cclasstrib: e.target.value }))} className={inputCls} placeholder="000001" />
                   </div>
+                  <div>
+                    <label className={labelCls}>Alíquota IBS (%)</label>
+                    <input type="text" inputMode="decimal" value={form.ibs_aliquota} onChange={e => setForm(p => ({ ...p, ibs_aliquota: e.target.value }))} className={inputCls} placeholder="0,10" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Alíquota CBS (%)</label>
+                    <input type="text" inputMode="decimal" value={form.cbs_aliquota} onChange={e => setForm(p => ({ ...p, cbs_aliquota: e.target.value }))} className={inputCls} placeholder="0,90" />
+                  </div>
                 </div>
+                <p className="text-[11px] text-gray-400 -mt-1">
+                  2026 é o ano-teste da reforma: todo item usa hoje 0,10% de IBS e 0,90% de CBS, já
+                  pré-preenchidos — ajuste apenas se orientado pelo contador.
+                </p>
                 <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                   <input type="checkbox" checked={form.iss_retained} onChange={e => setForm(p => ({ ...p, iss_retained: e.target.checked }))} className="rounded" />
                   ISS retido na fonte (tomador recolhe)

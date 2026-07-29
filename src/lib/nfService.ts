@@ -115,6 +115,10 @@ export interface FiscalLineItem {
   pis_aliquota?: number | null;
   cofins_cst?: string | null;
   cofins_aliquota?: number | null;
+  ibs_cbs_cst?: string | null;
+  ibs_cbs_cclasstrib?: string | null;
+  ibs_aliquota?: number | null;
+  cbs_aliquota?: number | null;
 }
 
 export interface FiscalResolutionResult {
@@ -204,12 +208,14 @@ async function resolveEntryFiscalData(
     icms_aliquota: number; unidade: string | null; codigo: string | null;
     pis_cst: string | null; pis_aliquota: number | null;
     cofins_cst: string | null; cofins_aliquota: number | null;
+    ibs_cbs_cst: string | null; ibs_cbs_cclasstrib: string | null;
+    ibs_aliquota: number | null; cbs_aliquota: number | null;
   }>();
 
   if (neededDishIds.size > 0) {
     const { data: dishes } = await supabase
       .from('dishes')
-      .select('id, name, nfce_ncm, nfce_cfop, nfce_cest, nfce_origem, nfce_csosn, nfce_cst, nfce_icms_aliquota, nfce_unidade, nfce_codigo, nfce_pis_cst, nfce_pis_aliquota, nfce_cofins_cst, nfce_cofins_aliquota')
+      .select('id, name, nfce_ncm, nfce_cfop, nfce_cest, nfce_origem, nfce_csosn, nfce_cst, nfce_icms_aliquota, nfce_unidade, nfce_codigo, nfce_pis_cst, nfce_pis_aliquota, nfce_cofins_cst, nfce_cofins_aliquota, ibs_cbs_cst, ibs_cbs_cclasstrib, ibs_aliquota, cbs_aliquota')
       .in('id', Array.from(neededDishIds));
 
     const dishNameMap = new Map<string, string>();
@@ -230,6 +236,10 @@ async function resolveEntryFiscalData(
         pis_aliquota: d.nfce_pis_aliquota ?? null,
         cofins_cst: d.nfce_cofins_cst || null,
         cofins_aliquota: d.nfce_cofins_aliquota ?? null,
+        ibs_cbs_cst: d.ibs_cbs_cst || null,
+        ibs_cbs_cclasstrib: d.ibs_cbs_cclasstrib || null,
+        ibs_aliquota: d.ibs_aliquota ?? null,
+        cbs_aliquota: d.cbs_aliquota ?? null,
       });
     });
 
@@ -353,6 +363,10 @@ async function resolveEntryFiscalData(
           pis_aliquota: df.pis_aliquota,
           cofins_cst: df.cofins_cst,
           cofins_aliquota: df.cofins_aliquota,
+          ibs_cbs_cst: df.ibs_cbs_cst,
+          ibs_cbs_cclasstrib: df.ibs_cbs_cclasstrib,
+          ibs_aliquota: df.ibs_aliquota,
+          cbs_aliquota: df.cbs_aliquota,
         });
         continue;
       }
@@ -808,6 +822,10 @@ interface CreateInvoiceInput {
     codigo_servico?: string | null;
     iss_aliquota?: number | null;
     iss_valor?: number | null;
+    ibs_cbs_cst?: string | null;
+    ibs_cbs_cclasstrib?: string | null;
+    ibs_aliquota?: number | null;
+    cbs_aliquota?: number | null;
   }>;
   emitido_por: string | null;
 }
@@ -855,6 +873,10 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
     codigo_servico: it.codigo_servico ?? null,
     iss_aliquota: it.iss_aliquota ?? null,
     iss_valor: it.iss_valor ?? null,
+    ibs_cbs_cst: it.ibs_cbs_cst ?? null,
+    ibs_cbs_cclasstrib: it.ibs_cbs_cclasstrib ?? null,
+    ibs_aliquota: it.ibs_aliquota ?? null,
+    cbs_aliquota: it.cbs_aliquota ?? null,
   }));
 
   const { error: itemsErr } = await supabase.from('nf_invoice_items').insert(itemRows);
@@ -933,6 +955,14 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         aliquota_iss: config!.aliquota_iss ?? 5,
         optante_simples: config!.regime_tributario_nfse === '6',
         telefone: config!.telefone,
+        // Reforma Tributária (IBS/CBS) — bloco <IBSCBS> por nota (config por
+        // hotel, ver Fase 1 da migration de preparação da Nota Nacional)
+        ibs_cbs_cst: (config as any).nfse_ibs_cbs_cst ?? null,
+        ibs_cbs_cclasstrib: (config as any).nfse_ibs_cbs_cclasstrib ?? null,
+        fin_nfse: (config as any).nfse_fin_nfse ?? null,
+        ind_final: (config as any).nfse_ind_final ?? null,
+        c_ind_op: (config as any).nfse_c_ind_op ?? null,
+        ind_dest: (config as any).nfse_ind_dest ?? null,
         tomador_nome: inv!.tomador_nome,
         tomador_cpf_cnpj: inv!.tomador_cpf_cnpj,
         tomador_doc_tipo: inv!.tomador_doc_tipo,
@@ -977,6 +1007,14 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           regime_tributario_nfse: config!.regime_tributario_nfse,
           codigo_servico: config!.codigo_servico,
           aliquota_iss: config!.aliquota_iss,
+          // Reforma Tributária (IBS/CBS) — bloco <IBSCBS> por nota, paridade
+          // com o formato 'el-nacional' (config por hotel)
+          ibs_cbs_cst: (config as any).nfse_ibs_cbs_cst ?? null,
+          ibs_cbs_cclasstrib: (config as any).nfse_ibs_cbs_cclasstrib ?? null,
+          fin_nfse: (config as any).nfse_fin_nfse ?? null,
+          ind_final: (config as any).nfse_ind_final ?? null,
+          c_ind_op: (config as any).nfse_c_ind_op ?? null,
+          ind_dest: (config as any).nfse_ind_dest ?? null,
         },
         tomador: {
           nome: inv!.tomador_nome,
@@ -1116,9 +1154,19 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           pis_aliquota: (i as any).pis_aliquota ?? fiscalCfg.prod_pis_aliquota ?? undefined,
           cofins_cst: (i as any).cofins_cst ?? fiscalCfg.prod_cofins_cst ?? undefined,
           cofins_aliquota: (i as any).cofins_aliquota ?? fiscalCfg.prod_cofins_aliquota ?? undefined,
+          // IBS/CBS (Reforma Tributária) — grupo montado quando o hotel está
+          // com nfce_ibs_cbs_enabled e CRT=3 (ver ibs_cbs_enabled abaixo).
+          ibs_cbs_cst: i.ibs_cbs_cst ?? undefined,
+          ibs_cbs_cClassTrib: i.ibs_cbs_cclasstrib ?? undefined,
+          ibs_aliquota: i.ibs_aliquota ?? undefined,
+          cbs_aliquota: i.cbs_aliquota ?? undefined,
         })),
         acrescimo: Math.round(acrescimoTotal * 100) / 100,
         taxa_na_base_icms: !!fiscalCfg.nfce_taxa_na_base_icms,
+        // Reforma Tributária (NT 2025.002): obrigatório em produção para CRT=3
+        // a partir de 03/08/2026. Opt-in por hotel para permitir desligar sem
+        // deploy caso a SEFAZ rejeite.
+        ibs_cbs_enabled: !!fiscalCfg.nfce_ibs_cbs_enabled,
         serie_nfce: fiscalCfg.serie_nfce || '1',
         nfce_csc_id: fiscalCfg.nfce_csc_id,
         nfce_csc_token: fiscalCfg.nfce_csc_token,
@@ -1174,7 +1222,12 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           icms_vBC: (config!.crt === 3) ? i.valor_total : 0,
           icms_pICMS: (config!.crt === 3) ? (i.icms_aliquota ?? 0) : 0,
           icms_vICMS: (config!.crt === 3) ? (i.icms_valor ?? 0) : 0,
+          ibs_cbs_cst: i.ibs_cbs_cst ?? undefined,
+          ibs_cbs_cClassTrib: i.ibs_cbs_cclasstrib ?? undefined,
+          ibs_aliquota: i.ibs_aliquota ?? undefined,
+          cbs_aliquota: i.cbs_aliquota ?? undefined,
         })),
+        ibs_cbs_enabled: !!(config as any).nfce_ibs_cbs_enabled,
         serie_nfe: config!.serie_nfe || '1',
         numero_nfe: config!.proximo_numero_nfe || 1,
         natureza_operacao: 'VENDA DE MERCADORIA',

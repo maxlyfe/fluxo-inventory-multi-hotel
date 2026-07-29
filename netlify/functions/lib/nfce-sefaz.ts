@@ -265,6 +265,8 @@ export interface NFCeItem {
   // IBS/CBS (NT 2025.002 — obrigatório CRT 3 a partir de 03/Ago/2026)
   ibs_cbs_cst?: string;        // CST IBS/CBS — 000=tributado integral
   ibs_cbs_cClassTrib?: string; // Código Classificação Tributária (6 dígitos)
+  ibs_aliquota?: number;       // % IBS do item — fallback DEFAULT_IBS_RATE (0,10% teste 2026)
+  cbs_aliquota?: number;       // % CBS do item — fallback DEFAULT_CBS_RATE (0,90% teste 2026)
 }
 
 // Monta o grupo PIS ou COFINS de um item. CST 01/02 (tributável por alíquota)
@@ -311,6 +313,7 @@ export interface NFCeConfig {
   serie: string;
   csc_id: string;
   csc_token: string;
+  ibs_cbs_enabled?: boolean; // nf_hotel_config.nfce_ibs_cbs_enabled (opt-in por hotel)
 }
 
 export interface NFCeResult {
@@ -327,28 +330,70 @@ export interface NFCeResult {
 }
 
 // ── IBS/CBS helpers (NT 2025.002 — Reforma Tributária) ─────────────────────
+//
+// Prazos (NT 2025.002 v1.40, publicada em 20/05/2026):
+//   · CRT=3 (regime normal): homologação obrigatória 01/07/2026,
+//     PRODUÇÃO OBRIGATÓRIA 03/08/2026 — sem os grupos a nota é rejeitada.
+//   · CRT=1/2/4 (Simples Nacional/MEI): só em Jan/2027 — por isso o builder
+//     devolve vazio para esses CRTs (hoje só Costa do Sol é CRT 3).
+//   · Envio voluntário liberado desde 10/11/2025.
+//
+// Estrutura conferida contra o leiaute publicado (grupos UB no item e W03 no
+// total). O que estava errado e causava a rejeição 225 anterior: o grupo
+// IBSCBSTot era montado "achatado" (<vIBSUF> direto sob <IBSCBSTot>), quando o
+// leiaute exige o aninhamento IBSCBSTot › gIBS › gIBSUF/gIBSMun e IBSCBSTot ›
+// gCBS. Corrigido em buildIBSCBSTot abaixo.
+//
+// vNF NÃO muda: em 2026 os valores de IBS/CBS não entram no total do ICMSTot
+// (seriam "por fora", mas a regra de transição manda não somar). O total com os
+// novos tributos vai no campo próprio <vNFTot>, irmão de <IBSCBSTot> dentro de
+// <total>. Isso mantém vNF = somatório dos pagamentos (vPag) e evita quebrar o
+// fechamento do caixa/PDV.
+//
+// Liga/desliga: opt-in por hotel via nf_hotel_config.nfce_ibs_cbs_enabled
+// (NFCeConfig.ibs_cbs_enabled), com kill switch por env var — NFCE_IBSCBS=0
+// desliga para todos os hotéis sem depender de acesso ao banco, NFCE_IBSCBS=1
+// liga para todos. Ver ibsCbsEnabled() abaixo.
 
-const IBS_UF_RATE = 0.10;   // 0,1% IBS estadual (teste 2026)
-const IBS_MUN_RATE = 0.00;  // 0% IBS municipal (teste 2026)
-const CBS_RATE = 0.90;      // 0,9% CBS federal (teste 2026)
+// Alíquotas de transição 2026 (mesmas para todo item, período de teste da
+// reforma). Usadas como fallback quando o item (produto/prato/serviço) não
+// tem ibs_aliquota/cbs_aliquota próprios cadastrados — ver
+// ibs_cbs_reform_fields e ibs_cbs_aliquotas migrations.
+const DEFAULT_IBS_UF_RATE = 0.10; // 0,1% IBS estadual (teste 2026)
+const DEFAULT_IBS_MUN_RATE = 0.00; // 0% IBS municipal (teste 2026)
+const DEFAULT_CBS_RATE = 0.90;    // 0,9% CBS federal (teste 2026)
 
-// Grupo IBS/CBS da reforma desligado por padrão: a estrutura atual não bate com
-// o schema atual da SVRS (rejeição 225 em IBSCBSTot/vIBSUF). Enquanto não for
-// implementado contra o XSD oficial da reforma, mantém-se opt-in por env var
-// (NFCE_IBSCBS=1) — o grupo é informativo/transitório em 2026, não obriga a nota.
-const IBSCBS_ENABLED = process.env.NFCE_IBSCBS === '1';
+function ibsCbsEnabled(config: { ibs_cbs_enabled?: boolean }): boolean {
+  if (process.env.NFCE_IBSCBS === '0') return false; // kill switch global
+  if (process.env.NFCE_IBSCBS === '1') return true;  // força ligado (testes)
+  return !!config.ibs_cbs_enabled;
+}
 
-function buildIBSCBSItem(item: NFCeItem, crt: number): { xml: string; vIBS: number; vCBS: number; vBC: number } {
+interface IBSCBSItemResult {
+  xml: string;
+  vIBSUF: number;
+  vIBSMun: number;
+  vIBS: number;
+  vCBS: number;
+  vBC: number;
+}
+
+function buildIBSCBSItem(item: NFCeItem, crt: number, enabled: boolean): IBSCBSItemResult {
   // CRT 1/2/4 (Simples Nacional/MEI): adiado para Jan/2027
-  if (!IBSCBS_ENABLED || crt !== 3) return { xml: '', vIBS: 0, vCBS: 0, vBC: 0 };
+  if (!enabled || crt !== 3) return { xml: '', vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0, vBC: 0 };
 
   const cstIbsCbs = item.ibs_cbs_cst || '000';
   const cClassTrib = item.ibs_cbs_cClassTrib || '000003';
   const vBC = item.vProd;
-  const vIBSUF = +(vBC * IBS_UF_RATE / 100).toFixed(2);
-  const vIBSMun = +(vBC * IBS_MUN_RATE / 100).toFixed(2);
+  // ibs_aliquota do item é o total (IBS UF+Mun); enquanto a parcela municipal
+  // de teste é 0%, tratamos o valor cadastrado como 100% estadual.
+  const ibsUfRate = item.ibs_aliquota ?? DEFAULT_IBS_UF_RATE;
+  const ibsMunRate = DEFAULT_IBS_MUN_RATE;
+  const cbsRate = item.cbs_aliquota ?? DEFAULT_CBS_RATE;
+  const vIBSUF = +(vBC * ibsUfRate / 100).toFixed(2);
+  const vIBSMun = +(vBC * ibsMunRate / 100).toFixed(2);
   const vIBS = +(vIBSUF + vIBSMun).toFixed(2);
-  const vCBS = +(vBC * CBS_RATE / 100).toFixed(2);
+  const vCBS = +(vBC * cbsRate / 100).toFixed(2);
 
   const xml =
     `<IBSCBS>` +
@@ -357,40 +402,78 @@ function buildIBSCBSItem(item: NFCeItem, crt: number): { xml: string; vIBS: numb
     `<gIBSCBS>` +
     `<vBC>${fmtDec(vBC)}</vBC>` +
     `<gIBSUF>` +
-    `<pIBSUF>${fmtDec(IBS_UF_RATE, 4)}</pIBSUF>` +
+    `<pIBSUF>${fmtDec(ibsUfRate, 4)}</pIBSUF>` +
     `<vIBSUF>${fmtDec(vIBSUF)}</vIBSUF>` +
     `</gIBSUF>` +
     `<gIBSMun>` +
-    `<pIBSMun>${fmtDec(IBS_MUN_RATE, 4)}</pIBSMun>` +
+    `<pIBSMun>${fmtDec(ibsMunRate, 4)}</pIBSMun>` +
     `<vIBSMun>${fmtDec(vIBSMun)}</vIBSMun>` +
     `</gIBSMun>` +
     `<vIBS>${fmtDec(vIBS)}</vIBS>` +
     `<gCBS>` +
-    `<pCBS>${fmtDec(CBS_RATE, 4)}</pCBS>` +
+    `<pCBS>${fmtDec(cbsRate, 4)}</pCBS>` +
     `<vCBS>${fmtDec(vCBS)}</vCBS>` +
     `</gCBS>` +
     `</gIBSCBS>` +
     `</IBSCBS>`;
 
-  return { xml, vIBS, vCBS, vBC };
+  return { xml, vIBSUF, vIBSMun, vIBS, vCBS, vBC };
 }
 
-function buildIBSCBSTot(totalVBC: number, totalVIBS: number, totalVCBS: number): string {
+// Grupo W03 (total/IBSCBSTot). Aninhamento obrigatório pelo leiaute:
+//   IBSCBSTot › vBCIBSCBS
+//             › gIBS › gIBSUF (vDif, vDevTrib, vIBSUF)
+//                    › gIBSMun (vDif, vDevTrib, vIBSMun)
+//                    › vIBS, vCredPres, vCredPresCondSus
+//             › gCBS (vDif, vDevTrib, vCBS, vCredPres, vCredPresCondSus)
+// Os totalizadores têm de ser a soma exata dos itens: divergência de
+// arredondamento aqui rejeita a nota inteira, por isso os valores vêm
+// acumulados item a item (já arredondados) e não recalculados sobre o total.
+function buildIBSCBSTot(totalVBC: number, totalVIBSUF: number, totalVIBSMun: number, totalVCBS: number): string {
+  const totalVIBS = +(totalVIBSUF + totalVIBSMun).toFixed(2);
   if (totalVBC === 0 && totalVIBS === 0 && totalVCBS === 0) return '';
   return (
     `<IBSCBSTot>` +
     `<vBCIBSCBS>${fmtDec(totalVBC)}</vBCIBSCBS>` +
-    `<vIBSUF>${fmtDec(+(totalVIBS * IBS_UF_RATE / (IBS_UF_RATE + IBS_MUN_RATE || 1)).toFixed(2))}</vIBSUF>` +
-    `<vIBSMun>0.00</vIBSMun>` +
+    `<gIBS>` +
+    `<gIBSUF>` +
+    `<vDif>0.00</vDif>` +
+    `<vDevTrib>0.00</vDevTrib>` +
+    `<vIBSUF>${fmtDec(totalVIBSUF)}</vIBSUF>` +
+    `</gIBSUF>` +
+    `<gIBSMun>` +
+    `<vDif>0.00</vDif>` +
+    `<vDevTrib>0.00</vDevTrib>` +
+    `<vIBSMun>${fmtDec(totalVIBSMun)}</vIBSMun>` +
+    `</gIBSMun>` +
     `<vIBS>${fmtDec(totalVIBS)}</vIBS>` +
+    `<vCredPres>0.00</vCredPres>` +
+    `<vCredPresCondSus>0.00</vCredPresCondSus>` +
+    `</gIBS>` +
+    `<gCBS>` +
+    `<vDif>0.00</vDif>` +
+    `<vDevTrib>0.00</vDevTrib>` +
     `<vCBS>${fmtDec(totalVCBS)}</vCBS>` +
+    `<vCredPres>0.00</vCredPres>` +
+    `<vCredPresCondSus>0.00</vCredPresCondSus>` +
+    `</gCBS>` +
     `</IBSCBSTot>`
   );
 }
 
+// <vNFTot> — "Valor total da NF-e com IBS/CBS/IS", irmão de <IBSCBSTot> dentro
+// de <total> e último elemento do grupo. Só é emitido quando existe IBS/CBS na
+// nota; sem os novos tributos o campo não se aplica e vNF já é o total.
+function buildVNFTot(vNF: number, totalVIBS: number, totalVCBS: number): string {
+  if (totalVIBS === 0 && totalVCBS === 0) return '';
+  return `<vNFTot>${fmtDec(vNF + totalVIBS + totalVCBS)}</vNFTot>`;
+}
+
 // ── Montar XML da NFC-e ─────────────────────────────────────────────────────
 
-function buildNFCeXml(params: {
+// Exportado para permitir validar a estrutura do XML (grupos da Reforma
+// Tributaria, totais) sem certificado e sem chamar a SEFAZ.
+export function buildNFCeXml(params: {
   emitente: NFCeEmitente;
   destinatario: NFCeDestinatario;
   items: NFCeItem[];
@@ -449,7 +532,8 @@ function buildNFCeXml(params: {
 
   // det (items)
   let detXml = '';
-  let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
+  let totIBSUF = 0, totIBSMun = 0, totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
+  const ibsCbsOn = ibsCbsEnabled(config);
   let totPIS = 0, totCOFINS = 0;
   for (let idx = 0; idx < items.length; idx++) {
     const it = items[idx];
@@ -493,7 +577,9 @@ function buildNFCeXml(params: {
       }
     }
 
-    const ibsCbs = buildIBSCBSItem(it, emitente.crt);
+    const ibsCbs = buildIBSCBSItem(it, emitente.crt, ibsCbsOn);
+    totIBSUF += ibsCbs.vIBSUF;
+    totIBSMun += ibsCbs.vIBSMun;
     totIBS += ibsCbs.vIBS;
     totCBS += ibsCbs.vCBS;
     totBCIBSCBS += ibsCbs.vBC;
@@ -626,7 +712,8 @@ function buildNFCeXml(params: {
     `<vOutro>${fmtDec(vOutroSum)}</vOutro>` +
     `<vNF>${fmtDec(vProd + vOutroSum)}</vNF>` +
     `</ICMSTot>` +
-    buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
+    buildIBSCBSTot(totBCIBSCBS, totIBSUF, totIBSMun, totCBS) +
+    buildVNFTot(vProd + vOutroSum, totIBS, totCBS) +
     `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
     pagXml +
@@ -912,9 +999,10 @@ export interface NFeConfig {
   certificado_senha: string;
   ambiente: Ambiente;
   serie: string;
+  ibs_cbs_enabled?: boolean; // nf_hotel_config.nfce_ibs_cbs_enabled (opt-in por hotel)
 }
 
-function buildNFeXml(params: {
+export function buildNFeXml(params: {
   emitente: NFCeEmitente;
   destinatario: NFeDestinatario;
   items: NFCeItem[];
@@ -948,7 +1036,8 @@ function buildNFeXml(params: {
 
   // det (items) — mesmo builder da NFC-e
   let detXml = '';
-  let totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
+  let totIBSUF = 0, totIBSMun = 0, totIBS = 0, totCBS = 0, totBCIBSCBS = 0;
+  const ibsCbsOn = ibsCbsEnabled(config);
   for (const it of items) {
     const vOutro_i = 0; // NF-e (modelo 55) não usa acréscimo de taxa de serviço
     let icmsXml: string;
@@ -981,7 +1070,9 @@ function buildNFeXml(params: {
       }
     }
 
-    const ibsCbs = buildIBSCBSItem(it, emitente.crt);
+    const ibsCbs = buildIBSCBSItem(it, emitente.crt, ibsCbsOn);
+    totIBSUF += ibsCbs.vIBSUF;
+    totIBSMun += ibsCbs.vIBSMun;
     totIBS += ibsCbs.vIBS;
     totCBS += ibsCbs.vCBS;
     totBCIBSCBS += ibsCbs.vBC;
@@ -1117,7 +1208,8 @@ function buildNFeXml(params: {
     `<vOutro>0.00</vOutro>` +
     `<vNF>${fmtDec(vProd)}</vNF>` +
     `</ICMSTot>` +
-    buildIBSCBSTot(totBCIBSCBS, totIBS, totCBS) +
+    buildIBSCBSTot(totBCIBSCBS, totIBSUF, totIBSMun, totCBS) +
+    buildVNFTot(vProd, totIBS, totCBS) +
     `</total>` +
     `<transp><modFrete>9</modFrete></transp>` +
     pagXmlNfe +

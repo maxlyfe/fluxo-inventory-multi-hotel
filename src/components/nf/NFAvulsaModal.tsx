@@ -30,6 +30,10 @@ interface ProductOption {
   pis_aliquota: number | null;
   cofins_cst: string | null;
   cofins_aliquota: number | null;
+  ibs_cbs_cst: string | null;
+  ibs_cbs_cclasstrib: string | null;
+  ibs_aliquota: number | null;
+  cbs_aliquota: number | null;
 }
 
 interface AvulsaItem {
@@ -227,7 +231,7 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
         const [svcs, dishRes, priceRes, elig, cfg] = await Promise.all([
           serviceCatalogService.list(hotelId).catch(() => [] as HotelService[]),
           supabase.from('dishes')
-            .select('id, name, nfce_ncm, nfce_cfop, nfce_icms_aliquota, nfce_pis_cst, nfce_pis_aliquota, nfce_cofins_cst, nfce_cofins_aliquota')
+            .select('id, name, nfce_ncm, nfce_cfop, nfce_icms_aliquota, nfce_pis_cst, nfce_pis_aliquota, nfce_cofins_cst, nfce_cofins_aliquota, ibs_cbs_cst, ibs_cbs_cclasstrib, ibs_aliquota, cbs_aliquota')
             .or(`hotel_id.eq.${hotelId},hotel_id.is.null`)
             .not('nfce_ncm', 'is', null)
             .neq('nfce_ncm', '')
@@ -265,6 +269,10 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
           pis_aliquota: d.nfce_pis_aliquota != null ? Number(d.nfce_pis_aliquota) : null,
           cofins_cst: d.nfce_cofins_cst || null,
           cofins_aliquota: d.nfce_cofins_aliquota != null ? Number(d.nfce_cofins_aliquota) : null,
+          ibs_cbs_cst: d.ibs_cbs_cst || null,
+          ibs_cbs_cclasstrib: d.ibs_cbs_cclasstrib || null,
+          ibs_aliquota: d.ibs_aliquota != null ? Number(d.ibs_aliquota) : null,
+          cbs_aliquota: d.cbs_aliquota != null ? Number(d.cbs_aliquota) : null,
         })));
       } finally {
         if (!cancelled) setLoadingData(false);
@@ -306,6 +314,8 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
         ncm: p.ncm, cfop: p.cfop, icms_aliquota: p.icms_aliquota,
         pis_cst: p.pis_cst, pis_aliquota: p.pis_aliquota,
         cofins_cst: p.cofins_cst, cofins_aliquota: p.cofins_aliquota,
+        ibs_cbs_cst: p.ibs_cbs_cst, ibs_cbs_cclasstrib: p.ibs_cbs_cclasstrib,
+        ibs_aliquota: p.ibs_aliquota, cbs_aliquota: p.cbs_aliquota,
       },
     }]);
   };
@@ -586,6 +596,10 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
               pis_aliquota: it.fiscal?.pis_aliquota ?? null,
               cofins_cst: it.fiscal?.cofins_cst ?? null,
               cofins_aliquota: it.fiscal?.cofins_aliquota ?? null,
+              ibs_cbs_cst: it.fiscal?.ibs_cbs_cst ?? null,
+              ibs_cbs_cclasstrib: it.fiscal?.ibs_cbs_cclasstrib ?? null,
+              ibs_aliquota: it.fiscal?.ibs_aliquota ?? null,
+              cbs_aliquota: it.fiscal?.cbs_aliquota ?? null,
             };
           }),
         });

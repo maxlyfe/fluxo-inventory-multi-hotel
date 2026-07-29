@@ -61,6 +61,18 @@ export interface NFHotelConfig {
   codigo_servico_municipal: string | null;
   logo_url: string | null;
 
+  // Reforma Tributária (IBS/CBS) — NFC-e/NF-e: grupos IBSCBS + IBSCBSTot.
+  // Obrigatório para CRT=3 desde 03/08/2026 (NT 2025.002 v1.40).
+  nfce_ibs_cbs_enabled: boolean;
+
+  // Reforma Tributária (IBS/CBS) — bloco <IBSCBS> da DPS Nacional (por hotel)
+  nfse_ibs_cbs_cst: string | null;
+  nfse_ibs_cbs_cclasstrib: string | null;
+  nfse_fin_nfse: number | null;
+  nfse_ind_final: number | null;
+  nfse_c_ind_op: string | null;
+  nfse_ind_dest: number | null;
+
   nf_recebidas_enabled: boolean;
   dfe_ultimo_nsu: string | null;
   dfe_ultima_consulta: string | null;
@@ -145,6 +157,11 @@ export interface NFInvoiceItem {
   codigo_servico: string | null;
   iss_aliquota: number | null;
   iss_valor: number | null;
+
+  ibs_cbs_cst: string | null;
+  ibs_cbs_cclasstrib: string | null;
+  ibs_aliquota: number | null;
+  cbs_aliquota: number | null;
 
   created_at: string;
 }

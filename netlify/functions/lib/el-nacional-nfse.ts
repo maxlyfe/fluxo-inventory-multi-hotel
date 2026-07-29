@@ -17,6 +17,16 @@ const DPS_NS = 'http://www.sped.fazenda.gov.br/nfse';
 
 type Ambiente = 'producao' | 'homologacao';
 
+// Doc oficial E&L ("Orientações - API de Integração NFS-e Nacional"):
+//   Homologação: .../producao35/api/nacional/homologacao/nfse
+//   Produção:    .../producao35/api/nacional/nfse   (SEM segmento de ambiente)
+// Ou seja, ao contrário do padrão usual, o segmento "/homologacao" só existe
+// para homologação — produção usa o path base direto.
+function elPath(ambiente: Ambiente, suffix: string): string {
+  const envSegment = ambiente === 'producao' ? '' : `/${ambiente}`;
+  return `${EL_BASE_PATH}${envSegment}${suffix}`;
+}
+
 // ── HTTP helper ──────────────────────────────────────────────────────────────
 
 function httpsJson(
@@ -82,6 +92,14 @@ export interface ELNacionalConfig {
   aliquota_iss: number;                // percentual (ex. 5)
   optante_simples: boolean;
   telefone?: string | null;
+  // Reforma Tributária (IBS/CBS, NT 2025.002) — bloco <IBSCBS> por DPS (não por
+  // item: nf_invoice_items ainda não tem vínculo com services.id).
+  ibs_cbs_cst?: string | null;         // CST IBS/CBS (3 díg). '000' = tributação integral
+  ibs_cbs_cclasstrib?: string | null;  // cClassTrib (6 díg). '000001' = tributação integral
+  fin_nfse?: number | null;            // Finalidade da NFS-e (0 = normal)
+  ind_final?: number | null;           // 1 = consumidor final; 0 = não
+  c_ind_op?: string | null;            // Código do indicador da operação (tabela nacional)
+  ind_dest?: number | null;            // Indicador de destino da operação
 }
 
 export interface ELNacionalTomador {
@@ -120,7 +138,39 @@ function buildDpsId(cMun: string, cnpj: string, serie: string, numero: number): 
   return `DPS${cMun}2${cnpj}${serieNum}${String(numero).padStart(15, '0')}`;
 }
 
-function buildDpsXml(
+// Bloco <IBSCBS> da DPS (Reforma Tributária, NT 2025.002). Estrutura simples
+// (finNFSe/indFinal/cIndOp/indDest + CST/cClassTrib), conforme exemplo oficial
+// de DPS com IBSCBS — sem valores monetários explícitos (vBC/vIBS/vCBS), que
+// são calculados pela Plataforma Nacional a partir do valor do serviço e das
+// alíquotas vigentes. Omitido por completo se a config não tiver CST/cClassTrib
+// definidos (hotel ainda não configurado para a reforma).
+function buildIbsCbsXml(config: ELNacionalConfig): string {
+  const cst = config.ibs_cbs_cst;
+  const cClassTrib = config.ibs_cbs_cclasstrib;
+  if (!cst || !cClassTrib) return '';
+
+  const finNFSe = config.fin_nfse ?? 0;
+  const indFinal = config.ind_final ?? 1;
+  const cIndOp = config.c_ind_op || '100301';
+  const indDest = config.ind_dest ?? 0;
+
+  return (
+    `<IBSCBS>` +
+    `<finNFSe>${finNFSe}</finNFSe>` +
+    `<indFinal>${indFinal}</indFinal>` +
+    `<cIndOp>${xmlEsc(cIndOp)}</cIndOp>` +
+    `<indDest>${indDest}</indDest>` +
+    `<valores><trib><gIBSCBS>` +
+    `<CST>${xmlEsc(cst)}</CST>` +
+    `<cClassTrib>${xmlEsc(cClassTrib)}</cClassTrib>` +
+    `</gIBSCBS></trib></valores>` +
+    `</IBSCBS>`
+  );
+}
+
+// Exportado para permitir validar a estrutura da DPS (incluindo o bloco
+// <IBSCBS> da Reforma Tributaria) sem certificado e sem chamar a API.
+export function buildDpsXml(
   config: ELNacionalConfig,
   tomador: ELNacionalTomador,
   items: ELNacionalItem[],
@@ -217,6 +267,7 @@ function buildDpsXml(
     `</totTrib>` +
     `</trib>` +
     `</valores>` +
+    buildIbsCbsXml(config) +
     `</infDPS>`;
 
   const xml =
@@ -289,7 +340,7 @@ export async function emitirNfseELNacional(params: {
 
   // 2. GZip + Base64 e envio
   const payload = { dpsXmlGZipB64: gzipB64(signed) };
-  const sendPath = `${EL_BASE_PATH}/${config.ambiente}/nfse?token=${encodeURIComponent(config.token)}`;
+  const sendPath = elPath(config.ambiente, `/nfse?token=${encodeURIComponent(config.token)}`);
   const res = await httpsJson('POST', sendPath, payload);
   console.log('[NFS-e EL Nacional] POST nfse →', res.status, res.body.slice(0, 500));
 
@@ -320,7 +371,7 @@ export async function emitirNfseELNacional(params: {
   let chaveAcesso: string | null = null;
   for (let attempt = 0; attempt < 4 && !nfseXml; attempt++) {
     await new Promise(r => setTimeout(r, 2500));
-    const cRes = await httpsJson('GET', `${EL_BASE_PATH}/${config.ambiente}/nfseDps/${idDPS}?token=${encodeURIComponent(config.token)}`);
+    const cRes = await httpsJson('GET', elPath(config.ambiente, `/nfseDps/${idDPS}?token=${encodeURIComponent(config.token)}`));
     console.log(`[NFS-e EL Nacional] Poll ${attempt + 1} →`, cRes.status, cRes.body.slice(0, 300));
     let cData: any = {};
     try { cData = JSON.parse(cRes.body); } catch { continue; }
@@ -392,7 +443,7 @@ export async function cancelarNfseELNacional(params: {
   const { key, cert } = extractPemFromPfx(config.certificado_base64, config.certificado_senha);
   const signed = signDps(xml, pedId, key, cert);
 
-  const path = `${EL_BASE_PATH}/${config.ambiente}/nfse/${params.chave_acesso}/eventos?token=${encodeURIComponent(config.token)}`;
+  const path = elPath(config.ambiente, `/nfse/${params.chave_acesso}/eventos?token=${encodeURIComponent(config.token)}`);
   const res = await httpsJson('POST', path, { pedidoRegistroEventoXmlGZipB64: gzipB64(signed) });
   console.log('[NFS-e EL Nacional] Cancelamento →', res.status, res.body.slice(0, 500));
 
@@ -421,7 +472,7 @@ export async function consultarNfseELNacional(params: {
   ambiente: Ambiente;
   chave_acesso: string;
 }): Promise<{ success: boolean; message: string; xml: string | null }> {
-  const path = `${EL_BASE_PATH}/${params.ambiente}/nfse/${params.chave_acesso}?token=${encodeURIComponent(params.token)}`;
+  const path = elPath(params.ambiente, `/nfse/${params.chave_acesso}?token=${encodeURIComponent(params.token)}`);
   const res = await httpsJson('GET', path);
   let data: any = {};
   try { data = JSON.parse(res.body); } catch { /* não-JSON */ }

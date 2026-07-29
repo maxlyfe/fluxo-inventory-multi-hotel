@@ -59,6 +59,11 @@ export interface Dish {
   nfce_pis_aliquota?: number | null;
   nfce_cofins_cst?: string | null;
   nfce_cofins_aliquota?: number | null;
+  // Reforma Tributária (IBS/CBS) — CST e Código de Classificação Tributária
+  ibs_cbs_cst?: string | null;
+  ibs_cbs_cclasstrib?: string | null;
+  ibs_aliquota?: number | null;
+  cbs_aliquota?: number | null;
 }
 
 export interface DishIngredient {

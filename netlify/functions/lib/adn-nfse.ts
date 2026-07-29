@@ -66,6 +66,15 @@ export interface DPSConfig {
   regime_tributario_nfse?: string;
   codigo_servico: string;
   aliquota_iss: number;
+  // Reforma Tributária (IBS/CBS, NT 2025.002) — bloco IBSCBS por DPS. Mesmos
+  // campos de nf_hotel_config usados no formato 'el-nacional' (paridade entre
+  // os dois formatos alternativos à Nota Nacional ABRASF).
+  ibs_cbs_cst?: string | null;
+  ibs_cbs_cclasstrib?: string | null;
+  fin_nfse?: number | null;
+  ind_final?: number | null;
+  c_ind_op?: string | null;
+  ind_dest?: number | null;
 }
 
 export interface DPSTomador {
@@ -166,6 +175,22 @@ export interface DPSPayload {
       };
     };
     vDPS: number;
+    // Reforma Tributária (IBS/CBS) — bloco opcional, omitido quando o hotel
+    // não tem CST/cClassTrib configurados (ver DPSConfig.ibs_cbs_cst).
+    IBSCBS?: {
+      finNFSe: number;
+      indFinal: number;
+      cIndOp: string;
+      indDest: number;
+      valores: {
+        trib: {
+          gIBSCBS: {
+            CST: string;
+            cClassTrib: string;
+          };
+        };
+      };
+    };
   };
 }
 
@@ -231,6 +256,27 @@ export function buildDPS(
     if (tomador.email) toma.email = tomador.email;
   }
 
+  // Bloco IBSCBS: omitido por completo se o hotel não tiver CST/cClassTrib
+  // configurados (mesmo critério do formato 'el-nacional' — ver
+  // buildIbsCbsXml em el-nacional-nfse.ts).
+  let ibsCbs: DPSPayload['infDPS']['IBSCBS'];
+  if (config.ibs_cbs_cst && config.ibs_cbs_cclasstrib) {
+    ibsCbs = {
+      finNFSe: config.fin_nfse ?? 0,
+      indFinal: config.ind_final ?? 1,
+      cIndOp: config.c_ind_op || '100301',
+      indDest: config.ind_dest ?? 0,
+      valores: {
+        trib: {
+          gIBSCBS: {
+            CST: config.ibs_cbs_cst,
+            cClassTrib: config.ibs_cbs_cclasstrib,
+          },
+        },
+      },
+    };
+  }
+
   return {
     infDPS: {
       tpAmb,
@@ -268,6 +314,7 @@ export function buildDPS(
         },
       },
       vDPS: Number(valorServico.toFixed(2)),
+      ...(ibsCbs ? { IBSCBS: ibsCbs } : {}),
     },
   };
 }

@@ -24,6 +24,8 @@ export interface HotelService {
   nbs_code: string | null;
   ibs_cbs_cst: string | null;
   ibs_cbs_cclasstrib: string | null;
+  ibs_aliquota: number | null;
+  cbs_aliquota: number | null;
   nfce_eligible: boolean;
   nfce_ncm: string | null;
   nfce_cfop: string | null;

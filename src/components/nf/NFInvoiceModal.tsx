@@ -609,6 +609,10 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
           pis_aliquota: fiscal.pis_aliquota ?? null,
           cofins_cst: fiscal.cofins_cst ?? null,
           cofins_aliquota: fiscal.cofins_aliquota ?? null,
+          ibs_cbs_cst: fiscal.ibs_cbs_cst ?? null,
+          ibs_cbs_cclasstrib: fiscal.ibs_cbs_cclasstrib ?? null,
+          ibs_aliquota: fiscal.ibs_aliquota ?? null,
+          cbs_aliquota: fiscal.cbs_aliquota ?? null,
         } : {}),
         ...(tipo === 'nfse' && svc ? {
           codigo_servico: svc.codigo_servico ?? null,

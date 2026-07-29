@@ -676,6 +676,10 @@ export default function EmissaoNFPage() {
                     pis_aliquota: f.pis_aliquota ?? null,
                     cofins_cst: f.cofins_cst ?? null,
                     cofins_aliquota: f.cofins_aliquota ?? null,
+                    ibs_cbs_cst: f.ibs_cbs_cst ?? null,
+                    ibs_cbs_cclasstrib: f.ibs_cbs_cclasstrib ?? null,
+                    ibs_aliquota: f.ibs_aliquota ?? null,
+                    cbs_aliquota: f.cbs_aliquota ?? null,
                   } : {}),
                 };
               });

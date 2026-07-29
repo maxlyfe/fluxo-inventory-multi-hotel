@@ -69,6 +69,7 @@ const EMPTY_FORM = {
   nfce_csc_id: '',
   nfce_csc_token: '',
   nfce_taxa_na_base_icms: false,
+  nfce_ibs_cbs_enabled: false,
   nfce_emit_redirect_enabled: false,
   nfce_emit_redirect_hotel_id: '',
   nfse_provider: 'prefeitura' as NFSEProvider,
@@ -76,6 +77,12 @@ const EMPTY_FORM = {
   el_token: '',
   el_ambiente: 'homologacao' as NFAmbiente,
   codigo_servico_municipal: '',
+  nfse_ibs_cbs_cst: '000',
+  nfse_ibs_cbs_cclasstrib: '000001',
+  nfse_fin_nfse: 0,
+  nfse_ind_final: 1,
+  nfse_c_ind_op: '100301',
+  nfse_ind_dest: 0,
   logo_url: '',
   nf_recebidas_enabled: false,
   certificado_base64: '',
@@ -177,6 +184,7 @@ const NFIntegration: React.FC = () => {
           nfce_csc_id: cfg.nfce_csc_id || '',
           nfce_csc_token: cfg.nfce_csc_token || '',
           nfce_taxa_na_base_icms: (cfg as any).nfce_taxa_na_base_icms ?? false,
+          nfce_ibs_cbs_enabled: (cfg as any).nfce_ibs_cbs_enabled ?? false,
           nfce_emit_redirect_enabled: (cfg as any).nfce_emit_redirect_enabled ?? false,
           nfce_emit_redirect_hotel_id: (cfg as any).nfce_emit_redirect_hotel_id ?? '',
           nfse_provider: cfg.nfse_provider || 'prefeitura',
@@ -184,6 +192,12 @@ const NFIntegration: React.FC = () => {
           el_token: (cfg as any).el_token || '',
           el_ambiente: (cfg as any).el_ambiente || 'homologacao',
           codigo_servico_municipal: (cfg as any).codigo_servico_municipal || '',
+          nfse_ibs_cbs_cst: (cfg as any).nfse_ibs_cbs_cst || '000',
+          nfse_ibs_cbs_cclasstrib: (cfg as any).nfse_ibs_cbs_cclasstrib || '000001',
+          nfse_fin_nfse: (cfg as any).nfse_fin_nfse ?? 0,
+          nfse_ind_final: (cfg as any).nfse_ind_final ?? 1,
+          nfse_c_ind_op: (cfg as any).nfse_c_ind_op || '100301',
+          nfse_ind_dest: (cfg as any).nfse_ind_dest ?? 0,
           logo_url: cfg.logo_url || '',
           nf_recebidas_enabled: cfg.nf_recebidas_enabled ?? false,
           certificado_base64: cfg.certificado_base64 || '',
@@ -220,6 +234,9 @@ const NFIntegration: React.FC = () => {
         crt: Number(form.crt) || 1,
         proximo_numero_nfe: Number(form.proximo_numero_nfe) || 1,
         proximo_numero_nfce: Number(form.proximo_numero_nfce) || 1,
+        nfse_fin_nfse: Number(form.nfse_fin_nfse) || 0,
+        nfse_ind_final: Number(form.nfse_ind_final) || 0,
+        nfse_ind_dest: Number(form.nfse_ind_dest) || 0,
         certificado_validade: form.certificado_validade || null,
         nfce_emit_redirect_hotel_id: form.nfce_emit_redirect_hotel_id || null,
         is_active: true,
@@ -691,6 +708,49 @@ const NFIntegration: React.FC = () => {
                     </div>
                   </div>
 
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-1">IBS / CBS (Reforma Tributária) — bloco &lt;IBSCBS&gt; da DPS</p>
+                  <p className="text-xs text-gray-500">
+                    Confirme <b>Código do Indicador de Operação (cIndOp)</b> com a prefeitura/contador antes de
+                    usar em produção — o valor padrão abaixo é apenas um exemplo, varia conforme a natureza da operação.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>CST IBS/CBS</label>
+                      <input type="text" value={form.nfse_ibs_cbs_cst} onChange={upd('nfse_ibs_cbs_cst')} className={inputCls} placeholder="000" maxLength={3} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Cód. Class. Tributária (cClassTrib)</label>
+                      <input type="text" value={form.nfse_ibs_cbs_cclasstrib} onChange={upd('nfse_ibs_cbs_cclasstrib')} className={inputCls} placeholder="000001" maxLength={6} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Finalidade da NFS-e (finNFSe)</label>
+                      <select value={form.nfse_fin_nfse} onChange={e => setForm(p => ({ ...p, nfse_fin_nfse: Number(e.target.value) }))} className={inputCls}>
+                        <option value={0}>0 — Nota regular</option>
+                        <option value={1}>1 — Nota de crédito</option>
+                        <option value={2}>2 — Nota de débito</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Consumidor Final (indFinal)</label>
+                      <select value={form.nfse_ind_final} onChange={e => setForm(p => ({ ...p, nfse_ind_final: Number(e.target.value) }))} className={inputCls}>
+                        <option value={1}>1 — Consumidor final</option>
+                        <option value={0}>0 — Não consumidor final</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código do Indicador da Operação (cIndOp)</label>
+                      <input type="text" value={form.nfse_c_ind_op} onChange={upd('nfse_c_ind_op')} className={inputCls} placeholder="100301" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Indicador de Destino (indDest)</label>
+                      <select value={form.nfse_ind_dest} onChange={e => setForm(p => ({ ...p, nfse_ind_dest: Number(e.target.value) }))} className={inputCls}>
+                        <option value={0}>0 — Operação interna</option>
+                        <option value={1}>1 — Operação interestadual</option>
+                        <option value={2}>2 — Operação com exterior</option>
+                      </select>
+                    </div>
+                  </div>
+
                   {/* Pré-requisitos */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${
@@ -838,6 +898,49 @@ const NFIntegration: React.FC = () => {
                     <div>
                       <label className={labelCls}>Próximo Número DPS</label>
                       <input type="number" value={form.proximo_numero_nfse} onChange={upd('proximo_numero_nfse')} className={inputCls} min="1" />
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-1">IBS / CBS (Reforma Tributária) — bloco &lt;IBSCBS&gt; da DPS</p>
+                  <p className="text-xs text-gray-500">
+                    Mesma configuração usada pelo formato Nacional DPS (E&amp;L) — compartilhada entre os dois formatos.
+                    Confirme <b>cIndOp</b> com a prefeitura/contador antes de usar em produção.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>CST IBS/CBS</label>
+                      <input type="text" value={form.nfse_ibs_cbs_cst} onChange={upd('nfse_ibs_cbs_cst')} className={inputCls} placeholder="000" maxLength={3} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Cód. Class. Tributária (cClassTrib)</label>
+                      <input type="text" value={form.nfse_ibs_cbs_cclasstrib} onChange={upd('nfse_ibs_cbs_cclasstrib')} className={inputCls} placeholder="000001" maxLength={6} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Finalidade da NFS-e (finNFSe)</label>
+                      <select value={form.nfse_fin_nfse} onChange={e => setForm(p => ({ ...p, nfse_fin_nfse: Number(e.target.value) }))} className={inputCls}>
+                        <option value={0}>0 — Nota regular</option>
+                        <option value={1}>1 — Nota de crédito</option>
+                        <option value={2}>2 — Nota de débito</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Consumidor Final (indFinal)</label>
+                      <select value={form.nfse_ind_final} onChange={e => setForm(p => ({ ...p, nfse_ind_final: Number(e.target.value) }))} className={inputCls}>
+                        <option value={1}>1 — Consumidor final</option>
+                        <option value={0}>0 — Não consumidor final</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Código do Indicador da Operação (cIndOp)</label>
+                      <input type="text" value={form.nfse_c_ind_op} onChange={upd('nfse_c_ind_op')} className={inputCls} placeholder="100301" />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Indicador de Destino (indDest)</label>
+                      <select value={form.nfse_ind_dest} onChange={e => setForm(p => ({ ...p, nfse_ind_dest: Number(e.target.value) }))} className={inputCls}>
+                        <option value={0}>0 — Operação interna</option>
+                        <option value={1}>1 — Operação interestadual</option>
+                        <option value={2}>2 — Operação com exterior</option>
+                      </select>
                     </div>
                   </div>
 
@@ -1026,6 +1129,57 @@ const NFIntegration: React.FC = () => {
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
+              </div>
+
+              {/* IBS/CBS da Reforma Tributária nos grupos IBSCBS + IBSCBSTot */}
+              <div className={`p-4 rounded-xl border space-y-2 ${
+                form.nfce_ibs_cbs_enabled
+                  ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20'
+                  : 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20'
+              }`}>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-gray-800 dark:text-gray-200">IBS / CBS na NFC-e e NF-e (Reforma Tributária)</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Emite os grupos <b>IBSCBS</b> (por item) e <b>IBSCBSTot</b> (total), conforme a NT 2025.002.
+                      Obrigatório em produção para emitentes do <b>regime normal (CRT 3)</b> a partir de <b>03/08/2026</b>.
+                      Simples Nacional e MEI (CRT 1, 2 e 4) só a partir de janeiro de 2027: nesses casos o grupo não é
+                      enviado mesmo com a chave ligada.
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Em 2026 as alíquotas são de teste (IBS 0,10% e CBS 0,90%) e <b>não somam no total da nota</b>
+                      (vNF segue igual); o total com os novos tributos vai no campo próprio vNFTot. As alíquotas e o
+                      CST/cClassTrib de cada item vêm do cadastro de produtos, fichas técnicas e serviços.
+                    </p>
+                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mt-1">
+                      Se a SEFAZ rejeitar alguma nota por causa desses grupos, desligue aqui: a emissão volta ao
+                      formato anterior na hora, sem precisar de novo deploy.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={form.nfce_ibs_cbs_enabled}
+                      onChange={e => setForm(p => ({ ...p, nfce_ibs_cbs_enabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                {Number(form.crt) !== 3 && form.nfce_ibs_cbs_enabled && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Esta unidade está como CRT {form.crt || '?'} (Simples/MEI), então o grupo não será enviado até
+                    janeiro de 2027, mesmo com a chave ligada. Se a empresa é de <b>Lucro Real ou Presumido</b>, o CRT
+                    correto é <b>3 (Regime Normal)</b>: corrija o campo CRT acima antes de emitir por aqui.
+                  </p>
+                )}
+                {Number(form.crt) === 3 && !form.nfce_ibs_cbs_enabled && (
+                  <p className="text-xs font-semibold text-red-700 dark:text-red-400">
+                    Atenção: esta unidade é CRT 3 (Regime Normal) e a chave está desligada. Desde 03/08/2026 a SEFAZ
+                    rejeita NFC-e e NF-e sem os grupos de IBS/CBS, então a emissão vai falhar enquanto isso não for
+                    ligado.
+                  </p>
+                )}
               </div>
 
               {/* Redirecionar emissão de NFC-e para outra unidade do grupo */}

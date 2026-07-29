@@ -261,6 +261,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo,
       items, serie_nfce, nfce_csc_id, nfce_csc_token,
       numero_nfce, tPag, acrescimo, taxa_na_base_icms, pagamentos,
+      ibs_cbs_enabled,
     } = payload;
 
     if (!certificado_base64 || !certificado_senha) {
@@ -318,6 +319,13 @@ const handler: Handler = async (event: HandlerEvent) => {
           pis_aliquota: it.pis_aliquota ?? undefined,
           cofins_cst: it.cofins_cst || undefined,
           cofins_aliquota: it.cofins_aliquota ?? undefined,
+          // IBS/CBS (Reforma Tributária) — grupo ainda desligado por padrão
+          // em nfce-sefaz.ts (NFCE_IBSCBS); propagado aqui para já chegar ao
+          // builder quando a flag for religada após validação em homologação.
+          ibs_cbs_cst: it.ibs_cbs_cst || undefined,
+          ibs_cbs_cClassTrib: it.ibs_cbs_cClassTrib || undefined,
+          ibs_aliquota: it.ibs_aliquota ?? undefined,
+          cbs_aliquota: it.cbs_aliquota ?? undefined,
         })),
         config: {
           certificado_base64,
@@ -326,6 +334,9 @@ const handler: Handler = async (event: HandlerEvent) => {
           serie: serie_nfce || '1',
           csc_id: nfce_csc_id,
           csc_token: nfce_csc_token,
+          // Reforma Tributária: opt-in por hotel (nfce_ibs_cbs_enabled).
+          // Kill switch global fica em nfce-sefaz.ts (env NFCE_IBSCBS=0).
+          ibs_cbs_enabled: !!ibs_cbs_enabled,
         },
         nNF: numero_nfce || 1,
         tPag: tPag || '01',
@@ -428,6 +439,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       tomador_email, tomador_endereco, tomador_numero, tomador_bairro,
       tomador_cidade, tomador_codigo_municipio, tomador_uf, tomador_cep,
       items, serie_nfe, numero_nfe, natureza_operacao, tPag, pagamentos,
+      ibs_cbs_enabled,
     } = payload;
 
     if (!certificado_base64 || !certificado_senha) {
@@ -491,12 +503,17 @@ const handler: Handler = async (event: HandlerEvent) => {
           icms_vBC: it.icms_vBC ?? 0,
           icms_pICMS: it.icms_pICMS ?? 0,
           icms_vICMS: it.icms_vICMS ?? 0,
+          ibs_cbs_cst: it.ibs_cbs_cst || undefined,
+          ibs_cbs_cClassTrib: it.ibs_cbs_cClassTrib || undefined,
+          ibs_aliquota: it.ibs_aliquota ?? undefined,
+          cbs_aliquota: it.cbs_aliquota ?? undefined,
         })),
         config: {
           certificado_base64,
           certificado_senha,
           ambiente: ambiente === 'producao' ? 'producao' : 'homologacao',
           serie: serie_nfe || '1',
+          ibs_cbs_enabled: !!ibs_cbs_enabled,
         },
         nNF: numero_nfe || 1,
         natOp: natureza_operacao || 'VENDA DE MERCADORIA',
@@ -1083,6 +1100,12 @@ const handler: Handler = async (event: HandlerEvent) => {
           aliquota_iss: payload.aliquota_iss ?? 5,
           optante_simples: !!payload.optante_simples,
           telefone: payload.telefone || null,
+          ibs_cbs_cst: payload.ibs_cbs_cst || null,
+          ibs_cbs_cclasstrib: payload.ibs_cbs_cclasstrib || null,
+          fin_nfse: payload.fin_nfse ?? null,
+          ind_final: payload.ind_final ?? null,
+          c_ind_op: payload.c_ind_op || null,
+          ind_dest: payload.ind_dest ?? null,
         },
         tomador: {
           cpf_cnpj: payload.tomador_cpf_cnpj || null,

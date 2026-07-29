@@ -101,6 +101,7 @@ const NewProductModal = ({
     unit_measure: 'und', product_type: 'consumo',
     mcu_code: '', tax_percentage: '0',
     ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
+    ibs_aliquota: '0,10', cbs_aliquota: '0,90',
   });
 
   const [portionProducts, setPortionProducts] = useState<Product[]>([]);
@@ -175,6 +176,8 @@ const NewProductModal = ({
           tax_percentage: editingProduct.tax_percentage?.toString() || '0',
           ibs_cbs_cst:        (editingProduct as any).ibs_cbs_cst        || '000',
           ibs_cbs_cclasstrib: (editingProduct as any).ibs_cbs_cclasstrib || '000001',
+          ibs_aliquota: (editingProduct as any).ibs_aliquota != null ? String((editingProduct as any).ibs_aliquota).replace('.', ',') : '0,10',
+          cbs_aliquota: (editingProduct as any).cbs_aliquota != null ? String((editingProduct as any).cbs_aliquota).replace('.', ',') : '0,90',
         });
       } else {
         if (sectorsData) setSelectedSectors(new Set(sectorsData.map(s => s.id)));
@@ -186,6 +189,7 @@ const NewProductModal = ({
           auto_portion_product_id: null, auto_portion_multiplier: null,
           unit_measure: 'und', product_type: 'consumo', mcu_code: '', tax_percentage: '0',
           ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
+          ibs_aliquota: '0,10', cbs_aliquota: '0,90',
         });
       }
       setLoadingSectors(false);
@@ -268,6 +272,8 @@ const NewProductModal = ({
         tax_percentage: parseNumber(formData.tax_percentage),
         ibs_cbs_cst: formData.ibs_cbs_cst || '000',
         ibs_cbs_cclasstrib: formData.ibs_cbs_cclasstrib || '000001',
+        ibs_aliquota: formData.ibs_aliquota ? parseNumber(formData.ibs_aliquota) : 0.10,
+        cbs_aliquota: formData.cbs_aliquota ? parseNumber(formData.cbs_aliquota) : 0.90,
       };
 
       let savedProduct: Product | null = null;
@@ -785,8 +791,23 @@ const NewProductModal = ({
                     <input name="ibs_cbs_cclasstrib" type="text" value={formData.ibs_cbs_cclasstrib} onChange={handleInputChange}
                       placeholder="000001" className={fieldCls} />
                   </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Percent className="w-3 h-3 inline mr-1" />Alíquota IBS (%)
+                    </label>
+                    <input name="ibs_aliquota" type="text" inputMode="decimal" value={formData.ibs_aliquota} onChange={handleInputChange}
+                      placeholder="0,10" className={fieldCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                      <Percent className="w-3 h-3 inline mr-1" />Alíquota CBS (%)
+                    </label>
+                    <input name="cbs_aliquota" type="text" inputMode="decimal" value={formData.cbs_aliquota} onChange={handleInputChange}
+                      placeholder="0,90" className={fieldCls} />
+                  </div>
                   <p className="sm:col-span-2 text-[11px] text-slate-400 -mt-1">
-                    Reforma Tributária (IBS/CBS). Padrão 000 / 000001 = tributação integral. Ajuste conforme orientação do contador.
+                    Reforma Tributária (IBS/CBS). 2026 é o ano-teste: todo item usa hoje 0,10% de IBS e
+                    0,90% de CBS, já pré-preenchidos. Ajuste apenas se orientado pelo contador.
                   </p>
                 </div>
               </Section>

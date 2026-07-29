@@ -1207,6 +1207,8 @@ function emptyFiscal() {
     nfce_ncm: '', nfce_cest: '', nfce_cfop: '5102', nfce_origem: '0',
     nfce_csosn: '', nfce_cst: '', nfce_icms_aliquota: '', nfce_unidade: 'UN', nfce_codigo: '',
     nfce_pis_cst: '01', nfce_pis_aliquota: '', nfce_cofins_cst: '01', nfce_cofins_aliquota: '',
+    ibs_cbs_cst: '000', ibs_cbs_cclasstrib: '000001',
+    ibs_aliquota: '0,10', cbs_aliquota: '0,90',
   };
 }
 
@@ -1353,6 +1355,34 @@ function ImpostosFields({ fiscal, onChange }: {
         </div>
       </div>
 
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 pt-1">IBS / CBS (Reforma Tributária)</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelCls}>CST IBS/CBS (Reforma)</label>
+          <input value={fiscal.ibs_cbs_cst} onChange={set('ibs_cbs_cst')} className={inputCls}
+            placeholder="000" inputMode="numeric" maxLength={3} />
+        </div>
+        <div>
+          <label className={labelCls}>Cód. Class. Tributária (cClassTrib)</label>
+          <input value={fiscal.ibs_cbs_cclasstrib} onChange={set('ibs_cbs_cclasstrib')} className={inputCls}
+            placeholder="000001" inputMode="numeric" maxLength={6} />
+        </div>
+        <div>
+          <label className={labelCls}>Alíquota IBS (%)</label>
+          <input value={fiscal.ibs_aliquota} onChange={set('ibs_aliquota')} className={inputCls}
+            placeholder="0,10" inputMode="decimal" />
+        </div>
+        <div>
+          <label className={labelCls}>Alíquota CBS (%)</label>
+          <input value={fiscal.cbs_aliquota} onChange={set('cbs_aliquota')} className={inputCls}
+            placeholder="0,90" inputMode="decimal" />
+        </div>
+      </div>
+
+      <p className="text-[11px] text-slate-400">
+        2026 é o ano-teste da reforma: todo item usa hoje 0,10% de IBS e 0,90% de CBS, já
+        pré-preenchidos — ajuste apenas se orientado pelo contador.
+      </p>
       <p className="text-[11px] text-slate-400">
         NCM, CFOP, alíquota de ICMS e PIS/COFINS entram direto na NFC-e. Origem, CSOSN/CST, unidade
         e código ficam cadastrados no produto; a emissão atual aplica o padrão do regime tributário
@@ -1596,6 +1626,12 @@ function DishesTab({
         nfce_cofins_cst: trimOrNull(f.nfce_cofins_cst),
         nfce_cofins_aliquota: f.nfce_cofins_aliquota.trim()
           ? parseFloat(f.nfce_cofins_aliquota.replace(',', '.')) : null,
+        ibs_cbs_cst: trimOrNull(f.ibs_cbs_cst) || '000',
+        ibs_cbs_cclasstrib: trimOrNull(f.ibs_cbs_cclasstrib) || '000001',
+        ibs_aliquota: f.ibs_aliquota.trim()
+          ? parseFloat(f.ibs_aliquota.replace(',', '.')) : 0.10,
+        cbs_aliquota: f.cbs_aliquota.trim()
+          ? parseFloat(f.cbs_aliquota.replace(',', '.')) : 0.90,
       };
 
       let currentDishId = editingId;
@@ -1692,6 +1728,10 @@ function DishesTab({
         nfce_pis_aliquota: dish.nfce_pis_aliquota != null ? String(dish.nfce_pis_aliquota) : '',
         nfce_cofins_cst: dish.nfce_cofins_cst || '01',
         nfce_cofins_aliquota: dish.nfce_cofins_aliquota != null ? String(dish.nfce_cofins_aliquota) : '',
+        ibs_cbs_cst: dish.ibs_cbs_cst || '000',
+        ibs_cbs_cclasstrib: dish.ibs_cbs_cclasstrib || '000001',
+        ibs_aliquota: dish.ibs_aliquota != null ? String(dish.ibs_aliquota).replace('.', ',') : '0,10',
+        cbs_aliquota: dish.cbs_aliquota != null ? String(dish.cbs_aliquota).replace('.', ',') : '0,90',
       },
     });
     setShowForm(true);
