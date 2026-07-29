@@ -13,14 +13,20 @@ Este documento é a ordem de execução. **A ordem importa**: fora dela, o login
 |---|---|---|
 | 1 | `20260729120000_login_guard.sql` — `login_lockouts` + RPCs do lockout | ✅ **já aplicada e testada** |
 | 2 | `20260729120200_group_slug_guard.sql` — guarda em `get_group_by_slug` | ✅ **já aplicada e testada** |
-| 3 | `20260729120100_lock_username_resolution.sql` — fecha `resolve_username_email` | ⏳ **aplicar só no passo 4** |
+| 3 | `20260729120100_lock_username_resolution.sql` — fecha `resolve_username_email` | ✅ **aplicada e testada** |
 
-As duas primeiras são inertes até o front novo subir: nada as chama ainda.
+Conferido depois do revoke:
 
-> **A nº 3 fica para depois de propósito.** Ela revoga o acesso público a
-> `resolve_username_email`, de que o front **em produção** ainda depende para
-> login por username. Só pode ser aplicada depois que o front novo estiver
-> publicado — não basta a Edge Function estar no ar.
+```sql
+-- anon=false, authenticated=false, service_role=true
+SELECT r.rolname, has_function_privilege(r.rolname,
+       'public.resolve_username_email(TEXT, UUID)', 'EXECUTE')
+FROM unnest(ARRAY['anon','authenticated','service_role']) AS r(rolname);
+```
+
+E o caminho completo de login por username segue funcionando pela Edge Function
+(`service_role`): username inexistente devolve `401 {"error":"Credenciais inválidas."}`,
+sem erro de permissão e sem revelar se o usuário existe.
 
 Conferência (já executada, resultados obtidos):
 
@@ -67,12 +73,14 @@ time** — o Vite embute no bundle. Sem ela o widget não renderiza.
 **b)** Push na `main` e aguarde o deploy. Confirme que o widget aparece na tela
 de login antes de seguir.
 
+✅ **Feito em 29/07/2026.** Confirmado no bundle publicado
+(`/assets/index-CKqHqHqe.js`): a Site Key e a URL
+`challenges.cloudflare.com/turnstile/v0/api.js` estão embutidas.
+
 **c)** Só agora rode `20260729120100_lock_username_resolution.sql` no SQL Editor.
 A partir daí só a Edge Function (service_role) traduz username → e-mail.
 
-**Neste ponto o lockout de 3 tentativas + 30s está valendo, mas ainda é
-contornável** por quem chamar `/auth/v1/token` direto com a anon key. É o passo
-5 que fecha isso.
+✅ **Aplicada em 29/07/2026** (ver conferência no passo 1).
 
 ### 5. Ativar o CAPTCHA no Supabase
 
@@ -82,6 +90,17 @@ Supabase → Authentication → **Attack Protection** → Enable CAPTCHA protect
 
 > Faça isto **depois** do passo 4b estar no ar. Se o CAPTCHA for ativado antes do
 > front enviar o token, ninguém consegue entrar.
+
+✅ **Ativado em 29/07/2026.** O bypass está fechado — chamada direta a
+`/auth/v1/token` com a anon key agora devolve:
+
+```
+HTTP 400 {"error_code":"captcha_failed",
+          "msg":"captcha protection: request disallowed (no captcha_token found)"}
+```
+
+Antes disso a mesma chamada devolvia "invalid credentials", ou seja, dava para
+tentar senha à vontade sem passar pelo lockout.
 
 ### 6. Rate limits do Supabase (plano Pro)
 
@@ -111,14 +130,16 @@ renomeie a chave para `Content-Security-Policy` (sem o `-Report-Only`) e faça d
 2. Espere os 30s → volta a aceitar.
 3. Acerte a senha antes do 3º erro → o contador zera (`login_lockouts` limpa a linha).
 
-**O teste que prova que não dá para burlar** — com o Turnstile já ativo (passo 4c):
+**O teste que prova que não dá para burlar** (✅ já executado, resposta
+`captcha_failed`):
 
 ```bash
 curl -i -X POST "https://bnmyflgyrlskhljrbyfc.supabase.co/auth/v1/token?grant_type=password" -H "apikey: SUA_ANON_KEY" -H "Content-Type: application/json" -d '{"email":"teste@exemplo.com","password":"errada"}'
 ```
 
-Deve responder erro de **captcha**, não "invalid credentials". Se responder
-"invalid credentials", o passo 4c não está ativo e o lockout é contornável.
+Deve responder erro de **captcha**, não "invalid credentials". Se um dia voltar a
+responder "invalid credentials", o CAPTCHA foi desligado e o lockout virou
+contornável.
 
 **Anti-enumeração (5 + 30s)**
 
