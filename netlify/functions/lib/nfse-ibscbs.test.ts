@@ -11,7 +11,7 @@
 // formato não exige reconfigurar a reforma.
 import { describe, it, expect } from 'vitest';
 import { buildDpsXml } from './el-nacional-nfse';
-import { buildDPS } from './adn-nfse';
+import { buildDpsXmlADN } from './adn-nfse';
 
 const REFORMA = {
   ibs_cbs_cst: '000',
@@ -66,38 +66,35 @@ describe("NFS-e Nacional via E&L ('el-nacional') — bloco IBSCBS", () => {
   });
 });
 
-describe("NFS-e via ADN do Governo Federal ('adn') — bloco IBSCBS", () => {
+describe("NFS-e via Sefin Nacional ('adn') — bloco IBSCBS", () => {
   const adnConfig = (reforma: boolean) => ({
     cnpj: '39232073000144', inscricao_municipal: '1607893',
-    codigo_municipio: '3300233', razao_social: 'MERIDIANA TURISMO LTDA',
-    codigo_servico: '090101', aliquota_iss: 5,
+    endereco_codigo_municipio: '3300233', razao_social: 'MERIDIANA TURISMO LTDA',
+    codigo_servico: '090101', aliquota_iss: 5, telefone: '2299947660',
     ...(reforma ? REFORMA : {}),
   }) as any;
 
-  const adnTomador = { cpf_cnpj: '39232073000225', doc_tipo: 'cnpj', nome: 'CLIENTE TESTE' } as any;
+  const adnTomador = { nome: 'CLIENTE TESTE', doc_tipo: 'cnpj', doc_numero: '39232073000225' } as any;
   const adnItems = [
     { descricao: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
   ] as any[];
 
+  const build = (reforma: boolean) =>
+    buildDpsXmlADN(adnConfig(reforma), adnTomador, adnItems, '1', 1, 'homologacao').xml;
+
   it('não inclui IBSCBS sem CST/cClassTrib configurados', () => {
-    const dps = buildDPS(adnConfig(false), adnTomador, adnItems, 'NFS', 1, 'homologacao');
-    expect(dps.infDPS.IBSCBS).toBeUndefined();
+    expect(build(false)).not.toContain('<IBSCBS>');
   });
 
-  it('inclui IBSCBS com os mesmos valores usados no formato el-nacional', () => {
-    const dps = buildDPS(adnConfig(true), adnTomador, adnItems, 'NFS', 1, 'homologacao');
-    expect(dps.infDPS.IBSCBS).toEqual({
-      finNFSe: 0,
-      indFinal: 1,
-      cIndOp: '100301',
-      indDest: 0,
-      valores: { trib: { gIBSCBS: { CST: '000', cClassTrib: '000001' } } },
-    });
+  it('gera exatamente o mesmo bloco IBSCBS do formato el-nacional', () => {
+    const bloco = build(true).match(/<IBSCBS>[\s\S]*?<\/IBSCBS>/)?.[0];
+    const blocoEl = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1).xml
+      .match(/<IBSCBS>[\s\S]*?<\/IBSCBS>/)?.[0];
+    expect(bloco).toBeTruthy();
+    expect(bloco).toBe(blocoEl);
   });
 
-  it('mantém IBSCBS como última chave de infDPS (paridade com o XML)', () => {
-    const dps = buildDPS(adnConfig(true), adnTomador, adnItems, 'NFS', 1, 'homologacao');
-    const keys = Object.keys(dps.infDPS);
-    expect(keys[keys.length - 1]).toBe('IBSCBS');
+  it('mantém IBSCBS como último filho de infDPS', () => {
+    expect(build(true)).toContain('</IBSCBS></infDPS>');
   });
 });

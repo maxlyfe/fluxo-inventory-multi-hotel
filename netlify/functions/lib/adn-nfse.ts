@@ -4,12 +4,32 @@
 // Autenticação: mTLS com certificado A1 (.pfx) — mesmo padrão de dfe.ts.
 
 import https from 'https';
+import {
+  buildDpsXml,
+  signDps,
+  gzipB64,
+  gunzipB64,
+  parseNfseXml,
+  buildPedRegEventoXml,
+  type ELNacionalConfig,
+  type ELNacionalTomador,
+  type ELNacionalItem,
+} from './el-nacional-nfse';
+import { extractPemFromPfx } from './dfe';
 
+// API do Sefin Nacional (emissão, consulta, eventos, DANFSE).
+//
+// ATENÇÃO ao host: `www.nfse.gov.br` é o PORTAL (site institucional em IIS), não
+// a API. Apontar para lá devolve uma página HTML de "403 Forbidden" em
+// iso-8859-1 em vez de um erro JSON da API — foi exatamente esse o sintoma que
+// fez a emissão por ADN falhar. A API vive no host `sefin.`.
 const SEFIN_HOSTS = {
-  producao: 'www.nfse.gov.br',
-  homologacao: 'www.producaorestrita.nfse.gov.br',
+  producao: 'sefin.nfse.gov.br',
+  homologacao: 'sefin.producaorestrita.nfse.gov.br', // "produção restrita"
 } as const;
 
+// ADN propriamente dito: API de DISTRIBUIÇÃO (baixar NFS-e recebidas por
+// terceiros). Não serve para emitir nem para consultar nota própria.
 const ADN_HOSTS = {
   producao: 'adn.nfse.gov.br',
   homologacao: 'adn.producaorestrita.nfse.gov.br',
@@ -95,228 +115,72 @@ export interface DPSItem {
   iss_aliquota?: number;
 }
 
-export interface DPSPayload {
-  infDPS: {
-    tpAmb: number;
-    dhEmi: string;
-    verAplic: string;
-    serie: string;
-    nDPS: number;
-    dCompet: string;
-    tpEmit: number;
-    cLocEmi: number;
-    subst?: null;
-    prest: {
-      CNPJ: string;
-      IM: string;
-      regimeTributario?: number;
-      xNome: string;
-      xFant?: string;
-      end?: {
-        xLgr?: string;
-        nro?: string;
-        xCpl?: string;
-        xBairro?: string;
-        cMun: number;
-        UF: string;
-        CEP?: string;
-      };
-      fone?: string;
-      email?: string;
-    };
-    toma?: {
-      CNPJ?: string;
-      CPF?: string;
-      NIF?: string;
-      xNome: string;
-      end?: {
-        xLgr?: string;
-        nro?: string;
-        xBairro?: string;
-        cMun?: number;
-        UF?: string;
-        CEP?: string;
-      };
-      fone?: string;
-      email?: string;
-    } | null;
-    serv: {
-      cServ: {
-        cTribNac: string;
-        cTribMun?: string;
-        xDescServ: string;
-        CNAE?: string;
-      };
-      cPais?: number;
-      cMun?: number;
-      vServ: number;
-      vDesc?: number;
-      vLiq: number;
-      trib: {
-        totTrib: {
-          pTotTribSN?: number;
-          indTotTrib: number;
-          pTotTrib?: number;
-        };
-        ISSQN: {
-          cLocIncid: number;
-          cPaisResult?: number;
-          tpImunidade?: number;
-          BM?: {
-            tpSusp?: number;
-            nProcesso?: string;
-            pAliq: number;
-            tpRetISSQN?: number;
-            vLiq: number;
-            vBaseCalc: number;
-            vISSQN: number;
-          };
-        };
-      };
-    };
-    vDPS: number;
-    // Reforma Tributária (IBS/CBS) — bloco opcional, omitido quando o hotel
-    // não tem CST/cClassTrib configurados (ver DPSConfig.ibs_cbs_cst).
-    IBSCBS?: {
-      finNFSe: number;
-      indFinal: number;
-      cIndOp: string;
-      indDest: number;
-      valores: {
-        trib: {
-          gIBSCBS: {
-            CST: string;
-            cClassTrib: string;
-          };
-        };
-      };
-    };
+// ─── Mapeamento para a DPS compartilhada ────────────────────────────────────
+//
+// A DPS enviada ao Sefin Nacional é o MESMO XML assinado usado no formato
+// 'el-nacional'; a única diferença é o transporte (mTLS direto aqui, wrapper
+// com token lá). Por isso reaproveitamos buildDpsXml em vez de manter um
+// segundo builder — foi um builder JSON paralelo que fez esta integração
+// enviar um corpo que a API não aceita.
+
+function toELConfig(config: DPSConfig, ambiente: Ambiente, cert: string, senha: string): ELNacionalConfig {
+  return {
+    token: '', // não se aplica: o Sefin Nacional autentica por mTLS
+    ambiente,
+    certificado_base64: cert,
+    certificado_senha: senha,
+    cnpj: config.cnpj,
+    inscricao_municipal: config.inscricao_municipal,
+    codigo_municipio: config.endereco_codigo_municipio,
+    codigo_servico: config.codigo_servico,
+    aliquota_iss: config.aliquota_iss,
+    // regime_tributario_nfse '6' = optante do Simples Nacional (mesma
+    // convenção usada em nfService ao montar o payload de NFS-e)
+    optante_simples: config.regime_tributario_nfse === '6',
+    telefone: config.telefone ?? null,
+    ibs_cbs_cst: config.ibs_cbs_cst ?? null,
+    ibs_cbs_cclasstrib: config.ibs_cbs_cclasstrib ?? null,
+    fin_nfse: config.fin_nfse ?? null,
+    ind_final: config.ind_final ?? null,
+    c_ind_op: config.c_ind_op ?? null,
+    ind_dest: config.ind_dest ?? null,
   };
 }
 
-export function buildDPS(
+function toELTomador(tomador: DPSTomador): ELNacionalTomador {
+  return {
+    cpf_cnpj: tomador.doc_numero ?? null,
+    doc_tipo: tomador.doc_tipo,
+    razao_social: tomador.nome,
+  };
+}
+
+function toELItems(items: DPSItem[]): ELNacionalItem[] {
+  return items.map(i => ({
+    description: i.descricao,
+    quantidade: i.quantidade,
+    valor_unitario: i.valor_unitario,
+    valor_total: i.valor_total,
+  }));
+}
+
+// Monta e assina a DPS que será enviada ao Sefin Nacional. Exportada para
+// permitir validar a estrutura (incluindo o bloco <IBSCBS>) sem rede.
+export function buildDpsXmlADN(
   config: DPSConfig,
   tomador: DPSTomador,
   items: DPSItem[],
   serie: string,
   numeroDPS: number,
   ambiente: Ambiente,
-): DPSPayload {
-  const cnpj = config.cnpj.replace(/\D/g, '');
-  const tpAmb = ambiente === 'producao' ? 1 : 2;
-
-  const now = new Date();
-  const dhEmi = now.toISOString().replace(/\.\d{3}Z$/, '-03:00');
-  const dCompet = now.toISOString().slice(0, 10);
-
-  const valorServico = items.reduce((s, i) => s + i.valor_total, 0);
-  const aliquota = items[0]?.iss_aliquota ?? config.aliquota_iss;
-  const valorISS = Number((valorServico * (aliquota / 100)).toFixed(2));
-  const codigoServico = items[0]?.codigo_servico ?? config.codigo_servico;
-  const cMun = Number(config.endereco_codigo_municipio);
-
-  const descricaoItens = items
-    .map(i => `${i.descricao} (${i.quantidade}x R$${i.valor_unitario.toFixed(2)})`)
-    .join('; ');
-
-  const prest: DPSPayload['infDPS']['prest'] = {
-    CNPJ: cnpj,
-    IM: config.inscricao_municipal.replace(/\D/g, ''),
-    xNome: config.razao_social,
-  };
-  if (config.nome_fantasia) prest.xFant = config.nome_fantasia;
-  if (config.regime_tributario_nfse) {
-    prest.regimeTributario = Number(config.regime_tributario_nfse) || undefined;
-  }
-  if (config.endereco_logradouro) {
-    prest.end = {
-      xLgr: config.endereco_logradouro,
-      nro: config.endereco_numero || 'S/N',
-      xCpl: config.endereco_complemento || undefined,
-      xBairro: config.endereco_bairro || undefined,
-      cMun,
-      UF: config.endereco_uf || 'RJ',
-      CEP: config.endereco_cep?.replace(/\D/g, '') || undefined,
-    };
-  }
-  if (config.telefone) prest.fone = config.telefone.replace(/\D/g, '');
-  if (config.email) prest.email = config.email;
-
-  let toma: DPSPayload['infDPS']['toma'] = null;
-  if (tomador.nome && tomador.doc_numero) {
-    toma = { xNome: tomador.nome };
-    const docNum = tomador.doc_numero.replace(/\D/g, '');
-    if (tomador.doc_tipo === 'cnpj') {
-      toma.CNPJ = docNum;
-    } else if (tomador.doc_tipo === 'cpf') {
-      toma.CPF = docNum;
-    } else if (tomador.doc_tipo === 'passaporte') {
-      toma.NIF = tomador.doc_numero;
-    }
-    if (tomador.email) toma.email = tomador.email;
-  }
-
-  // Bloco IBSCBS: omitido por completo se o hotel não tiver CST/cClassTrib
-  // configurados (mesmo critério do formato 'el-nacional' — ver
-  // buildIbsCbsXml em el-nacional-nfse.ts).
-  let ibsCbs: DPSPayload['infDPS']['IBSCBS'];
-  if (config.ibs_cbs_cst && config.ibs_cbs_cclasstrib) {
-    ibsCbs = {
-      finNFSe: config.fin_nfse ?? 0,
-      indFinal: config.ind_final ?? 1,
-      cIndOp: config.c_ind_op || '100301',
-      indDest: config.ind_dest ?? 0,
-      valores: {
-        trib: {
-          gIBSCBS: {
-            CST: config.ibs_cbs_cst,
-            cClassTrib: config.ibs_cbs_cclasstrib,
-          },
-        },
-      },
-    };
-  }
-
-  return {
-    infDPS: {
-      tpAmb,
-      dhEmi,
-      verAplic: 'FLUXO1.0',
-      serie,
-      nDPS: numeroDPS,
-      dCompet,
-      tpEmit: 1,
-      cLocEmi: cMun,
-      prest,
-      toma,
-      serv: {
-        cServ: {
-          cTribNac: codigoServico,
-          xDescServ: descricaoItens,
-        },
-        cMun,
-        vServ: Number(valorServico.toFixed(2)),
-        vLiq: Number(valorServico.toFixed(2)),
-        trib: {
-          totTrib: {
-            indTotTrib: 0,
-            pTotTrib: aliquota,
-          },
-          ISSQN: {
-            cLocIncid: cMun,
-            BM: {
-              pAliq: aliquota,
-              vLiq: Number(valorServico.toFixed(2)),
-              vBaseCalc: Number(valorServico.toFixed(2)),
-              vISSQN: valorISS,
-            },
-          },
-        },
-      },
-      vDPS: Number(valorServico.toFixed(2)),
-      ...(ibsCbs ? { IBSCBS: ibsCbs } : {}),
-    },
-  };
+): { xml: string; dpsId: string } {
+  return buildDpsXml(
+    toELConfig(config, ambiente, '', ''),
+    toELTomador(tomador),
+    toELItems(items),
+    serie,
+    numeroDPS,
+  );
 }
 
 // ─── Emissão de DPS (Declaração de Prestação de Serviço) ────────────────────
@@ -329,18 +193,34 @@ export interface EmissaoDPSResult {
   codigoVerificacao?: string;
   protocolo?: string;
   xmlRetorno?: string;
+  dpsXml?: string; // DPS assinada que foi enviada, para auditoria
   mensagem: string;
   cStat?: string;
 }
 
+// A API do Sefin Nacional recebe a DPS como XML ASSINADO, comprimido em GZip e
+// codificado em Base64, dentro de { dpsXmlGZipB64 }. Antes esta função enviava
+// o objeto DPS como JSON cru, que a API não aceita.
 export async function emitirDPS(params: {
   certificado_base64: string;
   certificado_senha: string;
-  dps: DPSPayload;
+  config: DPSConfig;
+  tomador: DPSTomador;
+  items: DPSItem[];
+  serie: string;
+  numeroDPS: number;
   ambiente: Ambiente;
 }): Promise<EmissaoDPSResult> {
-  const dpsJson = JSON.stringify(params.dps);
+  // 1. Montar e assinar a DPS (mesmo builder do formato 'el-nacional')
+  const { xml, dpsId } = buildDpsXmlADN(
+    params.config, params.tomador, params.items, params.serie, params.numeroDPS, params.ambiente,
+  );
+  const { key, cert } = extractPemFromPfx(params.certificado_base64, params.certificado_senha);
+  const signed = signDps(xml, dpsId, key, cert);
+  console.log('[NFS-e ADN] DPS montada e assinada, id:', dpsId);
 
+  // 2. GZip + Base64 e envio via mTLS
+  const body = JSON.stringify({ dpsXmlGZipB64: gzipB64(signed) });
   const res = await httpsRequest({
     host: SEFIN_HOSTS[params.ambiente],
     path: '/SefinNacional/nfse',
@@ -349,43 +229,75 @@ export async function emitirDPS(params: {
     passphrase: params.certificado_senha,
     headers: {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(dpsJson),
+      'Accept': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
     },
-    body: dpsJson,
+    body,
   });
+  console.log('[NFS-e ADN] POST /SefinNacional/nfse →', res.status, res.body.slice(0, 500));
 
   if (res.status === 200 || res.status === 201) {
-    let data: any;
+    let data: any = {};
     try {
       data = JSON.parse(res.body);
     } catch {
-      return {
-        success: true,
-        xmlRetorno: res.body,
-        mensagem: 'NFS-e processada (resposta não-JSON)',
-      };
+      return { success: true, idDPS: dpsId, xmlRetorno: res.body, mensagem: 'NFS-e processada (resposta não-JSON)' };
     }
+
+    // A NFS-e autorizada volta pronta, também em GZip+Base64
+    let nfseXml = '';
+    if (data.nfseXmlGZipB64 && !String(data.nfseXmlGZipB64).startsWith('<')) {
+      try { nfseXml = gunzipB64(data.nfseXmlGZipB64); } catch { /* sem XML utilizável */ }
+    }
+    const parsed = nfseXml ? parseNfseXml(nfseXml) : { numero: null, chave: null, codigoVerificacao: null };
+
     return {
       success: true,
-      idDPS: data.idDPS ?? data.id,
-      chaveAcesso: data.chaveAcesso ?? data.chNFSe,
-      numeroNFSe: data.numeroNFSe ?? data.nNFSe ?? data.numero,
-      codigoVerificacao: data.codigoVerificacao ?? data.cVerif,
+      idDPS: data.idDPS ?? dpsId,
+      chaveAcesso: data.chaveAcesso ?? parsed.chave ?? undefined,
+      numeroNFSe: parsed.numero ?? data.nNFSe ?? undefined,
+      codigoVerificacao: parsed.codigoVerificacao ?? undefined,
       protocolo: data.nProt ?? data.protocolo,
-      xmlRetorno: JSON.stringify(data),
-      mensagem: data.xMotivo ?? data.mensagem ?? 'NFS-e autorizada com sucesso',
+      xmlRetorno: nfseXml || res.body,
+      dpsXml: signed,
+      mensagem: nfseXml ? 'NFS-e autorizada pela Plataforma Nacional' : (data.xMotivo ?? data.mensagem ?? 'DPS recebida'),
       cStat: data.cStat,
     };
   }
 
-  let errorMsg = `ADN respondeu HTTP ${res.status}`;
-  try {
-    const errData = JSON.parse(res.body);
-    errorMsg += `: ${errData.mensagem ?? errData.message ?? errData.xMotivo ?? res.body.slice(0, 300)}`;
-  } catch {
-    errorMsg += `: ${res.body.slice(0, 300)}`;
+  return { success: false, idDPS: dpsId, dpsXml: signed, mensagem: describeSefinError(res), cStat: String(res.status) };
+}
+
+// Traduz a resposta de erro do Sefin Nacional. A API devolve JSON, mas um host
+// errado ou um bloqueio de borda devolve HTML — detectar isso evita despejar
+// uma página inteira na tela do usuário.
+function describeSefinError(res: { status: number; body: string }): string {
+  const body = res.body ?? '';
+  const isHtml = /^\s*<(!doctype|html)/i.test(body);
+
+  if (isHtml) {
+    if (res.status === 403) {
+      return 'Sefin Nacional respondeu 403 (Forbidden) com uma página HTML, não com um erro da API. '
+        + 'Isso indica que o certificado não está habilitado para emitir por este ambiente, ou que o '
+        + 'município não delegou a emissão ao Sistema Nacional. Confirme a adesão do município e a '
+        + 'habilitação do CNPJ antes de tentar de novo.';
+    }
+    return `Sefin Nacional respondeu HTTP ${res.status} com uma página HTML em vez de um erro da API.`;
   }
-  return { success: false, mensagem: errorMsg, cStat: String(res.status) };
+
+  let detalhe = body.slice(0, 300);
+  try {
+    const data = JSON.parse(body);
+    if (Array.isArray(data?.erros) && data.erros.length > 0) {
+      detalhe = data.erros
+        .map((e: any) => `${e.Codigo ?? e.codigo ?? ''}: ${e.Descricao ?? e.descricao ?? JSON.stringify(e)}`)
+        .join(' | ');
+    } else {
+      detalhe = data.mensagem ?? data.message ?? data.xMotivo ?? detalhe;
+    }
+  } catch { /* mantém o corpo cru */ }
+
+  return `Sefin Nacional respondeu HTTP ${res.status}: ${detalhe}`;
 }
 
 // ─── Consulta NFS-e por chave ───────────────────────────────────────────────
@@ -402,9 +314,11 @@ export async function consultarNFSe(params: {
   chaveAcesso: string;
   ambiente: Ambiente;
 }): Promise<ConsultaNFSeResult> {
+  // Nota PRÓPRIA se consulta no Sefin Nacional. O host adn.* + /contribuintes é
+  // a API de distribuição (notas recebidas de terceiros), outro serviço.
   const res = await httpsRequest({
-    host: ADN_HOSTS[params.ambiente],
-    path: `/contribuintes/nfse/${params.chaveAcesso}`,
+    host: SEFIN_HOSTS[params.ambiente],
+    path: `/SefinNacional/nfse/${params.chaveAcesso}`,
     method: 'GET',
     pfx: pfxBuffer(params.certificado_base64),
     passphrase: params.certificado_senha,
@@ -420,10 +334,7 @@ export async function consultarNFSe(params: {
     }
   }
 
-  return {
-    success: false,
-    mensagem: `Consulta falhou HTTP ${res.status}: ${res.body.slice(0, 300)}`,
-  };
+  return { success: false, mensagem: describeSefinError(res) };
 }
 
 // ─── Registro de Evento (cancelamento) ──────────────────────────────────────
@@ -435,59 +346,54 @@ export interface EventoNFSeResult {
   cStat?: string;
 }
 
+// Cancelamento: POST /SefinNacional/nfse/{chave}/eventos, com o pedido de
+// registro de evento em XML ASSINADO + GZip + Base64 (mesma forma da emissão).
+// Antes esta função postava um JSON solto em /SefinNacional/nfse/evento, rota
+// que não existe.
 export async function registrarEvento(params: {
   certificado_base64: string;
   certificado_senha: string;
+  cnpj: string;
   chaveAcesso: string;
   tipoEvento: 'cancelamento';
   codigoCancelamento?: string;
   motivo: string;
   ambiente: Ambiente;
 }): Promise<EventoNFSeResult> {
-  const evento = {
-    chNFSe: params.chaveAcesso,
-    tpEvento: params.tipoEvento === 'cancelamento' ? 'e101101' : params.tipoEvento,
-    cMotCanc: params.codigoCancelamento ?? '1',
-    xMotivo: params.motivo,
-  };
+  const { xml, pedId } = buildPedRegEventoXml(
+    params.cnpj, params.ambiente, params.chaveAcesso, params.motivo,
+  );
+  const { key, cert } = extractPemFromPfx(params.certificado_base64, params.certificado_senha);
+  const signed = signDps(xml, pedId, key, cert);
 
-  const body = JSON.stringify(evento);
-
+  const body = JSON.stringify({ pedidoRegistroEventoXmlGZipB64: gzipB64(signed) });
   const res = await httpsRequest({
     host: SEFIN_HOSTS[params.ambiente],
-    path: '/SefinNacional/nfse/evento',
+    path: `/SefinNacional/nfse/${params.chaveAcesso}/eventos`,
     method: 'POST',
     pfx: pfxBuffer(params.certificado_base64),
     passphrase: params.certificado_senha,
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       'Content-Length': Buffer.byteLength(body),
     },
     body,
   });
+  console.log('[NFS-e ADN] Cancelamento →', res.status, res.body.slice(0, 500));
 
   if (res.status === 200 || res.status === 201) {
-    try {
-      const data = JSON.parse(res.body);
-      return {
-        success: true,
-        protocolo: data.nProt ?? data.protocolo,
-        mensagem: data.xMotivo ?? data.mensagem ?? 'Evento registrado com sucesso',
-        cStat: data.cStat,
-      };
-    } catch {
-      return { success: true, mensagem: 'Evento registrado (resposta não-JSON)' };
-    }
+    let data: any = {};
+    try { data = JSON.parse(res.body); } catch { /* resposta não-JSON */ }
+    return {
+      success: true,
+      protocolo: data.nProt ?? data.protocolo,
+      mensagem: data.xMotivo ?? data.mensagem ?? 'Cancelamento registrado na Plataforma Nacional',
+      cStat: data.cStat,
+    };
   }
 
-  let errorMsg = `Evento falhou HTTP ${res.status}`;
-  try {
-    const errData = JSON.parse(res.body);
-    errorMsg += `: ${errData.mensagem ?? errData.message ?? res.body.slice(0, 300)}`;
-  } catch {
-    errorMsg += `: ${res.body.slice(0, 300)}`;
-  }
-  return { success: false, mensagem: errorMsg, cStat: String(res.status) };
+  return { success: false, mensagem: describeSefinError(res), cStat: String(res.status) };
 }
 
 // ─── Buscar DANFSE (PDF) ────────────────────────────────────────────────────
@@ -506,8 +412,8 @@ export async function buscarDANFSE(params: {
   ambiente: Ambiente;
 }): Promise<DANFSEResult> {
   const res = await httpsRequest({
-    host: ADN_HOSTS[params.ambiente],
-    path: `/danfse/nfse/${params.chaveAcesso}`,
+    host: SEFIN_HOSTS[params.ambiente],
+    path: `/SefinNacional/danfse/${params.chaveAcesso}`,
     method: 'GET',
     pfx: pfxBuffer(params.certificado_base64),
     passphrase: params.certificado_senha,
@@ -523,10 +429,7 @@ export async function buscarDANFSE(params: {
     };
   }
 
-  return {
-    success: false,
-    mensagem: `DANFSE falhou HTTP ${res.status}: ${res.body.slice(0, 300)}`,
-  };
+  return { success: false, mensagem: describeSefinError(res) };
 }
 
 // ─── Teste de conexão ───────────────────────────────────────────────────────
@@ -546,15 +449,26 @@ export async function testarConexaoADN(params: {
       headers: { 'Accept': 'application/json' },
     });
 
+    // Antes qualquer status < 500 era tratado como sucesso, o que fazia o teste
+    // dizer "conexão estabelecida com sucesso. HTTP 403" e esconder justamente o
+    // problema que impedia a emissão. TLS de pé não significa acesso liberado.
+    if (res.status === 403 || res.status === 401) {
+      return {
+        success: false,
+        mensagem: `O Sefin Nacional (${params.ambiente}) aceitou o certificado no TLS mas negou o acesso `
+          + `(HTTP ${res.status}). Verifique se o CNPJ está habilitado a emitir pelo Sistema Nacional e se o `
+          + `município delegou a emissão ao ambiente nacional.`,
+      };
+    }
     if (res.status >= 200 && res.status < 500) {
       return {
         success: true,
-        mensagem: `Conexão mTLS com ADN (${params.ambiente}) estabelecida com sucesso. HTTP ${res.status}`,
+        mensagem: `Conexão mTLS com o Sefin Nacional (${params.ambiente}) estabelecida. HTTP ${res.status}`,
       };
     }
     return {
       success: false,
-      mensagem: `ADN respondeu HTTP ${res.status}. Verifique o certificado e o ambiente selecionado.`,
+      mensagem: `Sefin Nacional respondeu HTTP ${res.status}. Verifique o certificado e o ambiente selecionado.`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Erro desconhecido';

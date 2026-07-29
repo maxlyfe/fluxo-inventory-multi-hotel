@@ -11,7 +11,6 @@ import {
   registrarEvento,
   buscarDANFSE,
   testarConexaoADN,
-  buildDPS,
   type DPSConfig,
   type DPSTomador,
   type DPSItem,
@@ -793,19 +792,14 @@ const handler: Handler = async (event: HandlerEvent) => {
     const ambiente = payload.ambiente === 'producao' ? 'producao' as const : 'homologacao' as const;
 
     try {
-      const dps = buildDPS(
-        payload.config,
-        payload.tomador,
-        payload.items,
-        payload.serie || 'NFS',
-        payload.numeroDPS || 1,
-        ambiente,
-      );
-
       const result = await emitirDPS({
         certificado_base64: payload.certificado_base64,
         certificado_senha: payload.certificado_senha,
-        dps,
+        config: payload.config,
+        tomador: payload.tomador,
+        items: payload.items,
+        serie: payload.serie || 'NFS',
+        numeroDPS: payload.numeroDPS || 1,
         ambiente,
       });
 
@@ -816,7 +810,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         numero_protocolo: result.protocolo,
         codigo_verificacao: result.codigoVerificacao,
         xml_retorno: result.xmlRetorno,
-        xml_dps: JSON.stringify(dps),
+        xml_dps: result.dpsXml,
         message: result.mensagem,
         error: result.success ? undefined : result.mensagem,
       });
@@ -835,6 +829,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     let payload: {
       certificado_base64?: string;
       certificado_senha?: string;
+      cnpj?: string;
       chaveAcesso?: string;
       motivo?: string;
       codigoCancelamento?: string;
@@ -855,11 +850,17 @@ const handler: Handler = async (event: HandlerEvent) => {
     if (!payload.motivo) {
       return jsonResponse(400, { error: 'Motivo do cancelamento é obrigatório.' });
     }
+    // O pedido de registro de evento leva <CNPJAutor>, então o CNPJ do emitente
+    // é obrigatório aqui (antes o cancelamento ia sem ele).
+    if (!payload.cnpj) {
+      return jsonResponse(400, { error: 'CNPJ do emitente é obrigatório para cancelar no Sefin Nacional.' });
+    }
 
     try {
       const result = await registrarEvento({
         certificado_base64: payload.certificado_base64,
         certificado_senha: payload.certificado_senha,
+        cnpj: payload.cnpj,
         chaveAcesso: payload.chaveAcesso,
         tipoEvento: 'cancelamento',
         codigoCancelamento: payload.codigoCancelamento,

@@ -15,6 +15,11 @@ const EL_BASE_PATH = '/producao35/api/nacional';
 
 const DPS_NS = 'http://www.sped.fazenda.gov.br/nfse';
 
+// Os helpers de DPS (buildDpsXml, signDps, gzipB64/gunzipB64, parseNfseXml,
+// formatErros) sao exportados porque o formato 'adn' (Sefin Nacional, mTLS)
+// usa exatamente a MESMA DPS assinada: muda so o transporte. Manter um unico
+// builder evita os dois formatos divergirem, sobretudo no bloco <IBSCBS>.
+
 type Ambiente = 'producao' | 'homologacao';
 
 // Doc oficial E&L ("Orientações - API de Integração NFS-e Nacional"):
@@ -60,11 +65,11 @@ function httpsJson(
   });
 }
 
-function gzipB64(xml: string): string {
+export function gzipB64(xml: string): string {
   return zlib.gzipSync(Buffer.from(xml, 'utf8')).toString('base64');
 }
 
-function gunzipB64(b64: string): string {
+export function gunzipB64(b64: string): string {
   return zlib.gunzipSync(Buffer.from(b64, 'base64')).toString('utf8');
 }
 
@@ -281,7 +286,7 @@ export function buildDpsXml(
 
 // ── Assinatura (enveloped, Reference no Id do infDPS, Signature após) ──────
 
-function signDps(xml: string, dpsId: string, keyPem: string, certPem: string): string {
+export function signDps(xml: string, dpsId: string, keyPem: string, certPem: string): string {
   const sig = new SignedXml({
     canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
     signatureAlgorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
@@ -304,7 +309,7 @@ function signDps(xml: string, dpsId: string, keyPem: string, certPem: string): s
 
 // ── Parse da NFSe retornada (XML nacional) ──────────────────────────────────
 
-function parseNfseXml(nfseXml: string): { numero: string | null; chave: string | null; codigoVerificacao: string | null } {
+export function parseNfseXml(nfseXml: string): { numero: string | null; chave: string | null; codigoVerificacao: string | null } {
   const nNFSe = nfseXml.match(/<nNFSe>([^<]+)<\/nNFSe>/)?.[1] ?? null;
   const chave = nfseXml.match(/Id="NFS([^"]+)"/)?.[1]
     ?? nfseXml.match(/<chNFSe>([^<]+)<\/chNFSe>/)?.[1] ?? null;
@@ -312,7 +317,7 @@ function parseNfseXml(nfseXml: string): { numero: string | null; chave: string |
   return { numero: nNFSe, chave, codigoVerificacao: cVerif };
 }
 
-function formatErros(data: any): string {
+export function formatErros(data: any): string {
   if (Array.isArray(data?.erros) && data.erros.length > 0) {
     return data.erros
       .map((e: any) => `${e.Codigo ?? e.codigo ?? ''}: ${e.Descricao ?? e.descricao ?? JSON.stringify(e)}`)
@@ -410,18 +415,20 @@ export async function emitirNfseELNacional(params: {
 
 // ── Cancelamento (evento e101101) ────────────────────────────────────────────
 
-export async function cancelarNfseELNacional(params: {
-  config: Pick<ELNacionalConfig, 'certificado_base64' | 'certificado_senha' | 'token' | 'ambiente' | 'cnpj'>;
-  chave_acesso: string;
-  motivo?: string;
-}): Promise<{ success: boolean; message: string; xml_retorno: string }> {
-  const { config } = params;
-  const cnpj = config.cnpj.replace(/\D/g, '');
-  const tpAmb = config.ambiente === 'producao' ? 1 : 2;
+// Pedido de registro de evento de cancelamento (e101101). Compartilhado com o
+// formato 'adn': os dois enviam o mesmo XML assinado, muda só o transporte.
+export function buildPedRegEventoXml(
+  cnpjEmitente: string,
+  ambiente: Ambiente,
+  chaveAcesso: string,
+  motivo?: string,
+): { xml: string; pedId: string } {
+  const cnpj = cnpjEmitente.replace(/\D/g, '');
+  const tpAmb = ambiente === 'producao' ? 1 : 2;
   const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const dhEvento = now.toISOString().slice(0, 19) + '-03:00';
-  // Id: PRE + chave(50) + tpEvento(101101) + nSeq... — layout: PRE + chNFSe + codigo evento
-  const pedId = `PRE${params.chave_acesso}101101`;
+  // Id: PRE + chNFSe(50) + codigo do evento
+  const pedId = `PRE${chaveAcesso}101101`;
 
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
@@ -431,14 +438,26 @@ export async function cancelarNfseELNacional(params: {
     `<verAplic>FLUXO1.0</verAplic>` +
     `<dhEvento>${dhEvento}</dhEvento>` +
     `<CNPJAutor>${cnpj}</CNPJAutor>` +
-    `<chNFSe>${params.chave_acesso}</chNFSe>` +
+    `<chNFSe>${chaveAcesso}</chNFSe>` +
     `<e101101>` +
     `<xDesc>Cancelamento de NFS-e</xDesc>` +
     `<cMotivo>1</cMotivo>` +
-    `<xMotivo>${xmlEsc(params.motivo || 'Erro na emissão')}</xMotivo>` +
+    `<xMotivo>${xmlEsc(motivo || 'Erro na emissão')}</xMotivo>` +
     `</e101101>` +
     `</infPedReg>` +
     `</pedRegEvento>`;
+
+  return { xml, pedId };
+}
+
+
+export async function cancelarNfseELNacional(params: {
+  config: Pick<ELNacionalConfig, 'certificado_base64' | 'certificado_senha' | 'token' | 'ambiente' | 'cnpj'>;
+  chave_acesso: string;
+  motivo?: string;
+}): Promise<{ success: boolean; message: string; xml_retorno: string }> {
+  const { config } = params;
+  const { xml, pedId } = buildPedRegEventoXml(config.cnpj, config.ambiente, params.chave_acesso, params.motivo);
 
   const { key, cert } = extractPemFromPfx(config.certificado_base64, config.certificado_senha);
   const signed = signDps(xml, pedId, key, cert);

@@ -1359,6 +1359,7 @@ async function cancelInvoice(
         action: proxyAction,
         certificado_base64: config?.certificado_base64,
         certificado_senha: config?.certificado_senha,
+        cnpj: config?.cnpj, // vai em <CNPJAutor> do pedido de registro de evento
         chaveAcesso: inv.chave_acesso,
         motivo,
         ambiente: config?.adn_ambiente || 'homologacao',
