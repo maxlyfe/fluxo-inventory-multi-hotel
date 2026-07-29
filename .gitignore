@@ -40,3 +40,6 @@ android-webcheckin/
 
 # Segredos do stack do Evolution API (apikey e senha do Postgres)
 docker/evolution/.env
+
+# Estado local da CLI da Netlify (id do site), criado por `netlify link`
+.netlify/

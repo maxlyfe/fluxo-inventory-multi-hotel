@@ -131,14 +131,24 @@ com o console aberto:
 
 **A rede de segurança é o coletor de violações.** A CSP declara
 `report-uri /.netlify/functions/csp-report` (mais `report-to`, via o header
-`Reporting-Endpoints`). Qualquer recurso barrado vira uma linha de log:
+`Reporting-Endpoints`). Qualquer recurso barrado vira uma linha de log no
+formato `[csp-violation] directive=... blocked=... page=...`. Violações de
+extensão de navegador (`chrome-extension:` etc.) são descartadas — não são bug nosso.
+
+**Pelo painel** (não exige autenticar CLI):
+<https://app.netlify.com/projects/meridiana/logs/functions?functionName=csp-report>
+
+**Pela CLI** — precisa autenticar e linkar uma vez (`netlify login` abre o navegador):
 
 ```bash
-npx netlify logs:function csp-report
+npx netlify login
+npx netlify link --name meridiana
+npx netlify logs --source functions --function csp-report --since 24h
 ```
 
-Formato: `[csp-violation] directive=... blocked=... page=...`. Violações de
-extensão de navegador (`chrome-extension:` etc.) são descartadas — não são bug nosso.
+> `netlify logs:function` foi removido nas versões novas da CLI (a 27.x devolve
+> erro apontando para `netlify logs`). O `.netlify/` gerado pelo `link` já está
+> no `.gitignore`.
 
 > **Se algo quebrar:** o log diz qual diretiva barrou o quê. Some o host à
 > diretiva no `netlify.toml` e faça deploy. Reversão imediata: Netlify → Deploys
