@@ -113,12 +113,37 @@ Supabase → Authentication → **Rate Limits**:
 
 Camada extra por IP, independente do lockout por conta.
 
-### 7. Promover a CSP (depois de tudo estabilizado)
+### 7. Promover a CSP
 
-O `netlify.toml` publica a CSP como `Content-Security-Policy-Report-Only`: ela
-**reporta e não bloqueia**. Navegue com o console aberto por login, dashboard,
-compras, diretoria, web check-in e o APK. Quando não sobrar nenhuma violação,
-renomeie a chave para `Content-Security-Policy` (sem o `-Report-Only`) e faça deploy.
+✅ **Feita em 29/07/2026.** A CSP agora é `Content-Security-Policy` (bloqueante).
+Era o único achado que sobrava no Observatory (−25, nota B) e em securityheaders.com.
+
+A validação foi por auditoria estática do que está publicado, e não por navegação
+com o console aberto:
+
+| Risco ao bloquear | Verificação | Resultado |
+|---|---|---|
+| script inline / `on*=` no HTML | `grep` no `index.html` publicado | nenhum; só um `<script type=module>` externo |
+| `eval` / `new Function` | `grep` no bundle | 1 ocorrência, no polyfill do `setimmediate` — só dispara se receber string, o que nenhum caller faz |
+| host externo não declarado | hosts extraídos do bundle × diretivas | todos cobertos |
+| Evolution API (domínio por hotel) | `evolutionService.ts` | vai por `/.netlify/functions/evolution-proxy`, mesma origem |
+| worker do pdf.js (cdnjs) | `WCICompanionEntry.tsx` | worker cross-origin vira `blob:` + `importScripts`; ainda assim o cdnjs foi somado ao `worker-src` |
+
+**A rede de segurança é o coletor de violações.** A CSP declara
+`report-uri /.netlify/functions/csp-report` (mais `report-to`, via o header
+`Reporting-Endpoints`). Qualquer recurso barrado vira uma linha de log:
+
+```bash
+npx netlify logs:function csp-report
+```
+
+Formato: `[csp-violation] directive=... blocked=... page=...`. Violações de
+extensão de navegador (`chrome-extension:` etc.) são descartadas — não são bug nosso.
+
+> **Se algo quebrar:** o log diz qual diretiva barrou o quê. Some o host à
+> diretiva no `netlify.toml` e faça deploy. Reversão imediata: Netlify → Deploys
+> → *Publish deploy* anterior, ou renomeie a chave de volta para
+> `Content-Security-Policy-Report-Only`.
 
 ---
 
