@@ -455,15 +455,38 @@ export default function EmissaoNFPage() {
     return counts;
   }, [reservations, avulsas]);
 
-  const filtered = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    return reservations.filter(r => r.tab === activeTab && (
-      !term ||
-      r.bookingNumber.toLowerCase().includes(term) ||
-      r.guestName.toLowerCase().includes(term) ||
-      (r.guestDoc || '').toLowerCase().includes(term)
-    ));
-  }, [reservations, activeTab, searchTerm]);
+  const termoBusca = searchTerm.trim().toLowerCase();
+
+  const filtered = useMemo(
+    () => reservations.filter(r => r.tab === activeTab && reservaCasa(r, termoBusca)),
+    [reservations, activeTab, termoBusca],
+  );
+
+  // Busca em TODAS as abas, nao so na ativa. Sem isso, procurar uma reserva que
+  // caiu em outra aba devolvia lista vazia, como se a reserva nao existisse.
+  const matchesPorAba = useMemo(() => {
+    const m = { adequadas: 0, revisao: 0, nfse_emitida: 0, nfce_emitida: 0, todas_emitida: 0, avulsas: 0 };
+    if (!termoBusca) return m;
+    reservations.forEach(r => { if (reservaCasa(r, termoBusca)) m[r.tab]++; });
+    m.avulsas = avulsas.filter(inv => avulsaCasa(inv, termoBusca)).length;
+    return m;
+  }, [reservations, avulsas, termoBusca]);
+
+  // Leva o usuario para a aba que tem o resultado. Depende so do termo: assim,
+  // se ele trocar de aba na mao com a busca ativa, nao e arrastado de volta.
+  useEffect(() => {
+    if (!termoBusca) return;
+    const total = Object.values(matchesPorAba).reduce((a, b) => a + b, 0);
+    if (total === 0) return;
+    setActiveTab(atual => {
+      if (matchesPorAba[atual] > 0) return atual;
+      const destino = (Object.keys(matchesPorAba) as TabKey[]).find(k => matchesPorAba[k] > 0);
+      return destino ?? atual;
+    });
+    // matchesPorAba deriva do termo; incluir na lista de dependencias faria a
+    // aba ser reavaliada a cada recarga de reservas, brigando com o usuario.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termoBusca]);
 
   // ── Selection helpers ──────────────────────────────────────────────────────
 
@@ -851,6 +874,12 @@ export default function EmissaoNFPage() {
     { key: 'avulsas', label: 'Avulsas', icon: <FileText className="w-4 h-4" />, color: 'teal', count: tabCounts.avulsas },
   ];
 
+  // Com busca ativa, o contador mostra os RESULTADOS por aba, nao o total do
+  // periodo. E o que responde "em qual aba esta essa reserva" de imediato.
+  const abasVisiveis = termoBusca
+    ? tabs.map(t => ({ ...t, count: matchesPorAba[t.key] }))
+    : tabs;
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Resultado da reconsulta de NFS-e pendente na Plataforma Nacional */}
@@ -930,7 +959,7 @@ export default function EmissaoNFPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-        {tabs.map(t => {
+        {abasVisiveis.map(t => {
           const active = activeTab === t.key;
           const colorMap: Record<string, string> = {
             green: active ? 'bg-green-500 text-white' : 'text-green-700 dark:text-green-400',
@@ -944,7 +973,7 @@ export default function EmissaoNFPage() {
             <button
               key={t.key}
               onClick={() => { setActiveTab(t.key); setSelected(new Set()); }}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${active ? colorMap[t.color] + ' shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${active ? colorMap[t.color] + ' shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'} ${termoBusca && t.count === 0 && !active ? 'opacity-40' : ''}`}
             >
               {t.icon}
               <span>{t.label}</span>
@@ -1027,13 +1056,7 @@ export default function EmissaoNFPage() {
         ) : (
           <div className="space-y-2">
             {avulsas
-              .filter(inv => {
-                const term = searchTerm.trim().toLowerCase();
-                return !term ||
-                  (inv.tomador_nome || '').toLowerCase().includes(term) ||
-                  (inv.numero_nf || '').toLowerCase().includes(term) ||
-                  (inv.tomador_cpf_cnpj || '').toLowerCase().includes(term);
-              })
+              .filter(inv => avulsaCasa(inv, termoBusca))
               .map(inv => (
                 <div key={inv.id} className="bg-white dark:bg-gray-800 border border-teal-200 dark:border-teal-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
@@ -1223,6 +1246,23 @@ interface ReservationCardProps {
 
 // Download de arquivo gerado no cliente. Extensão e MIME vêm de fora porque o
 // mesmo campo pode carregar XML ou JSON, dependendo do estágio da nota.
+// Predicados de busca. Compartilhados entre a lista da aba ativa, a contagem
+// por aba e o salto automatico, para que "encontrar" signifique a mesma coisa
+// nos tres lugares.
+function reservaCasa(r: ClassifiedReservation, termo: string): boolean {
+  if (!termo) return true;
+  return r.bookingNumber.toLowerCase().includes(termo)
+    || r.guestName.toLowerCase().includes(termo)
+    || (r.guestDoc || '').toLowerCase().includes(termo);
+}
+
+function avulsaCasa(inv: NFInvoice, termo: string): boolean {
+  if (!termo) return true;
+  return (inv.tomador_nome || '').toLowerCase().includes(termo)
+    || (inv.numero_nf || '').toLowerCase().includes(termo)
+    || (inv.tomador_cpf_cnpj || '').toLowerCase().includes(termo);
+}
+
 function baixarArquivo(conteudo: string, nomeArquivo: string, mime: string) {
   const url = URL.createObjectURL(new Blob([conteudo], { type: mime }));
   const a = document.createElement('a');
