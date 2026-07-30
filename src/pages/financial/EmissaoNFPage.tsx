@@ -1200,6 +1200,17 @@ interface ReservationCardProps {
   onMarkAdequate: () => void;
 }
 
+// Download de arquivo gerado no cliente. Extensão e MIME vêm de fora porque o
+// mesmo campo pode carregar XML ou JSON, dependendo do estágio da nota.
+function baixarArquivo(conteudo: string, nomeArquivo: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([conteudo], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomeArquivo;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function ReservationCard({ reservation: r, payments, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onReconsultar, reconsultandoId, onMarkAdequate }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
@@ -1345,20 +1356,36 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                         <RefreshCw className={`w-4 h-4 ${reconsultandoId === inv.id ? 'animate-spin' : ''}`} /> Reconsultar NFS-e
                       </button>
                     )}
+                    {/* `xml_retorno` nem sempre é XML: enquanto a NFS-e Nacional
+                        está em processamento, a API devolve um JSON de
+                        acompanhamento. Baixar isso como .xml gerava um arquivo
+                        que o navegador recusa ("'<' not found"), então o
+                        conteúdo é detectado antes de nomear o arquivo. */}
                     {inv.xml_retorno && (
                       <button
                         onClick={() => {
-                          const blob = new Blob([inv.xml_retorno!], { type: 'application/xml' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `NF_${inv.numero_nf || inv.id}.xml`;
-                          a.click();
-                          URL.revokeObjectURL(url);
+                          const ehXml = inv.xml_retorno!.trimStart().startsWith('<');
+                          baixarArquivo(
+                            inv.xml_retorno!,
+                            `NF_${inv.numero_nf || inv.id}.${ehXml ? 'xml' : 'json'}`,
+                            ehXml ? 'application/xml' : 'application/json',
+                          );
                         }}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
                       >
-                        <Download className="w-4 h-4" /> XML
+                        <Download className="w-4 h-4" />
+                        {inv.xml_retorno.trimStart().startsWith('<') ? 'XML da nota' : 'Retorno da API'}
+                      </button>
+                    )}
+                    {/* DPS assinada que foi enviada: é aqui que se confere o que
+                        de fato declaramos, incluindo o bloco <IBSCBS>. */}
+                    {inv.xml_dps && (
+                      <button
+                        onClick={() => baixarArquivo(inv.xml_dps!, `DPS_${inv.numero_nf || inv.id}.xml`, 'application/xml')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                        title="XML assinado que foi enviado à Plataforma Nacional, com o bloco IBS/CBS declarado."
+                      >
+                        <Download className="w-4 h-4" /> XML enviado (DPS)
                       </button>
                     )}
                   </React.Fragment>
