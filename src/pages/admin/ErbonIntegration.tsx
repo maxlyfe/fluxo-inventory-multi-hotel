@@ -1,7 +1,7 @@
 // src/pages/admin/ErbonIntegration.tsx
 // Página de configuração e mapeamentos da integração Erbon PMS
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Settings,
   Link2,
@@ -141,6 +141,10 @@ const ErbonIntegration: React.FC = () => {
   const [savingPrice, setSavingPrice] = useState(false);
   // Sector mapping department ID editing
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null); // mapping.id
+  // Recarga dos cadastros do Fluxo (produtos, pratos, servicos, setores) sem
+  // recarregar a pagina. Era preciso dar F5 para um cadastro novo aparecer na
+  // lista de mapeamento, porque o catalogo era lido uma unica vez ao abrir a aba.
+  const [recarregando, setRecarregando] = useState(false);
   const [editingDeptIdValue, setEditingDeptIdValue] = useState<string>('');
   const [savingDeptId, setSavingDeptId] = useState(false);
 
@@ -396,6 +400,41 @@ const ErbonIntegration: React.FC = () => {
     }
   };
 
+  // Recarrega SO os cadastros locais (Supabase). De proposito nao chama a Erbon:
+  // aquelas consultas batem numa API externa e nao mudam quando se cadastra algo
+  // aqui, entao disparar a cada foco seria custo sem ganho.
+  const recarregarCadastros = useCallback(async (comIndicador = false) => {
+    if (!selectedHotel || !config?.is_active) return;
+    if (comIndicador) setRecarregando(true);
+    try {
+      if (activeTab === 'products') await loadProductMappings();
+      else if (activeTab === 'dishes') await loadDishMappings();
+      else if (activeTab === 'services') await loadServiceMappings();
+      else if (activeTab === 'sectors') await loadSectorMappings();
+    } finally {
+      if (comIndicador) setRecarregando(false);
+    }
+    // As funcoes de carga sao recriadas a cada render; depender delas colocaria o
+    // efeito em laco. O que importa e a aba e o hotel ativos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, config?.is_active, selectedHotel?.id]);
+
+  // O fluxo real e: o usuario percebe que falta um cadastro, sai para criar em
+  // outra tela ou outra aba do navegador, e volta. Recarregar ao voltar o foco
+  // resolve exatamente isso, sem polling e sem socket aberto.
+  useEffect(() => {
+    const ehAbaDeMapeamento = ['products', 'dishes', 'services', 'sectors'].includes(activeTab);
+    if (!ehAbaDeMapeamento) return;
+
+    const aoVoltar = () => { if (!document.hidden) void recarregarCadastros(); };
+    window.addEventListener('focus', aoVoltar);
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => {
+      window.removeEventListener('focus', aoVoltar);
+      document.removeEventListener('visibilitychange', aoVoltar);
+    };
+  }, [activeTab, recarregarCadastros]);
+
   const loadErbonDepartments = async () => {
     setLoadingSectors(true);
     try {
@@ -626,6 +665,17 @@ const ErbonIntegration: React.FC = () => {
                 {tab.label}
               </button>
             ))}
+            {['products', 'dishes', 'services', 'sectors'].includes(activeTab) && (
+              <button
+                onClick={() => void recarregarCadastros(true)}
+                disabled={recarregando}
+                title="Recarrega os cadastros do Fluxo. Também acontece sozinho ao voltar para esta aba."
+                className="ml-auto mr-4 self-center flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={'w-3.5 h-3.5 ' + (recarregando ? 'animate-spin' : '')} />
+                Atualizar cadastros
+              </button>
+            )}
           </nav>
         </div>
 
