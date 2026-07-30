@@ -61,6 +61,15 @@ function generateMockNFNumber() {
   return String(Math.floor(Math.random() * 900000) + 100000);
 }
 
+// idDPS = DPS + cLocEmi(7) + tpInsc(1) + inscricao(14) + serie(5) + numero(15).
+// Serve para reconsultar a nota no municipio, onde o numero do RPS e o numero
+// da DPS.
+function parseDpsId(idDps: string): { serie: string; numero: number } | null {
+  const m = /^DPS(\d{7})(\d)(\d{14})(\d{5})(\d{15})$/.exec(idDps || '');
+  if (!m) return null;
+  return { serie: String(Number(m[4])), numero: Number(m[5]) };
+}
+
 function generateMockKey() {
   let key = '';
   for (let i = 0; i < 44; i++) key += Math.floor(Math.random() * 10);
@@ -1142,6 +1151,9 @@ const handler: Handler = async (event: HandlerEvent) => {
         numero_nf: result.numero_nf,
         chave_acesso: result.chave_acesso,
         codigo_verificacao: result.codigo_verificacao,
+        // Sem o id_dps gravado nao ha como reconsultar a nota depois, e a
+        // Plataforma Nacional frequentemente responde "em processamento".
+        id_dps: result.id_dps,
         xml_retorno: result.xml_retorno,
         // DPS assinada, guardada na nota para diagnostico de rejeicao
         xml_dps: result.xml_dps,
@@ -1231,6 +1243,43 @@ const handler: Handler = async (event: HandlerEvent) => {
         ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
         id_dps: payload.id_dps,
       });
+
+      // Fallback municipal. A Plataforma Nacional pode ficar horas "em
+      // processamento", mas a NFS-e ja existe no municipio: Buzios converte a
+      // DPS numa nota ABRASF 2.04, cujo numero de RPS e o proprio numero da DPS.
+      // Sem isto a nota fica sem numero no sistema e nao da para imprimir,
+      // mesmo estando autorizada no portal da prefeitura.
+      if (result.processando && payload.certificado_base64 && payload.cnpj && payload.inscricao_municipal) {
+        const ids = parseDpsId(payload.id_dps);
+        if (ids) {
+          try {
+            const rps = await consultarNfsePorRps({
+              certificado_base64: payload.certificado_base64,
+              certificado_senha: payload.certificado_senha,
+              ambiente: payload.ambiente_abrasf === 'homologacao' ? 'homologacao' : 'producao',
+              cnpj: payload.cnpj,
+              inscricao_municipal: payload.inscricao_municipal,
+              numero_rps: ids.numero,
+              serie_rps: ids.serie,
+            });
+            if (rps.success && rps.numero_nf) {
+              return jsonResponse(200, {
+                success: true,
+                processando: false,
+                origem: 'municipio',
+                chave_acesso: null,
+                numero_nf: rps.numero_nf,
+                codigo_verificacao: rps.codigo_verificacao,
+                xml_retorno: rps.xml,
+                message: `NFS-e ${rps.numero_nf} localizada no municipio. A representacao nacional segue em processamento.`,
+              });
+            }
+            console.log('[NFS-e] Fallback por RPS nao encontrou a nota:', rps.message);
+          } catch (e: any) {
+            console.log('[NFS-e] Fallback por RPS falhou:', e?.message);
+          }
+        }
+      }
 
       return jsonResponse(result.success ? 200 : 502, {
         success: result.success,

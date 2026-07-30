@@ -2277,6 +2277,13 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
       token: (config as any).el_token,
       ambiente: (config as any).el_ambiente || 'homologacao',
       id_dps: inv.id_dps,
+      // Para o fallback municipal (ConsultarNfsePorRps) quando a Plataforma
+      // Nacional ainda estiver processando: a nota ja existe no municipio.
+      certificado_base64: config.certificado_base64,
+      certificado_senha: config.certificado_senha,
+      cnpj: config.cnpj,
+      inscricao_municipal: config.inscricao_municipal,
+      ambiente_abrasf: config.ambiente,
     }),
   });
   const result = await res.json();
@@ -2288,6 +2295,9 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
     return { success: true, processando: true, message: result.message };
   }
 
+  // A nota pode ter vindo da Plataforma Nacional ou do municipio (fallback por
+  // RPS). Nos dois casos ela esta autorizada e ja pode ser impressa; o que muda
+  // e a chave de acesso, que so a representacao nacional tem.
   await supabase
     .from('nf_invoices')
     .update({
