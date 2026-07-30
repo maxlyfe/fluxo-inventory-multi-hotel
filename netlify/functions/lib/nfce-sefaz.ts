@@ -317,6 +317,11 @@ export interface NFCeConfig {
 }
 
 export interface NFCeResult {
+  /** XML assinado que foi enviado a SEFAZ (com o infNFeSupl do QR-Code).
+   *  Guardado na nota porque e o documento fiscal a conservar e a unica
+   *  forma de comprovar o que foi declarado, grupos de IBS/CBS inclusive.
+   *  Antes so a resposta de protocolo era gravada. */
+  xml_enviado?: string;
   success: boolean;
   numero_nf: string | null;
   serie: string | null;
@@ -812,6 +817,7 @@ export async function emitirNFCe(params: {
       qrcode_url: qrCodeUrl,
       url_consulta: CONSULTA_URLS[params.config.ambiente],
       xml_retorno: body,
+      xml_enviado: nfeComSupl,
       message: `NFC-e ${params.nNF} autorizada. Protocolo: ${nProt}`,
     };
   }
@@ -834,6 +840,7 @@ export async function emitirNFCe(params: {
         qrcode_url: qrCodeUrl,
         url_consulta: CONSULTA_URLS[params.config.ambiente],
         xml_retorno: body,
+        xml_enviado: nfeComSupl,
         message: `NFC-e ${params.nNF} autorizada. Protocolo: ${innerProt}`,
       };
     }
@@ -843,6 +850,7 @@ export async function emitirNFCe(params: {
       numero_protocolo: null, codigo_verificacao: null,
       qrcode_url: null, url_consulta: null,
       xml_retorno: body,
+      xml_enviado: nfeComSupl,
       message: `Rejeição ${innerStat}: ${innerMotivo}`,
     };
   }
@@ -852,6 +860,7 @@ export async function emitirNFCe(params: {
     numero_protocolo: null, codigo_verificacao: null,
     qrcode_url: null, url_consulta: null,
     xml_retorno: body,
+    xml_enviado: nfeComSupl,
     message: `SEFAZ ${cStat}: ${xMotivo}`,
   };
 }
@@ -1288,6 +1297,7 @@ export async function emitirNFe(params: {
       qrcode_url: null,
       url_consulta: null,
       xml_retorno: body,
+      xml_enviado: nfeSigned,
       message: `NF-e ${params.nNF} autorizada. Protocolo: ${nProt}`,
     };
   }
@@ -1308,6 +1318,7 @@ export async function emitirNFe(params: {
         codigo_verificacao: null,
         qrcode_url: null, url_consulta: null,
         xml_retorno: body,
+        xml_enviado: nfeSigned,
         message: `NF-e ${params.nNF} autorizada. Protocolo: ${innerProt}`,
       };
     }
@@ -1317,6 +1328,7 @@ export async function emitirNFe(params: {
       numero_protocolo: null, codigo_verificacao: null,
       qrcode_url: null, url_consulta: null,
       xml_retorno: body,
+      xml_enviado: nfeSigned,
       message: `Rejeição ${innerStat}: ${innerMotivo}`,
     };
   }
@@ -1326,6 +1338,7 @@ export async function emitirNFe(params: {
     numero_protocolo: null, codigo_verificacao: null,
     qrcode_url: null, url_consulta: null,
     xml_retorno: body,
+    xml_enviado: nfeSigned,
     message: `SEFAZ ${cStat}: ${xMotivo}`,
   };
 }

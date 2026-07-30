@@ -1335,6 +1335,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         .update({
           status: 'rejeitada',
           xml_retorno: result.xml_retorno || null,
+          xml_envio: result.xml_envio || null,
           xml_dps: result.xml_dps || null,
           nfse_provider: inv?.tipo === 'nfse' ? (config?.nfse_provider ?? null) : null,
         })
@@ -1351,6 +1352,9 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       numero_protocolo: result.numero_protocolo || null,
       codigo_verificacao: result.codigo_verificacao || null,
       xml_retorno: result.xml_retorno || null,
+      // XML assinado enviado a SEFAZ. Antes so o protocolo era gravado, ou
+      // seja o documento fiscal em si nao ficava guardado em lugar nenhum.
+      xml_envio: result.xml_envio || null,
       pdf_url: result.pdf_url || null,
       qrcode_url: result.qrcode_url || null,
       url_consulta: result.url_consulta || null,

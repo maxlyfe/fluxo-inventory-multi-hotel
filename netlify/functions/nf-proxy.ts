@@ -358,6 +358,9 @@ const handler: Handler = async (event: HandlerEvent) => {
         qrcode_url: result.qrcode_url,
         url_consulta: result.url_consulta,
         xml_retorno: result.xml_retorno,
+        // XML assinado que foi enviado: e o documento fiscal a conservar, e a
+        // prova do que foi declarado (grupos de IBS/CBS inclusive).
+        xml_envio: result.xml_enviado,
         pdf_url: null,
         message: result.message,
       });
@@ -534,6 +537,9 @@ const handler: Handler = async (event: HandlerEvent) => {
         qrcode_url: result.qrcode_url,
         url_consulta: result.url_consulta,
         xml_retorno: result.xml_retorno,
+        // XML assinado que foi enviado: e o documento fiscal a conservar, e a
+        // prova do que foi declarado (grupos de IBS/CBS inclusive).
+        xml_envio: result.xml_enviado,
         pdf_url: null,
         message: result.message,
       });
