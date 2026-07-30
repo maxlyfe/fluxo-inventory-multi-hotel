@@ -1136,6 +1136,8 @@ const handler: Handler = async (event: HandlerEvent) => {
         chave_acesso: result.chave_acesso,
         codigo_verificacao: result.codigo_verificacao,
         xml_retorno: result.xml_retorno,
+        // DPS assinada, guardada na nota para diagnostico de rejeicao
+        xml_dps: result.xml_dps,
         message: result.message,
         error: result.success ? undefined : result.message,
       });

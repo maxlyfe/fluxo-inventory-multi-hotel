@@ -138,6 +138,9 @@ export interface ELNacionalItem {
 
 export interface ELNacionalResult {
   success: boolean;
+  /** DPS assinada que foi enviada. Guardada na nota para diagnóstico: sem ela,
+   *  toda rejeição obriga a reproduzir o payload à mão. */
+  xml_dps?: string;
   id_dps: string | null;
   chave_acesso: string | null;
   numero_nf: string | null;
@@ -287,11 +290,18 @@ export function buildDpsXml(
     // recolhe o próprio ISS) e disparava a rejeição E0237, que exige o endereço
     // nacional do tomador sempre que o ISSQN é retido por ele.
     `<tpRetISSQN>${tpRetISSQN}</tpRetISSQN>` +
-    // pAliq só entra quando há retenção: sem retenção a Plataforma Nacional
-    // aplica a alíquota do município conveniado, e informar aqui devolve a
+    // pAliq é SEMPRE informado, inclusive sem retenção.
+    //
+    // Houve uma tentativa de omitir o campo quando tpRetISSQN=1, por causa da
     // rejeição E0625 ("não é permitido informar alíquota quando não há
-    // indicação de retenção do ISSQN").
-    (tpRetISSQN === 1 ? '' : `<pAliq>${aliq.toFixed(2)}</pAliq>`) +
+    // indicação de retenção do ISSQN") e da nota de que a alíquota é fornecida
+    // pelo sistema nos municípios conveniados. Na prática, Búzios recusou:
+    // EL0496 ("alíquota do ISSQN deve ser informada para o município. Campo
+    // 'pAliq' não informado"). O prefixo EL indica validação do próprio
+    // município, que é quem manda aqui — ele exige a alíquota mesmo sem
+    // retenção. Se algum município passar a devolver E0625 por causa deste
+    // campo, aí sim vale condicionar por município, e não por retenção.
+    `<pAliq>${aliq.toFixed(2)}</pAliq>` +
     `</tribMun>` +
     `<totTrib>` +
     `<vTotTrib>` +
@@ -403,6 +413,7 @@ export async function emitirNfseELNacional(params: {
   if ((res.status !== 200 && res.status !== 201) || erros) {
     return {
       success: false,
+      xml_dps: signed,
       id_dps: data.idDPS ?? dpsId,
       chave_acesso: null,
       numero_nf: null,
@@ -431,6 +442,7 @@ export async function emitirNfseELNacional(params: {
     if (cErros) {
       return {
         success: false,
+        xml_dps: signed,
         id_dps: idDPS,
         chave_acesso: null,
         numero_nf: null,
@@ -449,6 +461,7 @@ export async function emitirNfseELNacional(params: {
 
   return {
     success: true,
+    xml_dps: signed,
     id_dps: idDPS,
     chave_acesso: chaveAcesso ?? parsed.chave,
     numero_nf: parsed.numero,

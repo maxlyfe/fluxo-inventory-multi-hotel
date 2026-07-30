@@ -1282,11 +1282,16 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
     const result = await res.json();
 
     if (!res.ok || result.success === false) {
+      // Guardar a DPS enviada e o provedor TAMBÉM na rejeição: é justamente aí
+      // que o XML é necessário para diagnosticar. Sem isso, cada rejeição
+      // obrigava a reproduzir o payload à mão para descobrir o que foi enviado.
       await supabase
         .from('nf_invoices')
         .update({
           status: 'rejeitada',
           xml_retorno: result.xml_retorno || null,
+          xml_dps: result.xml_dps || null,
+          nfse_provider: inv?.tipo === 'nfse' ? (config?.nfse_provider ?? null) : null,
         })
         .eq('id', invoiceId);
       const rawMsg = result.message || result.error || 'Erro ao emitir nota fiscal';
@@ -1308,8 +1313,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       pagamentos: (inv?.tipo === 'nfce' || inv?.tipo === 'nfe') ? (pagamentos ?? null) : null,
     };
 
-    if (useADN) {
-      updateData.nfse_provider = 'adn';
+    if (useADN || useELNacional) {
+      updateData.nfse_provider = useADN ? 'adn' : 'el-nacional';
       updateData.xml_dps = result.xml_dps || null;
     } else {
       updateData.nfse_provider = inv?.tipo === 'nfse' ? 'prefeitura' : null;

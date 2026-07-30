@@ -109,16 +109,20 @@ describe('DPS Nacional — endereço do tomador (rejeição E0234)', () => {
 });
 
 describe('DPS Nacional — retenção de ISSQN (tribMun)', () => {
-  it('marca o ISSQN como não retido por padrão e omite pAliq', () => {
+  it('marca o ISSQN como não retido por padrão', () => {
     // tpRetISSQN=2 (retido pelo tomador) era o valor fixo antigo: além de ser
-    // falso para hospedagem, disparava a rejeição E0237 (exige endereço
-    // nacional do tomador). E informar pAliq sem retenção dá E0625.
+    // falso para hospedagem, disparava a rejeição E0237, que exige o endereço
+    // nacional do tomador sempre que o ISSQN é retido por ele.
     const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
-    expect(xml).toContain('<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>');
-    expect(xml).not.toContain('<pAliq>');
+    expect(xml).toContain('<tpRetISSQN>1</tpRetISSQN>');
   });
 
-  it('informa pAliq quando há retenção pelo tomador', () => {
+  it('informa pAliq mesmo sem retenção (Búzios exige, rejeição EL0496)', () => {
+    const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
+    expect(xml).toContain('<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN><pAliq>5.00</pAliq></tribMun>');
+  });
+
+  it('mantém pAliq quando há retenção pelo tomador', () => {
     const { xml } = buildDpsXml({ ...elConfig(true), tp_ret_issqn: 2 }, elTomador, elItems, '1', 1);
     expect(xml).toContain('<tpRetISSQN>2</tpRetISSQN><pAliq>5.00</pAliq>');
   });
