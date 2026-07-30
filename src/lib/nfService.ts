@@ -2252,16 +2252,26 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
 }> {
   const { data: inv } = await supabase
     .from('nf_invoices')
-    .select('id, hotel_id, id_dps, chave_acesso, nfse_provider')
+    .select('id, hotel_id, id_dps, chave_acesso, nfse_provider, xml_retorno')
     .eq('id', invoiceId)
     .single();
 
   if (!inv) return { success: false, processando: false, message: 'Nota não encontrada.' };
-  if (!inv.id_dps) {
-    return { success: false, processando: false, message: 'Esta nota não tem id da DPS gravado, então não há o que reconsultar.' };
-  }
   if (inv.chave_acesso) {
     return { success: true, processando: false, message: 'Esta nota já está autorizada.' };
+  }
+
+  // Notas emitidas antes de o id_dps passar a ser gravado ficaram com a coluna
+  // nula, e sem ela não havia como reconsultar. O id está no JSON de retorno da
+  // própria nota, então recuperamos de lá e persistimos, em vez de exigir
+  // correção manual no banco.
+  let idDps = inv.id_dps;
+  if (!idDps && inv.xml_retorno) {
+    idDps = /"idDPS"\s*:\s*"([^"]+)"/.exec(inv.xml_retorno)?.[1] ?? null;
+    if (idDps) await supabase.from('nf_invoices').update({ id_dps: idDps }).eq('id', invoiceId);
+  }
+  if (!idDps) {
+    return { success: false, processando: false, message: 'Esta nota não tem id da DPS, nem no retorno da API, então não há o que reconsultar.' };
   }
 
   const config = await getConfig(inv.hotel_id);
@@ -2276,7 +2286,7 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
       action: 'consulta-dps-el-nacional',
       token: (config as any).el_token,
       ambiente: (config as any).el_ambiente || 'homologacao',
-      id_dps: inv.id_dps,
+      id_dps: idDps,
       // Para o fallback municipal (ConsultarNfsePorRps) quando a Plataforma
       // Nacional ainda estiver processando: a nota ja existe no municipio.
       certificado_base64: config.certificado_base64,

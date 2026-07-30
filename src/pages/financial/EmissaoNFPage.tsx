@@ -1363,7 +1363,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                     {/* A Plataforma Nacional pode aceitar a DPS e ainda estar
                         processando a NFS-e: nesse caso a nota fica sem número e
                         sem chave, e só a reconsulta completa os dados. */}
-                    {inv.tipo === 'nfse' && inv.id_dps && !inv.chave_acesso && (
+                    {inv.tipo === 'nfse' && (inv.id_dps || inv.xml_retorno?.includes('idDPS')) && !inv.chave_acesso && !inv.numero_nf && (
                       <button
                         onClick={() => onReconsultar(inv.id)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors"
