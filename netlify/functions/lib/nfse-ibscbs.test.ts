@@ -40,26 +40,26 @@ const elItems = [
   { description: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
 ] as any[];
 
-describe('DPS Nacional — cIntContrib (rejeição E1235 de schema)', () => {
-  // TSCodigoInternoContribuinte tem pattern [a-zA-Z0-9]{1,20}. '9.01' é o valor
-  // que alguém naturalmente digita no campo e reprova no schema por causa do
-  // ponto, com a rejeição E1235.
-  it('remove pontuação do código interno do contribuinte', () => {
+describe('DPS Nacional — código de tributação municipal (E35 e E1235)', () => {
+  // O código de serviço municipal ('9.01' em Búzios) vai em <cTribMun>, não em
+  // <cIntContrib>. Duas rejeições provaram isso: E1235, porque o schema do
+  // cIntContrib proíbe ponto, e E35, porque a E&L valida o cIntContrib contra a
+  // lista de serviços da legislação municipal. Não existe valor que satisfaça as
+  // duas, então cIntContrib deixou de ser enviado.
+  it('manda o código municipal em cTribMun, só com dígitos', () => {
     const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '9.01' }, elTomador, elItems, '1', 1);
-    expect(xml).toContain('<cIntContrib>901</cIntContrib>');
+    expect(xml).toContain('<cTribNac>090101</cTribNac><cTribMun>901</cTribMun><xDescServ>');
   });
 
-  it('trunca em 20 caracteres', () => {
-    const { xml } = buildDpsXml(
-      { ...elConfig(true), codigo_servico_municipal: 'DIARIA-DE-HOSPEDAGEM-COM-CAFE' },
-      elTomador, elItems, '1', 1,
-    );
-    expect(xml).toContain('<cIntContrib>DIARIADEHOSPEDAGEMCO</cIntContrib>');
-  });
-
-  it('omite a tag quando o valor fica vazio após a limpeza', () => {
-    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '...' }, elTomador, elItems, '1', 1);
+  it('nunca envia cIntContrib', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '9.01' }, elTomador, elItems, '1', 1);
     expect(xml).not.toContain('<cIntContrib>');
+  });
+
+  it('omite cTribMun quando não há código municipal configurado', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: null }, elTomador, elItems, '1', 1);
+    expect(xml).not.toContain('<cTribMun>');
+    expect(xml).toContain('<cTribNac>090101</cTribNac><xDescServ>');
   });
 });
 

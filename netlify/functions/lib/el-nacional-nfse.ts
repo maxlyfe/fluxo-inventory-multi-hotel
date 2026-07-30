@@ -93,10 +93,15 @@ export interface ELNacionalConfig {
   inscricao_municipal: string;
   codigo_municipio: string;            // IBGE 7 dígitos (Búzios 3300233)
   codigo_servico: string;              // LC116 (ex. 9.01) → cTribNac 090101
-  // cIntContrib: código INTERNO do contribuinte (o próprio prestador define),
-  // até 20 caracteres, opcional no leiaute. Não confundir com cTribMun, que é
-  // o código de tributação municipal de 3 dígitos definido pela prefeitura e
-  // que este builder não envia.
+  // Código de tributação municipal do ISSQN → <cTribMun> (3 dígitos, definido
+  // pela prefeitura). É o mesmo valor que o caminho ABRASF manda em
+  // <CodigoTributacaoMunicipio> e que funciona nas notas reais de Búzios.
+  //
+  // NÃO vai em <cIntContrib>. Foi essa a confusão: cIntContrib é o código
+  // interno do contribuinte pelo leiaute nacional, mas a E&L o valida contra a
+  // lista de serviços da legislação municipal (rejeição E35), e ainda por cima
+  // o schema proíbe ponto ali (E1235 com '9.01'). Como não existe valor que
+  // satisfaça as duas coisas, cIntContrib deixou de ser enviado: é opcional.
   codigo_servico_municipal?: string | null;
   // Código NBS de 9 dígitos, sem pontos (1.0303.11.00 → 103031100). Vira
   // <cNBS> e é OBRIGATÓRIO quando a DPS leva o bloco <IBSCBS> da reforma:
@@ -207,11 +212,10 @@ export function buildDpsXml(
 
   const digits = (config.codigo_servico || '9.01').replace(/\D/g, '');
   const cTribNac = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
-  // TSCodigoInternoContribuinte: pattern [a-zA-Z0-9]{1,20}. Ponto, barra, hifen
-  // e espaco reprovam no schema (E1235), e '9.01' e justamente o valor que
-  // alguem naturalmente digita aqui. Normalizamos em vez de confiar na
-  // digitacao.
-  const cIntContrib = (config.codigo_servico_municipal || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
+  // cTribMun aceita apenas dígitos (3 posições no leiaute): '9.01' entra como
+  // '901'. Normalizamos em vez de confiar na digitação, porque o valor natural
+  // de digitar nesse campo é justamente o que tem ponto.
+  const cTribMun = (config.codigo_servico_municipal || '').replace(/\D/g, '').slice(0, 3);
   const cNBS = (config.codigo_nbs || '').replace(/\D/g, '');
 
   const dpsId = buildDpsId(cMun, cnpj, serie, numeroDPS);
@@ -273,11 +277,11 @@ export function buildDpsXml(
     `<serv>` +
     `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>` +
     `<cServ>` +
-    `<cTribNac>${cTribNac}</cTribNac>` +
-    `<xDescServ>${xmlEsc(discriminacao)}</xDescServ>` +
     // Ordem do leiaute em cServ: cTribNac, cTribMun, xDescServ, cNBS, cIntContrib
+    `<cTribNac>${cTribNac}</cTribNac>` +
+    (cTribMun ? `<cTribMun>${cTribMun}</cTribMun>` : '') +
+    `<xDescServ>${xmlEsc(discriminacao)}</xDescServ>` +
     (cNBS ? `<cNBS>${cNBS}</cNBS>` : '') +
-    (cIntContrib ? `<cIntContrib>${xmlEsc(cIntContrib)}</cIntContrib>` : '') +
     `</cServ>` +
     `</serv>` +
     `<valores>` +

@@ -693,13 +693,12 @@ const NFIntegration: React.FC = () => {
                       <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
                     </div>
                     <div>
-                      <label className={labelCls}>Código interno do contribuinte (cIntContrib)</label>
-                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: DIARIA" maxLength={20} />
+                      <label className={labelCls}>Código de tributação municipal</label>
+                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: 9.01" maxLength={20} />
                       <p className="text-xs text-gray-500 mt-1">
-                        Referência sua, não da prefeitura: até 20 caracteres que você mesmo define para identificar
-                        o serviço nos seus controles. Não precisa buscar em lugar nenhum. Se estiver em dúvida,
-                        use <b>DIARIA</b>. Só letras e números são aceitos pelo schema da nota: pontos e outros
-                        símbolos são removidos automaticamente no envio, então <b>9.01</b> vai como <b>901</b>.
+                        O código do serviço na legislação do município, o mesmo que já sai nas notas emitidas pela
+                        prefeitura hoje. Em Búzios é <b>9.01</b> para hospedagem. Na NFS-e Nacional ele vai no campo
+                        <b> cTribMun</b>, que aceita só dígitos, então o ponto é removido no envio.
                       </p>
                     </div>
                     <div>
