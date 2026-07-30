@@ -76,6 +76,9 @@ export interface ErbonProductMapping {
   service_id?: string | null;
   erbon_service_id: number;
   erbon_service_description: string | null;
+  /** 0 = mapeamento padrão (todos os departamentos); >0 = override específico */
+  erbon_department_id: number;
+  erbon_department?: string | null;
 }
 
 export interface ErbonSectorMapping {
@@ -815,11 +818,15 @@ export const erbonService = {
 
     if (txError) throw txError;
 
-    // 3) Buscar mapeamentos de produtos
+    // 3) Buscar mapeamentos de produtos — só a linha default (dept=0):
+    //    overrides por departamento (product_id/dish_id sempre nulos nessas
+    //    linhas) não devem entrar aqui, senão o forEach abaixo pode
+    //    sobrescrever o product_id correto com null.
     const { data: productMappings, error: pmError } = await supabase
       .from('erbon_product_mappings')
       .select('product_id, erbon_service_id')
-      .eq('hotel_id', hotelId);
+      .eq('hotel_id', hotelId)
+      .eq('erbon_department_id', 0);
     if (pmError) throw pmError;
 
     // 4) Buscar mapeamentos de setores
@@ -871,17 +878,24 @@ export const erbonService = {
     service_id?: string | null;
     erbon_service_id: number;
     erbon_service_description?: string;
+    /** 0 (default) = mapeamento vale para qualquer departamento; >0 = override específico */
+    erbon_department_id?: number;
+    erbon_department?: string | null;
   }): Promise<void> {
-    // Alvos mutuamente exclusivos: produto OU ficha técnica OU serviço
+    // Alvos mutuamente exclusivos: produto OU ficha técnica OU serviço.
+    // Overrides por departamento (erbon_department_id > 0) só podem apontar
+    // service_id — a baixa de estoque sempre usa a linha default (dept=0).
     const payload = {
       ...mapping,
       product_id: mapping.product_id ?? null,
       dish_id: mapping.dish_id ?? null,
       service_id: mapping.service_id ?? null,
+      erbon_department_id: mapping.erbon_department_id ?? 0,
+      erbon_department: mapping.erbon_department ?? null,
     };
     const { error } = await supabase
       .from('erbon_product_mappings')
-      .upsert(payload, { onConflict: 'hotel_id,erbon_service_id' });
+      .upsert(payload, { onConflict: 'hotel_id,erbon_service_id,erbon_department_id' });
     if (error) throw error;
   },
 

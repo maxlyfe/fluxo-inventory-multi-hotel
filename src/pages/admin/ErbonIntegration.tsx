@@ -117,6 +117,10 @@ const ErbonIntegration: React.FC = () => {
   // Lista completa da Erbon (onlyProducts=false — inclui diárias, taxas etc.)
   const [erbonServiceItems, setErbonServiceItems] = useState<ErbonProduct[]>([]);
   const [loadingErbonServices, setLoadingErbonServices] = useState(false);
+  // Departamento escolhido por produto ao criar um novo mapeamento de serviço
+  // (0 = padrão, vale para todos os departamentos; >0 = override específico,
+  // ex. MAP/FAP — reclassifica só os lançamentos daquele departamento)
+  const [newMappingDeptId, setNewMappingDeptId] = useState<Record<number, number>>({});
 
   // ── Dishes mapping state ───────────────────────────────────────────────
   const [fluxoDishes, setFluxoDishes] = useState<FluxoDish[]>([]);
@@ -145,7 +149,10 @@ const ErbonIntegration: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'products' && config?.is_active) loadProductMappings();
     if (activeTab === 'dishes' && config?.is_active) loadDishMappings();
-    if (activeTab === 'services' && config?.is_active) loadServiceMappings();
+    if (activeTab === 'services' && config?.is_active) {
+      loadServiceMappings();
+      if (erbonDepartments.length === 0) loadErbonDepartments();
+    }
     if (activeTab === 'sectors' && config?.is_active) loadSectorMappings();
     if (activeTab === 'prices') loadPdvPrices();
   }, [activeTab, config]);
@@ -341,14 +348,19 @@ const ErbonIntegration: React.FC = () => {
     }
   };
 
-  const handleMapService = async (serviceId: string, erbonProduct: ErbonProduct) => {
+  const handleMapService = async (serviceId: string, erbonProduct: ErbonProduct, deptId: number = 0) => {
     try {
+      const dept = deptId > 0 ? erbonDepartments.find(d => d.id === deptId) : null;
       await erbonService.saveProductMapping({
         hotel_id: selectedHotel!.id, service_id: serviceId,
         erbon_service_id: erbonProduct.id, erbon_service_description: erbonProduct.description,
+        erbon_department_id: deptId,
+        erbon_department: dept?.name ?? null,
       });
       await loadServiceMappings();
-      setSuccess(`Serviço mapeado: ${erbonProduct.description}`);
+      setSuccess(deptId > 0
+        ? `Override criado: ${erbonProduct.description} → serviço (só no depto "${dept?.name || deptId}")`
+        : `Serviço mapeado: ${erbonProduct.description}`);
     } catch (err: any) { setError(err.message); }
   };
 
@@ -999,14 +1011,14 @@ const ErbonIntegration: React.FC = () => {
                 </div>
               )}
 
-              {/* Mapeamentos de serviços existentes */}
-              {productMappings.filter(m => m.service_id).length > 0 && (
+              {/* Mapeamentos de serviços existentes (padrão — todos os departamentos) */}
+              {productMappings.filter(m => m.service_id && !m.erbon_department_id).length > 0 && (
                 <div>
                   <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">
-                    Mapeamentos de Serviços Ativos ({productMappings.filter(m => m.service_id).length})
+                    Mapeamentos de Serviços Ativos ({productMappings.filter(m => m.service_id && !m.erbon_department_id).length})
                   </h4>
                   <div className="space-y-2">
-                    {productMappings.filter(m => m.service_id).map(mapping => {
+                    {productMappings.filter(m => m.service_id && !m.erbon_department_id).map(mapping => {
                       const svc = fluxoServices.find(s => s.id === mapping.service_id);
                       return (
                         <div
@@ -1037,6 +1049,51 @@ const ErbonIntegration: React.FC = () => {
                 </div>
               )}
 
+              {/* Overrides por departamento — reclassificam o produto como
+                  serviço só quando lançado num departamento específico
+                  (ex.: MAP/FAP), sem afetar a baixa de estoque nem a venda
+                  à la carte em outros departamentos. */}
+              {productMappings.filter(m => m.service_id && m.erbon_department_id).length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-amber-600 dark:text-amber-400 uppercase mb-3">
+                    Overrides por Departamento ({productMappings.filter(m => m.service_id && m.erbon_department_id).length})
+                  </h4>
+                  <div className="space-y-2">
+                    {productMappings.filter(m => m.service_id && m.erbon_department_id).map(mapping => {
+                      const svc = fluxoServices.find(s => s.id === mapping.service_id);
+                      return (
+                        <div
+                          key={mapping.id}
+                          className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xs font-mono px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded shrink-0">
+                              {mapping.erbon_department || `Depto ${mapping.erbon_department_id}`}
+                            </span>
+                            <span className="text-sm text-gray-900 dark:text-white truncate">
+                              {mapping.erbon_service_description} (ID: {mapping.erbon_service_id})
+                            </span>
+                            <span className="text-gray-400">&rarr;</span>
+                            <span className="text-sm text-emerald-700 dark:text-emerald-400 shrink-0">
+                              {svc?.name || mapping.service_id}
+                            </span>
+                          </div>
+                          <button onClick={() => handleDeleteProductMapping(mapping.id)} className={btnDanger}>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5 mt-2">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    Overrides só afetam a classificação fiscal (produto vs serviço). A baixa de
+                    estoque continua sempre pela ficha técnica/produto padrão, independente do
+                    departamento.
+                  </p>
+                </div>
+              )}
+
               {/* Criar novo mapeamento de serviço */}
               {erbonServiceItems.length > 0 && fluxoServices.length > 0 && (
                 <div>
@@ -1062,7 +1119,13 @@ const ErbonIntegration: React.FC = () => {
                           p.code.toLowerCase().includes(serviceSearch.toLowerCase())
                         )
                       : erbonServiceItems
-                    ).filter(p => !productMappings.some(m => m.service_id && m.erbon_service_id === p.id)).map(erbonProd => (
+                    ).filter(p => {
+                      const deptId = newMappingDeptId[p.id] ?? 0;
+                      // Só esconde o produto se já existir um mapeamento de serviço
+                      // PARA O MESMO departamento selecionado (permite criar overrides
+                      // adicionais para outros departamentos do mesmo produto).
+                      return !productMappings.some(m => m.service_id && m.erbon_service_id === p.id && (m.erbon_department_id ?? 0) === deptId);
+                    }).map(erbonProd => (
                       <div
                         key={erbonProd.id}
                         className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
@@ -1075,10 +1138,21 @@ const ErbonIntegration: React.FC = () => {
                             Código {erbonProd.code} · ID {erbonProd.id} · R${erbonProd.priceSale?.toFixed(2)}
                           </p>
                         </div>
+                        <select
+                          value={newMappingDeptId[erbonProd.id] ?? 0}
+                          onChange={e => setNewMappingDeptId(prev => ({ ...prev, [erbonProd.id]: Number(e.target.value) }))}
+                          className={inputCls + ' w-full lg:w-56 shrink-0'}
+                          title="Departamento: 'Padrão' vale para qualquer lançamento; um departamento específico cria um override (ex.: MAP/FAP)"
+                        >
+                          <option value={0}>Padrão (todos os departamentos)</option>
+                          {erbonDepartments.filter(d => d.id > 0).map(d => (
+                            <option key={d.id} value={d.id}>{d.name} (override)</option>
+                          ))}
+                        </select>
                         <div className="w-full lg:w-72 shrink-0">
                           <SearchableSelect
                             placeholder="Vincular a serviço..."
-                            onSelect={value => handleMapService(value, erbonProd)}
+                            onSelect={value => handleMapService(value, erbonProd, newMappingDeptId[erbonProd.id] ?? 0)}
                             options={fluxoServices.map(s => ({
                               value: s.id,
                               label: `${s.name} (LC116 ${s.lc116_code || '—'} · ISS ${s.iss_rate ?? '—'}%)`,

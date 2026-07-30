@@ -127,6 +127,101 @@ export interface FiscalResolutionResult {
   hasErrors: boolean;
 }
 
+// ─── Mapeamento Erbon: índice único + matcher com preferência de departamento ─
+//
+// Um produto Erbon pode ter mais de um mapeamento por hotel: uma linha
+// "default" (erbon_department_id = 0), que decide a baixa de estoque e serve
+// de fallback fiscal, e opcionalmente linhas de "override" por departamento
+// (erbon_department_id > 0, só com service_id) que reclassificam o lançamento
+// como serviço quando vem de um departamento específico (ex.: MAP/FAP).
+
+export interface ErbonMappingRow {
+  erbon_service_id: number;
+  erbon_service_description: string | null;
+  /** 0 = mapeamento padrão (todos os departamentos); >0 = override específico */
+  erbon_department_id: number;
+  product_id: string | null;
+  dish_id: string | null;
+  service_id: string | null;
+}
+
+/** Busca todos os mapeamentos Erbon do hotel de uma vez (default + overrides
+ *  por departamento). Ponto único de fetch reutilizado pela classificação
+ *  produto/serviço e pelas duas resoluções fiscais abaixo, para garantir que
+ *  todas usem exatamente o mesmo snapshot. */
+export async function getErbonMappingIndex(hotelId: string): Promise<ErbonMappingRow[]> {
+  const { data, error } = await supabase
+    .from('erbon_product_mappings')
+    .select('erbon_service_id, erbon_service_description, erbon_department_id, product_id, dish_id, service_id')
+    .eq('hotel_id', hotelId);
+  if (error) throw error;
+  return (data ?? []) as ErbonMappingRow[];
+}
+
+/** Casa um lançamento (por description, fuzzy substring — a Erbon não expõe
+ *  erbon_service_id no CurrentAccountEntry) a um mapeamento, preferindo:
+ *  1) override exato do departamento do lançamento;
+ *  2) linha default (erbon_department_id = 0);
+ *  3) primeiro match encontrado (mesma tolerância do comportamento legado). */
+export function findMapping(
+  mappings: ErbonMappingRow[],
+  description: string,
+  idDepartment?: number | null,
+): ErbonMappingRow | null {
+  const desc = (description || '').toLowerCase();
+  if (!desc) return null;
+  const matches = mappings.filter(m => {
+    const d = (m.erbon_service_description || '').toLowerCase();
+    return d.length > 0 && (desc.includes(d) || d === desc);
+  });
+  if (matches.length === 0) return null;
+
+  const dept = idDepartment ?? 0;
+  if (dept !== 0) {
+    const exact = matches.find(m => m.erbon_department_id === dept);
+    if (exact) return exact;
+  }
+  const def = matches.find(m => m.erbon_department_id === 0);
+  if (def) return def;
+  return matches[0];
+}
+
+/** Heurística legada por palavra-chave — fallback quando não há mapeamento
+ *  Erbon algum para o lançamento (ex.: "Diária", "Taxa de turismo", que não
+ *  vêm de um produto do PDV mapeado em erbon_product_mappings). */
+export function isServiceEntry(entry: { description: string }): boolean {
+  const desc = (entry.description || '').toLowerCase();
+  return (
+    desc.includes('diária') ||
+    desc.includes('diaria') ||
+    desc.includes('hospedagem') ||
+    desc.includes('taxa') ||
+    desc.includes('no show') ||
+    desc.includes('room charge') ||
+    desc.includes('turismo') ||
+    desc.includes('iss') ||
+    desc.includes('serviço') ||
+    desc.includes('servico')
+  );
+}
+
+/** Classificação canônica produto vs serviço: o mapeamento Erbon (com
+ *  preferência de departamento) tem prioridade — permite que o MESMO produto
+ *  (ex. "Milanesa a Parmegiana") vire produto no Restaurante e serviço no
+ *  MAP/FAP. Sem mapeamento algum, cai para a heurística de palavra-chave
+ *  (comportamento 100% preservado para lançamentos nunca mapeados). */
+export function isServiceEntryMapped(
+  entry: { description: string; idDepartment?: number },
+  mappings: ErbonMappingRow[],
+): boolean {
+  const m = findMapping(mappings, entry.description, entry.idDepartment);
+  if (m) {
+    if (m.service_id) return true;
+    if (m.product_id || m.dish_id) return false;
+  }
+  return isServiceEntry(entry);
+}
+
 // ─── Resolução fiscal: Erbon entry → NCM + imposto ──────────────────────────
 
 async function resolveEntryFiscalData(
@@ -137,56 +232,25 @@ async function resolveEntryFiscalData(
     amount: number;
     idDepartment: number;
   }>,
+  preloadedMappings?: ErbonMappingRow[],
 ): Promise<FiscalResolutionResult> {
   const globalWarnings: string[] = [];
   const items: FiscalLineItem[] = [];
 
-  // 1. Buscar todos os mapeamentos Erbon do hotel
-  const { data: mappings, error: mapErr } = await supabase
-    .from('erbon_product_mappings')
-    .select('erbon_service_id, product_id, dish_id, erbon_service_description')
-    .eq('hotel_id', hotelId);
-  if (mapErr) throw mapErr;
+  // 1. Buscar todos os mapeamentos Erbon do hotel (default + overrides por
+  //    departamento) — ou reaproveitar um índice já carregado pelo chamador.
+  const mappings = preloadedMappings ?? await getErbonMappingIndex(hotelId);
 
-  const mappingByService = new Map<number, { product_id: string | null; dish_id: string | null; desc: string | null }>();
-  (mappings ?? []).forEach((m: { erbon_service_id: number; product_id: string | null; dish_id: string | null; erbon_service_description: string | null }) => {
-    mappingByService.set(m.erbon_service_id, {
-      product_id: m.product_id,
-      dish_id: m.dish_id,
-      desc: m.erbon_service_description,
-    });
-  });
-
-  // 2. Coletar todos os dish_ids e product_ids que vamos precisar
+  // 2. Coletar todos os dish_ids e product_ids que vamos precisar.
+  // Nota: o erbon_service_id não vem no CurrentAccountEntry, então o match é
+  // por description (fuzzy), com preferência de departamento — ver findMapping.
   const neededDishIds = new Set<string>();
   const neededProductIds = new Set<string>();
 
-  // Primeiro pass: identificar o que precisamos buscar
-  // Nota: o erbon_service_id não vem no CurrentAccountEntry, então tentamos
-  // encontrar o mapeamento pela description (match parcial) ou usamos todos
-  // os mapeamentos disponíveis
   for (const entry of entries) {
-    // Tentar encontrar mapeamento: procurar por description match
-    let matched = false;
-    for (const [_svcId, map] of mappingByService) {
-      if (map.desc && entry.description.toLowerCase().includes(map.desc.toLowerCase())) {
-        if (map.dish_id) neededDishIds.add(map.dish_id);
-        if (map.product_id) neededProductIds.add(map.product_id);
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      // Tentar match exato pela description como service_description
-      for (const [_svcId, map] of mappingByService) {
-        if (map.desc && map.desc.toLowerCase() === entry.description.toLowerCase()) {
-          if (map.dish_id) neededDishIds.add(map.dish_id);
-          if (map.product_id) neededProductIds.add(map.product_id);
-          matched = true;
-          break;
-        }
-      }
-    }
+    const map = findMapping(mappings, entry.description, entry.idDepartment);
+    if (map?.dish_id) neededDishIds.add(map.dish_id);
+    if (map?.product_id) neededProductIds.add(map.product_id);
   }
 
   // 3. Buscar fichas técnicas (dishes) e seus ingredientes
@@ -298,18 +362,10 @@ async function resolveEntryFiscalData(
 
   // 5. Resolver cada entry
   for (const entry of entries) {
-    let mapping: { product_id: string | null; dish_id: string | null; desc: string | null; svcId: number } | null = null;
-
-    // Buscar mapeamento por description
-    for (const [svcId, map] of mappingByService) {
-      if (map.desc && (
-        entry.description.toLowerCase().includes(map.desc.toLowerCase()) ||
-        map.desc.toLowerCase() === entry.description.toLowerCase()
-      )) {
-        mapping = { ...map, svcId };
-        break;
-      }
-    }
+    const found = findMapping(mappings, entry.description, entry.idDepartment);
+    const mapping = found
+      ? { product_id: found.product_id, dish_id: found.dish_id, desc: found.erbon_service_description, svcId: found.erbon_service_id }
+      : null;
 
     if (!mapping) {
       // Sem mapeamento encontrado
@@ -503,7 +559,8 @@ export interface ServiceFiscalResult {
 
 async function resolveServiceFiscalData(
   hotelId: string,
-  entries: Array<{ id: number; description: string; amount: number; service_id?: string | null }>,
+  entries: Array<{ id: number; description: string; amount: number; service_id?: string | null; idDepartment?: number }>,
+  preloadedMappings?: ErbonMappingRow[],
 ): Promise<ServiceFiscalResult> {
   const globalWarnings: string[] = [];
 
@@ -518,20 +575,18 @@ async function resolveServiceFiscalData(
     (svcs ?? []).forEach((s: any) => directServices.set(s.id, s));
   }
 
-  // Mapeamentos Erbon → serviço do catálogo (com a tributação do serviço)
-  const { data: mappings, error: mapErr } = await supabase
-    .from('erbon_product_mappings')
-    .select(`
-      erbon_service_id,
-      erbon_service_description,
-      service_id,
-      services (
-        id, name, description, lc116_code, iss_rate, iss_retained, is_active
-      )
-    `)
-    .eq('hotel_id', hotelId)
-    .not('service_id', 'is', null);
-  if (mapErr) throw mapErr;
+  // Mapeamentos Erbon → serviço do catálogo (default + overrides por
+  // departamento — findMapping escolhe o melhor por entry.idDepartment).
+  const mappings = preloadedMappings ?? await getErbonMappingIndex(hotelId);
+  const serviceIds = [...new Set(mappings.map(m => m.service_id).filter(Boolean))] as string[];
+  const serviceDataById = new Map<string, { id: string; name: string; description: string | null; lc116_code: string | null; iss_rate: number | null; iss_retained: boolean; is_active: boolean }>();
+  if (serviceIds.length > 0) {
+    const { data: svcs } = await supabase
+      .from('services')
+      .select('id, name, description, lc116_code, iss_rate, iss_retained, is_active')
+      .in('id', serviceIds);
+    (svcs ?? []).forEach((s: any) => serviceDataById.set(s.id, s));
+  }
 
   // Fallback: tributação única do hotel
   const { data: cfg } = await supabase
@@ -540,30 +595,17 @@ async function resolveServiceFiscalData(
     .eq('hotel_id', hotelId)
     .maybeSingle();
 
-  interface MappedService {
-    desc: string | null;
-    service: { id: string; name: string; description: string | null; lc116_code: string | null; iss_rate: number | null; iss_retained: boolean; is_active: boolean } | null;
-  }
-  const mapped: MappedService[] = (mappings ?? []).map((m: any) => ({
-    desc: m.erbon_service_description,
-    service: m.services ?? null,
-  }));
-
   const items: ServiceFiscalItem[] = entries.map(entry => {
     // 1º: serviço apontado diretamente pelo lançamento (reservas internas)
     const direct = entry.service_id ? directServices.get(entry.service_id) : undefined;
-    // 2º: match por descrição — o CurrentAccountEntry da Erbon não expõe
-    // erbon_service_id (mesma heurística da resolução de produtos)
-    const entryDesc = entry.description.toLowerCase();
-    const match = direct ? null : mapped.find(m =>
-      m.service?.is_active && m.desc && (
-        entryDesc.includes(m.desc.toLowerCase()) ||
-        m.desc.toLowerCase() === entryDesc
-      )
-    );
+    // 2º: mapeamento Erbon por descrição, com preferência de departamento —
+    // o CurrentAccountEntry da Erbon não expõe erbon_service_id diretamente.
+    const found = direct ? null : findMapping(mappings, entry.description, entry.idDepartment);
+    const matchService = found?.service_id ? serviceDataById.get(found.service_id) : null;
+    const match = matchService?.is_active ? matchService : null;
 
-    if (direct || match?.service) {
-      const s = (direct || match!.service)!;
+    if (direct || match) {
+      const s = (direct || match!)!;
       const w: string[] = [];
       if (!s.lc116_code) w.push(`Serviço "${s.name}" sem código LC 116 cadastrado`);
       if (s.iss_rate == null) w.push(`Serviço "${s.name}" sem alíquota ISS cadastrada`);
@@ -2272,6 +2314,10 @@ export const nfService = {
   testConnection,
   resolveEntryFiscalData,
   resolveServiceFiscalData,
+  getErbonMappingIndex,
+  findMapping,
+  isServiceEntry,
+  isServiceEntryMapped,
   emitContingencia,
   retryContingencyInvoices,
   getContingencyCount,

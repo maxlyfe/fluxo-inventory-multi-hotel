@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
-import { nfService, matchesEligibleService, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData, type NfceEligibleService } from '../../lib/nfService';
+import { nfService, matchesEligibleService, isServiceEntry, type FiscalLineItem, type FiscalResolutionResult, type ServiceFiscalResult, type WCIGuestData, type NfceEligibleService, type ErbonMappingRow } from '../../lib/nfService';
 import { erbonService } from '../../lib/erbonService';
 import { printNFA4 } from './NFPrintA4';
 import { useNotification } from '../../context/NotificationContext';
@@ -62,22 +62,11 @@ interface NFInvoiceModalProps {
   viewInvoiceId?: string | null;
 }
 
-// Helper to classify entries as service or product
-export function isServiceEntry(entry: { description: string }) {
-  const desc = (entry.description || '').toLowerCase();
-  return (
-    desc.includes('diária') ||
-    desc.includes('diaria') ||
-    desc.includes('hospedagem') ||
-    desc.includes('taxa') ||
-    desc.includes('no show') ||
-    desc.includes('room charge') ||
-    desc.includes('turismo') ||
-    desc.includes('iss') ||
-    desc.includes('serviço') ||
-    desc.includes('servico')
-  );
-}
+// Heurística de palavra-chave (fallback quando não há mapeamento Erbon) —
+// movida para nfService.ts como fonte única; re-exportada aqui para não
+// quebrar os imports existentes (BookingNFSection.tsx, BookingExtratoSection.tsx,
+// EmissaoNFPage.tsx importam `isServiceEntry` deste arquivo).
+export { isServiceEntry };
 
 // Rótulo da forma de pagamento (tPag SEFAZ) para exibir no cupom
 const TPAG_LABELS: Record<string, string> = {
@@ -191,6 +180,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   // Serviços marcados para emitir como produto em NFC-e/NF-e (ex.: taxa de serviço)
   const [nfceEligible, setNfceEligible] = useState<NfceEligibleService[]>([]);
+  const [erbonMappings, setErbonMappings] = useState<ErbonMappingRow[]>([]);
 
   // Emitted invoice (for print after emission)
   const [emittedInvoice, setEmittedInvoice] = useState<any>(null);
@@ -282,6 +272,13 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     nfService.getNfceEligibleServices(hotelId).then(setNfceEligible).catch(() => setNfceEligible([]));
   }, [isOpen, hotelId]);
 
+  // Carrega o índice de mapeamentos Erbon (default + overrides por
+  // departamento) usado para classificar produto vs serviço.
+  useEffect(() => {
+    if (!isOpen) return;
+    nfService.getErbonMappingIndex(hotelId).then(setErbonMappings).catch(() => setErbonMappings([]));
+  }, [isOpen, hotelId]);
+
   // 1. Initialize items and prefill Tomador on mount/open
   useEffect(() => {
     if (!isOpen) return;
@@ -353,8 +350,11 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     // vOutro (não como produto) — logo NÃO passa pela resolução de NCM.
     const isAcrescimo = (e: { description: string }) =>
       nfceEligible.some(s => matchesEligibleService(e.description, s));
-    // Conta na emissão de produtos: produto real OU acréscimo (para ser incluído).
-    const isProductEntry = (e: { description: string }) => !isServiceEntry(e) || isAcrescimo(e);
+    // Classificação produto/serviço: mapeamento Erbon (com preferência de
+    // departamento) tem prioridade — permite que o mesmo produto vire
+    // serviço quando lançado num depto de plano de refeição (MAP/FAP).
+    const isProductEntry = (e: { description: string; idDepartment?: number }) =>
+      !nfService.isServiceEntryMapped(e, erbonMappings) || isAcrescimo(e);
 
     const services = isGeneric ? genericEntries : selectedEntries.filter(e => !isProductEntry(e));
     const products = isGeneric ? genericEntries : selectedEntries.filter(isProductEntry);
@@ -372,7 +372,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       setLoadingFiscal(true);
       nfService.resolveEntryFiscalData(
         hotelId,
-        realProducts.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment }))
+        realProducts.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment })),
+        erbonMappings,
       ).then(result => {
         setFiscalData(result);
       }).catch(err => {
@@ -391,7 +392,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       const genericServiceIds = new Map((genericItems ?? []).map(g => [g.id, g.service_id ?? null]));
       nfService.resolveServiceFiscalData(
         hotelId,
-        services.map(e => ({ id: e.id, description: e.description, amount: e.amount, service_id: genericServiceIds.get(e.id) ?? null }))
+        services.map(e => ({ id: e.id, description: e.description, amount: e.amount, service_id: genericServiceIds.get(e.id) ?? null, idDepartment: e.idDepartment })),
+        erbonMappings,
       ).then(result => {
         setServiceFiscal(result);
       }).catch(err => {
@@ -475,7 +477,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorCidade('');
     setTomadorUf('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible]);
+  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible, erbonMappings]);
 
   if (!isOpen) return null;
 

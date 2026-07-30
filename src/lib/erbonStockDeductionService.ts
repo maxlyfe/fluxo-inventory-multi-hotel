@@ -32,10 +32,15 @@ export async function processErbonSalesDeductions(
   if (txError) throw txError;
   if (!txCache || txCache.length === 0) return result;
 
+  // Só a linha default (dept=0): overrides por departamento (product_id/
+  // dish_id sempre nulos nessas linhas) não podem entrar aqui, senão o
+  // forEach abaixo sobrescreveria o mapeamento correto com um vazio,
+  // quebrando a baixa de estoque para TODOS os departamentos do produto.
   const { data: productMappings } = await supabase
     .from('erbon_product_mappings')
     .select('product_id, dish_id, erbon_service_id, erbon_service_description')
-    .eq('hotel_id', hotelId);
+    .eq('hotel_id', hotelId)
+    .eq('erbon_department_id', 0);
 
   const { data: sectorMappings } = await supabase
     .from('erbon_sector_mappings')

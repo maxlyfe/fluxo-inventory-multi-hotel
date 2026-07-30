@@ -12,8 +12,8 @@ import {
   Receipt, ShoppingBag, FileCheck2, Loader2, RefreshCw, Clock,
 } from 'lucide-react';
 import { erbonService } from '../../lib/erbonService';
-import { nfService, matchesEligibleService, type NfceEligibleService } from '../../lib/nfService';
-import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry } from './NFInvoiceModal';
+import { nfService, matchesEligibleService, type NfceEligibleService, type ErbonMappingRow } from '../../lib/nfService';
+import { NFInvoiceModal, type CurrentAccountEntry } from './NFInvoiceModal';
 import type { NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -37,6 +37,7 @@ export const BookingExtratoSection: React.FC<BookingExtratoSectionProps> = ({
   const [account, setAccount] = useState<CurrentAccountEntry[] | null>(null);
   const [emittedEntries, setEmittedEntries] = useState<Map<number, string>>(new Map());
   const [eligible, setEligible] = useState<NfceEligibleService[]>([]);
+  const [erbonMappings, setErbonMappings] = useState<ErbonMappingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [nfModalType, setNfModalType] = useState<NFTipo | null>(null);
   const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
@@ -45,14 +46,16 @@ export const BookingExtratoSection: React.FC<BookingExtratoSectionProps> = ({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [acc, emitted, elig] = await Promise.all([
+      const [acc, emitted, elig, mappings] = await Promise.all([
         erbonService.fetchBookingAccount(hotelId, bookingInternalId),
         nfService.getEmittedEntries(hotelId).catch(() => new Map<number, string>()),
         nfService.getNfceEligibleServices(hotelId).catch(() => [] as NfceEligibleService[]),
+        nfService.getErbonMappingIndex(hotelId).catch(() => [] as ErbonMappingRow[]),
       ]);
       setAccount((acc || []).filter((e: any) => e.isDebit) as CurrentAccountEntry[]);
       setEmittedEntries(emitted);
       setEligible(elig);
+      setErbonMappings(mappings);
     } catch {
       setAccount([]);
     } finally {
@@ -69,8 +72,9 @@ export const BookingExtratoSection: React.FC<BookingExtratoSectionProps> = ({
     [eligible],
   );
   const isProductEntry = useCallback(
-    (e: { description: string }) => !isServiceEntry(e) || isAcrescimo(e),
-    [isAcrescimo],
+    (e: { description: string; idDepartment?: number }) =>
+      !nfService.isServiceEntryMapped(e, erbonMappings) || isAcrescimo(e),
+    [isAcrescimo, erbonMappings],
   );
 
   const groups = useMemo(() => {
@@ -127,7 +131,7 @@ export const BookingExtratoSection: React.FC<BookingExtratoSectionProps> = ({
           <div className="rounded-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800 max-h-60 overflow-y-auto">
             {items.map((e, i) => {
               const emittedInvId = emittedEntries.get(e.id);
-              const acr = emitTipo === 'nfce' && isServiceEntry(e) && isAcrescimo(e);
+              const acr = emitTipo === 'nfce' && nfService.isServiceEntryMapped(e, erbonMappings) && isAcrescimo(e);
               return (
                 <div key={e.id ?? i} className="flex items-center justify-between px-3 py-2 text-sm gap-3">
                   <div className="shrink-0 w-5 flex justify-center">

@@ -11,7 +11,7 @@ import { supabase } from '../../lib/supabase';
 import { erbonService, type ErbonBooking } from '../../lib/erbonService';
 import { nfService, type BatchEmissionProgress, type WCIGuestData } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
-import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
+import { NFInvoiceModal, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
 import { matchesEligibleService, isHomologForTipo } from '../../lib/nfService';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import { NFAvulsaModal } from '../../components/nf/NFAvulsaModal';
@@ -618,12 +618,17 @@ export default function EmissaoNFPage() {
     const chargesByInvoice: Record<string, string[]> = {};
 
     try {
-      const [nfceEligible, emitted] = await Promise.all([
+      const [nfceEligible, emitted, erbonMappings] = await Promise.all([
         nfService.getNfceEligibleServices(hotelId).catch(() => []),
         nfService.getEmittedEntries(hotelId).catch(() => new Map<number, string>()),
+        nfService.getErbonMappingIndex(hotelId).catch(() => []),
       ]);
       const isAcrescimo = (e: { description: string }) =>
         nfceEligible.some(s => matchesEligibleService(e.description, s));
+      // Classificação produto/serviço: mapeamento Erbon (com preferência de
+      // departamento) tem prioridade sobre a heurística de palavra-chave.
+      const isServiceMapped = (e: { description: string; idDepartment?: number }) =>
+        nfService.isServiceEntryMapped(e, erbonMappings);
 
       for (const enriched of readyItems) {
         const r = enriched.reservation;
@@ -639,8 +644,8 @@ export default function EmissaoNFPage() {
 
           if (r.source === 'erbon' && r.bookingInternalId) {
             const debits = await fetchErbonDebits(r.bookingInternalId, emitted);
-            const services = debits.filter(e => isServiceEntry(e) && !isAcrescimo(e));
-            const products = debits.filter(e => !isServiceEntry(e) || isAcrescimo(e));
+            const services = debits.filter(e => isServiceMapped(e) && !isAcrescimo(e));
+            const products = debits.filter(e => !isServiceMapped(e) || isAcrescimo(e));
 
             if (batchTipoNf === 'nfse') {
               if (services.length === 0) {
@@ -649,7 +654,8 @@ export default function EmissaoNFPage() {
               }
               const svcFiscal = await nfService.resolveServiceFiscalData(
                 hotelId,
-                services.map(e => ({ id: e.id, description: e.description, amount: e.amount })),
+                services.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment })),
+                erbonMappings,
               ).catch(() => null);
               items = services.map(e => {
                 const svc = svcFiscal?.items.find(s => s.erbon_entry_id === e.id);
@@ -674,6 +680,7 @@ export default function EmissaoNFPage() {
                 ? await nfService.resolveEntryFiscalData(
                     hotelId,
                     realProducts.map(e => ({ id: e.id, description: e.description, amount: e.amount, idDepartment: e.idDepartment })),
+                    erbonMappings,
                   )
                 : { items: [], warnings: [], hasErrors: false };
               if (fiscal.hasErrors) {
