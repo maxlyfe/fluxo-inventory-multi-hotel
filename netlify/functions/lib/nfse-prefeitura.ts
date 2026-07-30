@@ -505,6 +505,10 @@ export async function consultarNfsePorRps(params: {
   inscricao_municipal: string;
   numero_rps: number;
   serie_rps: string;
+  /** Tipo do RPS. O dominio ABRASF e 1..3, mas as notas que Buzios gera a partir
+   *  de DPS Nacional gravam Tipo 0, e a consulta so casa com o mesmo valor.
+   *  Default 1 para nao mudar o comportamento de quem ja usa. */
+  tipo_rps?: number;
 }): Promise<{ success: boolean; numero_nf: string | null; codigo_verificacao: string | null; xml: string; message: string }> {
   const cnpj = params.cnpj.replace(/\D/g, '');
   const im = params.inscricao_municipal.replace(/\D/g, '');
@@ -514,7 +518,7 @@ export async function consultarNfsePorRps(params: {
     `<IdentificacaoRps>` +
     `<Numero>${params.numero_rps}</Numero>` +
     `<Serie>${xmlEsc(params.serie_rps)}</Serie>` +
-    `<Tipo>1</Tipo>` +
+    `<Tipo>${params.tipo_rps ?? 1}</Tipo>` +
     `</IdentificacaoRps>` +
     `<Prestador>` +
     `<CpfCnpj><Cnpj>${cnpj}</Cnpj></CpfCnpj>` +

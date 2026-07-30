@@ -1253,7 +1253,10 @@ const handler: Handler = async (event: HandlerEvent) => {
         const ids = parseDpsId(payload.id_dps);
         if (ids) {
           try {
-            const rps = await consultarNfsePorRps({
+            // Tipo do RPS: as notas que Buzios gera a partir de DPS Nacional
+            // gravam Tipo 0, fora do dominio ABRASF (1..3), e a consulta so casa
+            // com o mesmo valor. Tenta o padrao e cai para 0.
+            const consultarRps = (tipo: number) => consultarNfsePorRps({
               certificado_base64: payload.certificado_base64,
               certificado_senha: payload.certificado_senha,
               ambiente: payload.ambiente_abrasf === 'homologacao' ? 'homologacao' : 'producao',
@@ -1261,7 +1264,14 @@ const handler: Handler = async (event: HandlerEvent) => {
               inscricao_municipal: payload.inscricao_municipal,
               numero_rps: ids.numero,
               serie_rps: ids.serie,
+              tipo_rps: tipo,
             });
+
+            let rps = await consultarRps(1);
+            if (!rps.numero_nf) {
+              console.log('[NFS-e] RPS tipo 1 nao encontrou, tentando tipo 0');
+              rps = await consultarRps(0);
+            }
             if (rps.success && rps.numero_nf) {
               return jsonResponse(200, {
                 success: true,

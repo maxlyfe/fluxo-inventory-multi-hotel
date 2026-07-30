@@ -1384,6 +1384,29 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       .single();
     if (error) throw error;
 
+    // A API Nacional aceita a DPS e responde "em processamento" por tempo
+    // indeterminado, enquanto a NFS-e JA existe no municipio. Sem buscar o
+    // numero aqui, a nota fica marcada como nao emitida e sem documento para
+    // imprimir, obrigando o usuario a clicar em reconsultar depois de toda
+    // emissao. Busca best-effort: se falhar, a nota segue como 'emitida' e o
+    // botao de reconsulta continua disponivel.
+    let notaFinal = updated as NFInvoice;
+    if (useELNacional && result.success && !result.numero_nf) {
+      try {
+        const r = await reconsultarDpsNacional(invoiceId);
+        console.log('[NFS-e] Busca automatica do numero:', r.message);
+        if (!r.processando) {
+          // Reler a nota: `updated` foi capturado antes da reconsulta e ainda
+          // esta sem numero, o que faria a tela mostrar a nota como pendente
+          // mesmo depois de a busca ter dado certo.
+          const { data: rec } = await supabase.from('nf_invoices').select().eq('id', invoiceId).single();
+          if (rec) notaFinal = rec as NFInvoice;
+        }
+      } catch (e) {
+        console.log('[NFS-e] Busca automatica do numero falhou:', e);
+      }
+    }
+
     // Incrementar próximo número
     if (config && result.success) {
       if (inv?.tipo === 'nfse') {
@@ -1422,7 +1445,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       }
     }
 
-    return { success: true, message: 'Nota fiscal autorizada com sucesso', invoice: updated as NFInvoice };
+    return { success: true, message: 'Nota fiscal autorizada com sucesso', invoice: notaFinal };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Erro desconhecido';
     return { success: false, message };
