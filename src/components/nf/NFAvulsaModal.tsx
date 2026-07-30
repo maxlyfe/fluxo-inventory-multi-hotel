@@ -52,6 +52,10 @@ interface AvulsaItem {
   /** Percentual do acrescimo, quando ele e proporcional ao consumo (taxa de
    *  servico). Lido do nome do servico no catalogo, com 10% como padrao. */
   acrescimoPercent?: number;
+  /** Desconto incondicional. Guardado como digitado, em % ou em R$, e convertido
+   *  para reais na emissao. Item de cortesia = 100% ou o valor cheio. */
+  descontoModo?: 'percent' | 'valor';
+  desconto?: string;
 }
 
 interface EmitSlot {
@@ -210,7 +214,23 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
   const willEmitNfce = includesNfce && productItems.length > 0;
   const isForeigner = tomadorDocTipo === 'passaporte';
 
-  const itemTotal = (it: AvulsaItem) => +(it.qty * parsePrice(it.unitPrice)).toFixed(2);
+  // Bruto do item, antes do desconto. E o que vai em <vProd>.
+  const itemBruto = (it: AvulsaItem) => +(it.qty * parsePrice(it.unitPrice)).toFixed(2);
+
+  // Desconto em reais, seja ele digitado em % ou em valor. Limitado ao bruto:
+  // desconto maior que o item geraria total negativo.
+  const itemDesconto = (it: AvulsaItem): number => {
+    const bruto = itemBruto(it);
+    const informado = parsePrice(it.desconto || '');
+    if (!informado || bruto <= 0) return 0;
+    const emReais = (it.descontoModo ?? 'percent') === 'percent'
+      ? +(bruto * Math.min(informado, 100) / 100).toFixed(2)
+      : informado;
+    return +Math.min(emReais, bruto).toFixed(2);
+  };
+
+  // Liquido: e este que soma nos totais e no que o cliente paga.
+  const itemTotal = (it: AvulsaItem) => +(itemBruto(it) - itemDesconto(it)).toFixed(2);
   // Base da taxa de servico: o consumo lancado, sem os proprios acrescimos.
   // Incluir acrescimo na base cobraria taxa sobre taxa.
   const baseAcrescimo = useMemo(
@@ -458,7 +478,12 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
     if (includesNfce && !includesNfse && productItems.length === 0) return 'Adicione pelo menos um produto para a NFC-e.';
     for (const it of items) {
       if (it.qty < 1) return `Quantidade inválida em "${it.description}".`;
-      if (parsePrice(it.unitPrice) <= 0) return `Informe o valor de "${it.description}".`;
+      // Continua exigindo o valor do produto: a cortesia se resolve pelo desconto,
+      // nao zerando o preco (produto com valor zero e recusado pela SEFAZ e
+      // apagaria da nota o preco real do item).
+      if (parsePrice(it.unitPrice) <= 0) {
+        return `Informe o valor de "${it.description}". Se o item foi cortesia, informe o valor normal e use o botão "cortesia" no desconto.`;
+      }
     }
     return null;
   };
@@ -661,17 +686,23 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
           tipo: 'nfse',
           items: serviceItems.map((it, i) => {
             const svc = svcFiscal?.items.find(s => s.erbon_entry_id === -(i + 1));
-            const total = itemTotal(it);
+            // valor_total = BRUTO (vira o valor do produto/servico no XML).
+            // O desconto vai em campo proprio e o tributo incide sobre o
+            // liquido, porque desconto incondicional nao compoe base.
+            const bruto = itemBruto(it);
+            const desconto = itemDesconto(it);
+            const liquido = +(bruto - desconto).toFixed(2);
             const unit = parsePrice(it.unitPrice);
             return {
               erbon_entry_id: null,
               descricao: it.qty !== 1 ? `${it.description} (${it.qty}x)` : it.description,
               quantidade: it.qty,
               valor_unitario: unit,
-              valor_total: total,
+              valor_total: bruto,
+              desconto: desconto || null,
               codigo_servico: svc?.codigo_servico ?? null,
               iss_aliquota: svc?.iss_aliquota ?? null,
-              iss_valor: svc?.iss_aliquota != null ? +(total * svc.iss_aliquota / 100).toFixed(2) : null,
+              iss_valor: svc?.iss_aliquota != null ? +(liquido * svc.iss_aliquota / 100).toFixed(2) : null,
             };
           }),
         });
@@ -683,18 +714,21 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
           ...common,
           tipo: 'nfce',
           items: productItems.map(it => {
-            const total = itemTotal(it);
+            const bruto = itemBruto(it);
+            const desconto = itemDesconto(it);
+            const liquido = +(bruto - desconto).toFixed(2);
             const unit = parsePrice(it.unitPrice);
             return {
               erbon_entry_id: null,
               descricao: it.description,
               quantidade: it.qty,
               valor_unitario: unit,
-              valor_total: total,
+              valor_total: bruto,
+              desconto: desconto || null,
               ncm: it.fiscal?.ncm ?? null,
               cfop: it.fiscal?.cfop ?? '5102',
               icms_aliquota: it.fiscal?.icms_aliquota ?? null,
-              icms_valor: it.fiscal?.icms_aliquota != null ? +(total * it.fiscal.icms_aliquota / 100).toFixed(2) : null,
+              icms_valor: it.fiscal?.icms_aliquota != null ? +(liquido * it.fiscal.icms_aliquota / 100).toFixed(2) : null,
               pis_cst: it.fiscal?.pis_cst ?? null,
               pis_aliquota: it.fiscal?.pis_aliquota ?? null,
               cofins_cst: it.fiscal?.cofins_cst ?? null,
@@ -783,7 +817,54 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
             className={`w-24 p-1.5 text-sm border rounded-lg ${it.priceEditable ? 'bg-white dark:bg-gray-900 border-amber-300 dark:border-amber-700' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'}`}
           />
         </div>
-        <span className="ml-auto text-sm font-bold text-gray-800 dark:text-gray-200">{fmtBRL(itemTotal(it))}</span>
+        <span className="ml-auto text-right">
+          {itemDesconto(it) > 0 && (
+            <span className="block text-[10px] text-gray-400 line-through">{fmtBRL(itemBruto(it))}</span>
+          )}
+          <span className={`text-sm font-bold ${itemTotal(it) === 0 && itemBruto(it) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-800 dark:text-gray-200'}`}>
+            {itemTotal(it) === 0 && itemBruto(it) > 0 ? 'Cortesia' : fmtBRL(itemTotal(it))}
+          </span>
+        </span>
+      </div>
+
+      {/* Desconto incondicional. O produto continua na nota pelo valor cheio; o
+          desconto reduz o total e as bases de tributo. E assim que uma cortesia
+          e registrada sem cobrar nada. */}
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Desconto</span>
+        <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          {(['percent', 'valor'] as const).map(modo => (
+            <button
+              key={modo}
+              type="button"
+              onClick={() => updateItem(it.key, { descontoModo: modo })}
+              className={`px-2 py-1 text-[11px] font-bold transition-colors ${
+                (it.descontoModo ?? 'percent') === modo
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
+                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+              }`}
+            >
+              {modo === 'percent' ? '%' : 'R$'}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text" inputMode="decimal" value={it.desconto || ''}
+          onChange={e => updateItem(it.key, { desconto: e.target.value.replace(/[^0-9.,]/g, '') })}
+          placeholder="0"
+          className="w-20 p-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+        />
+        <button
+          type="button"
+          onClick={() => updateItem(it.key, { descontoModo: 'percent', desconto: '100' })}
+          title="Item enviado sem cobranca: entra na nota pelo valor cheio, com desconto integral"
+          className="px-2 py-1 text-[11px] font-bold rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
+        >
+          cortesia
+        </button>
+        {itemDesconto(it) > 0 && (
+          <span className="text-[10px] text-gray-400">menos {fmtBRL(itemDesconto(it))}</span>
+        )}
       </div>
       {badge}
     </div>

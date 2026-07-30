@@ -335,6 +335,8 @@ const handler: Handler = async (event: HandlerEvent) => {
           ibs_cbs_cClassTrib: it.ibs_cbs_cClassTrib || undefined,
           ibs_aliquota: it.ibs_aliquota ?? undefined,
           cbs_aliquota: it.cbs_aliquota ?? undefined,
+          // Desconto incondicional do item: vira <vDesc> e reduz as bases
+          vDesc: it.vDesc ?? undefined,
         })),
         config: {
           certificado_base64,
@@ -519,6 +521,8 @@ const handler: Handler = async (event: HandlerEvent) => {
           ibs_cbs_cClassTrib: it.ibs_cbs_cClassTrib || undefined,
           ibs_aliquota: it.ibs_aliquota ?? undefined,
           cbs_aliquota: it.cbs_aliquota ?? undefined,
+          // Desconto incondicional do item: vira <vDesc> e reduz as bases
+          vDesc: it.vDesc ?? undefined,
         })),
         config: {
           certificado_base64,

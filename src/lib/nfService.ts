@@ -876,6 +876,8 @@ interface CreateInvoiceInput {
     codigo_servico?: string | null;
     iss_aliquota?: number | null;
     iss_valor?: number | null;
+    /** Desconto incondicional em R$. Ver NFInvoiceItem.desconto. */
+    desconto?: number | null;
     ibs_cbs_cst?: string | null;
     ibs_cbs_cclasstrib?: string | null;
     ibs_aliquota?: number | null;
@@ -885,7 +887,11 @@ interface CreateInvoiceInput {
 }
 
 async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice> {
-  const valorTotal = input.items.reduce((sum, i) => sum + i.valor_total, 0);
+  // Total liquido: o desconto incondicional sai do valor da nota, senao ela
+  // fecharia num valor que o cliente nao pagou.
+  const valorTotal = +input.items
+    .reduce((sum, i) => sum + i.valor_total - (i.desconto ?? 0), 0)
+    .toFixed(2);
 
   const { data: invoice, error: invErr } = await supabase
     .from('nf_invoices')
@@ -935,6 +941,7 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
     codigo_servico: it.codigo_servico ?? null,
     iss_aliquota: it.iss_aliquota ?? null,
     iss_valor: it.iss_valor ?? null,
+    desconto: it.desconto ?? null,
     ibs_cbs_cst: it.ibs_cbs_cst ?? null,
     ibs_cbs_cclasstrib: it.ibs_cbs_cclasstrib ?? null,
     ibs_aliquota: it.ibs_aliquota ?? null,
@@ -1183,7 +1190,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       const allNfceItems = items || [];
       const isAcr = (i: NFInvoiceItem) => eligibleAcr.some(e => matchesEligibleService(i.descricao, e));
       const productItems = allNfceItems.filter((i: NFInvoiceItem) => !isAcr(i));
-      const acrescimoTotal = allNfceItems.filter(isAcr).reduce((s: number, i: NFInvoiceItem) => s + Number(i.valor_total || 0), 0);
+      const acrescimoTotal = allNfceItems.filter(isAcr)
+        .reduce((s: number, i: NFInvoiceItem) => s + Number(i.valor_total || 0) - Number(i.desconto || 0), 0);
 
       // Identidade fiscal do emissor: a própria unidade OU a responsável (redirecionamento)
       let fiscalCfg: any = config!;
@@ -1238,6 +1246,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           ibs_cbs_cClassTrib: i.ibs_cbs_cclasstrib ?? undefined,
           ibs_aliquota: i.ibs_aliquota ?? undefined,
           cbs_aliquota: i.cbs_aliquota ?? undefined,
+          vDesc: i.desconto ?? undefined,
         })),
         acrescimo: Math.round(acrescimoTotal * 100) / 100,
         taxa_na_base_icms: !!fiscalCfg.nfce_taxa_na_base_icms,
@@ -1753,62 +1762,101 @@ interface WCIGuestData {
   email: string | null;
   phone: string | null;
   address_street: string | null;
+  address_number: string | null;
+  address_complement: string | null;
   address_neighborhood: string | null;
   address_city: string | null;
   address_state: string | null;
   address_zipcode: string | null;
   address_country: string | null;
+  address_city_ibge: string | null;
 }
 
+/** Nome comparável: sem acento, sem caixa e sem espaço duplicado. */
+function normalizeGuestName(name: string | null | undefined): string {
+  return (name || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Busca os dados de um hóspede na ficha de web check-in, para preencher o
+ * tomador da nota.
+ *
+ * Duas armadilhas já corrigidas aqui, que faziam o endereço chegar vazio:
+ *   1. NÃO filtrar por status='completed'. Fichas em preenchimento (status
+ *      'partial') já têm endereço válido, e por muito tempo o INSERT nem
+ *      escrevia status — o filtro simplesmente nunca casava.
+ *   2. NÃO pegar o primeiro nome que bate. Fichas antigas do fluxo mobile
+ *      guardavam cópias parciais dos acompanhantes, sem endereço. Entre os
+ *      candidatos, ganha o registro mais completo.
+ */
 async function lookupWCIGuest(
   hotelId: string,
   bookingNumber: string,
   guestName: string,
+  erbonGuestId?: number | null,
 ): Promise<WCIGuestData | null> {
   const { data: fichas } = await supabase
     .from('wci_checkin_fichas')
     .select(`
       id,
       booking_number,
+      status,
       wci_checkin_guests (
         name,
         is_main_guest,
+        erbon_guest_id,
         document_type,
         document_number,
         nationality,
         email,
         phone,
         address_street,
+        address_number,
+        address_complement,
         address_neighborhood,
         address_city,
         address_state,
         address_zipcode,
-        address_country
+        address_country,
+        address_city_ibge
       )
     `)
     .eq('hotel_id', hotelId)
     .eq('booking_number', bookingNumber)
-    .eq('status', 'completed')
+    .neq('status', 'cancelled')
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(20);
 
   if (!fichas?.length) return null;
 
-  const normalizedTarget = guestName.toLowerCase().trim();
+  const target = normalizeGuestName(guestName);
+  const allGuests = fichas.flatMap((f: any) => (f.wci_checkin_guests || []) as any[]);
 
-  for (const ficha of fichas) {
-    const guests = (ficha as any).wci_checkin_guests || [];
-    // Try exact match first, then partial match
-    const match = guests.find((g: any) =>
-      g.name?.toLowerCase().trim() === normalizedTarget
-    ) || guests.find((g: any) =>
-      g.is_main_guest && normalizedTarget.includes(g.name?.toLowerCase().trim().split(' ')[0] || '___')
-    );
+  const candidates = allGuests.filter(g => {
+    if (erbonGuestId && erbonGuestId > 0 && g.erbon_guest_id === erbonGuestId) return true;
+    const name = normalizeGuestName(g.name);
+    if (!name) return false;
+    if (name === target) return true;
+    // Titular da reserva: a Erbon às vezes devolve o nome com sufixos
+    return !!g.is_main_guest && (target.includes(name) || name.includes(target));
+  });
 
-    if (match) return match as WCIGuestData;
-  }
+  if (!candidates.length) return null;
 
-  return null;
+  // Mais completo primeiro: id da Erbon batendo > tem endereço > tem número
+  const score = (g: any) =>
+    (erbonGuestId && g.erbon_guest_id === erbonGuestId ? 8 : 0) +
+    (g.address_street ? 4 : 0) +
+    (g.address_zipcode ? 2 : 0) +
+    (g.address_number ? 1 : 0);
+
+  candidates.sort((a, b) => score(b) - score(a));
+  return candidates[0] as WCIGuestData;
 }
 
 // ─── NF Recebidas (Distribuição DF-e — notas emitidas contra o CNPJ) ─────────

@@ -248,6 +248,11 @@ export interface NFCeItem {
   uCom: string;
   qCom: number;
   vUnCom: number;
+  /** Desconto incondicional do item (R$). Vira <vDesc> no <prod> e reduz as
+   *  bases de ICMS, PIS/COFINS e IBS/CBS, porque desconto incondicional nao
+   *  compoe base de calculo. Item de cortesia e vDesc igual ao vProd: a saida
+   *  fica registrada e o valor cobrado e zero. */
+  vDesc?: number;
   vProd: number;
   // ICMS
   icms_orig: string;     // 0=Nacional
@@ -383,7 +388,7 @@ interface IBSCBSItemResult {
   vBC: number;
 }
 
-function buildIBSCBSItem(item: NFCeItem, crt: number, enabled: boolean): IBSCBSItemResult {
+function buildIBSCBSItem(item: NFCeItem, crt: number, enabled: boolean, vBase?: number): IBSCBSItemResult {
   // CRT 1/2/4 (Simples Nacional/MEI): adiado para Jan/2027
   if (!enabled || crt !== 3) return { xml: '', vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0, vBC: 0 };
 
@@ -395,7 +400,9 @@ function buildIBSCBSItem(item: NFCeItem, crt: number, enabled: boolean): IBSCBSI
   // sem cadastro (taxa de serviço, produto não classificado) cai aqui, então o
   // valor errado só aparecia quando a nota tinha um item desses.
   const cClassTrib = item.ibs_cbs_cClassTrib || '000001';
-  const vBC = item.vProd;
+  // Base liquida quando houver desconto incondicional: ele nao compoe base de
+  // calculo, entao um item de cortesia gera IBS/CBS zero.
+  const vBC = vBase ?? item.vProd;
   // ibs_aliquota do item é o total (IBS UF+Mun); enquanto a parcela municipal
   // de teste é 0%, tratamos o valor cadastrado como 100% estadual.
   const ibsUfRate = item.ibs_aliquota ?? DEFAULT_IBS_UF_RATE;
@@ -535,6 +542,7 @@ export function buildNFCeXml(params: {
   let vICMS = 0;
   let vBC = 0;
   let vOutroSum = 0;
+  let vDescSum = 0;
 
   // QR Code
   const qrCodeUrl = buildQRCodeUrl({
@@ -551,8 +559,15 @@ export function buildNFCeXml(params: {
     const vOutro_i = vOutroItem[idx] || 0;
     vOutroSum = Math.round((vOutroSum + vOutro_i) * 100) / 100;
     vProd += it.vProd;
+    // Desconto incondicional: nao compoe base de calculo de nenhum tributo, e
+    // o valor tributavel do item passa a ser vProd - vDesc.
+    const vDesc_i = Math.min(Math.max(it.vDesc ?? 0, 0), it.vProd);
+    vDescSum = Math.round((vDescSum + vDesc_i) * 100) / 100;
+    const vTributavel_i = Math.round((it.vProd - vDesc_i) * 100) / 100;
     // Base do ICMS: inclui o acréscimo (vOutro) só se configurado e regime normal
-    const baseVBC = it.icms_vBC ?? it.vProd;
+    const baseVBC = it.icms_vBC != null
+      ? Math.max(Math.round((it.icms_vBC - vDesc_i) * 100) / 100, 0)
+      : vTributavel_i;
     const vBC_i = taxaNaBase ? Math.round((baseVBC + vOutro_i) * 100) / 100 : baseVBC;
     const pICMS_i = it.icms_pICMS ?? 0;
     const vICMS_i = taxaNaBase ? Math.round(vBC_i * pICMS_i) / 100 : (it.icms_vICMS ?? 0);
@@ -588,7 +603,7 @@ export function buildNFCeXml(params: {
       }
     }
 
-    const ibsCbs = buildIBSCBSItem(it, emitente.crt, ibsCbsOn);
+    const ibsCbs = buildIBSCBSItem(it, emitente.crt, ibsCbsOn, vTributavel_i);
     totIBSUF += ibsCbs.vIBSUF;
     totIBSMun += ibsCbs.vIBSMun;
     totIBS += ibsCbs.vIBS;
@@ -611,21 +626,23 @@ export function buildNFCeXml(params: {
       `<uTrib>${xmlEsc(it.uCom)}</uTrib>` +
       `<qTrib>${fmtDec(it.qCom, 4)}</qTrib>` +
       `<vUnTrib>${fmtDec(it.vUnCom, 4)}</vUnTrib>` +
+      // Ordem do leiaute em prod: ... vUnTrib, vFrete, vSeg, vDesc, vOutro
+      (vDesc_i > 0 ? `<vDesc>${fmtDec(vDesc_i)}</vDesc>` : '') +
       (vOutro_i > 0 ? `<vOutro>${fmtDec(vOutro_i)}</vOutro>` : '') +
       `<indTot>1</indTot>` +
       `</prod>` +
       `<imposto>` +
       `<ICMS>${icmsXml}</ICMS>` +
-      buildPisCofins('PIS', it.vProd, it.pis_cst, it.pis_aliquota) +
-      buildPisCofins('COFINS', it.vProd, it.cofins_cst, it.cofins_aliquota) +
+      buildPisCofins('PIS', vTributavel_i, it.pis_cst, it.pis_aliquota) +
+      buildPisCofins('COFINS', vTributavel_i, it.cofins_cst, it.cofins_aliquota) +
       ibsCbs.xml +
       `</imposto>` +
       `</det>`;
 
     if ((it.pis_cst === '01' || it.pis_cst === '02') && (it.pis_aliquota ?? 0) > 0)
-      totPIS = Math.round(totPIS * 100 + (Math.round(it.vProd * 100) / 100) * (it.pis_aliquota ?? 0)) / 100;
+      totPIS = Math.round(totPIS * 100 + (Math.round(vTributavel_i * 100) / 100) * (it.pis_aliquota ?? 0)) / 100;
     if ((it.cofins_cst === '01' || it.cofins_cst === '02') && (it.cofins_aliquota ?? 0) > 0)
-      totCOFINS = Math.round(totCOFINS * 100 + (Math.round(it.vProd * 100) / 100) * (it.cofins_aliquota ?? 0)) / 100;
+      totCOFINS = Math.round(totCOFINS * 100 + (Math.round(vTributavel_i * 100) / 100) * (it.cofins_aliquota ?? 0)) / 100;
   }
 
   // dest (optional for NFC-e)
@@ -714,14 +731,16 @@ export function buildNFCeXml(params: {
     `<vProd>${fmtDec(vProd)}</vProd>` +
     `<vFrete>0.00</vFrete>` +
     `<vSeg>0.00</vSeg>` +
-    `<vDesc>0.00</vDesc>` +
+    `<vDesc>${fmtDec(vDescSum)}</vDesc>` +
     `<vII>0.00</vII>` +
     `<vIPI>0.00</vIPI>` +
     `<vIPIDevol>0.00</vIPIDevol>` +
     `<vPIS>${fmtDec(totPIS)}</vPIS>` +
     `<vCOFINS>${fmtDec(totCOFINS)}</vCOFINS>` +
     `<vOutro>${fmtDec(vOutroSum)}</vOutro>` +
-    `<vNF>${fmtDec(vProd + vOutroSum)}</vNF>` +
+    // vNF = vProd - vDesc + vOutro. O desconto sai do total, senao a nota
+    // fecharia num valor que o cliente nao pagou.
+    `<vNF>${fmtDec(Math.round((vProd - vDescSum + vOutroSum) * 100) / 100)}</vNF>` +
     `</ICMSTot>` +
     buildIBSCBSTot(totBCIBSCBS, totIBSUF, totIBSMun, totCBS) +
     buildVNFTot(vProd + vOutroSum, totIBS, totCBS) +

@@ -169,6 +169,11 @@ export interface NFInvoiceItem {
   valor_unitario: number;
   valor_total: number;
 
+  /** Desconto incondicional do item (R$). Vira <vDesc> no XML, reduz o total da
+   *  nota e nao compoe base de calculo de nenhum tributo. Item de cortesia tem
+   *  desconto igual ao valor total: a saida fica registrada e nada e cobrado. */
+  desconto: number | null;
+
   ncm: string | null;
   cfop: string | null;
   icms_aliquota: number | null;

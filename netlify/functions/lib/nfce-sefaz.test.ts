@@ -96,6 +96,60 @@ describe('NFC-e — grupos IBS/CBS da Reforma Tributária', () => {
     expect(xml).not.toContain('000003');
   });
 
+  // Cortesia: o item sai na nota (a saida fica registrada) e o valor cobrado e
+  // zero, via desconto incondicional igual ao valor do produto. Desconto
+  // incondicional NAO compoe base de calculo, entao ICMS, PIS/COFINS e IBS/CBS
+  // do item tem que zerar junto.
+  describe('desconto incondicional por item (cortesia)', () => {
+    const comCortesia = () => [
+      {
+        nItem: 1, cProd: '001', xProd: 'AGUA MINERAL 500ML', ncm: '22011000', cfop: '5102',
+        uCom: 'UN', qCom: 1, vUnCom: 10, vProd: 10,
+        icms_orig: '0', icms_cst: '00', icms_vBC: 10, icms_pICMS: 18, icms_vICMS: 1.8,
+        pis_cst: '01', pis_aliquota: 1.65, cofins_cst: '01', cofins_aliquota: 7.6,
+        ibs_cbs_cst: '000', ibs_cbs_cClassTrib: '000001', ibs_aliquota: 0.1, cbs_aliquota: 0.9,
+      },
+      {
+        nItem: 2, cProd: '002', xProd: 'FILE DE PEIXE', ncm: '03048900', cfop: '5102',
+        uCom: 'UN', qCom: 1, vUnCom: 90, vProd: 90, vDesc: 90,
+        icms_orig: '0', icms_cst: '00', icms_vBC: 90, icms_pICMS: 18, icms_vICMS: 16.2,
+        pis_cst: '01', pis_aliquota: 1.65, cofins_cst: '01', cofins_aliquota: 7.6,
+        ibs_cbs_cst: '000', ibs_cbs_cClassTrib: '000001', ibs_aliquota: 0.1, cbs_aliquota: 0.9,
+      },
+    ] as any[];
+
+    const xmlCortesia = () => buildNFCeXml({
+      emitente: emitente(3), destinatario: {} as any, items: comCortesia(),
+      config: nfceConfig(true), nNF: 1, tPag: '01',
+    }).xml;
+
+    it('registra o produto e o desconto no item', () => {
+      const xml = xmlCortesia();
+      expect(xml).toContain('<vProd>90.00</vProd>');
+      expect(xml).toContain('<vDesc>90.00</vDesc>');
+      // Ordem do leiaute: vDesc depois de vUnTrib e antes de indTot
+      expect(xml).toMatch(/<vUnTrib>90\.0000<\/vUnTrib><vDesc>90\.00<\/vDesc>/);
+    });
+
+    it('nao cobra o item: vNF fica só com o item pago', () => {
+      const xml = xmlCortesia();
+      expect(xml).toContain('<vProd>100.00</vProd>');  // 10 + 90 no total
+      expect(xml).toContain('<vDesc>90.00</vDesc>');
+      expect(xml).toContain('<vNF>10.00</vNF>');
+    });
+
+    it('zera as bases do item de cortesia (desconto nao compoe base)', () => {
+      const xml = xmlCortesia();
+      // ICMS: base total = 10 do item pago, nao 100
+      expect(xml).toContain('<vBC>10.00</vBC>');
+      // IBS/CBS: base total tambem so do item pago
+      expect(xml).toContain('<vBCIBSCBS>10.00</vBCIBSCBS>');
+      // O item de cortesia nao gera IBS nem CBS proprios
+      expect(xml).toContain('<vIBS>0.01</vIBS>');
+      expect(xml).toContain('<vCBS>0.09</vCBS>');
+    });
+  });
+
   it('monta o grupo do item na ordem do leiaute (CST, cClassTrib, gIBSCBS)', () => {
     const xml = nfce(3, true);
     expect(xml).toContain(
