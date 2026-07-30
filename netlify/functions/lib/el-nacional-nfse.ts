@@ -204,7 +204,11 @@ export function buildDpsXml(
 
   const digits = (config.codigo_servico || '9.01').replace(/\D/g, '');
   const cTribNac = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
-  const cIntContrib = (config.codigo_servico_municipal || '').replace(/\s/g, '');
+  // TSCodigoInternoContribuinte: pattern [a-zA-Z0-9]{1,20}. Ponto, barra, hifen
+  // e espaco reprovam no schema (E1235), e '9.01' e justamente o valor que
+  // alguem naturalmente digita aqui. Normalizamos em vez de confiar na
+  // digitacao.
+  const cIntContrib = (config.codigo_servico_municipal || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
   const cNBS = (config.codigo_nbs || '').replace(/\D/g, '');
 
   const dpsId = buildDpsId(cMun, cnpj, serie, numeroDPS);
@@ -343,13 +347,30 @@ export function parseNfseXml(nfseXml: string): { numero: string | null; chave: s
   return { numero: nNFSe, chave, codigoVerificacao: cVerif };
 }
 
+// A API devolve `descricao` genérica ("Falha no esquema XML do DF-e") e joga o
+// diagnóstico de verdade em `complemento` (linha, coluna, elemento e motivo).
+// Ignorar o complemento transformava um erro perfeitamente diagnosticável em
+// "E1235: Falha no esquema XML do DF-e", que não diz nada a quem opera.
 export function formatErros(data: any): string {
-  if (Array.isArray(data?.erros) && data.erros.length > 0) {
-    return data.erros
-      .map((e: any) => `${e.Codigo ?? e.codigo ?? ''}: ${e.Descricao ?? e.descricao ?? JSON.stringify(e)}`)
-      .join(' | ');
+  if (!Array.isArray(data?.erros) || data.erros.length === 0) return '';
+
+  const vistos = new Set<string>();
+  const linhas: string[] = [];
+
+  for (const e of data.erros) {
+    const codigo = e.Codigo ?? e.codigo ?? '';
+    const descricao = e.Descricao ?? e.descricao ?? '';
+    const complemento = e.Complemento ?? e.complemento ?? '';
+    const texto = [codigo && `${codigo}:`, descricao, complemento && `(${complemento})`]
+      .filter(Boolean).join(' ').trim() || JSON.stringify(e);
+    // A API repete o mesmo erro em variações (ex.: cvc-pattern-valid e
+    // cvc-type.3.1.3 para o mesmo campo); sem dedup a mensagem dobra de tamanho.
+    if (vistos.has(texto)) continue;
+    vistos.add(texto);
+    linhas.push(texto);
   }
-  return '';
+
+  return linhas.join(' | ');
 }
 
 // ── Emissão ──────────────────────────────────────────────────────────────────

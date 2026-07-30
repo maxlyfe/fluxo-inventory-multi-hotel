@@ -40,6 +40,29 @@ const elItems = [
   { description: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
 ] as any[];
 
+describe('DPS Nacional — cIntContrib (rejeição E1235 de schema)', () => {
+  // TSCodigoInternoContribuinte tem pattern [a-zA-Z0-9]{1,20}. '9.01' é o valor
+  // que alguém naturalmente digita no campo e reprova no schema por causa do
+  // ponto, com a rejeição E1235.
+  it('remove pontuação do código interno do contribuinte', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '9.01' }, elTomador, elItems, '1', 1);
+    expect(xml).toContain('<cIntContrib>901</cIntContrib>');
+  });
+
+  it('trunca em 20 caracteres', () => {
+    const { xml } = buildDpsXml(
+      { ...elConfig(true), codigo_servico_municipal: 'DIARIA-DE-HOSPEDAGEM-COM-CAFE' },
+      elTomador, elItems, '1', 1,
+    );
+    expect(xml).toContain('<cIntContrib>DIARIADEHOSPEDAGEMCO</cIntContrib>');
+  });
+
+  it('omite a tag quando o valor fica vazio após a limpeza', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '...' }, elTomador, elItems, '1', 1);
+    expect(xml).not.toContain('<cIntContrib>');
+  });
+});
+
 describe('DPS Nacional — código NBS (rejeição E0322)', () => {
   it('emite <cNBS> depois de xDescServ, na ordem do leiaute de cServ', () => {
     const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);

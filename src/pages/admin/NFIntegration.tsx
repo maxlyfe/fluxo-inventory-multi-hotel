@@ -698,7 +698,8 @@ const NFIntegration: React.FC = () => {
                       <p className="text-xs text-gray-500 mt-1">
                         Referência sua, não da prefeitura: até 20 caracteres que você mesmo define para identificar
                         o serviço nos seus controles. Não precisa buscar em lugar nenhum. Se estiver em dúvida,
-                        use <b>DIARIA</b>.
+                        use <b>DIARIA</b>. Só letras e números são aceitos pelo schema da nota: pontos e outros
+                        símbolos são removidos automaticamente no envio, então <b>9.01</b> vai como <b>901</b>.
                       </p>
                     </div>
                     <div>
