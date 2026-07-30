@@ -2,10 +2,10 @@
 // Serviços do catálogo → NFS-e; produtos da ficha técnica (com NCM) → NFC-e.
 // Reusa o pipeline existente: createDraftInvoice + emitInvoice.
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X, Search, Loader2, Building2, Receipt, ShoppingBag, FileText,
-  CheckCircle2, AlertCircle, Plus, Minus, Trash2, Eye, RefreshCw, Layers,
+  CheckCircle2, AlertCircle, Plus, Minus, Trash2, Eye, RefreshCw, Layers, Calculator,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -49,6 +49,9 @@ interface AvulsaItem {
   // de serviço 10%): entra no subtotal de produtos e no total do cupom, mas
   // nfService.emitInvoice o retira do <det> e soma em vOutro (sem ICMS/NCM).
   isAcrescimo?: boolean;
+  /** Percentual do acrescimo, quando ele e proporcional ao consumo (taxa de
+   *  servico). Lido do nome do servico no catalogo, com 10% como padrao. */
+  acrescimoPercent?: number;
 }
 
 interface EmitSlot {
@@ -152,6 +155,10 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
   const [items, setItems] = useState<AvulsaItem[]>([]);
   const [svcSearch, setSvcSearch] = useState('');
   const [prodSearch, setProdSearch] = useState('');
+  // Foco volta para a busca depois de adicionar, para lancar vario itens em
+  // sequencia sem precisar clicar no campo de novo.
+  const svcInputRef = useRef<HTMLInputElement>(null);
+  const prodInputRef = useRef<HTMLInputElement>(null);
   const [svcFiscal, setSvcFiscal] = useState<ServiceFiscalResult | null>(null);
 
   // Pagamento (NFC-e)
@@ -204,6 +211,12 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
   const isForeigner = tomadorDocTipo === 'passaporte';
 
   const itemTotal = (it: AvulsaItem) => +(it.qty * parsePrice(it.unitPrice)).toFixed(2);
+  // Base da taxa de servico: o consumo lancado, sem os proprios acrescimos.
+  // Incluir acrescimo na base cobraria taxa sobre taxa.
+  const baseAcrescimo = useMemo(
+    () => +items.filter(i => !i.isAcrescimo).reduce((s, it) => s + itemTotal(it), 0).toFixed(2),
+    [items],
+  );
   const serviceSubtotal = useMemo(() => +serviceItems.reduce((s, it) => s + itemTotal(it), 0).toFixed(2), [serviceItems]);
   const productSubtotal = useMemo(() => +productItems.reduce((s, it) => s + itemTotal(it), 0).toFixed(2), [productItems]);
 
@@ -308,6 +321,13 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
 
   // ── Ações de itens ─────────────────────────────────────────────────────────
 
+  // Percentual declarado no nome do servico ("Taxa de servico 10%"). Sem isso,
+  // 10% e o padrao da rede. Continua editavel depois de calculado.
+  const percentDoNome = (nome: string): number => {
+    const m = /(\d{1,2}(?:[.,]\d+)?)\s*%/.exec(nome);
+    return m ? Number(m[1].replace(',', '.')) : 10;
+  };
+
   const addService = (s: HotelService) => {
     setItems(prev => [...prev, {
       key: nextKey(), kind: 'service', refId: s.id, description: s.name,
@@ -315,6 +335,8 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
       unitPrice: s.pricing_mode === 'fixed' && s.price != null ? String(s.price) : '',
       priceEditable: s.pricing_mode !== 'fixed' || s.price == null,
     }]);
+    setSvcSearch('');
+    svcInputRef.current?.focus();
   };
 
   const addProduct = (p: ProductOption) => {
@@ -331,6 +353,8 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
         ibs_aliquota: p.ibs_aliquota, cbs_aliquota: p.cbs_aliquota,
       },
     }]);
+    setProdSearch('');
+    prodInputRef.current?.focus();
   };
 
   const addAcrescimo = (s: HotelService) => {
@@ -340,7 +364,18 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
       unitPrice: s.pricing_mode === 'fixed' && s.price != null ? String(s.price) : '',
       priceEditable: true,
       isAcrescimo: true,
+      acrescimoPercent: percentDoNome(s.name),
     }]);
+    setProdSearch('');
+    prodInputRef.current?.focus();
+  };
+
+  // Preenche o valor do acrescimo a partir dos itens ja lancados. Nao trava o
+  // campo: o valor calculado e um ponto de partida e segue editavel.
+  const calcularAcrescimo = (it: AvulsaItem) => {
+    const pct = it.acrescimoPercent ?? 10;
+    const valor = +(baseAcrescimo * pct / 100).toFixed(2);
+    updateItem(it.key, { qty: 1, unitPrice: valor.toFixed(2) });
   };
 
   const updateItem = (key: string, patch: Partial<AvulsaItem>) => {
@@ -840,20 +875,11 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                         <h4 className="text-sm font-bold text-gray-800 dark:text-white">Serviços (NFS-e)</h4>
                         <span className="text-xs text-gray-400">{serviceItems.length} selecionado(s)</span>
                       </div>
-                      {serviceItems.map((it, i) => {
-                        const svc = svcFiscal?.items.find(s => s.erbon_entry_id === -(i + 1));
-                        return renderSelectedItem(it, svc && (
-                          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500">
-                            {svc.codigo_servico && <span className="font-mono">LC 116: {svc.codigo_servico}</span>}
-                            {svc.iss_aliquota != null && <span>ISS {svc.iss_aliquota}%</span>}
-                            {!svc.codigo_servico && <span className="text-amber-500">Usará tributação padrão do hotel</span>}
-                          </div>
-                        ));
-                      })}
                       <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40">
                           <Search className="w-4 h-4 text-gray-400" />
                           <input
+                            ref={svcInputRef}
                             type="text" value={svcSearch} onChange={e => setSvcSearch(e.target.value)}
                             placeholder="Buscar serviço do catálogo…"
                             className="flex-1 text-sm bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
@@ -875,6 +901,16 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                           ))}
                         </div>
                       </div>
+                      {serviceItems.map((it, i) => {
+                        const svc = svcFiscal?.items.find(s => s.erbon_entry_id === -(i + 1));
+                        return renderSelectedItem(it, svc && (
+                          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500">
+                            {svc.codigo_servico && <span className="font-mono">LC 116: {svc.codigo_servico}</span>}
+                            {svc.iss_aliquota != null && <span>ISS {svc.iss_aliquota}%</span>}
+                            {!svc.codigo_servico && <span className="text-amber-500">Usará tributação padrão do hotel</span>}
+                          </div>
+                        ));
+                      })}
                     </div>
                   )}
 
@@ -886,20 +922,11 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                         <h4 className="text-sm font-bold text-gray-800 dark:text-white">Produtos (NFC-e)</h4>
                         <span className="text-xs text-gray-400">{productItems.length} selecionado(s)</span>
                       </div>
-                      {productItems.map(it => renderSelectedItem(it, it.isAcrescimo ? (
-                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
-                          <span className="font-semibold">Acréscimo (vOutro) — sem NCM/imposto</span>
-                        </div>
-                      ) : it.fiscal && (
-                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500">
-                          <span className="font-mono">NCM {it.fiscal.ncm}</span>
-                          {it.fiscal.icms_aliquota != null && <span>ICMS {it.fiscal.icms_aliquota}%</span>}
-                        </div>
-                      )))}
                       <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40">
                           <Search className="w-4 h-4 text-gray-400" />
                           <input
+                            ref={prodInputRef}
                             type="text" value={prodSearch} onChange={e => setProdSearch(e.target.value)}
                             placeholder="Buscar produto da ficha técnica…"
                             className="flex-1 text-sm bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
@@ -923,7 +950,6 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                           ))}
                         </div>
                       </div>
-
                       {/* Taxas de repasse (acréscimo NFC-e, ex.: taxa de serviço 10%) */}
                       {acrescimoServices.length > 0 && (
                         <div className="border border-amber-200 dark:border-amber-800 rounded-xl overflow-hidden">
@@ -945,6 +971,31 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                           </div>
                         </div>
                       )}
+                      {productItems.map(it => renderSelectedItem(it, it.isAcrescimo ? (
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                          <span className="font-semibold">Acréscimo (vOutro) — sem NCM/imposto</span>
+                          <button
+                            type="button"
+                            onClick={() => calcularAcrescimo(it)}
+                            disabled={baseAcrescimo <= 0}
+                            title={baseAcrescimo > 0
+                              ? `Aplica ${it.acrescimoPercent ?? 10}% sobre ${fmtBRL(baseAcrescimo)} dos itens lançados`
+                              : 'Lance os itens primeiro para calcular a taxa'}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 font-bold hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Calculator className="w-3 h-3" /> auto calcular {it.acrescimoPercent ?? 10}%
+                          </button>
+                          {baseAcrescimo > 0 && (
+                            <span className="text-gray-400">base {fmtBRL(baseAcrescimo)}</span>
+                          )}
+                        </div>
+                      ) : it.fiscal && (
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500">
+                          <span className="font-mono">NCM {it.fiscal.ncm}</span>
+                          {it.fiscal.icms_aliquota != null && <span>ICMS {it.fiscal.icms_aliquota}%</span>}
+                        </div>
+                      )))}
+
                     </div>
                   )}
 
