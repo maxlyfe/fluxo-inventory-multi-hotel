@@ -423,6 +423,58 @@ export default function EmissaoNFPage() {
     }
   }, [hotelId, period]);
 
+  // NFS-e aceita pelo municipio mas ainda sem numero. Junta as duas origens
+  // (reservas e avulsas): a avulsa nao passa pela classificacao em abas, entao
+  // ficava sem nenhuma forma de reconsultar.
+  const nfsePendentes = useMemo(() => {
+    const temIdDps = (inv: NFInvoice) => !!inv.id_dps || !!inv.xml_retorno?.includes('idDPS');
+    const pendente = (inv: NFInvoice) =>
+      inv.tipo === 'nfse' && !inv.numero_nf && !inv.chave_acesso && temIdDps(inv);
+
+    const daReserva = reservations.flatMap(r => r.invoices).filter(pendente);
+    const avulsasPendentes = avulsas.filter(pendente);
+    // Dedupe por id: a mesma nota pode aparecer nas duas listas
+    const porId = new Map<string, NFInvoice>();
+    [...daReserva, ...avulsasPendentes].forEach(inv => porId.set(inv.id, inv));
+    return [...porId.values()];
+  }, [reservations, avulsas]);
+
+  const [reconsultandoLote, setReconsultandoLote] = useState<{ feitas: number; total: number } | null>(null);
+
+  // Em lote, uma nota por vez. Em paralelo, varias consultas simultaneas ao
+  // gateway do municipio aumentariam a chance de erro sem ganho real de tempo.
+  const handleReconsultarTodas = useCallback(async () => {
+    if (nfsePendentes.length === 0) return;
+    setReconsultaMsg(null);
+    setReconsultandoLote({ feitas: 0, total: nfsePendentes.length });
+    let autorizadas = 0;
+    let processando = 0;
+    let falhas = 0;
+    try {
+      for (let i = 0; i < nfsePendentes.length; i++) {
+        try {
+          const res = await nfService.reconsultarDpsNacional(nfsePendentes[i].id);
+          if (res.success && !res.processando) autorizadas++;
+          else if (res.processando) processando++;
+          else falhas++;
+        } catch {
+          falhas++;
+        }
+        setReconsultandoLote({ feitas: i + 1, total: nfsePendentes.length });
+      }
+      const partes = [`${autorizadas} autorizada(s)`];
+      if (processando > 0) partes.push(`${processando} ainda em processamento`);
+      if (falhas > 0) partes.push(`${falhas} com falha`);
+      setReconsultaMsg(`Reconsulta concluída: ${partes.join(', ')}.`);
+      if (autorizadas > 0) {
+        await loadReservations();
+        await loadAvulsas();
+      }
+    } finally {
+      setReconsultandoLote(null);
+    }
+  }, [nfsePendentes, loadReservations, loadAvulsas]);
+
   const handleReconsultar = useCallback(async (invoiceId: string) => {
     setReconsultando(invoiceId);
     setReconsultaMsg(null);
@@ -903,6 +955,19 @@ export default function EmissaoNFPage() {
             <FileText className="w-4 h-4" /> Nova NF
           </button>
         )}
+        {nfsePendentes.length > 0 && (
+          <button
+            onClick={handleReconsultarTodas}
+            disabled={!!reconsultandoLote}
+            title="Busca o número na prefeitura de todas as NFS-e que estão aguardando autorização"
+            className="flex items-center gap-2 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${reconsultandoLote ? 'animate-spin' : ''}`} />
+            {reconsultandoLote
+              ? `Reconsultando ${reconsultandoLote.feitas}/${reconsultandoLote.total}…`
+              : `Reconsultar ${nfsePendentes.length} NFS-e pendente${nfsePendentes.length > 1 ? 's' : ''}`}
+          </button>
+        )}
         <button onClick={() => { loadReservations(); loadAvulsas(); }} disabled={loading} className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
         </button>
@@ -1090,6 +1155,19 @@ export default function EmissaoNFPage() {
                     >
                       <Eye className="w-4 h-4" /> Ver
                     </button>
+                    {/* A avulsa nao passa pela classificacao em abas, entao o
+                        botao da linha da reserva nao a alcancava: sem isto ela
+                        ficava sem nenhuma forma de buscar o numero. */}
+                    {inv.tipo === 'nfse' && !inv.numero_nf && !inv.chave_acesso && (inv.id_dps || inv.xml_retorno?.includes('idDPS')) && (
+                      <button
+                        onClick={() => handleReconsultar(inv.id)}
+                        disabled={reconsultando === inv.id}
+                        title="Busca o número da NFS-e na prefeitura"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${reconsultando === inv.id ? 'animate-spin' : ''}`} /> Reconsultar
+                      </button>
+                    )}
                     {inv.xml_retorno && (
                       <button
                         onClick={() => {
