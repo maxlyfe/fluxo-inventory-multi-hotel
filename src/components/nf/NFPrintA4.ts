@@ -23,6 +23,15 @@ interface PrintInvoice {
   tomador_endereco?: string | null;
   valor_total?: number;
   created_at?: string;
+  /** Provedor da NFS-e. Define qual documento auxiliar imprimir: as notas do
+   *  padrao nacional (DPS) tem DANFSE, as do ABRASF tem o espelho municipal. */
+  nfse_provider?: string | null;
+  /** XML da NFS-e autorizada, quando ja disponivel. E a FONTE do documento:
+   *  numero, codigo de verificacao e valores saem dele, nao do nosso registro. */
+  xml_retorno?: string | null;
+  /** DPS assinada que foi enviada. Unica fonte da classificacao de IBS/CBS,
+   *  porque o municipio nao devolve esse bloco na nota. */
+  xml_dps?: string | null;
 }
 
 interface PrintItem {
@@ -122,6 +131,176 @@ function boxTomador(inv: PrintInvoice, titulo: string): string {
 
 function isHomolog(config: NFHotelConfig | null, inv: PrintInvoice): boolean {
   return config?.ambiente === 'homologacao' || inv.status === 'contingencia';
+}
+
+// ── DANFSE (padrao nacional) ──────────────────────────────────────────────────
+//
+// As notas emitidas por DPS (provedores 'el-nacional' e 'adn') tem como
+// documento auxiliar a DANFSE, nao o espelho municipal do ABRASF. Muda o
+// leiaute, a serie de numeracao e o significado do codigo de verificacao, entao
+// imprimir o espelho antigo nessas notas mostra um documento que nao
+// corresponde ao que a prefeitura emitiu.
+//
+// Principio deste template: NADA e inventado. Cada campo sai do XML autorizado
+// ou da DPS assinada, e o que ainda nao existe aparece como pendente, em vez de
+// ser preenchido com o nosso registro interno.
+
+function xmlPick(xml: string | null | undefined, tag: string): string | null {
+  if (!xml) return null;
+  const m = new RegExp('<' + tag + '>([^<]*)</' + tag + '>').exec(xml);
+  return m ? (m[1].trim() || null) : null;
+}
+
+interface DadosNfseNacional {
+  numero: string | null;
+  codigoVerificacao: string | null;
+  dataEmissao: string | null;
+  baseCalculo: string | null;
+  aliquota: string | null;
+  valorIss: string | null;
+  valorLiquido: string | null;
+  cTribNac: string | null;
+  cTribMun: string | null;
+  cNBS: string | null;
+  discriminacao: string | null;
+  municipioIncidencia: string | null;
+  // Reforma Tributaria: a classificacao vem da DPS. Os VALORES sao apurados pela
+  // Plataforma Nacional e o municipio ainda nao os devolve na nota, entao aqui
+  // pode existir classificacao sem valor. Nao ha calculo local: estimar tributo
+  // em documento fiscal seria pior do que declarar a pendencia.
+  ibsCst: string | null;
+  ibsClassTrib: string | null;
+  vIBS: string | null;
+  vCBS: string | null;
+}
+
+function extrairNfseNacional(inv: PrintInvoice): DadosNfseNacional {
+  // Só usa xml_retorno se for XML: enquanto a NFS-e esta em processamento esse
+  // campo guarda o JSON de acompanhamento da API.
+  const nota = inv.xml_retorno && inv.xml_retorno.trimStart().startsWith('<') ? inv.xml_retorno : null;
+  const dps = inv.xml_dps || null;
+  return {
+    numero: xmlPick(nota, 'Numero') ?? inv.numero_nf ?? null,
+    codigoVerificacao: xmlPick(nota, 'CodigoVerificacao') ?? inv.codigo_verificacao ?? null,
+    dataEmissao: xmlPick(nota, 'DataEmissao'),
+    baseCalculo: xmlPick(nota, 'BaseCalculo'),
+    aliquota: xmlPick(nota, 'Aliquota'),
+    valorIss: xmlPick(nota, 'ValorIss'),
+    valorLiquido: xmlPick(nota, 'ValorLiquidoNfse'),
+    cTribNac: xmlPick(nota, 'CodigoServicoNacional') ?? xmlPick(dps, 'cTribNac'),
+    cTribMun: xmlPick(nota, 'CodigoTributacaoMunicipio') ?? xmlPick(dps, 'cIntContrib'),
+    cNBS: xmlPick(nota, 'CodigoNbs') ?? xmlPick(dps, 'cNBS'),
+    discriminacao: xmlPick(nota, 'Discriminacao') ?? xmlPick(dps, 'xDescServ'),
+    municipioIncidencia: xmlPick(nota, 'MunicipioIncidencia') ?? xmlPick(dps, 'cLocIncid'),
+    ibsCst: xmlPick(dps, 'CST'),
+    ibsClassTrib: xmlPick(dps, 'cClassTrib'),
+    vIBS: xmlPick(nota, 'vIBS'),
+    vCBS: xmlPick(nota, 'vCBS'),
+  };
+}
+
+function boxIbsCbs(d: DadosNfseNacional): string {
+  if (!d.ibsCst && !d.ibsClassTrib) return '';
+
+  const temValores = d.vIBS != null || d.vCBS != null;
+  const valores = temValores
+    ? '<div class="grid2" style="margin-top:4px">'
+      + '<div><span class="lbl">IBS</span><br/><span class="val">R$ ' + esc(d.vIBS || '0,00') + '</span></div>'
+      + '<div><span class="lbl">CBS</span><br/><span class="val">R$ ' + esc(d.vCBS || '0,00') + '</span></div>'
+      + '</div>'
+    : '<div style="margin-top:4px"><span class="val" style="font-weight:400;font-size:10px">'
+      + 'Valores de IBS e CBS apurados pela Plataforma Nacional. Ainda nao informados na NFS-e '
+      + 'devolvida pelo municipio.</span></div>';
+
+  return ''
+    + '<div class="box">'
+    + '<div class="lbl" style="margin-bottom:4px">IBS / CBS — Reforma Tributária (declarado na DPS)</div>'
+    + '<div class="grid2">'
+    + '<div><span class="lbl">CST</span><br/><span class="val">' + esc(d.ibsCst || '—') + '</span></div>'
+    + '<div><span class="lbl">Class. Tributária</span><br/><span class="val">' + esc(d.ibsClassTrib || '—') + '</span></div>'
+    + '</div>'
+    + valores
+    + '</div>';
+}
+
+function buildDanfseNacionalHtml(inv: PrintInvoice, items: PrintItem[], config: NFHotelConfig | null): string {
+  const d = extrairNfseNacional(inv);
+  const emissao = d.dataEmissao
+    ? new Date(d.dataEmissao + 'T00:00:00')
+    : (inv.created_at ? new Date(inv.created_at) : new Date());
+  const pendente = !d.numero;
+
+  const itemRows = items.map(i => ''
+    + '<tr>'
+    + '<td>' + esc(i.descricao) + '</td>'
+    + '<td class="num">' + fmt(i.quantidade) + '</td>'
+    + '<td class="num">' + fmt(i.valor_unitario) + '</td>'
+    + '<td class="num"><b>' + fmt(i.valor_total) + '</b></td>'
+    + '</tr>').join('');
+
+  return ''
+    + (isHomolog(config, inv)
+        ? '<div class="watermark">' + (inv.status === 'contingencia' ? 'CONTINGÊNCIA' : 'SEM VALOR FISCAL') + '</div>'
+        : (pendente ? '<div class="watermark">AGUARDANDO AUTORIZAÇÃO</div>' : ''))
+    + '<div class="doc">'
+    + headerPrestador(config)
+    + '<div class="box" style="background:#f5f5f5">'
+    + '<div class="title">DANFSE — DOCUMENTO AUXILIAR DA NFS-e</div>'
+    + '<div class="subtitle">NFS-e padrão nacional · Município de ' + esc(config?.endereco_cidade || '')
+    + (config?.endereco_uf ? ' — ' + esc(config.endereco_uf) : '') + '</div>'
+    + '<div class="grid3" style="margin-top:8px;text-align:center">'
+    + '<div><span class="lbl">Número da NFS-e</span><br/><span class="val-lg">' + esc(d.numero || 'aguardando autorização') + '</span></div>'
+    + '<div><span class="lbl">Data de Emissão</span><br/><span class="val-lg">' + emissao.toLocaleDateString('pt-BR') + '</span></div>'
+    + '<div><span class="lbl">Código de Verificação</span><br/><span class="val-lg">' + esc(d.codigoVerificacao || '—') + '</span></div>'
+    + '</div>'
+    + (inv.chave_acesso
+        ? '<div style="margin-top:6px;text-align:center"><span class="lbl">Chave de Acesso</span><br/>'
+          + '<span class="val" style="font-size:10px;letter-spacing:1px">' + esc(inv.chave_acesso) + '</span></div>'
+        : '')
+    + '</div>'
+    + boxTomador(inv, 'Tomador do Serviço')
+    + '<div class="box">'
+    + '<div class="lbl" style="margin-bottom:4px">Serviço Prestado</div>'
+    + '<div class="grid3">'
+    + '<div><span class="lbl">Cód. Tributação Nacional</span><br/><span class="val">' + esc(d.cTribNac || '—') + '</span></div>'
+    + '<div><span class="lbl">Cód. NBS</span><br/><span class="val">' + esc(d.cNBS || '—') + '</span></div>'
+    + '<div><span class="lbl">Cód. Municipal</span><br/><span class="val">' + esc(d.cTribMun || '—') + '</span></div>'
+    + '</div>'
+    + (d.discriminacao
+        ? '<div style="margin-top:4px"><span class="lbl">Discriminação</span><br/>'
+          + '<span class="val" style="font-weight:400">' + esc(d.discriminacao) + '</span></div>'
+        : '')
+    + (d.municipioIncidencia
+        ? '<div style="margin-top:4px"><span class="lbl">Município de Incidência do ISSQN</span> '
+          + '<span class="val" style="font-weight:400">' + esc(d.municipioIncidencia) + '</span></div>'
+        : '')
+    + '</div>'
+    + '<div class="box">'
+    + '<div class="lbl" style="margin-bottom:6px">Detalhamento</div>'
+    + '<table><thead><tr><th>Descrição</th><th class="num">Qtd</th>'
+    + '<th class="num">Valor Unit. (R$)</th><th class="num">Total (R$)</th></tr></thead>'
+    + '<tbody>' + itemRows + '</tbody></table>'
+    + '<div class="totais">'
+    + '<div class="t"><span class="lbl">Base de Cálculo</span><br/><span class="val-lg">R$ ' + esc(d.baseCalculo || fmt(inv.valor_total)) + '</span></div>'
+    + '<div class="t"><span class="lbl">Alíquota ISSQN</span><br/><span class="val-lg">' + esc(d.aliquota || String(config?.aliquota_iss ?? '—')) + '%</span></div>'
+    + '<div class="t"><span class="lbl">Valor do ISSQN</span><br/><span class="val-lg">R$ ' + esc(d.valorIss || '—') + '</span></div>'
+    + '<div class="t"><span class="lbl">Valor Líquido</span><br/><span class="val-lg" style="font-size:16px">R$ ' + esc(d.valorLiquido || fmt(inv.valor_total)) + '</span></div>'
+    + '</div>'
+    + '</div>'
+    + boxIbsCbs(d)
+    + '<div class="box"><div class="grid2">'
+    + '<div><span class="lbl">Protocolo</span><br/><span class="val">' + esc(inv.numero_protocolo || '—') + '</span></div>'
+    + '<div><span class="lbl">Consulta de Autenticidade</span><br/><span class="val" style="font-weight:400">'
+    + esc(inv.url_consulta || 'Portal da prefeitura, pelo código de verificação') + '</span></div>'
+    + '</div></div>'
+    + (pendente
+        ? '<div class="box" style="background:#fff8e1"><span class="val" style="font-weight:400;font-size:10px">'
+          + 'Esta NFS-e foi recebida pelo município e aguarda o retorno da autorização. Número e código de '
+          + 'verificação serão preenchidos quando a autorização for confirmada. Não utilize este documento '
+          + 'como comprovação enquanto estiver nesta condição.</span></div>'
+        : '')
+    + '<div class="footer">DANFSE — documento auxiliar da NFS-e · LyFe Hoteles</div>'
+    + '</div>';
 }
 
 // ── NFS-e (A4) ────────────────────────────────────────────────────────────────
@@ -241,14 +420,19 @@ function buildDanfeHtml(inv: PrintInvoice, items: PrintItem[], config: NFHotelCo
 
 /** Abre a janela de impressão A4 para NFS-e ou NF-e (DANFE). NFC-e não usa este módulo. */
 export function printNFA4(invoice: PrintInvoice, items: PrintItem[], config: NFHotelConfig | null): void {
-  const body = invoice.tipo === 'nfse'
-    ? buildNfseHtml(invoice, items, config)
-    : buildDanfeHtml(invoice, items, config);
+  const nfseNacional = invoice.tipo === 'nfse'
+    && (invoice.nfse_provider === 'el-nacional' || invoice.nfse_provider === 'adn');
+
+  const body = invoice.tipo !== 'nfse'
+    ? buildDanfeHtml(invoice, items, config)
+    : nfseNacional
+      ? buildDanfseNacionalHtml(invoice, items, config)
+      : buildNfseHtml(invoice, items, config);
 
   const win = window.open('', '_blank', 'width=900,height=1100');
   if (!win) return;
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>${invoice.tipo === 'nfse' ? 'NFS-e' : 'DANFE'} ${invoice.numero_nf || ''}</title>
+<title>${invoice.tipo !== 'nfse' ? 'DANFE' : nfseNacional ? 'DANFSE' : 'NFS-e'} ${invoice.numero_nf || ''}</title>
 <style>${BASE_CSS}</style></head><body>${body}
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/script>
 </body></html>`);
