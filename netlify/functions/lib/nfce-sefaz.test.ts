@@ -75,6 +75,27 @@ describe('NFC-e — grupos IBS/CBS da Reforma Tributária', () => {
     }
   });
 
+  // Item sem classificacao cadastrada: taxa de servico, produto novo, prato sem
+  // ficha fiscal. O default do modulo era '000003', que a SEFAZ recusa com
+  // "rejeicao 1025: cClassTrib do IBS/CBS nao permitido neste modelo de DFe", e
+  // divergia do default de products/dishes/services, que e '000001'. A nota so
+  // quebrava quando tinha um item desses, por isso passou nos testes anteriores.
+  it("usa CST 000 e cClassTrib 000001 quando o item nao tem classificacao (rejeicao 1025)", () => {
+    const semCadastro = [{
+      nItem: 1, cProd: '003', xProd: 'TAXA DE SERVICO', ncm: '00000000', cfop: '5102',
+      uCom: 'UN', qCom: 1, vUnCom: 10, vProd: 10,
+      icms_orig: '0', icms_cst: '00', icms_vBC: 10, icms_pICMS: 18, icms_vICMS: 1.8,
+    }] as any[];
+
+    const xml = buildNFCeXml({
+      emitente: emitente(3), destinatario: {} as any, items: semCadastro,
+      config: nfceConfig(true), nNF: 1, tPag: '01',
+    }).xml;
+
+    expect(xml).toContain('<CST>000</CST><cClassTrib>000001</cClassTrib>');
+    expect(xml).not.toContain('000003');
+  });
+
   it('monta o grupo do item na ordem do leiaute (CST, cClassTrib, gIBSCBS)', () => {
     const xml = nfce(3, true);
     expect(xml).toContain(

@@ -388,7 +388,13 @@ function buildIBSCBSItem(item: NFCeItem, crt: number, enabled: boolean): IBSCBSI
   if (!enabled || crt !== 3) return { xml: '', vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0, vBC: 0 };
 
   const cstIbsCbs = item.ibs_cbs_cst || '000';
-  const cClassTrib = item.ibs_cbs_cClassTrib || '000003';
+  // '000001' = tributação integral, o par natural do CST '000'. O default antigo
+  // era '000003', que a SEFAZ recusa na NFC-e: "rejeição 1025: cClassTrib do
+  // IBS/CBS não permitido neste modelo de DFe". E era um default divergente do
+  // resto do sistema, já que products, dishes e services usam '000001'. O item
+  // sem cadastro (taxa de serviço, produto não classificado) cai aqui, então o
+  // valor errado só aparecia quando a nota tinha um item desses.
+  const cClassTrib = item.ibs_cbs_cClassTrib || '000001';
   const vBC = item.vProd;
   // ibs_aliquota do item é o total (IBS UF+Mun); enquanto a parcela municipal
   // de teste é 0%, tratamos o valor cadastrado como 100% estadual.
