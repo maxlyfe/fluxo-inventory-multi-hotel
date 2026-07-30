@@ -554,6 +554,72 @@ export async function cancelarNfseELNacional(params: {
 
 // ── Consulta por chave de acesso ────────────────────────────────────────────
 
+// Reconsulta a NFS-e pelo idDPS. Necessário porque a API pode aceitar a DPS e
+// responder que a NFS-e está "<em processamento adn nacional>": os polls curtos
+// feitos na emissão não bastam quando o processamento nacional demora, e sem
+// esta consulta a nota fica sem número, chave e código de verificação para
+// sempre.
+export async function consultarDpsELNacional(params: {
+  token: string;
+  ambiente: Ambiente;
+  id_dps: string;
+}): Promise<{
+  success: boolean;
+  processando: boolean;
+  chave_acesso: string | null;
+  numero_nf: string | null;
+  codigo_verificacao: string | null;
+  xml: string | null;
+  message: string;
+}> {
+  const path = elPath(params.ambiente, `/nfseDps/${params.id_dps}?token=${encodeURIComponent(params.token)}`);
+  const res = await httpsJson('GET', path);
+  console.log('[NFS-e EL Nacional] Reconsulta DPS →', res.status, res.body.slice(0, 300));
+
+  let data: any = {};
+  try { data = JSON.parse(res.body); } catch { /* resposta não-JSON */ }
+
+  const erros = formatErros(data);
+  if (erros) {
+    return { success: false, processando: false, chave_acesso: null, numero_nf: null, codigo_verificacao: null, xml: null, message: erros };
+  }
+  if (res.status !== 200 && res.status !== 201) {
+    return {
+      success: false, processando: false, chave_acesso: null, numero_nf: null, codigo_verificacao: null, xml: null,
+      message: `API Nacional E&L respondeu HTTP ${res.status}: ${res.body.slice(0, 300)}`,
+    };
+  }
+
+  // Enquanto processa, o campo vem com um texto entre < > em vez do gzip
+  const bruto = data.nfseXmlGZipB64;
+  if (!bruto || String(bruto).startsWith('<')) {
+    return {
+      success: true, processando: true,
+      chave_acesso: data.chaveAcesso ?? null, numero_nf: null, codigo_verificacao: null, xml: null,
+      message: 'NFS-e ainda em processamento na Plataforma Nacional. Tente novamente em alguns minutos.',
+    };
+  }
+
+  let nfseXml = '';
+  try { nfseXml = gunzipB64(bruto); } catch {
+    return {
+      success: false, processando: true, chave_acesso: data.chaveAcesso ?? null,
+      numero_nf: null, codigo_verificacao: null, xml: null,
+      message: 'A Plataforma devolveu a NFS-e em formato inesperado.',
+    };
+  }
+
+  const parsed = parseNfseXml(nfseXml);
+  return {
+    success: true, processando: false,
+    chave_acesso: data.chaveAcesso ?? parsed.chave,
+    numero_nf: parsed.numero,
+    codigo_verificacao: parsed.codigoVerificacao,
+    xml: nfseXml,
+    message: 'NFS-e autorizada pela Plataforma Nacional',
+  };
+}
+
 export async function consultarNfseELNacional(params: {
   token: string;
   ambiente: Ambiente;

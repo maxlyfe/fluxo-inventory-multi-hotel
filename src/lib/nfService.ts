@@ -1316,6 +1316,13 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
     if (useADN || useELNacional) {
       updateData.nfse_provider = useADN ? 'adn' : 'el-nacional';
       updateData.xml_dps = result.xml_dps || null;
+      updateData.id_dps = result.id_dps || null;
+      // A Plataforma Nacional pode aceitar a DPS e devolver a NFS-e "em
+      // processamento", sem número nem chave. Marcar isso como 'autorizada'
+      // criava uma nota que parecia pronta e não tinha nenhum dado fiscal.
+      // 'emitida' é o estado correto até a autorização chegar, e a reconsulta
+      // (reconsultarDpsNacional) completa o resto.
+      if (!result.chave_acesso && !result.numero_nf) updateData.status = 'emitida';
     } else {
       updateData.nfse_provider = inv?.tipo === 'nfse' ? 'prefeitura' : null;
     }
@@ -2184,6 +2191,68 @@ async function consultarNfsePorFaixa(
 
 // ─── Export ──────────────────────────────────────────────────────────────────
 
+// ─── Reconsulta de NFS-e Nacional pendente ──────────────────────────────────
+//
+// A API Nacional pode aceitar a DPS e devolver a NFS-e "<em processamento adn
+// nacional>". Nesse caso a nota fica sem número, chave e código de verificação,
+// e é esta função que completa os dados quando a autorização sai.
+async function reconsultarDpsNacional(invoiceId: string): Promise<{
+  success: boolean;
+  processando: boolean;
+  message: string;
+}> {
+  const { data: inv } = await supabase
+    .from('nf_invoices')
+    .select('id, hotel_id, id_dps, chave_acesso, nfse_provider')
+    .eq('id', invoiceId)
+    .single();
+
+  if (!inv) return { success: false, processando: false, message: 'Nota não encontrada.' };
+  if (!inv.id_dps) {
+    return { success: false, processando: false, message: 'Esta nota não tem id da DPS gravado, então não há o que reconsultar.' };
+  }
+  if (inv.chave_acesso) {
+    return { success: true, processando: false, message: 'Esta nota já está autorizada.' };
+  }
+
+  const config = await getConfig(inv.hotel_id);
+  if (!config || !(config as any).el_token) {
+    return { success: false, processando: false, message: 'Token da API Nacional não configurado para este hotel.' };
+  }
+
+  const res = await fetch(NF_PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-nf-action': 'consulta-dps-el-nacional' },
+    body: JSON.stringify({
+      action: 'consulta-dps-el-nacional',
+      token: (config as any).el_token,
+      ambiente: (config as any).el_ambiente || 'homologacao',
+      id_dps: inv.id_dps,
+    }),
+  });
+  const result = await res.json();
+
+  if (!res.ok || result.success === false) {
+    return { success: false, processando: false, message: result.message || result.error || 'Falha na reconsulta.' };
+  }
+  if (result.processando) {
+    return { success: true, processando: true, message: result.message };
+  }
+
+  await supabase
+    .from('nf_invoices')
+    .update({
+      status: 'autorizada',
+      numero_nf: result.numero_nf || null,
+      chave_acesso: result.chave_acesso || null,
+      codigo_verificacao: result.codigo_verificacao || null,
+      xml_retorno: result.xml_retorno || null,
+    })
+    .eq('id', invoiceId);
+
+  return { success: true, processando: false, message: result.message };
+}
+
 export const nfService = {
   getConfig,
   saveConfig,
@@ -2196,6 +2265,7 @@ export const nfService = {
   createDraftInvoice,
   emitInvoice,
   cancelInvoice,
+  reconsultarDpsNacional,
   testConnection,
   resolveEntryFiscalData,
   resolveServiceFiscalData,

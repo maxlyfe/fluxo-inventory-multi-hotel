@@ -37,6 +37,7 @@ import {
   emitirNfseELNacional,
   cancelarNfseELNacional,
   consultarNfseELNacional,
+  consultarDpsELNacional,
 } from './lib/el-nacional-nfse';
 
 const CORS_HEADERS = {
@@ -1205,6 +1206,38 @@ const handler: Handler = async (event: HandlerEvent) => {
       });
     } catch (err: any) {
       return jsonResponse(500, { success: false, message: `Erro na consulta E&L Nacional: ${err.message}` });
+    }
+  }
+
+  // ─── E&L Nacional: reconsulta da NFS-e pelo idDPS ─────────────────────────
+
+  if (action === 'consulta-dps-el-nacional') {
+    let payload: any;
+    try { payload = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'JSON inválido' }); }
+
+    if (!payload.token || !payload.id_dps) {
+      return jsonResponse(400, { error: 'Token e id da DPS são obrigatórios.' });
+    }
+
+    try {
+      const result = await consultarDpsELNacional({
+        token: payload.token,
+        ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
+        id_dps: payload.id_dps,
+      });
+
+      return jsonResponse(result.success ? 200 : 502, {
+        success: result.success,
+        processando: result.processando,
+        chave_acesso: result.chave_acesso,
+        numero_nf: result.numero_nf,
+        codigo_verificacao: result.codigo_verificacao,
+        xml_retorno: result.xml,
+        message: result.message,
+        error: result.success ? undefined : result.message,
+      });
+    } catch (err: any) {
+      return jsonResponse(500, { success: false, message: `Erro na reconsulta E&L Nacional: ${err.message}` });
     }
   }
 

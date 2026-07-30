@@ -229,6 +229,9 @@ export default function EmissaoNFPage() {
   const [batchEnriched, setBatchEnriched] = useState<EnrichedBatchReservation[] | null>(null);
   const [batchEnriching, setBatchEnriching] = useState(false);
   const [batchEnrichProgress, setBatchEnrichProgress] = useState({ done: 0, total: 0 });
+  // Reconsulta de NFS-e aceita mas ainda em processamento na Plataforma Nacional
+  const [reconsultando, setReconsultando] = useState<string | null>(null);
+  const [reconsultaMsg, setReconsultaMsg] = useState<string | null>(null);
 
   // ── Classificação (reutilizada pela carga por período e pela busca) ────────
 
@@ -417,6 +420,25 @@ export default function EmissaoNFPage() {
       setLoadingAvulsas(false);
     }
   }, [hotelId, period]);
+
+  const handleReconsultar = useCallback(async (invoiceId: string) => {
+    setReconsultando(invoiceId);
+    setReconsultaMsg(null);
+    try {
+      const res = await nfService.reconsultarDpsNacional(invoiceId);
+      setReconsultaMsg(res.message);
+      // Só recarrega quando a autorização chegou: se ainda está processando,
+      // recarregar não muda nada e só faz a tela piscar.
+      if (res.success && !res.processando) {
+        await loadReservations();
+        await loadAvulsas();
+      }
+    } catch (err) {
+      setReconsultaMsg(err instanceof Error ? err.message : 'Falha na reconsulta.');
+    } finally {
+      setReconsultando(null);
+    }
+  }, [loadReservations, loadAvulsas]);
 
   useEffect(() => {
     loadAvulsas();
@@ -822,6 +844,15 @@ export default function EmissaoNFPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Resultado da reconsulta de NFS-e pendente na Plataforma Nacional */}
+      {reconsultaMsg && (
+        <div className="mb-4 p-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 flex items-start justify-between gap-3">
+          <p className="text-sm text-amber-800 dark:text-amber-300">{reconsultaMsg}</p>
+          <button onClick={() => setReconsultaMsg(null)} className="text-amber-700 dark:text-amber-400 shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
         <div className="flex items-center gap-3">
@@ -1071,6 +1102,8 @@ export default function EmissaoNFPage() {
               canEmitNfce={can('nf.emit.nfce')}
               onEmit={(tipo) => handleOpenEmission(r, tipo)}
               onViewNF={(invoiceId, tipo) => setViewerInvoice({ id: invoiceId, tipo: tipo || 'nfse' })}
+              onReconsultar={handleReconsultar}
+              reconsultandoId={reconsultando}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
             />
           ))}
@@ -1162,10 +1195,12 @@ interface ReservationCardProps {
   canEmitNfce: boolean;
   onEmit: (tipo: NFTipo) => void;
   onViewNF: (invoiceId: string, tipo?: NFTipo) => void;
+  onReconsultar: (invoiceId: string) => void;
+  reconsultandoId: string | null;
   onMarkAdequate: () => void;
 }
 
-function ReservationCard({ reservation: r, payments, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onMarkAdequate }: ReservationCardProps) {
+function ReservationCard({ reservation: r, payments, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onReconsultar, reconsultandoId, onMarkAdequate }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
   };
@@ -1298,6 +1333,18 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                     <button onClick={() => onViewNF(inv.id, inv.tipo)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
                       <Eye className="w-4 h-4" /> Ver {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}{inv.numero_nf ? ` nº ${inv.numero_nf}` : ''}
                     </button>
+                    {/* A Plataforma Nacional pode aceitar a DPS e ainda estar
+                        processando a NFS-e: nesse caso a nota fica sem número e
+                        sem chave, e só a reconsulta completa os dados. */}
+                    {inv.tipo === 'nfse' && inv.id_dps && !inv.chave_acesso && (
+                      <button
+                        onClick={() => onReconsultar(inv.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors"
+                        title="A NFS-e foi aceita, mas ainda está em processamento na Plataforma Nacional. Reconsulte para trazer número, chave e XML autorizado."
+                      >
+                        <RefreshCw className={`w-4 h-4 ${reconsultandoId === inv.id ? 'animate-spin' : ''}`} /> Reconsultar NFS-e
+                      </button>
+                    )}
                     {inv.xml_retorno && (
                       <button
                         onClick={() => {

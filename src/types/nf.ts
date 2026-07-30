@@ -148,6 +148,9 @@ export interface NFInvoice {
 
   nfse_provider: NFSEProvider | null;
   xml_dps: string | null;
+  /** Id da DPS na Plataforma Nacional. Permite reconsultar a NFS-e quando a
+   *  autorização nacional não chega na hora da emissão. */
+  id_dps: string | null;
   danfse_url: string | null;
 
   emitido_por: string | null;
