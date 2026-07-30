@@ -693,12 +693,17 @@ const NFIntegration: React.FC = () => {
                       <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
                     </div>
                     <div>
-                      <label className={labelCls}>Código de tributação municipal</label>
-                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: 9.01" maxLength={20} />
+                      <label className={labelCls}>Código de serviço municipal</label>
+                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: 0901" maxLength={20} />
                       <p className="text-xs text-gray-500 mt-1">
-                        O código do serviço na legislação do município, o mesmo que já sai nas notas emitidas pela
-                        prefeitura hoje. Em Búzios é <b>9.01</b> para hospedagem. Na NFS-e Nacional ele vai no campo
-                        <b> cTribMun</b>, que aceita só dígitos, então o ponto é removido no envio.
+                        O código do serviço na legislação do município. Na NFS-e Nacional ele vai no campo
+                        <b> cIntContrib</b>, que Búzios exige preenchido e confere contra a tabela municipal.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        <b>Só letras e números:</b> o schema recusa ponto, então digite <b>0901</b> e não 9.01
+                        (pontuação é removida no envio). Se a nota voltar com <b>E35</b> (código inválido), o valor
+                        existe mas não nessa forma: tente <b>901</b> ou <b>090101</b>, ou confirme a grafia exata na
+                        tabela de serviços do portal da prefeitura. Se voltar <b>EL84</b>, o campo chegou vazio.
                       </p>
                     </div>
                     <div>

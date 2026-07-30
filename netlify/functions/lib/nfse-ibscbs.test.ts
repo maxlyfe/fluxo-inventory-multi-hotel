@@ -40,26 +40,32 @@ const elItems = [
   { description: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
 ] as any[];
 
-describe('DPS Nacional — código de tributação municipal (E35 e E1235)', () => {
-  // O código de serviço municipal ('9.01' em Búzios) vai em <cTribMun>, não em
-  // <cIntContrib>. Duas rejeições provaram isso: E1235, porque o schema do
-  // cIntContrib proíbe ponto, e E35, porque a E&L valida o cIntContrib contra a
-  // lista de serviços da legislação municipal. Não existe valor que satisfaça as
-  // duas, então cIntContrib deixou de ser enviado.
-  it('manda o código municipal em cTribMun, só com dígitos', () => {
-    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '9.01' }, elTomador, elItems, '1', 1);
-    expect(xml).toContain('<cTribNac>090101</cTribNac><cTribMun>901</cTribMun><xDescServ>');
+describe('DPS Nacional — código de serviço municipal em cIntContrib', () => {
+  // Búzios exige o código de serviço municipal em <cIntContrib> (EL84 quando
+  // ausente, E35 quando não reconhecido), mas o schema do campo tem pattern
+  // [a-zA-Z0-9]{1,20} e reprova o ponto de '9.01' com E1235. O valor é enviado
+  // como configurado, só filtrando o que o schema não aceita, para que a tela
+  // permita ajustar a forma exata sem deploy.
+  it('envia o valor configurado, filtrando pontuação', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '0901' }, elTomador, elItems, '1', 1);
+    expect(xml).toContain('<cIntContrib>0901</cIntContrib>');
   });
 
-  it('nunca envia cIntContrib', () => {
-    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '9.01' }, elTomador, elItems, '1', 1);
-    expect(xml).not.toContain('<cIntContrib>');
+  it('preserva zeros à esquerda, que distinguem 0901 de 901', () => {
+    const a = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '0901' }, elTomador, elItems, '1', 1).xml;
+    const b = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '901' }, elTomador, elItems, '1', 1).xml;
+    expect(a).toContain('<cIntContrib>0901</cIntContrib>');
+    expect(b).toContain('<cIntContrib>901</cIntContrib>');
   });
 
-  it('omite cTribMun quando não há código municipal configurado', () => {
+  it('é o último elemento de cServ, depois de cNBS', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: '0901' }, elTomador, elItems, '1', 1);
+    expect(xml).toContain('<cNBS>103031100</cNBS><cIntContrib>0901</cIntContrib></cServ>');
+  });
+
+  it('omite a tag quando não há código configurado', () => {
     const { xml } = buildDpsXml({ ...elConfig(true), codigo_servico_municipal: null }, elTomador, elItems, '1', 1);
-    expect(xml).not.toContain('<cTribMun>');
-    expect(xml).toContain('<cTribNac>090101</cTribNac><xDescServ>');
+    expect(xml).not.toContain('<cIntContrib>');
   });
 });
 
