@@ -971,6 +971,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         codigo_servico: config!.codigo_servico || '9.01',
         codigo_servico_municipal: (config as any).codigo_servico_municipal || null,
         aliquota_iss: config!.aliquota_iss ?? 5,
+        // Código NBS: obrigatório na DPS quando ela leva o bloco IBS/CBS (E0322)
+        codigo_nbs: (config as any).nfse_codigo_nbs ?? null,
         optante_simples: config!.regime_tributario_nfse === '6',
         telefone: config!.telefone,
         // Reforma Tributária (IBS/CBS) — bloco <IBSCBS> por nota (config por
@@ -1028,6 +1030,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           email: config!.email,
           regime_tributario_nfse: config!.regime_tributario_nfse,
           codigo_servico: config!.codigo_servico,
+          codigo_nbs: (config as any).nfse_codigo_nbs ?? null,
           aliquota_iss: config!.aliquota_iss,
           // Reforma Tributária (IBS/CBS) — bloco <IBSCBS> por nota, paridade
           // com o formato 'el-nacional' (config por hotel)

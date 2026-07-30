@@ -77,6 +77,7 @@ const EMPTY_FORM = {
   el_token: '',
   el_ambiente: 'homologacao' as NFAmbiente,
   codigo_servico_municipal: '',
+  nfse_codigo_nbs: '103031100',
   nfse_ibs_cbs_cst: '000',
   nfse_ibs_cbs_cclasstrib: '000001',
   nfse_fin_nfse: 0,
@@ -192,6 +193,7 @@ const NFIntegration: React.FC = () => {
           el_token: (cfg as any).el_token || '',
           el_ambiente: (cfg as any).el_ambiente || 'homologacao',
           codigo_servico_municipal: (cfg as any).codigo_servico_municipal || '',
+          nfse_codigo_nbs: (cfg as any).nfse_codigo_nbs || '103031100',
           nfse_ibs_cbs_cst: (cfg as any).nfse_ibs_cbs_cst || '000',
           nfse_ibs_cbs_cclasstrib: (cfg as any).nfse_ibs_cbs_cclasstrib || '000001',
           nfse_fin_nfse: (cfg as any).nfse_fin_nfse ?? 0,
@@ -708,6 +710,17 @@ const NFIntegration: React.FC = () => {
                     </div>
                   </div>
 
+                  <div>
+                    <label className={labelCls}>Código NBS (obrigatório com IBS/CBS)</label>
+                    <input type="text" value={form.nfse_codigo_nbs} onChange={upd('nfse_codigo_nbs')} className={inputCls} placeholder="103031100" maxLength={9} />
+                    <p className="text-xs text-gray-500 mt-1">
+                      9 dígitos, sem pontos. A partir do momento em que a nota leva IBS/CBS, a Plataforma Nacional
+                      exige o código NBS do serviço: sem ele a rejeição é E0322. O padrão <b>103031100</b> é a NBS
+                      1.0303.11.00, hospedagem em hotéis, apart-hotéis e similares (item 9.01 da LC 116). Confirme
+                      com o contador se você emite outros tipos de serviço, porque a NBS é por serviço prestado.
+                    </p>
+                  </div>
+
                   <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-1">IBS / CBS (Reforma Tributária) — bloco &lt;IBSCBS&gt; da DPS</p>
                   <p className="text-xs text-gray-500">
                     Confirme <b>Código do Indicador de Operação (cIndOp)</b> com a prefeitura/contador antes de
@@ -899,6 +912,17 @@ const NFIntegration: React.FC = () => {
                       <label className={labelCls}>Próximo Número DPS</label>
                       <input type="number" value={form.proximo_numero_nfse} onChange={upd('proximo_numero_nfse')} className={inputCls} min="1" />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className={labelCls}>Código NBS (obrigatório com IBS/CBS)</label>
+                    <input type="text" value={form.nfse_codigo_nbs} onChange={upd('nfse_codigo_nbs')} className={inputCls} placeholder="103031100" maxLength={9} />
+                    <p className="text-xs text-gray-500 mt-1">
+                      9 dígitos, sem pontos. A partir do momento em que a nota leva IBS/CBS, a Plataforma Nacional
+                      exige o código NBS do serviço: sem ele a rejeição é E0322. O padrão <b>103031100</b> é a NBS
+                      1.0303.11.00, hospedagem em hotéis, apart-hotéis e similares (item 9.01 da LC 116). Confirme
+                      com o contador se você emite outros tipos de serviço, porque a NBS é por serviço prestado.
+                    </p>
                   </div>
 
                   <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-1">IBS / CBS (Reforma Tributária) — bloco &lt;IBSCBS&gt; da DPS</p>

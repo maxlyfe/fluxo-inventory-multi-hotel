@@ -1099,6 +1099,8 @@ const handler: Handler = async (event: HandlerEvent) => {
           codigo_servico: payload.codigo_servico || '9.01',
           codigo_servico_municipal: payload.codigo_servico_municipal || null,
           aliquota_iss: payload.aliquota_iss ?? 5,
+          // Obrigatorio junto com o bloco IBSCBS (rejeicao E0322)
+          codigo_nbs: payload.codigo_nbs || null,
           optante_simples: !!payload.optante_simples,
           telefone: payload.telefone || null,
           ibs_cbs_cst: payload.ibs_cbs_cst || null,

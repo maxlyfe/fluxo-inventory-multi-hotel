@@ -94,6 +94,10 @@ export interface ELNacionalConfig {
   codigo_municipio: string;            // IBGE 7 dígitos (Búzios 3300233)
   codigo_servico: string;              // LC116 (ex. 9.01) → cTribNac 090101
   codigo_servico_municipal?: string | null; // cIntContrib (obrigatório p/ E&L)
+  // Código NBS de 9 dígitos, sem pontos (1.0303.11.00 → 103031100). Vira
+  // <cNBS> e é OBRIGATÓRIO quando a DPS leva o bloco <IBSCBS> da reforma:
+  // sem ele a Plataforma Nacional rejeita com E0322.
+  codigo_nbs?: string | null;
   aliquota_iss: number;                // percentual (ex. 5)
   optante_simples: boolean;
   telefone?: string | null;
@@ -197,6 +201,7 @@ export function buildDpsXml(
   const digits = (config.codigo_servico || '9.01').replace(/\D/g, '');
   const cTribNac = digits.replace(/^0?(\d{1,2})(\d{2})$/, (_, g, s) => g.padStart(2, '0') + s + '01');
   const cIntContrib = (config.codigo_servico_municipal || '').replace(/\s/g, '');
+  const cNBS = (config.codigo_nbs || '').replace(/\D/g, '');
 
   const dpsId = buildDpsId(cMun, cnpj, serie, numeroDPS);
 
@@ -259,6 +264,8 @@ export function buildDpsXml(
     `<cServ>` +
     `<cTribNac>${cTribNac}</cTribNac>` +
     `<xDescServ>${xmlEsc(discriminacao)}</xDescServ>` +
+    // Ordem do leiaute em cServ: cTribNac, cTribMun, xDescServ, cNBS, cIntContrib
+    (cNBS ? `<cNBS>${cNBS}</cNBS>` : '') +
     (cIntContrib ? `<cIntContrib>${xmlEsc(cIntContrib)}</cIntContrib>` : '') +
     `</cServ>` +
     `</serv>` +

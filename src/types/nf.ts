@@ -65,6 +65,10 @@ export interface NFHotelConfig {
   // Obrigatório para CRT=3 desde 03/08/2026 (NT 2025.002 v1.40).
   nfce_ibs_cbs_enabled: boolean;
 
+  /** Código NBS (9 dígitos, sem pontos) para <cServ><cNBS> da DPS Nacional.
+   *  Obrigatório sempre que a DPS levar o bloco IBS/CBS (rejeição E0322). */
+  nfse_codigo_nbs: string | null;
+
   // Reforma Tributária (IBS/CBS) — bloco <IBSCBS> da DPS Nacional (por hotel)
   nfse_ibs_cbs_cst: string | null;
   nfse_ibs_cbs_cclasstrib: string | null;

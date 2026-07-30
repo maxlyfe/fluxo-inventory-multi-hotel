@@ -86,6 +86,8 @@ export interface DPSConfig {
   regime_tributario_nfse?: string;
   codigo_servico: string;
   aliquota_iss: number;
+  // Código NBS (9 dígitos). Obrigatório junto com o bloco IBSCBS (E0322).
+  codigo_nbs?: string | null;
   // Reforma Tributária (IBS/CBS, NT 2025.002) — bloco IBSCBS por DPS. Mesmos
   // campos de nf_hotel_config usados no formato 'el-nacional' (paridade entre
   // os dois formatos alternativos à Nota Nacional ABRASF).
@@ -140,6 +142,7 @@ function toELConfig(config: DPSConfig, ambiente: Ambiente, cert: string, senha: 
     inscricao_municipal: config.inscricao_municipal,
     codigo_municipio: config.endereco_codigo_municipio,
     codigo_servico: config.codigo_servico,
+    codigo_nbs: config.codigo_nbs ?? null,
     aliquota_iss: config.aliquota_iss,
     // regime_tributario_nfse '6' = optante do Simples Nacional (mesma
     // convenção usada em nfService ao montar o payload de NFS-e)

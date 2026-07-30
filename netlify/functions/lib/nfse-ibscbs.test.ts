@@ -27,7 +27,7 @@ const elConfig = (reforma: boolean) => ({
   certificado_base64: '', certificado_senha: '',
   cnpj: '39232073000144', inscricao_municipal: '1607893',
   codigo_municipio: '3300233',
-  codigo_servico: '090101', aliquota_iss: 5, optante_simples: false,
+  codigo_servico: '090101', codigo_nbs: '103031100', aliquota_iss: 5, optante_simples: false,
   telefone: '2299947660',
   ...(reforma ? REFORMA : {}),
 }) as any;
@@ -39,6 +39,23 @@ const elTomador = {
 const elItems = [
   { description: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
 ] as any[];
+
+describe('DPS Nacional — código NBS (rejeição E0322)', () => {
+  it('emite <cNBS> depois de xDescServ, na ordem do leiaute de cServ', () => {
+    const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
+    expect(xml).toMatch(/<\/xDescServ><cNBS>103031100<\/cNBS>/);
+  });
+
+  it('aceita a NBS escrita com pontos e envia só os dígitos', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_nbs: '1.0303.11.00' }, elTomador, elItems, '1', 1);
+    expect(xml).toContain('<cNBS>103031100</cNBS>');
+  });
+
+  it('omite a tag quando não há NBS configurada', () => {
+    const { xml } = buildDpsXml({ ...elConfig(true), codigo_nbs: null }, elTomador, elItems, '1', 1);
+    expect(xml).not.toContain('<cNBS>');
+  });
+});
 
 describe('DPS Nacional — endereço do tomador (rejeição E0234)', () => {
   const comEndereco = {
