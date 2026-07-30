@@ -69,15 +69,24 @@ const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400
 
 // ─── TabButton helper ─────────────────────────────────────────────────────────
 
-function TabButton({ isActive, onClick, label, color }: { isActive: boolean; onClick: () => void; label: string; color: string }) {
+// `matches` só é usado durante a busca global: mostra quantos resultados a
+// categoria tem e apaga as que não têm nenhum, para a aba certa salta à vista.
+function TabButton({ isActive, onClick, label, color, matches }: {
+  isActive: boolean; onClick: () => void; label: string; color: string; matches?: number;
+}) {
+  const apagada = matches === 0 && !isActive;
   return (
     <button
       onClick={onClick}
       className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl transition-all whitespace-nowrap flex-shrink-0
-        ${isActive ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}
+        ${isActive ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50'}
+        ${apagada ? 'opacity-40' : ''}`}
     >
       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
       {label}
+      {matches != null && matches > 0 && (
+        <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-[10px]">{matches}</span>
+      )}
     </button>
   );
 }
@@ -93,6 +102,11 @@ export default function MenuTechSheet() {
   const [activeTab, setActiveTab] = useState<string>('ingredients');
   const [categories, setCategories] = useState<DishCategory[]>([]);
   const [showCategoryMgr, setShowCategoryMgr] = useState(false);
+  // Busca global: procura o item em TODAS as categorias e leva para a aba onde
+  // ele está. Sem isso era preciso abrir uma categoria por vez para descobrir
+  // onde o prato tinha sido cadastrado.
+  const [buscaGlobal, setBuscaGlobal] = useState('');
+  const [matchesPorAba, setMatchesPorAba] = useState<Record<string, number>>({});
   const [outrosCount, setOutrosCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
 
@@ -192,6 +206,44 @@ export default function MenuTechSheet() {
     );
   }
 
+  // A contagem sai de UMA consulta ao banco, nao de somar o que cada aba
+  // carregou: as abas so carregam quando abertas, entao contar no cliente
+  // encontraria apenas a categoria que ja esteve aberta.
+  useEffect(() => {
+    const termo = buscaGlobal.trim();
+    if (!hotelId || termo.length < 2) {
+      setMatchesPorAba({});
+      return;
+    }
+    let cancelado = false;
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from('dishes')
+        .select('id, category_id')
+        .eq('hotel_id', hotelId)
+        .ilike('name', `%${termo}%`);
+      if (cancelado) return;
+
+      const contagem: Record<string, number> = {};
+      (data || []).forEach((d: { category_id: string | null }) => {
+        const aba = d.category_id ? `cat_${d.category_id}` : 'outros';
+        contagem[aba] = (contagem[aba] || 0) + 1;
+      });
+      setMatchesPorAba(contagem);
+
+      // Leva para a aba que tem resultado, sem arrastar de volta quem trocou de
+      // aba na mao: a decisao usa o valor atual do estado, nao uma dependencia.
+      setActiveTab(atual => {
+        if (contagem[atual] > 0) return atual;
+        const destino = Object.keys(contagem).find(k => contagem[k] > 0);
+        return destino ?? atual;
+      });
+    }, 300);
+    return () => { cancelado = true; clearTimeout(timer); };
+  }, [buscaGlobal, hotelId]);
+
+  const buscando = buscaGlobal.trim().length >= 2;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -203,6 +255,30 @@ export default function MenuTechSheet() {
           <h1 className="text-xl font-bold text-slate-900 dark:text-white leading-tight">Fichas Técnicas</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">{selectedHotel.name}</p>
         </div>
+
+        {/* Busca em todas as categorias */}
+        <div className="ml-auto w-full max-w-xs">
+          <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
+            <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <input
+              type="text"
+              value={buscaGlobal}
+              onChange={e => setBuscaGlobal(e.target.value)}
+              placeholder="Buscar em todas as categorias…"
+              className="flex-1 text-sm bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
+            />
+            {buscaGlobal && (
+              <button onClick={() => setBuscaGlobal('')} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 flex-shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {buscaGlobal.trim().length >= 2 && Object.keys(matchesPorAba).length === 0 && (
+            <p className="mt-1 px-1 text-[11px] text-amber-600 dark:text-amber-400">
+              Nenhum item com esse nome em nenhuma categoria.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Tab bar */}
@@ -213,12 +289,25 @@ export default function MenuTechSheet() {
 
         {/* Dynamic category tabs */}
         {categories.map(cat => (
-          <TabButton key={cat.id} isActive={activeTab === `cat_${cat.id}`} onClick={() => setActiveTab(`cat_${cat.id}`)} label={cat.name} color={cat.color} />
+          <TabButton
+            key={cat.id}
+            isActive={activeTab === `cat_${cat.id}`}
+            onClick={() => setActiveTab(`cat_${cat.id}`)}
+            label={cat.name}
+            color={cat.color}
+            matches={buscando ? (matchesPorAba[`cat_${cat.id}`] || 0) : undefined}
+          />
         ))}
 
         {/* Outros */}
         {outrosCount > 0 && (
-          <TabButton isActive={activeTab === 'outros'} onClick={() => setActiveTab('outros')} label={`Outros (${outrosCount})`} color="#94a3b8" />
+          <TabButton
+            isActive={activeTab === 'outros'}
+            onClick={() => setActiveTab('outros')}
+            label={`Outros (${outrosCount})`}
+            color="#94a3b8"
+            matches={buscando ? (matchesPorAba['outros'] || 0) : undefined}
+          />
         )}
 
         {/* Add category button */}
@@ -242,6 +331,7 @@ export default function MenuTechSheet() {
           categories={categories}
           onCategoriesChange={loadCategories}
           onDishMoved={loadOutrosCount}
+          buscaExterna={buscaGlobal}
         />
       ))}
       {activeTab === 'outros' && (
@@ -252,6 +342,7 @@ export default function MenuTechSheet() {
           categories={categories}
           onCategoriesChange={loadCategories}
           onDishMoved={loadOutrosCount}
+          buscaExterna={buscaGlobal}
         />
       )}
 
@@ -1497,6 +1588,7 @@ function DishesTab({
   categories,
   onCategoriesChange,
   onDishMoved,
+  buscaExterna,
 }: {
   hotelId: string;
   categoryId: string | null;
@@ -1504,6 +1596,10 @@ function DishesTab({
   categories: DishCategory[];
   onCategoriesChange: () => void;
   onDishMoved: () => void;
+  /** Termo da busca global da pagina. Chega preenchido quando o usuario e
+   *  trazido para esta aba pela busca, para a lista ja abrir filtrada em vez de
+   *  obrigar a digitar o nome de novo. */
+  buscaExterna?: string;
 }) {
   const { addNotification } = useNotification();
   const [dishes, setDishes] = useState<DishWithCost[]>([]);
@@ -1514,6 +1610,11 @@ function DishesTab({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  // Sincroniza a busca local com a global. Fica editavel depois: o termo global
+  // e o ponto de partida, e refinar dentro da categoria continua possivel.
+  useEffect(() => {
+    if (buscaExterna != null) setSearch(buscaExterna);
+  }, [buscaExterna]);
   const [movingDishId, setMovingDishId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [modalTab, setModalTab] = useState<'ficha' | 'impostos'>('ficha');
