@@ -67,15 +67,32 @@ export default function NFViewerModal({ isOpen, onClose, invoiceId, hotelId }: N
     printNFA4(invoice, items, config);
   }
 
-  function handleDownloadXml() {
-    if (!invoice?.xml_retorno) return;
-    const blob = new Blob([invoice.xml_retorno], { type: 'application/xml' });
-    const url = URL.createObjectURL(blob);
+  function baixar(conteudo: string, nomeArquivo: string, mime: string) {
+    const url = URL.createObjectURL(new Blob([conteudo], { type: mime }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `NF_${invoice.numero_nf || invoice.id}.xml`;
+    a.download = nomeArquivo;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // `xml_retorno` nem sempre é XML: enquanto a NFS-e Nacional está em
+  // processamento, a API devolve um JSON de acompanhamento. Nomear isso como
+  // .xml produzia um arquivo que o navegador recusa ("'<' not found").
+  function handleDownloadXml() {
+    if (!invoice?.xml_retorno) return;
+    const ehXml = invoice.xml_retorno.trimStart().startsWith('<');
+    baixar(
+      invoice.xml_retorno,
+      `NF_${invoice.numero_nf || invoice.id}.${ehXml ? 'xml' : 'json'}`,
+      ehXml ? 'application/xml' : 'application/json',
+    );
+  }
+
+  // DPS assinada que foi enviada: é onde se confere o bloco <IBSCBS>.
+  function handleDownloadDps() {
+    if (!invoice?.xml_dps) return;
+    baixar(invoice.xml_dps, `DPS_${invoice.numero_nf || invoice.id}.xml`, 'application/xml');
   }
 
   async function handleDownloadDanfse() {
@@ -262,7 +279,17 @@ export default function NFViewerModal({ isOpen, onClose, invoiceId, hotelId }: N
               </button>
               {invoice.xml_retorno && (
                 <button onClick={handleDownloadXml} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors">
-                  <Download className="w-4 h-4" /> Download XML
+                  <Download className="w-4 h-4" />
+                  {invoice.xml_retorno.trimStart().startsWith('<') ? 'Download XML' : 'Retorno da API'}
+                </button>
+              )}
+              {invoice.xml_dps && (
+                <button
+                  onClick={handleDownloadDps}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                  title="XML assinado enviado à Plataforma Nacional, com o bloco IBS/CBS declarado."
+                >
+                  <Download className="w-4 h-4" /> XML enviado (DPS)
                 </button>
               )}
               {invoice.nfse_provider === 'adn' && (
