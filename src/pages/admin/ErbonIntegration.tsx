@@ -121,6 +121,10 @@ const ErbonIntegration: React.FC = () => {
   // (0 = padrão, vale para todos os departamentos; >0 = override específico,
   // ex. MAP/FAP — reclassifica só os lançamentos daquele departamento)
   const [newMappingDeptId, setNewMappingDeptId] = useState<Record<number, number>>({});
+  // Cadastro manual de departamento (fallback quando "Carregar Departamentos"
+  // não encontra um ponto de venda pouco usado nas transações recentes)
+  const [manualDeptName, setManualDeptName] = useState('');
+  const [manualDeptId, setManualDeptId] = useState('');
 
   // ── Dishes mapping state ───────────────────────────────────────────────
   const [fluxoDishes, setFluxoDishes] = useState<FluxoDish[]>([]);
@@ -396,7 +400,14 @@ const ErbonIntegration: React.FC = () => {
     setLoadingSectors(true);
     try {
       const depts = await erbonService.fetchErbonDepartments(selectedHotel!.id);
-      setErbonDepartments(depts);
+      // Mescla com departamentos adicionados manualmente (não descobertos nas
+      // transações recentes) — a busca ao vivo tem prioridade em caso de
+      // mesmo nome, pois traz o ID numérico real.
+      setErbonDepartments(prev => {
+        const byName = new Map(prev.map(d => [d.name, d] as const));
+        depts.forEach(d => byName.set(d.name, d));
+        return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+      });
       const withId = depts.filter(d => d.id > 0).length;
       setSuccess(`${depts.length} departamentos carregados da Erbon${withId > 0 ? ` (${withId} com ID numérico — será salvo automaticamente ao vincular)` : ''}!`);
     } catch (err: any) {
@@ -404,6 +415,25 @@ const ErbonIntegration: React.FC = () => {
     } finally {
       setLoadingSectors(false);
     }
+  };
+
+  // Cadastro manual de um departamento que não apareceu na busca automática
+  // (ex.: ponto de venda pouco usado, como MAP/FAP). Não persiste nada por si
+  // só — só passa a existir na lista de opções; o vínculo real (setor ou
+  // serviço) é gravado quando o admin de fato usar esse departamento.
+  const handleAddManualDepartment = () => {
+    const name = manualDeptName.trim();
+    const id = parseInt(manualDeptId, 10);
+    if (!name) { setError('Informe o nome do departamento.'); return; }
+    if (!Number.isFinite(id) || id <= 0) { setError('Informe o ID numérico do departamento (maior que zero).'); return; }
+    setErbonDepartments(prev => {
+      const byName = new Map(prev.map(d => [d.name, d] as const));
+      byName.set(name, { name, id });
+      return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+    });
+    setManualDeptName('');
+    setManualDeptId('');
+    setSuccess(`Departamento "${name}" (ID ${id}) adicionado à lista.`);
   };
 
   const handleMapSector = async (sectorId: string, deptName: string, deptId?: number) => {
@@ -1011,6 +1041,39 @@ const ErbonIntegration: React.FC = () => {
                 </div>
               )}
 
+              {/* Cadastro manual de departamento — fallback para pontos de venda
+                  pouco usados que "Carregar Departamentos Erbon" (aba Setores)
+                  não encontrou nas transações recentes (ex.: MAP/FAP). */}
+              <div className="p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl">
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">
+                  Não encontrou o departamento na lista? Adicione manualmente
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={manualDeptName}
+                    onChange={e => setManualDeptName(e.target.value)}
+                    placeholder="Nome do departamento (ex.: MAP e FAP)"
+                    className={inputCls + ' flex-1'}
+                  />
+                  <input
+                    type="number"
+                    value={manualDeptId}
+                    onChange={e => setManualDeptId(e.target.value)}
+                    placeholder="ID numérico (Erbon)"
+                    className={inputCls + ' w-full sm:w-48'}
+                  />
+                  <button onClick={handleAddManualDepartment} className={btnPrimary}>
+                    <Plus className="w-4 h-4" /> Adicionar
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  O ID numérico é obrigatório e precisa ser o mesmo usado pela Erbon para esse
+                  departamento — sem ele, o override não consegue distinguir os lançamentos.
+                  Consulte o suporte Erbon se não souber o ID.
+                </p>
+              </div>
+
               {/* Mapeamentos de serviços existentes (padrão — todos os departamentos) */}
               {productMappings.filter(m => m.service_id && !m.erbon_department_id).length > 0 && (
                 <div>
@@ -1202,6 +1265,38 @@ const ErbonIntegration: React.FC = () => {
                     Carregar Departamentos Erbon
                   </button>
                 </div>
+              </div>
+
+              {/* Cadastro manual de departamento — fallback para pontos de venda
+                  pouco usados que a busca automática (últimos 30 dias de
+                  transações) não encontrou (ex.: MAP/FAP, usado só em
+                  checkouts esporádicos). */}
+              <div className="p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl">
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">
+                  Não encontrou o departamento na lista? Adicione manualmente
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={manualDeptName}
+                    onChange={e => setManualDeptName(e.target.value)}
+                    placeholder="Nome do departamento (ex.: MAP e FAP)"
+                    className={inputCls + ' flex-1'}
+                  />
+                  <input
+                    type="number"
+                    value={manualDeptId}
+                    onChange={e => setManualDeptId(e.target.value)}
+                    placeholder="ID numérico (Erbon)"
+                    className={inputCls + ' w-full sm:w-48'}
+                  />
+                  <button onClick={handleAddManualDepartment} className={btnPrimary}>
+                    <Plus className="w-4 h-4" /> Adicionar
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Consulte o suporte Erbon se não souber o ID numérico do departamento.
+                </p>
               </div>
 
               {/* Mapeamentos existentes */}

@@ -649,11 +649,16 @@ export const erbonService = {
     // name → numeric id (idDepartment from transactions)
     const departments = new Map<string, number>();
 
-    // Busca departamentos das transações dos últimos 7 dias
-    // ErbonTransaction já contém idDepartment (número) + department (nome)
+    // Busca departamentos das transações dos últimos 30 dias.
+    // ErbonTransaction já contém idDepartment (número) + department (nome).
+    // IMPORTANTE: não paramos cedo ao achar "poucos" departamentos — um ponto
+    // de venda esporádico (ex.: MAP/FAP, que só lança quando um hóspede com
+    // esse plano consome) pode só aparecer num dia mais distante, depois que
+    // outros departamentos mais movimentados (Restaurante, Bar, Loja...) já
+    // tiverem sido encontrados nos primeiros dias.
     try {
       const today = new Date();
-      for (let daysBack = 0; daysBack < 7; daysBack++) {
+      for (let daysBack = 0; daysBack < 30; daysBack++) {
         const d = new Date(today);
         d.setDate(d.getDate() - daysBack);
         const dateStr = d.toISOString().split('T')[0];
@@ -667,8 +672,6 @@ export const erbonService = {
         } catch {
           // Dia sem transações, continua
         }
-        // Se já encontrou bastante, pode parar
-        if (departments.size >= 5) break;
       }
     } catch (err) {
       console.error('[Erbon] Erro ao buscar departamentos via transações:', err);
