@@ -168,6 +168,12 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
   const [tomadorBairro, setTomadorBairro] = useState('');
   const [tomadorCidade, setTomadorCidade] = useState('');
   const [tomadorUf, setTomadorUf] = useState('');
+  // Codigo IBGE do municipio do tomador. Vai em <endNac><cMun> da DPS e nao
+  // e digitado: vem da consulta de CEP, para nao divergir do CEP (rejeicao
+  // E0240 quando CEP e municipio nao combinam).
+  const [tomadorCodMunicipio, setTomadorCodMunicipio] = useState('');
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   // Busca de empresas cadastradas (fornecedores PJ)
@@ -359,10 +365,32 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
     if (s.endereco_bairro) setTomadorBairro(s.endereco_bairro);
     if (s.endereco_municipio) setTomadorCidade(s.endereco_municipio);
     if (s.endereco_uf) setTomadorUf(s.endereco_uf);
-    if (s.endereco_cep) setTomadorCep(s.endereco_cep);
+    if (s.endereco_cep) { setTomadorCep(s.endereco_cep); void lookupCep(s.endereco_cep); }
     setShowSupplierPicker(false);
     setSupplierSearch('');
     setFormErrors({});
+  };
+
+  const lookupCep = async (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    setCepError(null);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) { setCepError('Erro ao consultar o CEP'); return; }
+      const data = await res.json();
+      if (data.erro) { setCepError('CEP nao encontrado'); return; }
+      if (data.logradouro) setTomadorLogradouro(data.logradouro);
+      if (data.bairro) setTomadorBairro(data.bairro);
+      if (data.localidade) setTomadorCidade(data.localidade);
+      if (data.uf) setTomadorUf(data.uf);
+      if (data.ibge) setTomadorCodMunicipio(String(data.ibge));
+    } catch {
+      setCepError('Falha na consulta. Preencha o endereco manualmente.');
+    } finally {
+      setCepLoading(false);
+    }
   };
 
   const getFullAddress = () => {
@@ -441,6 +469,19 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
       );
       if (!nfConfig.codigo_servico && !allResolved) {
         errors.push('Código de serviço não cadastrado (configure na aba NFS-e ou cadastre o LC 116 nos serviços do catálogo).');
+      }
+      // A DPS da NFS-e Nacional (formatos 'adn' e 'el-nacional') exige o
+      // endereço do tomador com o código IBGE do município. Sem isso a
+      // Plataforma Nacional devolve a rejeição E0234, então barramos antes de
+      // gastar uma tentativa de emissão.
+      const provider = (nfConfig as any).nfse_provider;
+      if (provider === 'adn' || provider === 'el-nacional') {
+        if (!tomadorLogradouro.trim() || !tomadorNumero.trim() || !tomadorBairro.trim()) {
+          errors.push('Endereço do tomador incompleto: logradouro, número e bairro são obrigatórios na NFS-e Nacional.');
+        }
+        if (!tomadorCodMunicipio.trim()) {
+          errors.push('Município do tomador não identificado. Digite o CEP para o sistema buscar o município (a NFS-e Nacional exige o código IBGE, que vem dessa consulta).');
+        }
       }
     }
     if (willEmitNfce) {
@@ -540,6 +581,16 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
+        // Campos separados: sao estes que viram <end><endNac> na DPS da NFS-e
+        // Nacional. O texto acima segue para telas e PDF.
+        tomador_logradouro: tomadorLogradouro.trim() || null,
+        tomador_numero: tomadorNumero.trim() || null,
+        tomador_complemento: tomadorComplemento.trim() || null,
+        tomador_bairro: tomadorBairro.trim() || null,
+        tomador_cidade: tomadorCidade.trim() || null,
+        tomador_uf: tomadorUf.trim().toUpperCase() || null,
+        tomador_cep: tomadorCep.replace(/\D/g, '') || null,
+        tomador_codigo_municipio: tomadorCodMunicipio.trim() || null,
       };
       const common = {
         hotel_id: hotelId,
@@ -1057,13 +1108,33 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
               <div className="pt-4 border-t border-gray-150 dark:border-gray-800">
                 <span className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Endereço (opcional)</span>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <input type="text" value={tomadorCep} onChange={e => setTomadorCep(e.target.value)} className={inputCls()} placeholder="CEP" />
+                  <input
+                    type="text"
+                    value={tomadorCep}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setTomadorCep(v);
+                      if (v.replace(/\D/g, '').length === 8) void lookupCep(v);
+                    }}
+                    onBlur={e => void lookupCep(e.target.value)}
+                    className={inputCls()}
+                    placeholder="CEP"
+                  />
                   <input type="text" value={tomadorLogradouro} onChange={e => setTomadorLogradouro(e.target.value)} className={inputCls() + ' md:col-span-2'} placeholder="Rua / Logradouro" />
                   <input type="text" value={tomadorNumero} onChange={e => setTomadorNumero(e.target.value)} className={inputCls()} placeholder="Número" />
                   <input type="text" value={tomadorComplemento} onChange={e => setTomadorComplemento(e.target.value)} className={inputCls()} placeholder="Complemento" />
                   <input type="text" value={tomadorBairro} onChange={e => setTomadorBairro(e.target.value)} className={inputCls()} placeholder="Bairro" />
                   <input type="text" value={tomadorCidade} onChange={e => setTomadorCidade(e.target.value)} className={inputCls() + ' md:col-span-2'} placeholder="Cidade" />
                   <input type="text" value={tomadorUf} onChange={e => setTomadorUf(e.target.value)} className={inputCls()} placeholder="UF" maxLength={2} />
+                  {(cepLoading || cepError || tomadorCodMunicipio) && (
+                    <p className={`md:col-span-3 text-xs ${cepError ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500'}`}>
+                      {cepLoading
+                        ? 'Buscando o endereço pelo CEP...'
+                        : cepError
+                          ? `${cepError} Sem o município identificado a NFS-e Nacional recusa a nota.`
+                          : `Município identificado (código IBGE ${tomadorCodMunicipio}).`}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

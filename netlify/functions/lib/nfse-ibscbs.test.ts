@@ -40,6 +40,34 @@ const elItems = [
   { description: 'HOSPEDAGEM DIARIA', quantidade: 1, valor_unitario: 450, valor_total: 450 },
 ] as any[];
 
+describe('DPS Nacional — endereço do tomador (rejeição E0234)', () => {
+  const comEndereco = {
+    ...elTomador,
+    endereco: 'Rua Neli da Costa Carvalho',
+    numero: '595',
+    bairro: 'Alto da Brava',
+    codigo_municipio: '3300233',
+    cep: '28950-410',
+  };
+
+  it('monta <end><endNac> com código IBGE e CEP quando o endereço existe', () => {
+    const { xml } = buildDpsXml(elConfig(true), comEndereco, elItems, '1', 1);
+    expect(xml).toContain(
+      '<end>' +
+      '<endNac><cMun>3300233</cMun><CEP>28950410</CEP></endNac>' +
+      '<xLgr>Rua Neli da Costa Carvalho</xLgr>' +
+      '<nro>595</nro>' +
+      '<xBairro>Alto da Brava</xBairro>' +
+      '</end>'
+    );
+  });
+
+  it('omite o bloco quando falta o código do município (não dá para montar endNac)', () => {
+    const { xml } = buildDpsXml(elConfig(true), { ...comEndereco, codigo_municipio: null }, elItems, '1', 1);
+    expect(xml).not.toContain('<end>');
+  });
+});
+
 describe('DPS Nacional — retenção de ISSQN (tribMun)', () => {
   it('marca o ISSQN como não retido por padrão e omite pAliq', () => {
     // tpRetISSQN=2 (retido pelo tomador) era o valor fixo antigo: além de ser

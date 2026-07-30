@@ -805,6 +805,16 @@ interface CreateInvoiceInput {
   tomador_nacionalidade: string | null;
   tomador_email: string | null;
   tomador_endereco: string | null;
+  // Endereço estruturado: a DPS da NFS-e Nacional precisa de <endNac><cMun> +
+  // <CEP> em campos separados (rejeição E0234 quando o bloco não vai).
+  tomador_logradouro?: string | null;
+  tomador_numero?: string | null;
+  tomador_complemento?: string | null;
+  tomador_bairro?: string | null;
+  tomador_cidade?: string | null;
+  tomador_uf?: string | null;
+  tomador_cep?: string | null;
+  tomador_codigo_municipio?: string | null;
   items: Array<{
     erbon_entry_id: number | null;
     descricao: string;
@@ -847,6 +857,14 @@ async function createDraftInvoice(input: CreateInvoiceInput): Promise<NFInvoice>
       tomador_nacionalidade: input.tomador_nacionalidade,
       tomador_email: input.tomador_email,
       tomador_endereco: input.tomador_endereco,
+      tomador_logradouro: input.tomador_logradouro ?? null,
+      tomador_numero: input.tomador_numero ?? null,
+      tomador_complemento: input.tomador_complemento ?? null,
+      tomador_bairro: input.tomador_bairro ?? null,
+      tomador_cidade: input.tomador_cidade ?? null,
+      tomador_uf: input.tomador_uf ?? null,
+      tomador_cep: input.tomador_cep ?? null,
+      tomador_codigo_municipio: input.tomador_codigo_municipio ?? null,
       valor_total: valorTotal,
       status: 'rascunho',
       emitido_por: input.emitido_por,
@@ -889,7 +907,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
   try {
     const { data: inv } = await supabase
       .from('nf_invoices')
-      .select('tipo, status, tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email, tomador_endereco')
+      .select('tipo, status, tomador_nome, tomador_cpf_cnpj, tomador_doc_tipo, tomador_email, tomador_endereco, tomador_logradouro, tomador_numero, tomador_complemento, tomador_bairro, tomador_cidade, tomador_uf, tomador_cep, tomador_codigo_municipio')
       .eq('id', invoiceId)
       .single();
 
@@ -967,7 +985,11 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         tomador_cpf_cnpj: inv!.tomador_cpf_cnpj,
         tomador_doc_tipo: inv!.tomador_doc_tipo,
         tomador_email: inv!.tomador_email,
-        tomador_endereco: inv!.tomador_endereco,
+        tomador_endereco: inv!.tomador_logradouro || inv!.tomador_endereco,
+        tomador_numero: inv!.tomador_numero,
+        tomador_bairro: inv!.tomador_bairro,
+        tomador_codigo_municipio: inv!.tomador_codigo_municipio,
+        tomador_cep: inv!.tomador_cep,
         items: (items || []).map((i: NFInvoiceItem) => ({
           description: i.descricao,
           quantidade: i.quantidade,
@@ -1021,7 +1043,13 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           doc_tipo: inv!.tomador_doc_tipo,
           doc_numero: inv!.tomador_cpf_cnpj,
           email: inv!.tomador_email,
-          endereco: inv!.tomador_endereco,
+          // Endereço estruturado: vira <end><endNac> na DPS. Sem cMun e CEP a
+          // Plataforma Nacional rejeita com E0234.
+          endereco: inv!.tomador_logradouro || inv!.tomador_endereco,
+          numero: inv!.tomador_numero,
+          bairro: inv!.tomador_bairro,
+          codigo_municipio: inv!.tomador_codigo_municipio,
+          cep: inv!.tomador_cep,
         },
         items: (items || []).map((i: NFInvoiceItem) => ({
           descricao: i.descricao,

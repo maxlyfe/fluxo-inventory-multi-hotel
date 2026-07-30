@@ -96,7 +96,19 @@ export interface NFInvoice {
   tomador_doc_tipo: NFDocTipo;
   tomador_nacionalidade: string | null;
   tomador_email: string | null;
+  /** Endereço em texto livre, para telas e PDF. O XML usa os campos abaixo. */
   tomador_endereco: string | null;
+
+  // Endereço estruturado do tomador. A DPS da NFS-e Nacional exige
+  // <endNac><cMun> (IBGE, 7 dígitos) + <CEP>; sem isso vem a rejeição E0234.
+  tomador_logradouro: string | null;
+  tomador_numero: string | null;
+  tomador_complemento: string | null;
+  tomador_bairro: string | null;
+  tomador_cidade: string | null;
+  tomador_uf: string | null;
+  tomador_cep: string | null;
+  tomador_codigo_municipio: string | null;
 
   valor_total: number;
   valor_deducoes: number;

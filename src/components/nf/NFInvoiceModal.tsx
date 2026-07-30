@@ -219,6 +219,12 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [tomadorBairro, setTomadorBairro] = useState('');
   const [tomadorCidade, setTomadorCidade] = useState('');
   const [tomadorUf, setTomadorUf] = useState('');
+  // Codigo IBGE do municipio do tomador: vai em <endNac><cMun> da DPS da
+  // NFS-e Nacional. Nao e digitado, vem da consulta de CEP, para nao divergir
+  // do CEP informado (rejeicao E0240).
+  const [tomadorCodMunicipio, setTomadorCodMunicipio] = useState('');
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
 
   // Busca de empresas cadastradas (fornecedores PJ) para preencher tomador
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -536,14 +542,21 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       errors.tomadorEmail = 'E-mail inválido';
     }
 
-    // Address mandatory for NF-e with Brazilian nationals (foreigners and NFC-e optional)
-    if (tipo === 'nfe' && !isForeigner) {
+    // Endereço obrigatório na NF-e para nacionais, e também na NFS-e quando o
+    // provedor é a Plataforma Nacional ('adn' ou 'el-nacional'): a DPS exige o
+    // bloco <end><endNac>, e sem ele a rejeição é E0234.
+    const nfseNacional = tipo === 'nfse'
+      && ((nfConfig as any)?.nfse_provider === 'adn' || (nfConfig as any)?.nfse_provider === 'el-nacional');
+    if ((tipo === 'nfe' || nfseNacional) && !isForeigner) {
       if (!tomadorLogradouro.trim()) errors.tomadorLogradouro = 'Rua é obrigatória';
       if (!tomadorNumero.trim()) errors.tomadorNumero = 'Número é obrigatório';
       if (!tomadorBairro.trim()) errors.tomadorBairro = 'Bairro é obrigatório';
       if (!tomadorCidade.trim()) errors.tomadorCidade = 'Cidade é obrigatória';
       if (!tomadorUf.trim()) errors.tomadorUf = 'UF é obrigatória';
       if (!tomadorCep.trim()) errors.tomadorCep = 'CEP é obrigatório';
+    }
+    if (nfseNacional && !isForeigner && !tomadorCodMunicipio.trim()) {
+      errors.tomadorCep = 'Município não identificado. Confira o CEP para o sistema buscar o código IBGE, exigido pela NFS-e Nacional.';
     }
 
     setFormErrors(errors);
@@ -576,6 +589,28 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   };
 
   // Build the combined address string
+  const lookupCep = async (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    setCepError(null);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) { setCepError('Erro ao consultar o CEP'); return; }
+      const data = await res.json();
+      if (data.erro) { setCepError('CEP nao encontrado'); return; }
+      if (data.logradouro) setTomadorLogradouro(data.logradouro);
+      if (data.bairro) setTomadorBairro(data.bairro);
+      if (data.localidade) setTomadorCidade(data.localidade);
+      if (data.uf) setTomadorUf(data.uf);
+      if (data.ibge) setTomadorCodMunicipio(String(data.ibge));
+    } catch {
+      setCepError('Falha na consulta. Preencha o endereco manualmente.');
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
   const getFullAddress = () => {
     if (!tomadorLogradouro.trim()) return '';
     return `${tomadorLogradouro}, ${tomadorNumero}${
@@ -639,6 +674,15 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
+        // Campos separados: e daqui que sai <end><endNac> da DPS Nacional.
+        tomador_logradouro: tomadorLogradouro.trim() || null,
+        tomador_numero: tomadorNumero.trim() || null,
+        tomador_complemento: tomadorComplemento.trim() || null,
+        tomador_bairro: tomadorBairro.trim() || null,
+        tomador_cidade: tomadorCidade.trim() || null,
+        tomador_uf: tomadorUf.trim().toUpperCase() || null,
+        tomador_cep: tomadorCep.replace(/\D/g, '') || null,
+        tomador_codigo_municipio: tomadorCodMunicipio.trim() || null,
         items: buildInvoiceItems(),
         emitido_por: user?.id || null,
       };
@@ -759,6 +803,15 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
+        // Campos separados: e daqui que sai <end><endNac> da DPS Nacional.
+        tomador_logradouro: tomadorLogradouro.trim() || null,
+        tomador_numero: tomadorNumero.trim() || null,
+        tomador_complemento: tomadorComplemento.trim() || null,
+        tomador_bairro: tomadorBairro.trim() || null,
+        tomador_cidade: tomadorCidade.trim() || null,
+        tomador_uf: tomadorUf.trim().toUpperCase() || null,
+        tomador_cep: tomadorCep.replace(/\D/g, '') || null,
+        tomador_codigo_municipio: tomadorCodMunicipio.trim() || null,
         items: buildInvoiceItems(),
         emitido_por: user?.id || null,
       };
@@ -904,6 +957,15 @@ img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; obj
         tomador_nacionalidade: tomadorNacionalidade || null,
         tomador_email: tomadorEmail || null,
         tomador_endereco: getFullAddress() || null,
+        // Campos separados: e daqui que sai <end><endNac> da DPS Nacional.
+        tomador_logradouro: tomadorLogradouro.trim() || null,
+        tomador_numero: tomadorNumero.trim() || null,
+        tomador_complemento: tomadorComplemento.trim() || null,
+        tomador_bairro: tomadorBairro.trim() || null,
+        tomador_cidade: tomadorCidade.trim() || null,
+        tomador_uf: tomadorUf.trim().toUpperCase() || null,
+        tomador_cep: tomadorCep.replace(/\D/g, '') || null,
+        tomador_codigo_municipio: tomadorCodMunicipio.trim() || null,
         items: buildInvoiceItems(),
         emitido_por: user?.id || null,
       };
@@ -1339,15 +1401,27 @@ img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; obj
                       type="text"
                       value={tomadorCep}
                       onChange={(e) => {
-                        setTomadorCep(e.target.value);
+                        const v = e.target.value;
+                        setTomadorCep(v);
                         if (formErrors.tomadorCep) setFormErrors({ ...formErrors, tomadorCep: '' });
+                        if (v.replace(/\D/g, '').length === 8) void lookupCep(v);
                       }}
+                      onBlur={(e) => void lookupCep(e.target.value)}
                       className={`w-full p-2 bg-white dark:bg-gray-900 border rounded-lg text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors ${
                         formErrors.tomadorCep ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
                       }`}
                       placeholder="00000-000"
                     />
                     {formErrors.tomadorCep && <p className="text-[10px] text-red-500 mt-1">{formErrors.tomadorCep}</p>}
+                    {!formErrors.tomadorCep && (cepLoading || cepError || tomadorCodMunicipio) && (
+                      <p className={`text-[10px] mt-1 ${cepError ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500'}`}>
+                        {cepLoading
+                          ? 'Buscando endereco...'
+                          : cepError
+                            ? cepError
+                            : `Municipio IBGE ${tomadorCodMunicipio}`}
+                      </p>
+                    )}
                   </div>
 
                   <div className="md:col-span-2">
