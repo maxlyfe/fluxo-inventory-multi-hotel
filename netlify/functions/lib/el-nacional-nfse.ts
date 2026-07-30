@@ -93,7 +93,11 @@ export interface ELNacionalConfig {
   inscricao_municipal: string;
   codigo_municipio: string;            // IBGE 7 dígitos (Búzios 3300233)
   codigo_servico: string;              // LC116 (ex. 9.01) → cTribNac 090101
-  codigo_servico_municipal?: string | null; // cIntContrib (obrigatório p/ E&L)
+  // cIntContrib: código INTERNO do contribuinte (o próprio prestador define),
+  // até 20 caracteres, opcional no leiaute. Não confundir com cTribMun, que é
+  // o código de tributação municipal de 3 dígitos definido pela prefeitura e
+  // que este builder não envia.
+  codigo_servico_municipal?: string | null;
   // Código NBS de 9 dígitos, sem pontos (1.0303.11.00 → 103031100). Vira
   // <cNBS> e é OBRIGATÓRIO quando a DPS leva o bloco <IBSCBS> da reforma:
   // sem ele a Plataforma Nacional rejeita com E0322.

@@ -693,8 +693,13 @@ const NFIntegration: React.FC = () => {
                       <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
                     </div>
                     <div>
-                      <label className={labelCls}>Código Serviço Municipal (cIntContrib)</label>
-                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: 901 ou código do município" />
+                      <label className={labelCls}>Código interno do contribuinte (cIntContrib)</label>
+                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: DIARIA" maxLength={20} />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Referência sua, não da prefeitura: até 20 caracteres que você mesmo define para identificar
+                        o serviço nos seus controles. Não precisa buscar em lugar nenhum. Se estiver em dúvida,
+                        use <b>DIARIA</b>.
+                      </p>
                     </div>
                     <div>
                       <label className={labelCls}>Alíquota ISS (%)</label>
