@@ -968,6 +968,25 @@ const NFIntegration: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Pré-requisito que não depende de configuração nossa */}
+                  <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20">
+                    <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
+                      Este formato exige que a prefeitura permita os emissores públicos nacionais
+                    </p>
+                    <p className="text-xs text-amber-700/90 dark:text-amber-400/90 mt-1">
+                      Aderir ao Sistema Nacional não basta: o município precisa estar parametrizado para permitir que
+                      o contribuinte emita pelos emissores públicos nacionais (web, aplicativo e API). Muitos
+                      municípios aderem só para recepção e mantêm a emissão no sistema próprio. Nesse caso a API do
+                      Sefin Nacional recusa a nota com a rejeição <b>E0039</b>, e não existe ajuste no sistema que
+                      resolva.
+                    </p>
+                    <p className="text-xs text-amber-700/90 dark:text-amber-400/90 mt-1">
+                      <b>Armação dos Búzios é esse caso</b> (verificado em 29/07/2026): a emissão precisa sair pelo
+                      formato <b>Nacional DPS (E&amp;L)</b>, que envia a mesma DPS, com o mesmo bloco de IBS/CBS, pelo
+                      gateway do próprio município.
+                    </p>
+                  </div>
+
                   {/* Pré-requisitos ADN */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className={`p-3 rounded-xl border flex items-center gap-3 text-sm ${

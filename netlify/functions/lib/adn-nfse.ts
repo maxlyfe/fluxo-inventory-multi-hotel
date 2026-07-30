@@ -300,6 +300,22 @@ function describeSefinError(res: { status: number; body: string }): string {
     return `Sefin Nacional respondeu HTTP ${res.status} com uma página HTML em vez de um erro da API.`;
   }
 
+  // Rejeições que NÃO se resolvem no código: são parametrização do município no
+  // Sistema Nacional. Sem essa traducao, quem opera a recepcao le a mensagem
+  // crua e fica tentando de novo sem ter o que corrigir.
+  if (/E0039/.test(body)) {
+    return 'O município não permite emissão pelos emissores públicos nacionais (rejeição E0039). '
+      + 'O município aderiu ao Sistema Nacional para recepção, mas mantém a emissão no sistema próprio, '
+      + 'então a API do Sefin Nacional não vai autorizar a nota. Não há correção possível no sistema: '
+      + 'ou a prefeitura habilita os emissores públicos nacionais, ou a emissão deve sair pelo provedor '
+      + 'do próprio município (opção "Nacional DPS (E&L)" na configuração fiscal), que envia a mesma DPS '
+      + 'com IBS/CBS.';
+  }
+  if (/E0037/.test(body)) {
+    return 'O código do município emissor não consta no cadastro de convênio do Sistema Nacional '
+      + '(rejeição E0037). Confira o código IBGE do município na configuração fiscal do hotel.';
+  }
+
   let detalhe = body.slice(0, 300);
   try {
     const data = JSON.parse(body);
