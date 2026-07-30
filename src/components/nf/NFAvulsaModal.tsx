@@ -45,6 +45,10 @@ interface AvulsaItem {
   unitPrice: string;          // string para edição no input
   priceEditable: boolean;
   fiscal?: Omit<ProductOption, 'id' | 'name' | 'price'>;
+  // Serviço do catálogo marcado "Incluir em NFC-e como acréscimo" (ex.: taxa
+  // de serviço 10%): entra no subtotal de produtos e no total do cupom, mas
+  // nfService.emitInvoice o retira do <det> e soma em vOutro (sem ICMS/NCM).
+  isAcrescimo?: boolean;
 }
 
 interface EmitSlot {
@@ -190,6 +194,9 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
 
   const serviceItems = useMemo(() => items.filter(i => i.kind === 'service'), [items]);
   const productItems = useMemo(() => items.filter(i => i.kind === 'product'), [items]);
+  // Serviços do catálogo marcados como acréscimo de NFC-e (repasse, ex.: taxa
+  // de serviço 10%) — somam no total do cupom mas não entram como produto/NCM.
+  const acrescimoServices = useMemo(() => services.filter(s => s.nfce_eligible), [services]);
   const includesNfse = tipoAvulsa === 'nfse' || tipoAvulsa === 'ambas';
   const includesNfce = tipoAvulsa === 'nfce' || tipoAvulsa === 'ambas';
   const willEmitNfse = includesNfse && serviceItems.length > 0;
@@ -323,6 +330,16 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
         ibs_cbs_cst: p.ibs_cbs_cst, ibs_cbs_cclasstrib: p.ibs_cbs_cclasstrib,
         ibs_aliquota: p.ibs_aliquota, cbs_aliquota: p.cbs_aliquota,
       },
+    }]);
+  };
+
+  const addAcrescimo = (s: HotelService) => {
+    setItems(prev => [...prev, {
+      key: nextKey(), kind: 'product', refId: s.id, description: s.name,
+      qty: 1,
+      unitPrice: s.pricing_mode === 'fixed' && s.price != null ? String(s.price) : '',
+      priceEditable: true,
+      isAcrescimo: true,
     }]);
   };
 
@@ -698,11 +715,11 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
     `w-full p-2.5 bg-white dark:bg-gray-900 border rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors ${err ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'}`;
   const selCls = 'w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500';
 
-  const filteredServices = services.filter(s => !svcSearch.trim() || s.name.toLowerCase().includes(svcSearch.trim().toLowerCase()));
+  const filteredServices = services.filter(s => !s.nfce_eligible && (!svcSearch.trim() || s.name.toLowerCase().includes(svcSearch.trim().toLowerCase())));
   const filteredProducts = products.filter(p => !prodSearch.trim() || p.name.toLowerCase().includes(prodSearch.trim().toLowerCase()));
 
   const eligibleWarnings = willEmitNfce
-    ? productItems.filter(it => nfceEligible.some(s => matchesEligibleService(it.description, s))).map(it => it.description)
+    ? productItems.filter(it => !it.isAcrescimo && nfceEligible.some(s => matchesEligibleService(it.description, s))).map(it => it.description)
     : [];
 
   const renderSelectedItem = (it: AvulsaItem, badge?: React.ReactNode) => (
@@ -869,7 +886,11 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                         <h4 className="text-sm font-bold text-gray-800 dark:text-white">Produtos (NFC-e)</h4>
                         <span className="text-xs text-gray-400">{productItems.length} selecionado(s)</span>
                       </div>
-                      {productItems.map(it => renderSelectedItem(it, it.fiscal && (
+                      {productItems.map(it => renderSelectedItem(it, it.isAcrescimo ? (
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                          <span className="font-semibold">Acréscimo (vOutro) — sem NCM/imposto</span>
+                        </div>
+                      ) : it.fiscal && (
                         <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500">
                           <span className="font-mono">NCM {it.fiscal.ncm}</span>
                           {it.fiscal.icms_aliquota != null && <span>ICMS {it.fiscal.icms_aliquota}%</span>}
@@ -902,6 +923,28 @@ export const NFAvulsaModal: React.FC<NFAvulsaModalProps> = ({
                           ))}
                         </div>
                       </div>
+
+                      {/* Taxas de repasse (acréscimo NFC-e, ex.: taxa de serviço 10%) */}
+                      {acrescimoServices.length > 0 && (
+                        <div className="border border-amber-200 dark:border-amber-800 rounded-xl overflow-hidden">
+                          <div className="px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800">
+                            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">Taxas de repasse (acréscimo, sem imposto)</span>
+                          </div>
+                          <div className="divide-y divide-amber-100 dark:divide-amber-900/40">
+                            {acrescimoServices.map(s => (
+                              <button
+                                key={s.id} type="button" onClick={() => addAcrescimo(s)}
+                                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                              >
+                                <span className="text-sm text-gray-800 dark:text-gray-200 truncate">{s.name}</span>
+                                <span className="text-xs text-gray-400 whitespace-nowrap">
+                                  {s.pricing_mode === 'fixed' && s.price != null ? fmtBRL(Number(s.price)) : 'Valor variável'}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
