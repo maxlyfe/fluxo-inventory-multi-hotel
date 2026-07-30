@@ -969,7 +969,10 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         inscricao_municipal: config!.inscricao_municipal,
         codigo_municipio: config!.endereco_codigo_municipio || '3300233',
         codigo_servico: config!.codigo_servico || '9.01',
-        codigo_servico_municipal: (config as any).codigo_servico_municipal || null,
+        // cIntContrib da DPS Nacional -- campo dedicado, independente do
+        // codigo_servico_municipal usado pelo SOAP ABRASF (ver migration
+        // 20260730190000_nfse_cint_contrib.sql).
+        codigo_servico_municipal: (config as any).nfse_cint_contrib || null,
         aliquota_iss: config!.aliquota_iss ?? 5,
         // Código NBS: obrigatório na DPS quando ela leva o bloco IBS/CBS (E0322)
         codigo_nbs: (config as any).nfse_codigo_nbs ?? null,

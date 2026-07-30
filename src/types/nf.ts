@@ -59,6 +59,7 @@ export interface NFHotelConfig {
   el_token: string | null;
   el_ambiente: NFAmbiente;
   codigo_servico_municipal: string | null;
+  nfse_cint_contrib: string | null;
   logo_url: string | null;
 
   // Reforma Tributária (IBS/CBS) — NFC-e/NF-e: grupos IBSCBS + IBSCBSTot.

@@ -77,6 +77,7 @@ const EMPTY_FORM = {
   el_token: '',
   el_ambiente: 'homologacao' as NFAmbiente,
   codigo_servico_municipal: '',
+  nfse_cint_contrib: '',
   nfse_codigo_nbs: '103031100',
   nfse_ibs_cbs_cst: '000',
   nfse_ibs_cbs_cclasstrib: '000001',
@@ -193,6 +194,7 @@ const NFIntegration: React.FC = () => {
           el_token: (cfg as any).el_token || '',
           el_ambiente: (cfg as any).el_ambiente || 'homologacao',
           codigo_servico_municipal: (cfg as any).codigo_servico_municipal || '',
+          nfse_cint_contrib: (cfg as any).nfse_cint_contrib || '',
           nfse_codigo_nbs: (cfg as any).nfse_codigo_nbs || '103031100',
           nfse_ibs_cbs_cst: (cfg as any).nfse_ibs_cbs_cst || '000',
           nfse_ibs_cbs_cclasstrib: (cfg as any).nfse_ibs_cbs_cclasstrib || '000001',
@@ -693,17 +695,17 @@ const NFIntegration: React.FC = () => {
                       <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
                     </div>
                     <div>
-                      <label className={labelCls}>Código de serviço municipal</label>
-                      <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="Ex: 0901" maxLength={20} />
+                      <label className={labelCls}>Código de serviço municipal (cIntContrib)</label>
+                      <input type="text" value={form.nfse_cint_contrib} onChange={upd('nfse_cint_contrib')} className={inputCls} placeholder="Ex: 0901" maxLength={20} />
                       <p className="text-xs text-gray-500 mt-1">
                         O código do serviço na legislação do município. Na NFS-e Nacional ele vai no campo
-                        <b> cIntContrib</b>, que Búzios exige preenchido e confere contra a tabela municipal.
+                        <b> cIntContrib</b>, que Búzios exige preenchido.
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        <b>Só letras e números:</b> o schema recusa ponto, então digite <b>0901</b> e não 9.01
-                        (pontuação é removida no envio). Se a nota voltar com <b>E35</b> (código inválido), o valor
-                        existe mas não nessa forma: tente <b>901</b> ou <b>090101</b>, ou confirme a grafia exata na
-                        tabela de serviços do portal da prefeitura. Se voltar <b>EL84</b>, o campo chegou vazio.
+                        <b>Campo próprio, independente do "Código de Tributação Municipal" da aba ABRASF</b> — cada
+                        formato de emissão usa o seu, sem se sobrescreverem ao trocar de aba. Só letras e números:
+                        a pontuação é removida no envio (9.01 e 9,01 viram 901). Se voltar <b>EL84</b>, o campo
+                        chegou vazio.
                       </p>
                     </div>
                     <div>
@@ -826,10 +828,11 @@ const NFIntegration: React.FC = () => {
                       <input type="text" value={form.codigo_servico} onChange={upd('codigo_servico')} className={inputCls} placeholder="9.01 — Hospedagem" />
                     </div>
                     <div>
-                      <label className={labelCls}>Código de Tributação Municipal</label>
+                      <label className={labelCls}>Código de Tributação Municipal (ABRASF)</label>
                       <input type="text" value={form.codigo_servico_municipal} onChange={upd('codigo_servico_municipal')} className={inputCls} placeholder="9.01 (com ponto, como no portal)" />
                       <p className="text-xs text-gray-400 mt-1">
                         Valor da tabela do município, com ponto (ex.: 9.01 — confirmado nas notas emitidas no portal). Vazio = usa o Código de Serviço.
+                        Exclusivo do SOAP ABRASF — a NFS-e Nacional usa o campo "cIntContrib" da aba Nacional DPS, que não é afetado por este.
                       </p>
                     </div>
                     <div>
