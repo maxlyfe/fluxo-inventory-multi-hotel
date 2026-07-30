@@ -744,7 +744,9 @@ async function getInvoicesByBooking(
     .from('nf_invoices')
     .select('*')
     .eq('hotel_id', hotelId)
-    .in('status', ['autorizada', 'contingencia'])
+    // 'emitida' = DPS aceita pelo municipio, aguardando numero/chave. A nota
+    // existe e precisa contar como emitida, senao a reserva volta para a fila.
+    .in('status', ['autorizada', 'contingencia', 'emitida'])
     .order('created_at', { ascending: false });
 
   if (erbonBookingId != null) {

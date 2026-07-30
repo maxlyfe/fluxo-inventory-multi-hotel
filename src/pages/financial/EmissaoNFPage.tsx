@@ -240,7 +240,9 @@ export default function EmissaoNFPage() {
       supabase.from('nf_invoices')
         .select('*')
         .eq('hotel_id', hotelId)
-        .in('status', ['autorizada', 'contingencia']),
+        // 'emitida' = DPS aceita pelo municipio, aguardando numero/chave. Sem
+        // isso a reserva volta para "Adequadas" e permite emitir nota duplicada.
+        .in('status', ['autorizada', 'contingencia', 'emitida']),
       nfService.getConfig(hotelId),
     ]);
 
@@ -411,7 +413,7 @@ export default function EmissaoNFPage() {
         .eq('hotel_id', hotelId)
         .is('erbon_booking_id', null)
         .is('booking_number', null)
-        .in('status', ['autorizada', 'contingencia'])
+        .in('status', ['autorizada', 'contingencia', 'emitida'])
         .gte('created_at', period.from)
         .lte('created_at', period.to + 'T23:59:59')
         .order('created_at', { ascending: false });
@@ -1045,6 +1047,9 @@ export default function EmissaoNFPage() {
                   {inv.status === 'contingencia' && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">contingência</span>
                   )}
+                  {inv.status === 'emitida' && !inv.numero_nf && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">aguardando número</span>
+                  )}
                   <div className="flex-1 min-w-[140px]">
                     <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">{inv.tomador_nome || 'Consumidor final'}</span>
                     <span className="block text-xs text-gray-400">
@@ -1294,6 +1299,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                 <span key={inv.id} className="text-xs font-medium text-blue-600 dark:text-blue-400">
                   {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'} {inv.numero_nf ? `nº ${inv.numero_nf}` : ''}
                   {inv.status === 'contingencia' ? ' · contingência' : ''}
+                  {inv.status === 'emitida' && !inv.numero_nf ? ' · aguardando número' : ''}
                 </span>
               ))}
             </div>
