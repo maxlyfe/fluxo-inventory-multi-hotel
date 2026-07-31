@@ -192,3 +192,49 @@ describe("NFS-e via Sefin Nacional ('adn') — bloco IBSCBS", () => {
     expect(build(true)).toContain('</IBSCBS></infDPS>');
   });
 });
+
+describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => {
+  // O grupo do tomador é exigido para o indicador de operação que emitimos.
+  // Antes ele era omitido quando o hóspede não tinha CPF/CNPJ brasileiro, e a
+  // nota de qualquer estrangeiro voltava com E0187.
+  const buildToma = (tomador: any) =>
+    buildDpsXml(elConfig(true), tomador, elItems, '1', 1).xml.match(/<toma>[\s\S]*?<\/toma>/)?.[0];
+
+  it('identifica o tomador por CPF quando o documento tem 11 dígitos', () => {
+    const toma = buildToma({ cpf_cnpj: '011.909.259-07', doc_tipo: 'cpf', razao_social: 'FULANO' });
+    expect(toma).toBe('<toma><CPF>01190925907</CPF><xNome>FULANO</xNome></toma>');
+  });
+
+  it('identifica por CNPJ quando o documento tem 14 dígitos', () => {
+    const toma = buildToma({ cpf_cnpj: '39.232.073/0002-25', doc_tipo: 'cnpj', razao_social: 'EMPRESA' });
+    expect(toma).toContain('<CNPJ>39232073000225</CNPJ>');
+  });
+
+  it('emite o grupo com cNaoNIF=2 para hóspede com passaporte', () => {
+    const toma = buildToma({ cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'CARLOS LEONEL MERLO GIMENEZ' });
+    expect(toma).toBe('<toma><cNaoNIF>2</cNaoNIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
+    // Passaporte não é NIF nem CPF — não pode vazar para nenhum dos dois.
+    expect(toma).not.toContain('25130937');
+  });
+
+  it('usa cNaoNIF quando o documento tem tamanho invalido para CPF/CNPJ', () => {
+    const toma = buildToma({ cpf_cnpj: '000000', doc_tipo: 'cpf', razao_social: 'não identificado' });
+    expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
+    expect(toma).not.toContain('<CPF>');
+  });
+
+  it('usa cNaoNIF quando não há documento nenhum', () => {
+    const toma = buildToma({ cpf_cnpj: null, doc_tipo: null, razao_social: 'CONSUMIDOR' });
+    expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
+  });
+
+  it('mantém o endereço nacional quando o tomador tem CEP e município', () => {
+    const toma = buildToma({
+      cpf_cnpj: '01190925907', doc_tipo: 'cpf', razao_social: 'FULANO',
+      endereco: 'Rua das Pedras', numero: '10', bairro: 'Centro',
+      codigo_municipio: '3300233', cep: '28950-000',
+    });
+    expect(toma).toContain('<end><endNac><cMun>3300233</cMun><CEP>28950000</CEP></endNac>');
+    expect(toma).toContain('<nro>10</nro>');
+  });
+});

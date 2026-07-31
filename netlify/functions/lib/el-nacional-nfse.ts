@@ -236,13 +236,30 @@ export function buildDpsXml(
   // <xDescServ> é TSDesc2000 — estourar o limite volta como rejeição E1235.
   const discriminacao = buildDiscriminacao(items, ' | ');
 
-  // Tomador
+  // Tomador. O grupo <toma> é obrigatório para o indicador de operação que
+  // emitimos (rejeição E0187), então ele sai sempre que houver nome — o que
+  // muda é só COMO a pessoa é identificada.
+  //
+  // TCInfoPessoa aceita, em escolha exclusiva, CNPJ | CPF | NIF | cNaoNIF.
+  // Passaporte não é NIF (número fiscal emitido por administração tributária
+  // estrangeira) e não cabe em nenhum outro campo do grupo, então hóspede
+  // estrangeiro entra como cNaoNIF, cujos únicos valores válidos são
+  // 1 (dispensado do NIF) e 2 (não exigência do NIF).
+  // Manual de Integração NFS-e Nacional v1.01, tipo TCInfoPessoa.
+  //
+  // CPF e CNPJ também exigem tamanho exato no schema, então documento de
+  // tamanho estranho (o "000000" que a recepção digita em hóspede não
+  // identificado) vai por cNaoNIF em vez de reprovar no schema.
   let tomaXml = '';
-  if (tomador.cpf_cnpj && tomador.doc_tipo !== 'passaporte') {
-    const doc = tomador.cpf_cnpj.replace(/\D/g, '');
-    const isCnpj = tomador.doc_tipo === 'cnpj' || doc.length > 11;
+  if (tomador.razao_social) {
+    const doc = (tomador.cpf_cnpj || '').replace(/\D/g, '');
+    const docBrValido = tomador.doc_tipo !== 'passaporte' && (doc.length === 11 || doc.length === 14);
     tomaXml += '<toma>';
-    tomaXml += isCnpj ? `<CNPJ>${doc}</CNPJ>` : `<CPF>${doc}</CPF>`;
+    if (docBrValido) {
+      tomaXml += doc.length === 14 ? `<CNPJ>${doc}</CNPJ>` : `<CPF>${doc}</CPF>`;
+    } else {
+      tomaXml += '<cNaoNIF>2</cNaoNIF>';
+    }
     tomaXml += `<xNome>${xmlEsc(tomador.razao_social)}</xNome>`;
     if (tomador.endereco && tomador.codigo_municipio && tomador.cep) {
       tomaXml += '<end>';
