@@ -79,9 +79,14 @@ export interface WebCheckinGuest {
     state?: string;
     city?: string;
     street?: string;
+    number?: string;
+    complement?: string;
     zipcode?: string;
     neighborhood?: string;
+    cityIbge?: string;    // código IBGE do município (ViaCEP.ibge)
   };
+  profession?: string;
+  vehicleRegistration?: string;
   documentFrontUrl?: string;
   documentBackUrl?: string;
   // Campos exclusivos FNRH Gov (não enviados à Erbon)
@@ -267,8 +272,11 @@ export interface SaveFichaGuestParams {
   addressState?: string;
   addressCity?: string;
   addressStreet?: string;
+  addressNumber?: string;
+  addressComplement?: string;
   addressZipcode?: string;
   addressNeighborhood?: string;
+  addressCityIbge?: string;
   documentFrontUrl?: string;
   documentBackUrl?: string;
   // Campos FNRH Gov
@@ -283,99 +291,109 @@ export interface SaveFichaGuestParams {
   fnrhResponsavelDocTipo?:    string;
 }
 
-export interface SaveFichaParams {
-  hotelId: string;
-  bookingNumber?: string;
-  bookingInternalId?: number | null;
-  roomNumber?: string;
-  checkinDate?: string;
-  checkoutDate?: string;
-  guests: SaveFichaGuestParams[];
+/**
+ * Chave que identifica o hóspede dentro da reserva. Espelha
+ * public.wci_normalize_name / wci_upsert_guest_ficha no banco: o id da Erbon
+ * quando existe, senão o nome normalizado. Usada para finalizar a ficha certa.
+ */
+export function buildGuestKey(erbonGuestId: number | null | undefined, name: string): string {
+  if (erbonGuestId && erbonGuestId > 0) return `erbon:${erbonGuestId}`;
+  return `name:${(name || '').trim().replace(/\s+/g, ' ').toLowerCase()}`;
+}
+
+/**
+ * Grava (ou atualiza) a ficha de UM hóspede, assim que ele conclui o
+ * preenchimento — sem esperar a assinatura. É o que faz o dado aparecer em
+ * /reception/wci-fichas e alimentar o tomador da NF.
+ *
+ * Vai por RPC SECURITY DEFINER porque o hotel e a reserva são resolvidos a
+ * partir do session_token no banco: a chave anon não tem (nem deve ter)
+ * permissão de UPDATE nessas tabelas.
+ *
+ * Retorna o UUID da ficha do hóspede.
+ */
+export async function upsertGuestFicha(
+  sessionToken: string,
+  guest: SaveFichaGuestParams,
+  meta?: { roomNumber?: string; checkinDate?: string; checkoutDate?: string; source?: 'web' | 'totem' | 'manual' },
+): Promise<string> {
+  const { data, error } = await anonClient.rpc('wci_upsert_guest_ficha', {
+    p_session_token: sessionToken,
+    p_guest: {
+      is_main_guest:        guest.isMainGuest,
+      erbon_guest_id:       guest.erbonGuestId ?? null,
+      name:                 guest.name,
+      email:                guest.email                ?? null,
+      phone:                guest.phone                ?? null,
+      birth_date:           guest.birthDate            ?? null,
+      gender_id:            guest.genderId             ?? null,
+      nationality:          guest.nationality          ?? null,
+      profession:           guest.profession           ?? null,
+      vehicle_registration: guest.vehicleRegistration  ?? null,
+      document_type:        guest.documentType         ?? null,
+      document_number:      guest.documentNumber       ?? null,
+      document_expiration:  guest.documentExpiration   ?? null,
+      address_country:      guest.addressCountry       ?? null,
+      address_state:        guest.addressState         ?? null,
+      address_city:         guest.addressCity          ?? null,
+      address_street:       guest.addressStreet        ?? null,
+      address_number:       guest.addressNumber        ?? null,
+      address_complement:   guest.addressComplement    ?? null,
+      address_neighborhood: guest.addressNeighborhood  ?? null,
+      address_zipcode:      guest.addressZipcode       ?? null,
+      address_city_ibge:    guest.addressCityIbge      ?? null,
+      document_front_url:   guest.documentFrontUrl     ?? null,
+      document_back_url:    guest.documentBackUrl      ?? null,
+      fnrh_raca_id:               guest.fnrhRacaId              ?? null,
+      fnrh_deficiencia_id:        guest.fnrhDeficienciaId       ?? null,
+      fnrh_tipo_deficiencia_id:   guest.fnrhTipoDeficienciaId   ?? null,
+      fnrh_motivo_viagem_id:      guest.fnrhMotivoViagemId      ?? null,
+      fnrh_meio_transporte_id:    guest.fnrhMeioTransporteId    ?? null,
+      fnrh_grau_parentesco_id:    guest.fnrhGrauParentescoId    ?? null,
+      fnrh_responsavel_documento: guest.fnrhResponsavelDocumento ?? null,
+      fnrh_responsavel_doc_tipo:  guest.fnrhResponsavelDocTipo   ?? null,
+    },
+    p_room_number:   meta?.roomNumber   ?? null,
+    p_checkin_date:  meta?.checkinDate  ?? null,
+    p_checkout_date: meta?.checkoutDate ?? null,
+    p_source:        meta?.source       ?? 'web',
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/**
+ * Fecha a ficha: grava assinatura e aceite de termos e marca status
+ * 'completed'. Sem guestKey finaliza todas as fichas da reserva (totem, onde o
+ * titular assina por todos); com guestKey finaliza só a do hóspede no aparelho.
+ *
+ * Retorna quantas fichas foram finalizadas — 0 significa que nenhum hóspede
+ * chegou a salvar o preenchimento, e o chamador deve tratar como erro.
+ */
+export async function finalizeFicha(params: {
+  sessionToken: string;
+  guestKey?: string | null;
+  signatureData?: string;
   hotelTermsAccepted: boolean;
   lgpdAccepted: boolean;
-  signatureData?: string;
   hotelTermsText?: string;
   lgpdTermsText?: string;
   hotelRulesDocUrl?: string;
   lgpdDocUrl?: string;
-  source?: 'web' | 'totem' | 'manual';
-}
-
-/**
- * Persiste uma ficha de check-in completa no banco.
- * INSERT em wci_checkin_fichas, depois INSERT de todos os hóspedes em wci_checkin_guests.
- * Retorna o UUID da ficha criada.
- */
-export async function saveFichaToDatabase(params: SaveFichaParams): Promise<string> {
-  const mainGuest = params.guests.find(g => g.isMainGuest) || params.guests[0];
-
-  const { data: fichaData, error: fichaError } = await anonClient
-    .from('wci_checkin_fichas')
-    .insert({
-      hotel_id: params.hotelId,
-      booking_number: params.bookingNumber || null,
-      booking_internal_id: params.bookingInternalId || null,
-      room_number: params.roomNumber || null,
-      checkin_date: params.checkinDate || null,
-      checkout_date: params.checkoutDate || null,
-      guest_name: mainGuest?.name || '',
-      hotel_terms_accepted: params.hotelTermsAccepted,
-      lgpd_accepted: params.lgpdAccepted,
-      signature_data: params.signatureData || null,
-      hotel_terms_text: params.hotelTermsText || null,
-      lgpd_terms_text: params.lgpdTermsText || null,
-      hotel_rules_doc_url: params.hotelRulesDocUrl || null,
-      lgpd_doc_url: params.lgpdDocUrl || null,
-      source: params.source || 'web',
-      created_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-
-  if (fichaError) throw fichaError;
-  const fichaId: string = fichaData.id;
-
-  const guestRows = params.guests.map(g => ({
-    ficha_id: fichaId,
-    is_main_guest: g.isMainGuest,
-    erbon_guest_id: g.erbonGuestId || null,
-    name: g.name,
-    email: g.email || null,
-    phone: g.phone || null,
-    birth_date: g.birthDate || null,
-    gender_id: g.genderId || null,
-    nationality: g.nationality || null,
-    profession: g.profession || null,
-    vehicle_registration: g.vehicleRegistration || null,
-    document_type: g.documentType || null,
-    document_number: g.documentNumber || null,
-    document_expiration: g.documentExpiration || null,
-    address_country: g.addressCountry || null,
-    address_state: g.addressState || null,
-    address_city: g.addressCity || null,
-    address_street: g.addressStreet || null,
-    address_zipcode: g.addressZipcode || null,
-    address_neighborhood: g.addressNeighborhood || null,
-    document_front_url: g.documentFrontUrl || null,
-    document_back_url: g.documentBackUrl || null,
-    // Campos FNRH Gov
-    fnrh_raca_id:              g.fnrhRacaId               || null,
-    fnrh_deficiencia_id:       g.fnrhDeficienciaId        || null,
-    fnrh_tipo_deficiencia_id:  g.fnrhTipoDeficienciaId    || null,
-    fnrh_motivo_viagem_id:     g.fnrhMotivoViagemId       || null,
-    fnrh_meio_transporte_id:   g.fnrhMeioTransporteId     || null,
-    fnrh_grau_parentesco_id:   g.fnrhGrauParentescoId     || null,
-    fnrh_responsavel_documento: g.fnrhResponsavelDocumento || null,
-    fnrh_responsavel_doc_tipo:  g.fnrhResponsavelDocTipo   || null,
-  }));
-
-  const { error: guestsError } = await anonClient
-    .from('wci_checkin_guests')
-    .insert(guestRows);
-
-  if (guestsError) throw guestsError;
-
-  return fichaId;
+}): Promise<number> {
+  const { data, error } = await anonClient.rpc('wci_finalize_ficha', {
+    p_session_token:        params.sessionToken,
+    p_signature:            params.signatureData    ?? null,
+    p_hotel_terms_accepted: params.hotelTermsAccepted,
+    p_lgpd_accepted:        params.lgpdAccepted,
+    p_hotel_terms_text:     params.hotelTermsText   ?? null,
+    p_lgpd_terms_text:      params.lgpdTermsText    ?? null,
+    p_hotel_rules_doc_url:  params.hotelRulesDocUrl ?? null,
+    p_lgpd_doc_url:         params.lgpdDocUrl       ?? null,
+    p_guest_key:            params.guestKey         ?? null,
+  });
+  if (error) throw error;
+  return (data as number) ?? 0;
 }
 
 /**

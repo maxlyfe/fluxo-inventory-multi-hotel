@@ -152,8 +152,11 @@ interface FnrhGuestData {
   address_state: string | null;
   address_city: string | null;
   address_street: string | null;
+  address_number: string | null;
+  address_complement: string | null;
   address_zipcode: string | null;
   address_neighborhood: string | null;
+  address_city_ibge: string | null;
   fnrh_raca_id: string | null;
   fnrh_deficiencia_id: string | null;
   fnrh_tipo_deficiencia_id: string | null;
@@ -177,7 +180,8 @@ async function fetchFnrhExtrasForBooking(
       wci_checkin_guests(
         name, document_type, document_number, birth_date, gender_id, nationality,
         email, phone,
-        address_country, address_state, address_city, address_street, address_zipcode, address_neighborhood,
+        address_country, address_state, address_city, address_street,
+        address_number, address_complement, address_zipcode, address_neighborhood, address_city_ibge,
         fnrh_raca_id, fnrh_deficiencia_id, fnrh_tipo_deficiencia_id,
         fnrh_motivo_viagem_id, fnrh_meio_transporte_id,
         fnrh_grau_parentesco_id, fnrh_responsavel_documento, fnrh_responsavel_doc_tipo
@@ -219,8 +223,11 @@ async function fetchFnrhExtrasForBooking(
     address_state:        g.address?.state           || null,
     address_city:         g.address?.city            || null,
     address_street:       g.address?.street          || null,
+    address_number:       g.address?.number          || null,
+    address_complement:   g.address?.complement      || null,
     address_zipcode:      g.address?.zipcode         || null,
     address_neighborhood: g.address?.neighborhood    || null,
+    address_city_ibge:    g.address?.cityIbge        || null,
     // FNRH fields — novos guests têm fnrh_extra; legados podem ter na raiz
     fnrh_raca_id:             g.fnrh_extra?.raca_id             ?? g.fnrh_raca_id             ?? null,
     fnrh_deficiencia_id:      g.fnrh_extra?.deficiencia_id      ?? g.fnrh_deficiencia_id      ?? null,
@@ -384,11 +391,14 @@ async function processCheckin(
           telefone:          g.phone                || '',
           cep:               g.address_zipcode      || '',
           logradouro:        g.address_street       || '',
-          numero:            '',
-          complemento:       '',
+          // Iam vazios porque não existiam no banco. Agora o formulário do web
+          // check-in captura número/complemento em campos próprios, e o
+          // cidade_id sai do código IBGE resolvido na consulta de CEP.
+          numero:            g.address_number       || '',
+          complemento:       g.address_complement   || '',
           bairro:            g.address_neighborhood || '',
           PaisResidencia_id: g.address_country      || 'BR',
-          cidade_id:         null,
+          cidade_id:         g.address_city_ibge    || null,
           estado_id:         g.address_state        || '',
         },
       },

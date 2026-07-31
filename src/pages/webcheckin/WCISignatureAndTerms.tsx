@@ -5,7 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CheckCircle, Home, PenLine, Trash2 } from 'lucide-react';
 import { useWCI } from './WebCheckinLayout';
 import {
-  saveFichaToDatabase,
+  upsertGuestFicha,
+  finalizeFicha,
   fetchHotelPolicies,
   resolveHotelByCode,
   resolveSession,
@@ -43,7 +44,6 @@ export default function WCISignatureAndTerms() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [realHotelId, setRealHotelId] = useState<string | null>(null);
-  const [bookingRef, setBookingRef] = useState('');
 
   // Signature canvas
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,12 +65,12 @@ export default function WCISignatureAndTerms() {
       }).catch(() => {});
     }).catch(() => {});
 
-    // Carregar guests e booking number da sessão no servidor (fonte confiável)
-    // Guests ficam em wci_sessions.guests sob o numeric booking ID,
-    // mas resolveSession busca pelo session_token, então retorna a sessão correta.
+    // Carregar guests da sessão no servidor (fonte confiável). Guests ficam em
+    // wci_sessions.guests sob o numeric booking ID, mas resolveSession busca
+    // pelo session_token, então retorna a sessão correta. O número da reserva
+    // não é lido aqui: as RPCs de ficha o resolvem a partir do próprio token.
     resolveSession(sessionToken).then(session => {
       if (session?.guests?.length) setGuests(session.guests);
-      if (session?.bookingNumber) setBookingRef(session.bookingNumber);
     }).catch(() => {
       // fallback ao localStorage se o servidor falhar
       const stored = loadGuestsFromStorage(sessionToken) || [];
@@ -194,49 +194,62 @@ export default function WCISignatureAndTerms() {
       }
       const latestGuests = merged.size > 0 ? Array.from(merged.values()) : guests;
 
-      // Resolve booking number on-demand if not yet populated
-      let finalBookingRef = bookingRef || session?.bookingNumber || '';
+      // Cada hóspede tem a SUA ficha, criada no WCIFNRHForm assim que concluiu o
+      // preenchimento. Aqui o upsert é uma rede de segurança (cobre falha de
+      // rede no passo anterior e hóspede vindo pronto da Erbon) e é idempotente.
+      for (const g of latestGuests.filter(x => x.fnrhCompleted)) {
+        try {
+          await upsertGuestFicha(sessionToken, {
+            isMainGuest:  g.isMainGuest,
+            erbonGuestId: typeof g.id === 'number' && g.id > 0 ? g.id : null,
+            name:         g.name,
+            email:        g.email,
+            phone:        g.phone,
+            documentType:   g.documents?.[0]?.documentType,
+            documentNumber: g.documents?.[0]?.number,
+            documentExpiration: g.documents?.[0]?.expirationDate?.split('T')[0],
+            birthDate:    g.birthDate,
+            genderId:     g.genderID,
+            nationality:  g.nationality,
+            profession:   g.profession,
+            vehicleRegistration: g.vehicleRegistration,
+            addressCountry:      g.address?.country,
+            addressState:        g.address?.state,
+            addressCity:         g.address?.city,
+            addressStreet:       g.address?.street,
+            addressNumber:       g.address?.number,
+            addressComplement:   g.address?.complement,
+            addressZipcode:      g.address?.zipcode,
+            addressNeighborhood: g.address?.neighborhood,
+            addressCityIbge:     g.address?.cityIbge,
+            documentFrontUrl: g.documentFrontUrl,
+            documentBackUrl:  g.documentBackUrl,
+            // Campos FNRH Gov — passados da sessão para o banco permanente
+            fnrhRacaId:             g.fnrh_extra?.raca_id,
+            fnrhDeficienciaId:      g.fnrh_extra?.deficiencia_id,
+            fnrhTipoDeficienciaId:  g.fnrh_extra?.tipo_deficiencia_id,
+            fnrhMotivoViagemId:     g.fnrh_extra?.motivo_viagem_id,
+            fnrhMeioTransporteId:   g.fnrh_extra?.meio_transporte_id,
+            fnrhGrauParentescoId:   g.fnrh_extra?.grau_parentesco_id,
+            fnrhResponsavelDocumento: g.fnrh_extra?.responsavel_documento,
+            fnrhResponsavelDocTipo:  g.fnrh_extra?.responsavel_doc_tipo,
+          }, { source: 'web' });
+        } catch (upsertErr) {
+          console.error('[WCISignature] Falha ao gravar ficha de', g.name, upsertErr);
+        }
+      }
 
-      const guestsForDb = latestGuests.map(g => ({
-        isMainGuest: g.isMainGuest,
-        erbonGuestId: typeof g.id === 'number' && g.id > 0 ? g.id : null,
-        name: g.name,
-        email: g.email,
-        phone: g.phone,
-        documentType: g.documents?.[0]?.documentType,
-        documentNumber: g.documents?.[0]?.number,
-        documentExpiration: g.documents?.[0]?.expirationDate?.split('T')[0],
-        birthDate: g.birthDate,
-        genderId: g.genderID,
-        nationality: g.nationality,
-        addressCountry: g.address?.country,
-        addressState: g.address?.state,
-        addressCity: g.address?.city,
-        addressStreet: g.address?.street,
-        addressZipcode: g.address?.zipcode,
-        addressNeighborhood: g.address?.neighborhood,
-        documentFrontUrl: g.documentFrontUrl,
-        documentBackUrl: g.documentBackUrl,
-        // Campos FNRH Gov — passados da sessão para o banco permanente
-        fnrhRacaId:             g.fnrh_extra?.raca_id,
-        fnrhDeficienciaId:      g.fnrh_extra?.deficiencia_id,
-        fnrhTipoDeficienciaId:  g.fnrh_extra?.tipo_deficiencia_id,
-        fnrhMotivoViagemId:     g.fnrh_extra?.motivo_viagem_id,
-        fnrhMeioTransporteId:   g.fnrh_extra?.meio_transporte_id,
-        fnrhGrauParentescoId:   g.fnrh_extra?.grau_parentesco_id,
-        fnrhResponsavelDocumento: g.fnrh_extra?.responsavel_documento,
-        fnrhResponsavelDocTipo:  g.fnrh_extra?.responsavel_doc_tipo,
-      }));
-
-      const fichaId = await saveFichaToDatabase({
-        hotelId: hotelUUID,
-        bookingNumber: finalBookingRef || undefined,
-        guests: guestsForDb,
+      // Uma assinatura do titular vale para a reserva: sem guestKey, finaliza
+      // todas as fichas desta sessão.
+      const finalized = await finalizeFicha({
+        sessionToken,
+        signatureData,
         hotelTermsAccepted,
         lgpdAccepted,
-        signatureData,
-        source: 'web',
       });
+      if (finalized === 0) {
+        throw new Error('Nenhuma ficha encontrada para finalizar. Procure a recepção.');
+      }
 
       if (sessionToken) clearGuestsFromStorage(sessionToken);
       setConfirmed(true);

@@ -34,7 +34,9 @@ import {
   fetchFreshBookingGuests,
   submitSignature,
   submitAttachment,
-  saveFichaToDatabase,
+  upsertGuestFicha,
+  finalizeFicha,
+  buildGuestKey,
   uploadBase64ToStorage,
   WebCheckinGuest,
 } from './webCheckinService';
@@ -297,6 +299,9 @@ export default function WCICompanionEntry() {
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
   const [savedGuestId, setSavedGuestId] = useState<number | null>(existingGuestId);
+  // Chave da ficha individual criada no passo do FNRH — é ela que a assinatura
+  // finaliza. Fica no state porque o id da Erbon pode mudar no meio do caminho.
+  const [fichaGuestKey, setFichaGuestKey] = useState<string | null>(null);
   const [sendQueue, setSendQueue] = useState<QueueItem[]>([]);
   const [activeTab, setActiveTab] = useState<'hotel' | 'lgpd'>('hotel');
   const [docUploads, setDocUploads] = useState<Array<{ preview: string; base64: string; name: string }>>([]);
@@ -321,8 +326,13 @@ export default function WCICompanionEntry() {
   const [state, setState]                   = useState('');
   const [city, setCity]                     = useState('');
   const [street, setStreet]                 = useState('');
+  const [addrNumber, setAddrNumber]         = useState('');
+  const [complement, setComplement]         = useState('');
   const [zipcode, setZipcode]               = useState('');
   const [neighborhood, setNeighborhood]     = useState('');
+  // Código IBGE do município (ViaCEP.ibge) — <endNac><cMun> da NFS-e e
+  // cidade_id do FNRH Gov. Não tem campo na tela: vem só da consulta de CEP.
+  const [cityIbge, setCityIbge]             = useState('');
   const [cepLoading, setCepLoading]         = useState(false);
   const [birthDateDisplay, setBirthDateDisplay] = useState(''); // DD/MM/AAAA
 
@@ -378,6 +388,7 @@ export default function WCICompanionEntry() {
       if (data.bairro)     setNeighborhood(data.bairro);
       if (data.localidade) setCity(data.localidade);
       if (data.uf)         { setState(data.uf); setCountry('BR'); }
+      if (data.ibge)         setCityIbge(String(data.ibge));
     } catch { /* usuário preenche manualmente */ }
     finally  { setCepLoading(false); }
   };
@@ -465,14 +476,20 @@ export default function WCICompanionEntry() {
             if (g.birthDate)   { setBirthDate(g.birthDate); setBirthDateDisplay(isoToDisplay(g.birthDate)); }
             if (g.genderID)    setGenderID(g.genderID);
 
+            if (g.profession)          setProfession(g.profession);
+            if (g.vehicleRegistration) setVehicleRegistration(g.vehicleRegistration);
+
             // Endereço
             if (g.address) {
               if (g.address.country)      setCountry(g.address.country);
               if (g.address.state)        setState(g.address.state);
               if (g.address.city)         setCity(g.address.city);
               if (g.address.street)       setStreet(g.address.street);
+              if (g.address.number)       setAddrNumber(g.address.number);
+              if (g.address.complement)   setComplement(g.address.complement);
               if (g.address.zipcode)      setZipcode(g.address.zipcode);
               if (g.address.neighborhood) setNeighborhood(g.address.neighborhood);
+              if (g.address.cityIbge)     setCityIbge(g.address.cityIbge);
             }
 
             if (g.fnrhCompleted) setStep('signature');
@@ -550,8 +567,15 @@ export default function WCICompanionEntry() {
       }
     }
 
+    if (street.trim() && !addrNumber.trim()) {
+      setError('Informe o número do endereço (use S/N se não houver).');
+      return;
+    }
+
     const addressCountry = (country && country !== 'OTHER') ? country : (nationality !== 'BR' ? nationality : 'BR');
     const isBR           = addressCountry === 'BR';
+    // A Erbon tem um único campo de logradouro: rua e número vão juntos lá.
+    const erbonStreet    = [street.trim(), addrNumber.trim()].filter(Boolean).join(', ') || undefined;
 
     setSaving(true);
     setError('');
@@ -581,7 +605,7 @@ export default function WCICompanionEntry() {
           state:        isBR ? (state        || undefined) : undefined,
           zipcode:      isBR ? (zipcode      || undefined) : undefined,
           city:         city         || undefined,
-          street:       street       || undefined,
+          street:       erbonStreet,
           neighborhood: neighborhood || undefined,
         },
       };
@@ -626,7 +650,26 @@ export default function WCICompanionEntry() {
         ...(documentExpiration ? { expirationDate: documentExpiration } : {}),
       }] : [];
 
+      // Endereço na sessão fica estruturado (número/complemento/IBGE separados),
+      // diferente do payload da Erbon, que só tem um campo de logradouro.
+      const localAddress: WebCheckinGuest['address'] = {
+        country:      addressCountry,
+        state:        state        || undefined,
+        city:         city         || undefined,
+        street:       street.trim()     || undefined,
+        number:       addrNumber.trim() || undefined,
+        complement:   complement.trim() || undefined,
+        zipcode:      zipcode      || undefined,
+        neighborhood: neighborhood || undefined,
+        cityIbge:     cityIbge     || undefined,
+      };
+
       const stored = (await loadGuestsFromServer(realBookingId)) || loadGuestsFromStorage(realBookingId) || [];
+      // Mesma regra que a gravação da ficha já usava antes (quem entra sem
+      // guestId na URL é o titular): mantida igual nos dois pontos de escrita
+      // para o is_main_guest não trocar entre o FNRH e a assinatura.
+      const isMain = !existingGuestId;
+
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: newId, name: domName, email: email.trim(), phone: phone.trim(),
@@ -634,7 +677,9 @@ export default function WCICompanionEntry() {
           birthDate: birthDate || undefined,
           genderID: genderID || undefined,
           nationality: nationality || undefined,
-          address: payload.address,
+          profession: profession.trim() || undefined,
+          vehicleRegistration: vehicleRegistration.trim() || undefined,
+          address: localAddress,
           fnrh_extra: fnrhExtra,
           erbonSynced,
         };
@@ -647,11 +692,60 @@ export default function WCICompanionEntry() {
                 birthDate: birthDate || g.birthDate,
                 genderID: genderID || g.genderID,
                 nationality: nationality || g.nationality,
-                address: payload.address,
+                profession: profession.trim() || g.profession,
+                vehicleRegistration: vehicleRegistration.trim() || g.vehicleRegistration,
+                address: localAddress,
                 fnrhCompleted: true, fnrh_extra: fnrhExtra, erbonSynced }
             : g
         ), realHotelId, bookingRef);
       }
+
+      // Ficha individual deste hóspede, gravada já aqui: quem preenche e não
+      // chega a assinar também aparece em /reception/wci-fichas (status parcial)
+      // e serve de fonte para o endereço do tomador na NF.
+      try {
+        await upsertGuestFicha(sessionToken!, {
+          isMainGuest:  isMain,
+          erbonGuestId: newId > 0 ? newId : null,
+          name:         domName,
+          email:        email.trim()  || undefined,
+          phone:        phone.trim()  || undefined,
+          birthDate:    birthDate     || undefined,
+          genderId:     genderID      || undefined,
+          nationality:  nationality   || undefined,
+          profession:   profession.trim()          || undefined,
+          vehicleRegistration: vehicleRegistration.trim() || undefined,
+          documentType,
+          documentNumber:     documentNumber.trim() || undefined,
+          documentExpiration: documentExpiration    || undefined,
+          addressCountry:      addressCountry,
+          addressState:        state        || undefined,
+          addressCity:         city         || undefined,
+          addressStreet:       street.trim()     || undefined,
+          addressNumber:       addrNumber.trim() || undefined,
+          addressComplement:   complement.trim() || undefined,
+          addressNeighborhood: neighborhood || undefined,
+          addressZipcode:      zipcode      || undefined,
+          addressCityIbge:     cityIbge     || undefined,
+          fnrhRacaId:            fnrhExtra?.raca_id,
+          fnrhDeficienciaId:     fnrhExtra?.deficiencia_id,
+          fnrhTipoDeficienciaId: fnrhExtra?.tipo_deficiencia_id,
+          fnrhMotivoViagemId:    fnrhExtra?.motivo_viagem_id,
+          fnrhMeioTransporteId:  fnrhExtra?.meio_transporte_id,
+          fnrhGrauParentescoId:     fnrhExtra?.grau_parentesco_id,
+          fnrhResponsavelDocumento: fnrhExtra?.responsavel_documento,
+          fnrhResponsavelDocTipo:   fnrhExtra?.responsavel_doc_tipo,
+        }, { source: 'web' });
+        setFichaGuestKey(buildGuestKey(newId > 0 ? newId : null, domName));
+      } catch (fichaErr) {
+        console.error('[WCICompanionEntry] Falha ao gravar a ficha individual:', fichaErr);
+      }
+
+      // O passo da assinatura usa o state `name` para achar a mesma ficha; se o
+      // autofill preencheu o campo sem disparar onChange, domName e name podem
+      // divergir e criar ficha duplicada.
+      if (domName !== name) setName(domName);
+
       setStep('documents');
     } catch (err: any) {
       setError(err.message || t('errorGeneral'));
@@ -796,16 +890,16 @@ export default function WCICompanionEntry() {
         upd(docIdx, docsSaved > 0 ? 'done' : 'error', `${docsSaved}/${docUploads.length} salvo(s)`);
       }
 
-      // ── 5. Salvar ficha no banco de dados (Supabase) ─────────────────────
+      // ── 5. Fechar a ficha individual no banco (Supabase) ─────────────────
+      // A ficha deste hóspede já existe desde o passo do FNRH. Aqui só entram
+      // as URLs dos documentos (que só existem agora) e a finalização com
+      // assinatura e termos. Os outros hóspedes NÃO são tocados: cada um tem a
+      // sua própria ficha, e copiar dado parcial dos demais era justamente o
+      // que fazia o endereço do tomador chegar vazio na emissão de NF.
+      const guestKey = fichaGuestKey || buildGuestKey(savedGuestId, name.trim());
       try {
-        const session = await resolveSession(sessionToken!).catch(() => null);
-        const allGuests = session?.guests?.length
-          ? session.guests
-          : (loadGuestsFromStorage(realBookingId) || []);
-
-        // Dados completos do hóspede atual (do formulário, não da sessão que é incompleta)
-        const currentGuestData = {
-          isMainGuest:    !existingGuestId,
+        await upsertGuestFicha(sessionToken!, {
+          isMainGuest:    !existingGuestId,   // mesma regra do passo do FNRH
           erbonGuestId:   savedGuestId,
           name:           name.trim(),
           email:          email.trim() || undefined,
@@ -821,9 +915,12 @@ export default function WCICompanionEntry() {
           addressCountry: country   || undefined,
           addressState:   state     || undefined,
           addressCity:    city      || undefined,
-          addressStreet:  street    || undefined,
+          addressStreet:  street.trim()     || undefined,
+          addressNumber:  addrNumber.trim() || undefined,
+          addressComplement: complement.trim() || undefined,
           addressZipcode: zipcode   || undefined,
           addressNeighborhood: neighborhood || undefined,
+          addressCityIbge: cityIbge || undefined,
           documentFrontUrl: docFrontUrl,
           documentBackUrl:  docBackUrl,
           // Campos FNRH Gov
@@ -835,56 +932,29 @@ export default function WCICompanionEntry() {
           fnrhGrauParentescoId:    isMinorGuest ? grauParentescoId                                        || undefined : undefined,
           fnrhResponsavelDocumento: isMinorGuest ? responsavelDocumento.replace(/[\.\-\/\s]/g, '') || undefined : undefined,
           fnrhResponsavelDocTipo:   isMinorGuest ? responsavelDocTipo                                     || undefined : undefined,
-        };
+        }, { source: 'web' });
 
-        // Monta lista: outros hóspedes da sessão + hóspede atual com dados completos
-        const othersForDb = allGuests
-          .filter(g => g.id !== savedGuestId)
-          .map(g => ({
-            isMainGuest:    g.isMainGuest,
-            erbonGuestId:   typeof g.id === 'number' && g.id > 0 ? g.id : null,
-            name:           g.name,
-            email:          g.email,
-            phone:          g.phone,
-            documentType:   g.documents?.[0]?.documentType,
-            documentNumber: g.documents?.[0]?.number,
-            documentExpiration: g.documents?.[0]?.expirationDate?.split('T')[0],
-            birthDate:      g.birthDate,
-            genderId:       g.genderID,
-            nationality:    g.nationality,
-            addressCountry: g.address?.country,
-            addressState:   g.address?.state,
-            addressCity:    g.address?.city,
-            addressStreet:  g.address?.street,
-            addressZipcode: g.address?.zipcode,
-            addressNeighborhood: g.address?.neighborhood,
-            documentFrontUrl:    g.documentFrontUrl,
-            documentBackUrl:     g.documentBackUrl,
-            fnrhRacaId:            g.fnrh_extra?.raca_id,
-            fnrhDeficienciaId:     g.fnrh_extra?.deficiencia_id,
-            fnrhTipoDeficienciaId: g.fnrh_extra?.tipo_deficiencia_id,
-            fnrhMotivoViagemId:    g.fnrh_extra?.motivo_viagem_id,
-            fnrhMeioTransporteId:  g.fnrh_extra?.meio_transporte_id,
-            fnrhGrauParentescoId:    g.fnrh_extra?.grau_parentesco_id,
-            fnrhResponsavelDocumento: g.fnrh_extra?.responsavel_documento,
-            fnrhResponsavelDocTipo:   g.fnrh_extra?.responsavel_doc_tipo,
-          }));
-
-        const guestsForDb = [...othersForDb, currentGuestData];
-        await saveFichaToDatabase({
-          hotelId:            realHotelId!,
-          bookingNumber:      session?.bookingNumber || undefined,
-          guests:             guestsForDb,
+        const finalized = await finalizeFicha({
+          sessionToken:       sessionToken!,
+          guestKey,
+          signatureData:      sigDataUrl,
           hotelTermsAccepted: hotelAccepted,
           lgpdAccepted,
-          signatureData:      sigDataUrl,
           hotelTermsText:     activeHotelTerms || undefined,
           lgpdTermsText:      activeLgpdTerms  || undefined,
           hotelRulesDocUrl,
           lgpdDocUrl,
-          source:             'web',
         });
+        if (finalized === 0) throw new Error('A ficha não foi encontrada para finalizar.');
       } catch (dbErr: any) {
+        // Antes esta falha era engolida e o hóspede via tela de sucesso com a
+        // ficha inexistente. Agora ela aparece, para dar chance de tentar de novo.
+        console.error('[WCICompanionEntry] Falha ao finalizar a ficha:', dbErr);
+        setError(dbErr?.message
+          ? `Não foi possível salvar sua ficha: ${dbErr.message}. Tente novamente ou procure a recepção.`
+          : 'Não foi possível salvar sua ficha. Tente novamente ou procure a recepção.');
+        setSaving(false);
+        return;
       }
 
       await new Promise(r => setTimeout(r, 900));
@@ -1088,7 +1158,15 @@ export default function WCICompanionEntry() {
                 </div>
                 <div>
                   <label style={labelStyle}>{t('streetField')}</label>
-                  <input style={inputStyle} type="text" value={street} onChange={e => setStreet(e.target.value)} placeholder="Rua, número" />
+                  <input style={inputStyle} type="text" value={street} onChange={e => setStreet(e.target.value)} placeholder="Rua / Avenida" />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('numberField')}</label>
+                  <input style={inputStyle} type="text" value={addrNumber} onChange={e => setAddrNumber(e.target.value)} placeholder="123" />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('complementField')}</label>
+                  <input style={inputStyle} type="text" value={complement} onChange={e => setComplement(e.target.value)} placeholder={t('complementPlaceholder')} />
                 </div>
               </div>
 

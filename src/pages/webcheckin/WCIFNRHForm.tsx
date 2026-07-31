@@ -8,6 +8,7 @@ import {
   loadGuestsFromStorage,
   saveGuestsToStorage,
   saveGuestFNRH,
+  upsertGuestFicha,
   uploadDocumentPhoto,
   resolveHotelByCode,
   resolveSession,
@@ -116,8 +117,14 @@ export default function WCIFNRHForm() {
   const [state,         setState]         = useState('');
   const [city,          setCity]          = useState('');
   const [street,        setStreet]        = useState('');
+  const [addrNumber,    setAddrNumber]    = useState('');
+  const [complement,    setComplement]    = useState('');
   const [zipcode,       setZipcode]       = useState('');
   const [neighborhood,  setNeighborhood]  = useState('');
+  // Código IBGE do município (ViaCEP.ibge) — exigido no <endNac><cMun> da NFS-e
+  // e no cidade_id do FNRH Gov. Não tem campo na tela: vem só da consulta.
+  const [cityIbge,      setCityIbge]      = useState('');
+  const [cepLoading,    setCepLoading]    = useState(false);
 
   // ── Campos FNRH Gov (adicionais) ───────────────────────────────────────────
   const [racaId,             setRacaId]            = useState('NAOINFORMAR');
@@ -181,6 +188,22 @@ export default function WCIFNRHForm() {
       setDocumentNumber(guest.documents[0].number || '');
     }
 
+    if (guest.profession) setProfession(guest.profession);
+    if (guest.vehicleRegistration) setVehicleRegistration(guest.vehicleRegistration);
+
+    // Endereço já informado antes (evita o hóspede redigitar ao voltar na ficha)
+    if (guest.address) {
+      if (guest.address.country)      setCountry(guest.address.country);
+      if (guest.address.state)        setState(guest.address.state);
+      if (guest.address.city)         setCity(guest.address.city);
+      if (guest.address.street)       setStreet(guest.address.street);
+      if (guest.address.number)       setAddrNumber(guest.address.number);
+      if (guest.address.complement)   setComplement(guest.address.complement);
+      if (guest.address.zipcode)      setZipcode(guest.address.zipcode);
+      if (guest.address.neighborhood) setNeighborhood(guest.address.neighborhood);
+      if (guest.address.cityIbge)     setCityIbge(guest.address.cityIbge);
+    }
+
     // Pré-preenche campos FNRH se já preenchidos anteriormente
     if (guest.fnrh_extra) {
       if (guest.fnrh_extra.raca_id)             setRacaId(guest.fnrh_extra.raca_id);
@@ -211,11 +234,32 @@ export default function WCIFNRHForm() {
   const handleCountryChange = (value: string) => {
     setCountry(value);
     if (value !== 'BR') {
-      setState(''); setZipcode('');
+      setState(''); setZipcode(''); setCityIbge('');
       if (cepUfRef.current) cepUfRef.current.style.display = 'none';
     } else {
       if (cepUfRef.current) cepUfRef.current.style.display = 'grid';
     }
+  };
+
+  // Consulta de CEP (ViaCEP). O campo `ibge` é o que alimenta o código do
+  // município na NFS-e e no FNRH Gov, por isso é guardado junto.
+  const handleZipcodeChange = async (raw: string) => {
+    setZipcode(raw);
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.erro) return;
+      if (data.logradouro) setStreet(data.logradouro);
+      if (data.bairro)     setNeighborhood(data.bairro);
+      if (data.localidade) setCity(data.localidade);
+      if (data.uf)       { setState(data.uf); setCountry('BR'); }
+      if (data.ibge)       setCityIbge(String(data.ibge));
+    } catch { /* preenchimento manual segue disponível */ }
+    finally { setCepLoading(false); }
   };
 
   function handleFileSelect(file: File | null, side: 'front' | 'back') {
@@ -249,6 +293,8 @@ export default function WCIFNRHForm() {
     const domState        = fd(data, 'state');
     const domCity         = fd(data, 'city');
     const domStreet       = fd(data, 'street');
+    const domNumber       = fd(data, 'addressNumber');
+    const domComplement   = fd(data, 'addressComplement');
     const domZipcode      = fd(data, 'zipcode').replace(/\D/g, '');
     const domNeighborhood = fd(data, 'neighborhood');
 
@@ -272,6 +318,12 @@ export default function WCIFNRHForm() {
       setError('Para hóspedes estrangeiros, informe a validade do documento.');
       return;
     }
+    // O número é campo próprio da nota fiscal (<nro>). Só é exigido quando o
+    // hóspede informou logradouro, para não travar quem deixa o endereço vazio.
+    if (domStreet && !domNumber) {
+      setError('Informe o número do endereço (use S/N se não houver).');
+      return;
+    }
 
     // Validação — menor de idade
     const ageNow = calcAge(domBirthDate);
@@ -289,6 +341,9 @@ export default function WCIFNRHForm() {
 
     const addressCountry = (domCountry && domCountry !== 'OTHER') ? domCountry : (domNationality !== 'BR' ? domNationality : 'BR');
     const isBR           = addressCountry === 'BR';
+    // A Erbon tem um único campo de logradouro: manda rua e número juntos para
+    // não perder o número lá. No Supabase eles ficam em colunas separadas.
+    const erbonStreet    = [domStreet, domNumber].filter(Boolean).join(', ') || undefined;
 
     setSaving(true);
     setError('');
@@ -337,7 +392,7 @@ export default function WCIFNRHForm() {
           state:        isBR ? (domState        || undefined) : undefined,
           zipcode:      isBR ? (domZipcode      || undefined) : undefined,
           city:         domCity         || undefined,
-          street:       domStreet       || undefined,
+          street:       erbonStreet,
           neighborhood: domNeighborhood || undefined,
         },
       };
@@ -384,13 +439,18 @@ export default function WCIFNRHForm() {
         birthDate:   domBirthDate  || undefined,
         genderID:    domGenderID   || undefined,
         nationality: domNationality || undefined,
+        profession:  domProfession || undefined,
+        vehicleRegistration: domVehicle || undefined,
         address: {
           country:      addressCountry,
           state:        domState        || undefined,
           city:         domCity         || undefined,
           street:       domStreet       || undefined,
+          number:       domNumber       || undefined,
+          complement:   domComplement   || undefined,
           zipcode:      domZipcode      || undefined,
           neighborhood: domNeighborhood || undefined,
+          cityIbge:     cityIbge        || undefined,
         },
         fnrhCompleted:    true,
         erbonSynced,
@@ -409,6 +469,8 @@ export default function WCIFNRHForm() {
         },
       };
 
+      const isMain = isNew ? false : (stored.find(g => g.id === guestId)?.isMainGuest ?? false);
+
       if (isNew) {
         const newGuest: WebCheckinGuest = {
           id: savedId,
@@ -421,6 +483,49 @@ export default function WCIFNRHForm() {
           g.id === guestId ? { ...g, ...guestProfile } : g
         );
         await saveGuestsToStorage(numericBookingId, updated, hotelUUID, bookingRef);
+      }
+
+      // Ficha individual gravada já aqui, sem esperar a assinatura: é o que faz
+      // o hóspede aparecer em /reception/wci-fichas e alimenta o tomador da NF.
+      // Best-effort: a Erbon e a sessão já receberam o dado, então uma falha
+      // aqui não pode desfazer o preenchimento do hóspede.
+      try {
+        await upsertGuestFicha(bookingId!, {
+          isMainGuest:  isMain,
+          erbonGuestId: savedId > 0 ? savedId : null,
+          name:         domName,
+          email:        domEmail      || undefined,
+          phone:        domPhone      || undefined,
+          birthDate:    domBirthDate  || undefined,
+          genderId:     domGenderID   || undefined,
+          nationality:  domNationality || undefined,
+          profession:   domProfession || undefined,
+          vehicleRegistration: domVehicle || undefined,
+          documentType:   domDocType,
+          documentNumber: domDocNumber || undefined,
+          documentExpiration: docExpiration,
+          addressCountry:      addressCountry,
+          addressState:        domState        || undefined,
+          addressCity:         domCity         || undefined,
+          addressStreet:       domStreet       || undefined,
+          addressNumber:       domNumber       || undefined,
+          addressComplement:   domComplement   || undefined,
+          addressNeighborhood: domNeighborhood || undefined,
+          addressZipcode:      domZipcode      || undefined,
+          addressCityIbge:     cityIbge        || undefined,
+          documentFrontUrl: docFrontUrl,
+          documentBackUrl:  docBackUrl,
+          fnrhRacaId:            domRacaId,
+          fnrhDeficienciaId:     domDeficienciaId,
+          fnrhTipoDeficienciaId: domTipoDeficienciaId  || undefined,
+          fnrhMotivoViagemId:    domMotivoViagemId,
+          fnrhMeioTransporteId:  domMeioTransporteId,
+          fnrhGrauParentescoId:     guestIsMinor ? (domGrauParentesco || undefined) : undefined,
+          fnrhResponsavelDocumento: guestIsMinor ? (domRespDoc        || undefined) : undefined,
+          fnrhResponsavelDocTipo:   guestIsMinor ? (domRespDocTipo    || undefined) : undefined,
+        }, { source: 'web' });
+      } catch (fichaErr) {
+        console.error('[WCIFNRHForm] Falha ao gravar a ficha individual:', fichaErr);
       }
 
       setSaved(true);
@@ -519,14 +624,26 @@ export default function WCIFNRHForm() {
                   </Field>
                 </Row>
 
-                <Field label={t('professionField')}>
-                  <input
-                    name="profession"
-                    style={inputStyle} type="text"
-                    value={profession} onChange={e => setProfession(e.target.value)}
-                    placeholder="Opcional"
-                  />
-                </Field>
+                <Row>
+                  <Field label={t('professionField')}>
+                    <input
+                      name="profession"
+                      style={inputStyle} type="text"
+                      value={profession} onChange={e => setProfession(e.target.value)}
+                      placeholder="Opcional"
+                    />
+                  </Field>
+                  <Field label={t('vehicleField')}>
+                    <input
+                      name="vehicleRegistration"
+                      style={inputStyle} type="text"
+                      value={vehicleRegistration}
+                      onChange={e => setVehicleRegistration(e.target.value.toUpperCase())}
+                      placeholder="ABC-1234 (opcional)"
+                      autoComplete="off"
+                    />
+                  </Field>
+                </Row>
 
               </div>
             </div>
@@ -909,11 +1026,11 @@ export default function WCIFNRHForm() {
                   ref={cepUfRef}
                   style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}
                 >
-                  <Field label={t('zipcodeField')}>
+                  <Field label={cepLoading ? `${t('zipcodeField')}...` : t('zipcodeField')}>
                     <input
                       name="zipcode"
                       style={inputStyle} type="text"
-                      value={zipcode} onChange={e => setZipcode(e.target.value)}
+                      value={zipcode} onChange={e => handleZipcodeChange(e.target.value)}
                       placeholder="00000-000"
                     />
                   </Field>
@@ -951,9 +1068,28 @@ export default function WCIFNRHForm() {
                     name="street"
                     style={inputStyle} type="text"
                     value={street} onChange={e => setStreet(e.target.value)}
-                    placeholder="Rua, número"
+                    placeholder="Rua / Avenida"
                   />
                 </Field>
+
+                <Row>
+                  <Field label={t('numberField')}>
+                    <input
+                      name="addressNumber"
+                      style={inputStyle} type="text"
+                      value={addrNumber} onChange={e => setAddrNumber(e.target.value)}
+                      placeholder="123"
+                    />
+                  </Field>
+                  <Field label={t('complementField')}>
+                    <input
+                      name="addressComplement"
+                      style={inputStyle} type="text"
+                      value={complement} onChange={e => setComplement(e.target.value)}
+                      placeholder={t('complementPlaceholder')}
+                    />
+                  </Field>
+                </Row>
 
               </div>
             </div>

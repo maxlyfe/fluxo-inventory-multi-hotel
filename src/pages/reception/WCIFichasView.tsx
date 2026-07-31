@@ -29,11 +29,14 @@ interface FichaGuest {
   profession: string | null;
   vehicle_registration: string | null;
   address_street: string | null;
+  address_number: string | null;
+  address_complement: string | null;
   address_neighborhood: string | null;
   address_city: string | null;
   address_state: string | null;
   address_zipcode: string | null;
   address_country: string | null;
+  address_city_ibge: string | null;
   document_front_url: string | null;
   document_back_url: string | null;
   // Campos FNRH Gov
@@ -74,8 +77,9 @@ const GUEST_QUERY = `
   id, is_main_guest, name, email, phone,
   document_type, document_number, document_expiration,
   birth_date, gender_id, nationality, profession, vehicle_registration,
-  address_street, address_neighborhood, address_city, address_state,
-  address_zipcode, address_country,
+  address_street, address_number, address_complement,
+  address_neighborhood, address_city, address_state,
+  address_zipcode, address_country, address_city_ibge,
   document_front_url, document_back_url,
   fnrh_raca_id, fnrh_deficiencia_id, fnrh_tipo_deficiencia_id,
   fnrh_motivo_viagem_id, fnrh_meio_transporte_id,
@@ -220,8 +224,15 @@ function Field({ label, value, copyValue, icon }: { label: string; value: string
 // ── Guest card ────────────────────────────────────────────────────────────────
 
 function GuestCard({ guest }: { guest: FichaGuest }) {
+  // Logradouro e número vêm em colunas separadas (o número é campo próprio na
+  // NFC-e/NFS-e e no FNRH Gov); aqui voltam a ser uma linha só, legível.
+  const logradouro = [
+    [guest.address_street, guest.address_number].filter(Boolean).join(', ') || null,
+    guest.address_complement,
+  ].filter(Boolean).join(' - ') || null;
+
   const address = [
-    guest.address_street,
+    logradouro,
     guest.address_neighborhood,
     guest.address_city && guest.address_state ? `${guest.address_city} / ${guest.address_state}` : (guest.address_city || guest.address_state),
     guest.address_zipcode ? `CEP ${guest.address_zipcode}` : null,

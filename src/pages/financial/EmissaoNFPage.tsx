@@ -62,7 +62,18 @@ interface EnrichedBatchReservation {
     docTipo: 'cpf' | 'cnpj' | 'passaporte';
     nacionalidade: string | null;
     email: string | null;
+    /** Texto livre montado para as listagens e o PDF */
     endereco: string | null;
+    // Endereço estruturado: é o que vira <end>/<endNac> no XML. Sem cep e
+    // codigo_municipio o bloco é omitido em silêncio pelo builder da DPS.
+    logradouro: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+    cep: string | null;
+    codigoMunicipio: string | null;
   };
   resolvedTPag: string | null;
   resolvedTPagSource: string | null;
@@ -562,12 +573,37 @@ export default function EmissaoNFPage() {
 
   const formatWCIAddress = (wci: WCIGuestData): string | null => {
     if (!wci.address_street?.trim()) return null;
-    const parts = [wci.address_street];
+    const logradouro = wci.address_number
+      ? `${wci.address_street}, ${wci.address_number}`
+      : wci.address_street;
+    const parts = [wci.address_complement ? `${logradouro} - ${wci.address_complement}` : logradouro];
     if (wci.address_neighborhood) parts.push(wci.address_neighborhood);
     if (wci.address_city && wci.address_state) parts.push(`${wci.address_city} - ${wci.address_state}`);
     else if (wci.address_city) parts.push(wci.address_city);
     if (wci.address_zipcode) parts.push(`CEP ${wci.address_zipcode}`);
     return parts.join(', ');
+  };
+
+  /**
+   * Completa cidade, UF e código IBGE a partir do CEP (ViaCEP). Fichas antigas
+   * não têm address_city_ibge, e sem cMun a DPS da NFS-e Nacional é rejeitada.
+   */
+  const resolveCepIbge = async (cep: string | null): Promise<{ cidade: string | null; uf: string | null; ibge: string | null }> => {
+    const digits = (cep || '').replace(/\D/g, '');
+    if (digits.length !== 8) return { cidade: null, uf: null, ibge: null };
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      if (!res.ok) return { cidade: null, uf: null, ibge: null };
+      const data = await res.json();
+      if (data.erro) return { cidade: null, uf: null, ibge: null };
+      return {
+        cidade: data.localidade || null,
+        uf: data.uf || null,
+        ibge: data.ibge ? String(data.ibge) : null,
+      };
+    } catch {
+      return { cidade: null, uf: null, ibge: null };
+    }
   };
 
   const enrichBatchReservations = async (selectedRes: ClassifiedReservation[], tipo: NFTipo): Promise<EnrichedBatchReservation[]> => {
@@ -582,6 +618,19 @@ export default function EmissaoNFPage() {
           .finally(() => { done++; setBatchEnrichProgress({ done, total }); })
       )
     );
+
+    // Preenche o código do município das fichas que não têm (uma consulta por
+    // CEP distinto, para não repetir chamada em reservas do mesmo endereço).
+    const cepsSemIbge = Array.from(new Set(
+      wciResults
+        .map(r => (r.status === 'fulfilled' ? r.value : null))
+        .filter(w => w && w.address_zipcode && !w.address_city_ibge)
+        .map(w => w!.address_zipcode as string)
+    ));
+    const ibgePorCep = new Map<string, { cidade: string | null; uf: string | null; ibge: string | null }>();
+    for (const cep of cepsSemIbge) {
+      ibgePorCep.set(cep, await resolveCepIbge(cep));
+    }
 
     const enriched: EnrichedBatchReservation[] = selectedRes.map((r, i) => {
       const wci = wciResults[i].status === 'fulfilled' ? wciResults[i].value : null;
@@ -603,6 +652,13 @@ export default function EmissaoNFPage() {
       const nacionalidade = wci?.nationality || r.guestNationality || null;
       const email = wci?.email || r.guestEmail || null;
       const endereco = wci ? formatWCIAddress(wci) : null;
+
+      // Endereço estruturado (o texto acima serve só para tela e PDF)
+      const cepFicha = wci?.address_zipcode || null;
+      const viaCep = cepFicha ? ibgePorCep.get(cepFicha) : undefined;
+      const codigoMunicipio = wci?.address_city_ibge || viaCep?.ibge || null;
+      const cidade = wci?.address_city || viaCep?.cidade || null;
+      const uf = wci?.address_state || viaCep?.uf || null;
 
       if (!wci) warnings.push('Ficha de check-in não encontrada, usando dados da reserva');
 
@@ -631,9 +687,32 @@ export default function EmissaoNFPage() {
         issues.push('Documento do tomador ausente (obrigatório para NFS-e)');
       }
 
+      // NFS-e Nacional exige o endereço do tomador com número e código IBGE do
+      // município. Faltando qualquer um deles o builder omite o bloco <end> sem
+      // avisar, e a nota sai sem endereço: melhor barrar aqui e emitir pelo modal.
+      if (tipo === 'nfse') {
+        if (!wci?.address_street) {
+          issues.push('Endereço do tomador ausente na ficha de check-in');
+        } else if (!wci.address_number) {
+          issues.push('Número do endereço ausente na ficha de check-in');
+        } else if (!codigoMunicipio || !cepFicha) {
+          issues.push('CEP ou código do município do tomador não resolvido');
+        }
+      }
+
       return {
         reservation: r,
-        tomador: { nome, cpfCnpj, docTipo, nacionalidade, email, endereco },
+        tomador: {
+          nome, cpfCnpj, docTipo, nacionalidade, email, endereco,
+          logradouro:      wci?.address_street     || null,
+          numero:          wci?.address_number     || null,
+          complemento:     wci?.address_complement || null,
+          bairro:          wci?.address_neighborhood || null,
+          cidade,
+          uf,
+          cep:             cepFicha,
+          codigoMunicipio,
+        },
         resolvedTPag,
         resolvedTPagSource,
         issues,
@@ -832,6 +911,16 @@ export default function EmissaoNFPage() {
             tomador_nacionalidade: enriched.tomador.nacionalidade,
             tomador_email: enriched.tomador.email,
             tomador_endereco: enriched.tomador.endereco,
+            // Estruturado: é daqui que sai o <end>/<endNac> do XML. Sem isso a
+            // nota do lote saía sempre sem endereço, mesmo com ficha completa.
+            tomador_logradouro: enriched.tomador.logradouro,
+            tomador_numero: enriched.tomador.numero,
+            tomador_complemento: enriched.tomador.complemento,
+            tomador_bairro: enriched.tomador.bairro,
+            tomador_cidade: enriched.tomador.cidade,
+            tomador_uf: enriched.tomador.uf,
+            tomador_cep: enriched.tomador.cep,
+            tomador_codigo_municipio: enriched.tomador.codigoMunicipio,
             items,
             emitido_por: user?.id || null,
           });
@@ -1239,6 +1328,9 @@ export default function EmissaoNFPage() {
           onClose={() => setInvoiceModal(null)}
           tipo={invoiceModal.tipo}
           hotelId={hotelId}
+          // Reserva interna também tem ficha de web check-in: o nº da reserva
+          // vai por prop separada para o lookup do tomador não depender da Erbon
+          wciBookingNumber={invoiceModal.booking.bookingNumber}
           booking={{
             bookingInternalID: invoiceModal.booking.bookingInternalId,
             erbonNumber: invoiceModal.booking.source === 'erbon' ? invoiceModal.booking.bookingNumber : null,

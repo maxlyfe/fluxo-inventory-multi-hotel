@@ -21,6 +21,8 @@ interface FNRHGuest {
   nationality: string | null;
   profession: string | null;
   address_street: string | null;
+  address_number: string | null;
+  address_complement: string | null;
   address_neighborhood: string | null;
   address_city: string | null;
   address_state: string | null;
@@ -254,7 +256,10 @@ function generateFNRHHtml(hotel: HotelInfo, guest: FNRHGuest, booking: {
     </td>
     <td style="border:1px solid #000;width:30%;">
       <div class="field-label">RESIDÊNCIA PERMANENTE - PERMANENT ADDRESS</div>
-      <div class="field-value" style="font-size:9px;">${guest.address_street || ''}</div>
+      <div class="field-value" style="font-size:9px;">${[
+        [guest.address_street, guest.address_number].filter(Boolean).join(', '),
+        guest.address_complement,
+      ].filter(Boolean).join(' - ')}</div>
     </td>
     <td style="border:1px solid #000;width:15%;">
       <div class="field-label">CIDADE - CITY</div>

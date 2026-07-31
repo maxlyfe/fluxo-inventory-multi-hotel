@@ -60,6 +60,13 @@ interface NFInvoiceModalProps {
   /** invoiceId da nota criada é passado quando disponível */
   onSuccess: (invoiceId?: string) => void;
   viewInvoiceId?: string | null;
+  /**
+   * Nº da reserva usado para achar a ficha de web check-in do tomador. Existe
+   * separado de booking.erbonNumber porque este último também dispara a busca
+   * de contas a receber na Erbon: reservas internas (hotel sem PMS) têm ficha
+   * de check-in, mas não têm título na Erbon.
+   */
+  wciBookingNumber?: string | null;
 }
 
 // Heurística de palavra-chave (fallback quando não há mapeamento Erbon) —
@@ -155,6 +162,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   genericItems,
   onSuccess,
   viewInvoiceId = null,
+  wciBookingNumber = null,
 }) => {
   const isGeneric = !!genericItems?.length;
   const { user } = useAuth();
@@ -411,6 +419,18 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setPagUnico('');
     setPagRows([{ tPag: '', valor: '' }]);
 
+    // Reset do endereço ANTES do prefill. Ficava depois, e só funcionava por
+    // acidente da ordem sincrona/microtask: qualquer await no meio do prefill
+    // apagava o endereço que acabou de vir da ficha de check-in.
+    setTomadorCep('');
+    setTomadorLogradouro('');
+    setTomadorNumero('');
+    setTomadorComplemento('');
+    setTomadorBairro('');
+    setTomadorCidade('');
+    setTomadorUf('');
+    setTomadorCodMunicipio('');
+
     // Prefill tomador data from booking guest
     const primaryGuest = booking?.guestList?.[0];
     if (primaryGuest) {
@@ -440,9 +460,10 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       }
 
       // Try WCI lookup for complete data (address, nationality)
-      const bookingNum = booking?.erbonNumber ? String(booking.erbonNumber) : null;
+      const bookingNum = wciBookingNumber
+        || (booking?.erbonNumber ? String(booking.erbonNumber) : null);
       if (bookingNum && primaryGuest.name) {
-        nfService.lookupWCIGuest(hotelId, bookingNum, primaryGuest.name).then(wci => {
+        nfService.lookupWCIGuest(hotelId, bookingNum, primaryGuest.name, primaryGuest.id).then(wci => {
           if (!wci) return;
           setWciLoaded(true);
           if (wci.nationality) setTomadorNacionalidade(wci.nationality);
@@ -456,10 +477,16 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
           if (wci.email) setTomadorEmail(prev => prev || wci.email!);
           // Fill address from WCI ficha
           if (wci.address_street) setTomadorLogradouro(wci.address_street);
+          if (wci.address_number) setTomadorNumero(wci.address_number);
+          if (wci.address_complement) setTomadorComplemento(wci.address_complement);
           if (wci.address_neighborhood) setTomadorBairro(wci.address_neighborhood);
           if (wci.address_city) setTomadorCidade(wci.address_city);
           if (wci.address_state) setTomadorUf(wci.address_state);
           if (wci.address_zipcode) setTomadorCep(wci.address_zipcode);
+          if (wci.address_city_ibge) setTomadorCodMunicipio(wci.address_city_ibge);
+          // Fichas antigas não têm o código IBGE: a consulta do CEP completa o
+          // que falta (cidade, UF e cMun), sem sobrescrever o que já veio.
+          else if (wci.address_zipcode) lookupCep(wci.address_zipcode);
         }).catch(() => {});
       }
     } else {
@@ -467,17 +494,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
       setTomadorEmail('');
       setTomadorCpfCnpj('');
     }
-
-    // Reset address
-    setTomadorCep('');
-    setTomadorLogradouro('');
-    setTomadorNumero('');
-    setTomadorComplemento('');
-    setTomadorBairro('');
-    setTomadorCidade('');
-    setTomadorUf('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible, erbonMappings]);
+  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible, erbonMappings, wciBookingNumber]);
 
   if (!isOpen) return null;
 
