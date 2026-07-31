@@ -995,6 +995,38 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
     }
     const useADN = inv?.tipo === 'nfse' && config?.nfse_provider === 'adn';
     const useELNacional = inv?.tipo === 'nfse' && config?.nfse_provider === 'el-nacional';
+
+    // NUMERAÇÃO DA NFS-e É POR INSCRIÇÃO, NÃO POR HOTEL.
+    //
+    // A prefeitura valida a unicidade do RPS/DPS pelo par CNPJ + inscrição
+    // municipal: "E10 - RPS já informado. Para essa Inscrição Municipal/CNPJ já
+    // existe um RPS informado com o mesmo número, série e tipo". Duas unidades
+    // do grupo podem dividir a mesma inscrição (Brava Club e Exclusive dividem
+    // CNPJ 39.232.073/0002-25 e IM 10641056), e aí cada uma contando a própria
+    // sequência faz a segunda repetir um número que a primeira já usou.
+    //
+    // Então o número sai do MAIOR contador entre as unidades que compartilham a
+    // inscrição, e o incremento depois vale para todas elas. Unidade com
+    // inscrição própria não é afetada: o grupo é só ela mesma.
+    const soDigitos = (s: string | null | undefined) => (s || '').replace(/\D/g, '');
+    let nfseNumero = config?.proximo_numero_nfse || 1;
+    let nfseNumeroHotelIds: string[] = [hotelId];
+    const cnpjAtual = soDigitos(config?.cnpj);
+    const imAtual = soDigitos(config?.inscricao_municipal);
+    // Sem CNPJ ou sem inscrição não dá para agrupar: duas configurações
+    // incompletas ficariam "iguais" e passariam a dividir numeração sem serem
+    // a mesma inscrição de verdade.
+    if (inv?.tipo === 'nfse' && config && cnpjAtual && imAtual) {
+      const { data: irmaos } = await supabase
+        .from('nf_hotel_config')
+        .select('hotel_id, cnpj, inscricao_municipal, proximo_numero_nfse');
+      const mesmaInscricao = (irmaos ?? []).filter(c =>
+        soDigitos(c.cnpj) === cnpjAtual && soDigitos(c.inscricao_municipal) === imAtual);
+      if (mesmaInscricao.length > 1) {
+        nfseNumero = Math.max(nfseNumero, ...mesmaInscricao.map(c => c.proximo_numero_nfse || 1));
+        nfseNumeroHotelIds = mesmaInscricao.map(c => c.hotel_id);
+      }
+    }
     // Redirecionamento de NFC-e: se ligado, emite com a identidade fiscal de
     // outra unidade do grupo (a numeração incrementa na unidade responsável).
     let nfceEmitCfg: any = null;
@@ -1053,7 +1085,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           valor_total: i.valor_total,
         })),
         serie: config!.serie_nfse || 'NFS',
-        numeroDPS: config!.proximo_numero_nfse || 1,
+        numeroDPS: nfseNumero,
       };
     } else if (useADN) {
       const { data: items } = await supabase
@@ -1117,7 +1149,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           iss_aliquota: i.iss_aliquota,
         })),
         serie: config!.serie_nfse || 'NFS',
-        numeroDPS: config!.proximo_numero_nfse || 1,
+        numeroDPS: nfseNumero,
       };
     } else if (inv?.tipo === 'nfse') {
       // NFS-e via Prefeitura (ABRASF 2.02 real)
@@ -1175,7 +1207,7 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         regime_tributario: config!.regime_tributario_nfse,
         optante_simples: config!.regime_tributario_nfse === '1',
         valor_deducoes: Math.round(valorDeducoes * 100) / 100,
-        numero_rps: config!.proximo_numero_nfse || 1,
+        numero_rps: nfseNumero,
         serie_rps: config!.serie_nfse || 'RPS',
       };
     } else if (inv?.tipo === 'nfce') {
@@ -1421,10 +1453,12 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
     // Incrementar próximo número
     if (config && result.success) {
       if (inv?.tipo === 'nfse') {
+        // Avança a sequência em TODAS as unidades que dividem a inscrição, para
+        // que a próxima nota, saia de qual unidade sair, não repita o número.
         await supabase
           .from('nf_hotel_config')
-          .update({ proximo_numero_nfse: (config.proximo_numero_nfse || 1) + 1 })
-          .eq('hotel_id', hotelId);
+          .update({ proximo_numero_nfse: nfseNumero + 1 })
+          .in('hotel_id', nfseNumeroHotelIds);
       } else if (inv?.tipo === 'nfce') {
         // Numeração incrementa na unidade responsável (se redirecionado) ou na própria
         const numHotelId = nfceEmitHotelId || hotelId;
