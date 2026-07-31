@@ -346,7 +346,16 @@ const ErbonIntegration: React.FC = () => {
   const loadErbonServiceItems = async () => {
     setLoadingErbonServices(true);
     try {
-      const items = await erbonService.fetchErbonProducts(selectedHotel!.id, false);
+      // A Erbon devolve conjuntos diferentes conforme `onlyProducts`, e um item
+      // de A&B (ex.: dadinho de tapioca) só aparece na lista de produtos —
+      // justamente o que precisa virar serviço quando lançado em MAP/FAP.
+      const [comServicos, soProdutos] = await Promise.all([
+        erbonService.fetchErbonProducts(selectedHotel!.id, false),
+        erbonService.fetchErbonProducts(selectedHotel!.id, true),
+      ]);
+      const porId = new Map(comServicos.map(i => [i.id, i] as const));
+      soProdutos.forEach(p => { if (!porId.has(p.id)) porId.set(p.id, p); });
+      const items = Array.from(porId.values());
       setErbonServiceItems(items);
       setSuccess(`${items.length} itens (produtos e serviços) carregados da Erbon!`);
     } catch (err: any) {
@@ -358,6 +367,12 @@ const ErbonIntegration: React.FC = () => {
 
   const handleMapService = async (serviceId: string, erbonProduct: ErbonProduct, deptId: number = 0) => {
     try {
+      // Um vínculo padrão (dept 0) sobrescreveria a linha que faz a baixa de
+      // estoque, porque a unicidade é (hotel, item Erbon, departamento).
+      if (deptId === 0 && productMappings.some(m => m.erbon_service_id === erbonProduct.id && (m.product_id || m.dish_id))) {
+        setError(`"${erbonProduct.description}" já está vinculado como produto/ficha técnica. Escolha um departamento específico para criar um override, senão a baixa de estoque seria perdida.`);
+        return;
+      }
       const dept = deptId > 0 ? erbonDepartments.find(d => d.id === deptId) : null;
       await erbonService.saveProductMapping({
         hotel_id: selectedHotel!.id, service_id: serviceId,
@@ -1238,7 +1253,11 @@ const ErbonIntegration: React.FC = () => {
                       // PARA O MESMO departamento selecionado (permite criar overrides
                       // adicionais para outros departamentos do mesmo produto).
                       return !productMappings.some(m => m.service_id && m.erbon_service_id === p.id && (m.erbon_department_id ?? 0) === deptId);
-                    }).map(erbonProd => (
+                    }).map(erbonProd => {
+                      const vinculoEstoque = productMappings.find(
+                        m => m.erbon_service_id === erbonProd.id && (m.product_id || m.dish_id)
+                      );
+                      return (
                       <div
                         key={erbonProd.id}
                         className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg"
@@ -1246,9 +1265,15 @@ const ErbonIntegration: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-white">
                             {erbonProd.description}
+                            {vinculoEstoque && (
+                              <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                                já vinculado como {vinculoEstoque.dish_id ? 'ficha técnica' : 'produto'}
+                              </span>
+                            )}
                           </p>
                           <p className="text-xs text-gray-400">
                             Código {erbonProd.code} · ID {erbonProd.id} · R${erbonProd.priceSale?.toFixed(2)}
+                            {vinculoEstoque && ' · escolha um departamento para reclassificar só nele'}
                           </p>
                         </div>
                         <select
@@ -1257,7 +1282,9 @@ const ErbonIntegration: React.FC = () => {
                           className={inputCls + ' w-full lg:w-56 shrink-0'}
                           title="Departamento: 'Padrão' vale para qualquer lançamento; um departamento específico cria um override (ex.: MAP/FAP)"
                         >
-                          <option value={0}>Padrão (todos os departamentos)</option>
+                          <option value={0} disabled={!!vinculoEstoque}>
+                            {vinculoEstoque ? 'Escolha um departamento…' : 'Padrão (todos os departamentos)'}
+                          </option>
                           {erbonDepartments.filter(d => d.id > 0).map(d => (
                             <option key={d.id} value={d.id}>{d.name} (override)</option>
                           ))}
@@ -1273,7 +1300,8 @@ const ErbonIntegration: React.FC = () => {
                           />
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
