@@ -210,17 +210,34 @@ describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => 
     expect(toma).toContain('<CNPJ>39232073000225</CNPJ>');
   });
 
-  it('emite o grupo com cNaoNIF=2 para hóspede com passaporte', () => {
+  // Búzios recusa cNaoNIF com EL0024 ("deve ser informado o CNPJ, CPF ou NIF
+  // do tomador"). O prefixo EL é validação do município, que exige um dos três
+  // identificadores — e o passaporte é o único que o hotel tem.
+  it('emite o passaporte do hóspede estrangeiro em <NIF> (rejeição EL0024)', () => {
     const toma = buildToma({ cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'CARLOS LEONEL MERLO GIMENEZ' });
-    expect(toma).toBe('<toma><cNaoNIF>2</cNaoNIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
-    // Passaporte não é NIF nem CPF — não pode vazar para nenhum dos dois.
-    expect(toma).not.toContain('25130937');
+    expect(toma).toBe('<toma><NIF>25130937</NIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
+  });
+
+  it('preserva as letras do passaporte e descarta pontuação (TSNIF é alfanumérico)', () => {
+    const toma = buildToma({ cpf_cnpj: 'ab-123 456/x', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
+    expect(toma).toContain('<NIF>AB123456X</NIF>');
+  });
+
+  it('respeita o teto de 40 caracteres do TSNIF', () => {
+    const toma = buildToma({ cpf_cnpj: 'X'.repeat(60), doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
+    expect(toma).toContain(`<NIF>${'X'.repeat(40)}</NIF>`);
   });
 
   it('usa cNaoNIF quando o documento tem tamanho invalido para CPF/CNPJ', () => {
     const toma = buildToma({ cpf_cnpj: '000000', doc_tipo: 'cpf', razao_social: 'não identificado' });
     expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
     expect(toma).not.toContain('<CPF>');
+  });
+
+  it('usa cNaoNIF para estrangeiro sem nenhum documento', () => {
+    const toma = buildToma({ cpf_cnpj: '', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
+    expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
+    expect(toma).not.toContain('<NIF>');
   });
 
   it('usa cNaoNIF quando não há documento nenhum', () => {

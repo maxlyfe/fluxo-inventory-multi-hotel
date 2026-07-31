@@ -241,22 +241,37 @@ export function buildDpsXml(
   // muda é só COMO a pessoa é identificada.
   //
   // TCInfoPessoa aceita, em escolha exclusiva, CNPJ | CPF | NIF | cNaoNIF.
-  // Passaporte não é NIF (número fiscal emitido por administração tributária
-  // estrangeira) e não cabe em nenhum outro campo do grupo, então hóspede
-  // estrangeiro entra como cNaoNIF, cujos únicos valores válidos são
-  // 1 (dispensado do NIF) e 2 (não exigência do NIF).
   // Manual de Integração NFS-e Nacional v1.01, tipo TCInfoPessoa.
   //
-  // CPF e CNPJ também exigem tamanho exato no schema, então documento de
-  // tamanho estranho (o "000000" que a recepção digita em hóspede não
-  // identificado) vai por cNaoNIF em vez de reprovar no schema.
+  // Hóspede estrangeiro vai em <NIF> com o número do passaporte. Rigorosamente
+  // NIF é o número fiscal do país de origem, e a primeira versão mandava
+  // <cNaoNIF>2</cNaoNIF> ("não exigência do NIF") por isso — mas Búzios recusou
+  // com EL0024 ("deve ser informado o CNPJ, CPF ou NIF do tomador"). O prefixo
+  // EL é validação do próprio município, que é quem manda aqui: ele exige um
+  // dos três identificadores, e o passaporte é o único que o hotel tem. TSNIF é
+  // alfanumérico de até 40 caracteres, então o número cabe sem adaptação.
+  //
+  // cNaoNIF fica só para quem não tem identificador nenhum (o "000000" que a
+  // recepção digita em hóspede não identificado). Búzios vai recusar esse caso
+  // também — e deve mesmo: falta o dado, e a tela agora oferece reemissão.
+  //
+  // CPF e CNPJ exigem tamanho exato no schema; documento de tamanho estranho
+  // cai no cNaoNIF em vez de reprovar no schema.
   let tomaXml = '';
   if (tomador.razao_social) {
     const doc = (tomador.cpf_cnpj || '').replace(/\D/g, '');
-    const docBrValido = tomador.doc_tipo !== 'passaporte' && (doc.length === 11 || doc.length === 14);
+    const estrangeiro = tomador.doc_tipo === 'passaporte';
+    const docBrValido = !estrangeiro && (doc.length === 11 || doc.length === 14);
+    // TSNIF é tipo C (alfanumérico): preserva letras do passaporte, tira
+    // pontuação e espaço, e respeita o teto de 40.
+    const nif = estrangeiro
+      ? (tomador.cpf_cnpj || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 40)
+      : '';
     tomaXml += '<toma>';
     if (docBrValido) {
       tomaXml += doc.length === 14 ? `<CNPJ>${doc}</CNPJ>` : `<CPF>${doc}</CPF>`;
+    } else if (nif) {
+      tomaXml += `<NIF>${nif}</NIF>`;
     } else {
       tomaXml += '<cNaoNIF>2</cNaoNIF>';
     }
