@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import zlib from 'zlib';
 import { SignedXml } from 'xml-crypto';
 import { extractPemFromPfx } from './dfe';
+import { buildDiscriminacao } from './nfse-discriminacao';
 
 const EL_HOST = 'rj-buzios-pm-nfs-backend.cloud.el.com.br';
 const EL_BASE_PATH = '/producao35/api/nacional';
@@ -232,9 +233,8 @@ export function buildDpsXml(
   const valorServicos = items.reduce((s, it) => s + it.valor_total, 0);
   const aliq = config.aliquota_iss;
 
-  const discriminacao = items
-    .map(it => `${it.description} - Qtd: ${it.quantidade} x R$ ${it.valor_unitario.toFixed(2)} = R$ ${it.valor_total.toFixed(2)}`)
-    .join(' | ');
+  // <xDescServ> é TSDesc2000 — estourar o limite volta como rejeição E1235.
+  const discriminacao = buildDiscriminacao(items, ' | ');
 
   // Tomador
   let tomaXml = '';

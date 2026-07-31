@@ -7,6 +7,7 @@ import https from 'https';
 import crypto from 'crypto';
 import { SignedXml } from 'xml-crypto';
 import { extractPemFromPfx } from './dfe';
+import { buildDiscriminacao } from './nfse-discriminacao';
 
 // ── Hosts por ambiente (E&L Cloud — Búzios) ─────────────────────────────────
 
@@ -230,9 +231,8 @@ function buildRpsXml(
   const baseCalculo = +Math.max(0, valorServicos - valorDeducoes).toFixed(2);
   const valorIss = +(baseCalculo * aliquotaPct / 100).toFixed(2);
 
-  const discriminacao = items
-    .map(it => `${it.description} - Qtd: ${it.quantidade} x R$ ${it.valor_unitario.toFixed(2)} = R$ ${it.valor_total.toFixed(2)}`)
-    .join('\n');
+  // <Discriminacao> do ABRASF tem o mesmo teto de 2000 do leiaute nacional.
+  const discriminacao = buildDiscriminacao(items, '\n');
 
   const rawCodigo = config.codigo_servico || '9.01';
   const digits = rawCodigo.replace(/\D/g, '');
