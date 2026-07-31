@@ -210,33 +210,31 @@ describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => 
     expect(toma).toContain('<CNPJ>39232073000225</CNPJ>');
   });
 
-  // Búzios recusa cNaoNIF com EL0024 ("deve ser informado o CNPJ, CPF ou NIF
-  // do tomador"). O prefixo EL é validação do município, que exige um dos três
-  // identificadores — e o passaporte é o único que o hotel tem.
-  it('emite o passaporte do hóspede estrangeiro em <NIF> (rejeição EL0024)', () => {
+  // Passaporte NÃO vai em <NIF>: preencher NIF declara o tomador como
+  // contribuinte no exterior e liga a EL0391 de Búzios, que exige
+  // cPaisPrestacao=76, valor que o schema proíbe. Cinco tentativas em produção
+  // com <NIF> foram recusadas variando locPrest, comExt e endereço do tomador.
+  // Turista sem número fiscal estrangeiro é cNaoNIF=1 (dispensado do NIF).
+  it('identifica hóspede estrangeiro por cNaoNIF=1, nunca por NIF (EL0391)', () => {
     const toma = buildToma({ cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'CARLOS LEONEL MERLO GIMENEZ' });
-    expect(toma).toBe('<toma><NIF>25130937</NIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
+    expect(toma).toBe('<toma><cNaoNIF>1</cNaoNIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
   });
 
-  it('preserva as letras do passaporte e descarta pontuação (TSNIF é alfanumérico)', () => {
+  it('não emite <NIF> nem com passaporte alfanumérico', () => {
     const toma = buildToma({ cpf_cnpj: 'ab-123 456/x', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
-    expect(toma).toContain('<NIF>AB123456X</NIF>');
+    expect(toma).not.toContain('<NIF>');
+    expect(toma).toContain('<cNaoNIF>1</cNaoNIF>');
   });
 
-  it('respeita o teto de 40 caracteres do TSNIF', () => {
-    const toma = buildToma({ cpf_cnpj: 'X'.repeat(60), doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
-    expect(toma).toContain(`<NIF>${'X'.repeat(40)}</NIF>`);
-  });
-
-  it('usa cNaoNIF quando o documento tem tamanho invalido para CPF/CNPJ', () => {
+  it('usa cNaoNIF=2 quando o documento tem tamanho invalido para CPF/CNPJ', () => {
     const toma = buildToma({ cpf_cnpj: '000000', doc_tipo: 'cpf', razao_social: 'não identificado' });
     expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
     expect(toma).not.toContain('<CPF>');
   });
 
-  it('usa cNaoNIF para estrangeiro sem nenhum documento', () => {
+  it('usa cNaoNIF=1 para estrangeiro sem nenhum documento', () => {
     const toma = buildToma({ cpf_cnpj: '', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
-    expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
+    expect(toma).toContain('<cNaoNIF>1</cNaoNIF>');
     expect(toma).not.toContain('<NIF>');
   });
 
@@ -273,7 +271,7 @@ describe('DPS Nacional — local da prestação é sempre o município (impasse 
     expect(xml).not.toContain('<cPaisPrestacao>');
   });
 
-  it('mantém o município também para tomador estrangeiro com NIF', () => {
+  it('mantém o município também para tomador estrangeiro', () => {
     const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
     expect(xml).toContain('<locPrest><cLocPrestacao>3300233</cLocPrestacao></locPrest>');
     expect(xml).not.toContain('<cPaisPrestacao>');
@@ -310,9 +308,12 @@ describe('DPS Nacional — comExt para tomador do exterior (EL0391)', () => {
     expect(xml).not.toContain('<comExt>');
   });
 
-  it('não emite comExt para estrangeiro sem documento (vai por cNaoNIF)', () => {
+  // Chaveado na nacionalidade (doc_tipo=passaporte), não na presença do NIF: o
+  // hóspede é residente no exterior consumindo serviço no Brasil, com ou sem
+  // documento informado.
+  it('emite comExt para estrangeiro mesmo sem documento', () => {
     const { xml } = buildDpsXml(elConfig(true), { ...estrangeiro, cpf_cnpj: '' }, elItems, '1', 1);
-    expect(xml).not.toContain('<comExt>');
+    expect(xml).toContain('<comExt><mdPrestacao>2</mdPrestacao>');
   });
 
   it('vServMoeda acompanha o valor total do serviço', () => {

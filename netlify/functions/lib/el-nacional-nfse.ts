@@ -243,36 +243,51 @@ export function buildDpsXml(
   // TCInfoPessoa aceita, em escolha exclusiva, CNPJ | CPF | NIF | cNaoNIF.
   // Manual de Integração NFS-e Nacional v1.01, tipo TCInfoPessoa.
   //
-  // Hóspede estrangeiro vai em <NIF> com o número do passaporte. Rigorosamente
-  // NIF é o número fiscal do país de origem, e a primeira versão mandava
-  // <cNaoNIF>2</cNaoNIF> ("não exigência do NIF") por isso — mas Búzios recusou
-  // com EL0024 ("deve ser informado o CNPJ, CPF ou NIF do tomador"). O prefixo
-  // EL é validação do próprio município, que é quem manda aqui: ele exige um
-  // dos três identificadores, e o passaporte é o único que o hotel tem. TSNIF é
-  // alfanumérico de até 40 caracteres, então o número cabe sem adaptação.
+  // HÓSPEDE ESTRANGEIRO NÃO VAI EM <NIF>, e isso é decisão testada, não descuido.
   //
-  // cNaoNIF fica só para quem não tem identificador nenhum (o "000000" que a
-  // recepção digita em hóspede não identificado). Búzios vai recusar esse caso
-  // também — e deve mesmo: falta o dado, e a tela agora oferece reemissão.
+  // NIF é o número fiscal emitido por administração tributária ESTRANGEIRA (o
+  // CUIT argentino, o RUT uruguaio, o NIF português). Passaporte é documento de
+  // viagem, não número fiscal, então mandá-lo em <NIF> sempre foi uma licença.
+  // Houve motivo: Búzios recusou <cNaoNIF>2</cNaoNIF> com EL0024 ("deve ser
+  // informado o CNPJ, CPF ou NIF do tomador").
+  //
+  // Só que preencher <NIF> declara "tomador é contribuinte no exterior", e isso
+  // liga a EL0391, que exige cPaisPrestacao=76 — valor que o schema nacional
+  // proíbe (TSCodPaisISO, pattern [A-Z]{2}). Cinco tentativas em produção com
+  // <NIF>, todas recusadas, variando tudo o que podia variar em volta:
+  //
+  //   locPrest=município           → EL0391
+  //   locPrest=cPaisPrestacao BR   → EL0391
+  //   locPrest=cPaisPrestacao 76   → E1235 (schema)
+  //   + comExt/mdPrestacao=2       → EL0391
+  //   + endNac do tomador em Búzios→ EL0391
+  //
+  // Com NIF presente a regra é insatisfazível. Então o passaporte sai da
+  // identificação e o tomador estrangeiro vai por <cNaoNIF>1</cNaoNIF>
+  // ("dispensado do NIF"), que é o enquadramento correto de um turista sem
+  // número fiscal estrangeiro conhecido — e é o único valor de cNaoNIF ainda
+  // não testado contra a EL0024 (a recusa anterior foi com o valor 2).
+  //
+  // O passaporte não se perde: continua gravado em nf_invoices.tomador_cpf_cnpj
+  // e aparece na tela e na impressão da nota.
+  //
+  // Se a EL0024 voltar, o próximo passo é omitir o grupo <toma> junto com uma
+  // troca de cIndOp (a E0187 condiciona a obrigatoriedade do tomador ao
+  // indicador de operação), e aí sim o caso é chamado na E&L.
   //
   // CPF e CNPJ exigem tamanho exato no schema; documento de tamanho estranho
   // cai no cNaoNIF em vez de reprovar no schema.
   const doc = (tomador.cpf_cnpj || '').replace(/\D/g, '');
   const estrangeiro = tomador.doc_tipo === 'passaporte';
   const docBrValido = !estrangeiro && (doc.length === 11 || doc.length === 14);
-  // TSNIF é tipo C (alfanumérico): preserva letras do passaporte, tira
-  // pontuação e espaço, e respeita o teto de 40.
-  const nif = estrangeiro
-    ? (tomador.cpf_cnpj || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 40)
-    : '';
 
   let tomaXml = '';
   if (tomador.razao_social) {
     tomaXml += '<toma>';
     if (docBrValido) {
       tomaXml += doc.length === 14 ? `<CNPJ>${doc}</CNPJ>` : `<CPF>${doc}</CPF>`;
-    } else if (nif) {
-      tomaXml += `<NIF>${nif}</NIF>`;
+    } else if (estrangeiro) {
+      tomaXml += '<cNaoNIF>1</cNaoNIF>';
     } else {
       tomaXml += '<cNaoNIF>2</cNaoNIF>';
     }
@@ -361,7 +376,10 @@ export function buildDpsXml(
     //
     // O ISS continua em Búzios: quem define o município competente é o prestador
     // (cLocEmi/prest) e o locPrest, não este grupo.
-    (nif
+    // Chaveado em `estrangeiro` (doc_tipo=passaporte), não na presença do NIF:
+    // o hóspede continua sendo residente no exterior consumindo serviço no
+    // Brasil mesmo agora que o passaporte não vai mais no campo NIF.
+    (estrangeiro
       ? `<comExt>` +
         `<mdPrestacao>2</mdPrestacao>` +
         `<vincPrest>0</vincPrest>` +
