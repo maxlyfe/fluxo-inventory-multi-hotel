@@ -317,11 +317,15 @@ export function buildDpsXml(
     //
     // Com tomador estrangeiro (NIF), Búzios exige o país: rejeição EL0391
     // ("para tomador estrangeiro, o serviço deve ser prestado no Brasil,
-    // cPaisPrestacao=76"). O valor 76 vem literalmente da mensagem do próprio
-    // município. Fora esse caso segue o município da prestação, que é o que
-    // mantém o ISS onde o serviço foi prestado.
+    // cPaisPrestacao=76"). Fora esse caso segue o município da prestação, que é
+    // o que mantém o ISS onde o serviço foi prestado.
+    //
+    // O "76" da mensagem é o ISO 3166 NUMÉRICO do Brasil, e mandá-lo literal
+    // reprova no schema: cPaisPrestacao é TSCodPaisISO, pattern [A-Z]{2}, ou
+    // seja ISO alfa-2 (rejeição E1235, "Value '76' is not facet-valid with
+    // respect to pattern '[A-Z]{2}'"). O Brasil nesse campo é BR.
     (nif
-      ? `<locPrest><cPaisPrestacao>76</cPaisPrestacao></locPrest>`
+      ? `<locPrest><cPaisPrestacao>BR</cPaisPrestacao></locPrest>`
       : `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>`) +
     `<cServ>` +
     // Ordem do leiaute em cServ: cTribNac, cTribMun, xDescServ, cNBS, cIntContrib

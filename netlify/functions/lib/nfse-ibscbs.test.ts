@@ -260,10 +260,13 @@ describe('DPS Nacional — local da prestação com tomador estrangeiro (rejeiç
   // TCLocPrest é escolha exclusiva: ou o município IBGE, ou o país ISO.
   const estrangeiro = { cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' } as any;
 
-  it('envia cPaisPrestacao=76 quando o tomador tem NIF', () => {
+  // O país vai em ISO alfa-2 (TSCodPaisISO, pattern [A-Z]{2}): mandar o numérico
+  // 76 da mensagem do município reprova no schema com E1235.
+  it('envia cPaisPrestacao=BR quando o tomador tem NIF', () => {
     const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
-    expect(xml).toContain('<locPrest><cPaisPrestacao>76</cPaisPrestacao></locPrest>');
+    expect(xml).toContain('<locPrest><cPaisPrestacao>BR</cPaisPrestacao></locPrest>');
     expect(xml).not.toContain('<cLocPrestacao>');
+    expect(xml).toMatch(/<cPaisPrestacao>[A-Z]{2}<\/cPaisPrestacao>/);
   });
 
   it('mantém o município da prestação para tomador brasileiro', () => {
