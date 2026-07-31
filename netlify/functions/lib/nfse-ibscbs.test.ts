@@ -284,3 +284,40 @@ describe('DPS Nacional — local da prestação é sempre o município (impasse 
     expect(xml).toContain('<cLocPrestacao>3300233</cLocPrestacao>');
   });
 });
+
+describe('DPS Nacional — comExt para tomador do exterior (EL0391)', () => {
+  const estrangeiro = { cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' } as any;
+
+  // É o grupo que declara "tomador no exterior, serviço consumido no Brasil"
+  // (mdPrestacao=2, modo GATS 2), coisa que o locPrest não consegue expressar.
+  it('emite comExt com mdPrestacao=2 quando o tomador vai por NIF', () => {
+    const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
+    expect(xml).toContain(
+      '<comExt><mdPrestacao>2</mdPrestacao><vincPrest>0</vincPrest><tpMoeda>986</tpMoeda>' +
+        '<vServMoeda>450.00</vServMoeda><mecAFComexP>01</mecAFComexP><mecAFComexT>01</mecAFComexT>' +
+        '<movTempBens>1</movTempBens><mdic>0</mdic></comExt>',
+    );
+  });
+
+  // Ordem do sequence em TCServ: locPrest, cServ, comExt. Fora dela é E1235.
+  it('coloca comExt depois de cServ, dentro de serv', () => {
+    const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
+    expect(xml).toMatch(/<\/cServ><comExt>.*<\/comExt><\/serv>/);
+  });
+
+  it('não emite comExt para tomador brasileiro', () => {
+    const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
+    expect(xml).not.toContain('<comExt>');
+  });
+
+  it('não emite comExt para estrangeiro sem documento (vai por cNaoNIF)', () => {
+    const { xml } = buildDpsXml(elConfig(true), { ...estrangeiro, cpf_cnpj: '' }, elItems, '1', 1);
+    expect(xml).not.toContain('<comExt>');
+  });
+
+  it('vServMoeda acompanha o valor total do serviço', () => {
+    const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
+    const vServ = xml.match(/<vServ>([\d.]+)<\/vServ>/)?.[1];
+    expect(xml).toContain(`<vServMoeda>${vServ}</vServMoeda>`);
+  });
+});

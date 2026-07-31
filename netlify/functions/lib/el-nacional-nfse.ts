@@ -329,11 +329,8 @@ export function buildDpsXml(
     // (e o numérico 76 da mensagem nem chega lá: reprova antes no schema com
     // E1235, porque TSCodPaisISO tem pattern [A-Z]{2}).
     //
-    // Ou seja, a regra do município compara o campo com o código NUMÉRICO 76,
-    // que o schema nacional proíbe — não existe valor que satisfaça as duas
-    // validações ao mesmo tempo. É bug da E&L, e depende de correção deles;
-    // enquanto isso, nota de tomador com NIF não passa em Búzios. Ver a nota
-    // Integracoes/NFe-NFSe-Fiscal do cofre.
+    // O que o leiaute oferece para declarar "tomador no exterior, serviço
+    // consumido no Brasil" NÃO é o locPrest: é o grupo <comExt> abaixo.
     `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>` +
     `<cServ>` +
     // Ordem do leiaute em cServ: cTribNac, cTribMun, xDescServ, cNBS, cIntContrib
@@ -342,6 +339,40 @@ export function buildDpsXml(
     (cNBS ? `<cNBS>${cNBS}</cNBS>` : '') +
     (cIntContrib ? `<cIntContrib>${cIntContrib}</cIntContrib>` : '') +
     `</cServ>` +
+    // <comExt> (TCComExterior, opcional, vem depois de cServ no sequence):
+    // "informações sobre transações entre residentes ou domiciliados no Brasil
+    // com residentes ou domiciliados no exterior". É exatamente o caso do
+    // hóspede estrangeiro, e é aqui que a DPS diz que o serviço foi consumido
+    // no Brasil — não no locPrest, que só aceita município OU país.
+    //
+    // mdPrestacao=2 (Consumo no Brasil) é o modo GATS 2: o tomador não residente
+    // consome o serviço em território nacional, que é o que acontece na
+    // hospedagem. Sem este grupo, a DPS não declarava nada sobre o tomador ser
+    // do exterior, e a rejeição EL0391 de Búzios é justamente sobre isso.
+    //
+    // Todos os filhos são obrigatórios quando o grupo existe (XSD
+    // tiposComplexos_v1.01, TCComExterior):
+    //   vincPrest=0    sem vínculo entre hotel e hóspede
+    //   tpMoeda=986    BRL (a transação é em real, é o que o hotel cobra)
+    //   vServMoeda     mesmo valor do serviço, na moeda acima
+    //   mecAFComexP/T=01  nenhum mecanismo de fomento ao comércio exterior
+    //   movTempBens=1  não há movimentação temporária de bens
+    //   mdic=0         não compartilhar com a Secretaria de Comércio Exterior
+    //
+    // O ISS continua em Búzios: quem define o município competente é o prestador
+    // (cLocEmi/prest) e o locPrest, não este grupo.
+    (nif
+      ? `<comExt>` +
+        `<mdPrestacao>2</mdPrestacao>` +
+        `<vincPrest>0</vincPrest>` +
+        `<tpMoeda>986</tpMoeda>` +
+        `<vServMoeda>${valorServicos.toFixed(2)}</vServMoeda>` +
+        `<mecAFComexP>01</mecAFComexP>` +
+        `<mecAFComexT>01</mecAFComexT>` +
+        `<movTempBens>1</movTempBens>` +
+        `<mdic>0</mdic>` +
+        `</comExt>`
+      : '') +
     `</serv>` +
     `<valores>` +
     `<vServPrest><vServ>${valorServicos.toFixed(2)}</vServ></vServPrest>` +
