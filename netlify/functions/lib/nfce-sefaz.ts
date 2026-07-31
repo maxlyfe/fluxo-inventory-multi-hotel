@@ -570,7 +570,16 @@ export function buildNFCeXml(params: {
       : vTributavel_i;
     const vBC_i = taxaNaBase ? Math.round((baseVBC + vOutro_i) * 100) / 100 : baseVBC;
     const pICMS_i = it.icms_pICMS ?? 0;
-    const vICMS_i = taxaNaBase ? Math.round(vBC_i * pICMS_i) / 100 : (it.icms_vICMS ?? 0);
+    // vICMS é SEMPRE derivado de vBC × pICMS, nunca do valor que veio pronto do
+    // chamador. É exatamente essa conta que a SEFAZ confere: "Rejeicao 528:
+    // Valor do ICMS difere do produto BC e Aliquota".
+    //
+    // Antes o valor pré-calculado era aceito quando a taxa de serviço não
+    // entrava na base, e isso quebrou assim que passou a existir desconto por
+    // item: o desconto reduz a base aqui (vDesc sai de icms_vBC acima), mas o
+    // vICMS do chamador continuava calculado sobre o valor cheio. Uma cortesia
+    // de R$ 38,00 saía com vBC 0,00, pICMS 14,00 e vICMS 5,32.
+    const vICMS_i = Math.round(vBC_i * pICMS_i) / 100;
     vBC += vBC_i;
     vICMS += vICMS_i;
     let icmsXml: string;

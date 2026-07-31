@@ -138,6 +138,34 @@ describe('NFC-e — grupos IBS/CBS da Reforma Tributária', () => {
       expect(xml).toContain('<vNF>10.00</vNF>');
     });
 
+    // Rejeicao 528 ("Valor do ICMS difere do produto BC e Aliquota"): a SEFAZ
+    // recalcula vBC x pICMS e compara com vICMS. O item de cortesia chega aqui
+    // com icms_vICMS: 16.2 (calculado sobre o valor cheio pelo chamador) e o
+    // builder tem que ignorar isso, senao sai vBC 0.00 com vICMS 16.20.
+    it('deriva vICMS de vBC x pICMS, ignorando o valor pre-calculado (rejeicao 528)', () => {
+      const xml = xmlCortesia();
+      const itens = [...xml.matchAll(/<ICMS00>[\s\S]*?<\/ICMS00>/g)].map(m => m[0]);
+      expect(itens).toHaveLength(2);
+      for (const icms of itens) {
+        const num = (t: string) => Number((icms.match(new RegExp(`<${t}>([^<]*)</${t}>`)) || [])[1]);
+        expect(num('vICMS')).toBeCloseTo(Math.round(num('vBC') * num('pICMS')) / 100, 2);
+      }
+      // Item pago: 10 x 18% = 1.80. Cortesia: base zerada, imposto zerado.
+      expect(itens[0]).toContain('<vBC>10.00</vBC>');
+      expect(itens[0]).toContain('<vICMS>1.80</vICMS>');
+      expect(itens[1]).toContain('<vBC>0.00</vBC>');
+      expect(itens[1]).toContain('<vICMS>0.00</vICMS>');
+    });
+
+    it('o total do ICMS fecha com a base total (rejeicao 528 no ICMSTot)', () => {
+      const xml = xmlCortesia();
+      const tot = (xml.match(/<ICMSTot>[\s\S]*?<\/ICMSTot>/) || [''])[0];
+      const num = (t: string) => Number((tot.match(new RegExp(`<${t}>([^<]*)</${t}>`)) || [])[1]);
+      // Base 10.00 (so o item pago) a 18% = 1.80, e nao 18.00 sobre o bruto.
+      expect(num('vBC')).toBeCloseTo(10, 2);
+      expect(num('vICMS')).toBeCloseTo(1.8, 2);
+    });
+
     it('zera as bases do item de cortesia (desconto nao compoe base)', () => {
       const xml = xmlCortesia();
       // ICMS: base total = 10 do item pago, nao 100
