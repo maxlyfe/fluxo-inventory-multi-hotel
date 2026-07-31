@@ -256,21 +256,25 @@ describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => 
   });
 });
 
-describe('DPS Nacional — local da prestação com tomador estrangeiro (rejeição EL0391)', () => {
-  // TCLocPrest é escolha exclusiva: ou o município IBGE, ou o país ISO.
+describe('DPS Nacional — local da prestação é sempre o município (impasse EL0391)', () => {
+  // TCLocPrest é escolha exclusiva: ou o município IBGE, ou o país ISO. Serviço
+  // prestado no Brasil vai pelo município; cPaisPrestacao é para prestação fora
+  // do Brasil.
+  //
+  // Estes testes travam a decisão de NÃO condicionar o campo ao tomador
+  // estrangeiro: as duas alternativas foram testadas em produção e Búzios
+  // devolveu o mesmo EL0391 nas duas (o município compara o campo com o código
+  // numérico 76, que o schema nacional proíbe pelo pattern [A-Z]{2}).
   const estrangeiro = { cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' } as any;
-
-  // O país vai em ISO alfa-2 (TSCodPaisISO, pattern [A-Z]{2}): mandar o numérico
-  // 76 da mensagem do município reprova no schema com E1235.
-  it('envia cPaisPrestacao=BR quando o tomador tem NIF', () => {
-    const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
-    expect(xml).toContain('<locPrest><cPaisPrestacao>BR</cPaisPrestacao></locPrest>');
-    expect(xml).not.toContain('<cLocPrestacao>');
-    expect(xml).toMatch(/<cPaisPrestacao>[A-Z]{2}<\/cPaisPrestacao>/);
-  });
 
   it('mantém o município da prestação para tomador brasileiro', () => {
     const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
+    expect(xml).toContain('<locPrest><cLocPrestacao>3300233</cLocPrestacao></locPrest>');
+    expect(xml).not.toContain('<cPaisPrestacao>');
+  });
+
+  it('mantém o município também para tomador estrangeiro com NIF', () => {
+    const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
     expect(xml).toContain('<locPrest><cLocPrestacao>3300233</cLocPrestacao></locPrest>');
     expect(xml).not.toContain('<cPaisPrestacao>');
   });

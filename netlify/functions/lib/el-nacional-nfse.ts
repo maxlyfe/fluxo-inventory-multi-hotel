@@ -312,21 +312,29 @@ export function buildDpsXml(
     `</prest>` +
     tomaXml +
     `<serv>` +
-    // TCLocPrest é escolha EXCLUSIVA entre cLocPrestacao (município IBGE) e
-    // cPaisPrestacao (país ISO, 2 caracteres) — não dá para mandar os dois.
+    // TCLocPrest é escolha EXCLUSIVA (Choice no XSD, "OU" no leiaute, campos
+    // B-91/92/93) entre cLocPrestacao (município IBGE) e cPaisPrestacao (país
+    // ISO alfa-2). Serviço prestado no Brasil vai pelo MUNICÍPIO —
+    // cPaisPrestacao existe para prestação fora do Brasil.
     //
-    // Com tomador estrangeiro (NIF), Búzios exige o país: rejeição EL0391
-    // ("para tomador estrangeiro, o serviço deve ser prestado no Brasil,
-    // cPaisPrestacao=76"). Fora esse caso segue o município da prestação, que é
-    // o que mantém o ISS onde o serviço foi prestado.
+    // NÃO condicione este campo ao tomador estrangeiro. Búzios recusa a nota do
+    // hóspede estrangeiro com EL0391 ("para tomador estrangeiro, o serviço deve
+    // ser prestado no Brasil, cPaisPrestacao=76; tomador possui NIF, mas o país
+    // de prestação não é o Brasil"), e as duas alternativas possíveis já foram
+    // testadas em produção, com o MESMO EL0391 nas duas:
     //
-    // O "76" da mensagem é o ISO 3166 NUMÉRICO do Brasil, e mandá-lo literal
-    // reprova no schema: cPaisPrestacao é TSCodPaisISO, pattern [A-Z]{2}, ou
-    // seja ISO alfa-2 (rejeição E1235, "Value '76' is not facet-valid with
-    // respect to pattern '[A-Z]{2}'"). O Brasil nesse campo é BR.
-    (nif
-      ? `<locPrest><cPaisPrestacao>BR</cPaisPrestacao></locPrest>`
-      : `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>`) +
+    //   1. <cLocPrestacao>3300233</cLocPrestacao>  → EL0391
+    //   2. <cPaisPrestacao>BR</cPaisPrestacao>     → EL0391
+    //
+    // (e o numérico 76 da mensagem nem chega lá: reprova antes no schema com
+    // E1235, porque TSCodPaisISO tem pattern [A-Z]{2}).
+    //
+    // Ou seja, a regra do município compara o campo com o código NUMÉRICO 76,
+    // que o schema nacional proíbe — não existe valor que satisfaça as duas
+    // validações ao mesmo tempo. É bug da E&L, e depende de correção deles;
+    // enquanto isso, nota de tomador com NIF não passa em Búzios. Ver a nota
+    // Integracoes/NFe-NFSe-Fiscal do cofre.
+    `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>` +
     `<cServ>` +
     // Ordem do leiaute em cServ: cTribNac, cTribMun, xDescServ, cNBS, cIntContrib
     `<cTribNac>${cTribNac}</cTribNac>` +
