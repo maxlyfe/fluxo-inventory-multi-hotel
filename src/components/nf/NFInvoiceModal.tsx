@@ -206,6 +206,8 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   const [activeItems, setActiveItems] = useState<CurrentAccountEntry[]>([]);
   const [ignoredItems, setIgnoredItems] = useState<CurrentAccountEntry[]>([]);
   const [checkedItemIds, setCheckedItemIds] = useState<Set<number>>(new Set());
+  /** Desconto por lançamento (chave = id do lançamento na Erbon), como digitado. */
+  const [descontos, setDescontos] = useState<Record<number, { modo: 'percent' | 'valor'; valor: string }>>({});
 
   // Serviços marcados para emitir como produto em NFC-e/NF-e (ex.: taxa de serviço)
   const [nfceEligible, setNfceEligible] = useState<NfceEligibleService[]>([]);
@@ -563,7 +565,37 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
 
   // Get total of selected active items
   const finalItems = activeItems.filter((e) => checkedItemIds.has(e.id));
-  const subtotal = finalItems.reduce((sum, e) => sum + e.amount, 0);
+
+  // Desconto incondicional por lançamento, digitado em % ou em R$.
+  //
+  // Necessário porque a conta corrente da Erbon não tem desconto: o endpoint
+  // /booking/{id}/currentaccount devolve apenas id, description, amount,
+  // isDebit, isCredit, currency, isInvoiced e idDepartment, e o
+  // /sales/transactions só acrescenta quantidade e valor total. Cortesia e
+  // desconto dados no balcão não chegam por API — quem informa é a recepção,
+  // aqui, na hora de emitir. Mesmo comportamento da NF avulsa.
+  //
+  // O item continua na nota pelo valor cheio (<vProd>) e o desconto sai em
+  // <vDesc>, reduzindo o total e as bases de tributo. Zerar o valor do item
+  // seria recusado pela SEFAZ e apagaria da nota o preço real.
+  const descontoDoItem = (e: CurrentAccountEntry): number => {
+    const d = descontos[e.id];
+    if (!d) return 0;
+    const informado = Number(String(d.valor).replace(/[^0-9.,-]/g, '').replace(',', '.'));
+    if (!Number.isFinite(informado) || informado <= 0 || e.amount <= 0) return 0;
+    const emReais = d.modo === 'percent'
+      ? +(e.amount * Math.min(informado, 100) / 100).toFixed(2)
+      : informado;
+    // Trava no valor do item: desconto maior geraria total negativo.
+    return +Math.min(emReais, e.amount).toFixed(2);
+  };
+  const liquidoDoItem = (e: CurrentAccountEntry) => +(e.amount - descontoDoItem(e)).toFixed(2);
+
+  // Subtotal é o LÍQUIDO: é o que o hóspede paga, o que fecha com as formas de
+  // pagamento da NFC-e e o que a nota totaliza.
+  const subtotal = +finalItems.reduce((sum, e) => sum + liquidoDoItem(e), 0).toFixed(2);
+  const descontoTotal = +finalItems.reduce((sum, e) => sum + descontoDoItem(e), 0).toFixed(2);
+  const brutoTotal = +finalItems.reduce((sum, e) => sum + e.amount, 0).toFixed(2);
 
   const isForeigner = tomadorDocTipo === 'passaporte';
 
@@ -703,6 +735,9 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         quantidade: 1,
         valor_unitario: e.amount,
         valor_total: e.amount,
+        // Valor cheio acima, desconto separado: nfService desconta do total da
+        // nota e a emissão manda o valor em <vDesc>.
+        desconto: descontoDoItem(e) || null,
         ...(isProduct && !elig && fiscal ? {
           ncm: fiscal.ncm || null,
           cfop: fiscal.cfop || '5102',
@@ -1208,9 +1243,70 @@ img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; obj
                               )}
                             </div>
                           </div>
-                          <span className="font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                            {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                          </span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              {descontoDoItem(item) > 0 ? (
+                                <>
+                                  <span className="line-through text-gray-400 font-normal mr-1">
+                                    {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </span>
+                                  {liquidoDoItem(item).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </>
+                              ) : (
+                                item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              )}
+                            </span>
+
+                            {/* Desconto incondicional do lançamento. A Erbon não
+                                informa desconto na conta corrente, então quem
+                                sabe disso é a recepção. Só aparece no item
+                                incluído, e o clique não pode alternar o item. */}
+                            {isChecked && (
+                              <div className="flex items-center gap-1" onClick={ev => ev.stopPropagation()}>
+                                <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                  {(['percent', 'valor'] as const).map(modo => (
+                                    <button
+                                      key={modo}
+                                      type="button"
+                                      onClick={() => setDescontos(prev => ({
+                                        ...prev,
+                                        [item.id]: { modo, valor: prev[item.id]?.valor ?? '' },
+                                      }))}
+                                      className={`px-1.5 py-0.5 text-[10px] font-bold transition-colors ${
+                                        (descontos[item.id]?.modo ?? 'percent') === modo
+                                          ? 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
+                                          : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                                      }`}
+                                    >
+                                      {modo === 'percent' ? '%' : 'R$'}
+                                    </button>
+                                  ))}
+                                </div>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={descontos[item.id]?.valor ?? ''}
+                                  onChange={ev => setDescontos(prev => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      modo: prev[item.id]?.modo ?? 'percent',
+                                      valor: ev.target.value.replace(/[^0-9.,]/g, ''),
+                                    },
+                                  }))}
+                                  placeholder="desconto"
+                                  className="w-16 p-1 text-xs text-right border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setDescontos(prev => ({ ...prev, [item.id]: { modo: 'percent', valor: '100' } }))}
+                                  title="Lançamento sem cobrança: entra na nota pelo valor cheio, com desconto integral"
+                                  className="px-1.5 py-0.5 text-[10px] font-bold rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
+                                >
+                                  cortesia
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1285,7 +1381,13 @@ img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; obj
                   <span className="text-gray-700 dark:text-gray-350 font-medium">
                     {checkedItemIds.size} item{checkedItemIds.size > 1 ? 's' : ''} selecionado{checkedItemIds.size > 1 ? 's' : ''}
                   </span>
-                  <span className="font-bold text-amber-600 dark:text-amber-400 text-base">
+                  <span className="font-bold text-amber-600 dark:text-amber-400 text-base text-right">
+                    {descontoTotal > 0 && (
+                      <span className="block text-[10px] font-normal text-gray-500 dark:text-gray-400">
+                        {brutoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} menos{' '}
+                        {descontoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} de desconto
+                      </span>
+                    )}
                     Subtotal: {subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </span>
                 </div>
@@ -1725,9 +1827,20 @@ img { display: block; margin: 0 auto 4px; max-height: 20mm; max-width: 55mm; obj
                         <div className="flex justify-between">
                           <span className="text-gray-700 dark:text-gray-300 font-medium">{item.description}</span>
                           <span className="font-mono font-bold text-gray-700 dark:text-gray-300">
-                            {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {descontoDoItem(item) > 0 && (
+                              <span className="line-through text-gray-400 font-normal mr-1">
+                                {item.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            )}
+                            {liquidoDoItem(item).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
                         </div>
+                        {descontoDoItem(item) > 0 && (
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                            Desconto de {descontoDoItem(item).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {descontoDoItem(item) >= item.amount ? ' (cortesia)' : ''} · vai em vDesc, o item mantém o valor cheio
+                          </p>
+                        )}
                         {isProduct && fiscalItem && (
                           <div className="flex items-center gap-2 mt-1">
                             {fiscalItem.ncm && (
