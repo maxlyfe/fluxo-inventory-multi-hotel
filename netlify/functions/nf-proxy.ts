@@ -49,6 +49,15 @@ const CORS_HEADERS = {
   ].join(', '),
 };
 
+// Convenção de status: rejeição do fisco é RESPOSTA, não falha de transporte.
+// SEFAZ/Plataforma Nacional recusar uma nota é um round-trip bem-sucedido com
+// resposta negativa, e sai como 200 com `success: false` + `error`. O 5xx fica
+// reservado a falha real de comunicação (os blocos catch).
+//
+// Antes toda rejeição saía como 502: o console do navegador enchia de
+// "POST /nf-proxy 502 (Bad Gateway)" e uma nota recusada por erro de schema
+// era indistinguível de proxy fora do ar — já custou tempo de diagnóstico.
+// Todo consumidor em nfService.ts já testa `result.success === false`.
 function jsonResponse(statusCode: number, body: Record<string, unknown>) {
   return {
     statusCode,
@@ -669,7 +678,7 @@ const handler: Handler = async (event: HandlerEvent) => {
 
       // cStat: 137 = nenhum documento novo; 138 = documentos localizados
       const ok = result.cStat === '137' || result.cStat === '138';
-      return jsonResponse(ok ? 200 : 502, {
+      return jsonResponse(200, {
         success: ok,
         cStat: result.cStat,
         message: result.xMotivo,
@@ -737,7 +746,7 @@ const handler: Handler = async (event: HandlerEvent) => {
       });
 
       const ok = result.cStat === '135' || result.cStat === '573';
-      return jsonResponse(ok ? 200 : 502, {
+      return jsonResponse(200, {
         success: ok,
         cStat: result.cStat,
         message: result.xMotivo,
@@ -823,7 +832,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         ambiente,
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         numero_nf: result.numeroNFSe,
         chave_acesso: result.chaveAcesso,
@@ -888,7 +897,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         protocolo: result.protocolo,
         message: result.mensagem,
@@ -931,7 +940,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         data: result.data,
         message: result.mensagem,
@@ -973,7 +982,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         ambiente: payload.ambiente === 'producao' ? 'producao' : 'homologacao',
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         pdfBase64: result.pdfBase64,
         contentType: result.contentType,
@@ -1150,7 +1159,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         numeroDPS: payload.numeroDPS || 1,
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         numero_nf: result.numero_nf,
         chave_acesso: result.chave_acesso,
@@ -1192,7 +1201,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         motivo: payload.motivo,
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         message: result.message,
         xml_cancelamento: result.xml_retorno,
@@ -1220,7 +1229,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         chave_acesso: payload.chave_acesso,
       });
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         message: result.message,
         xml: result.xml,
@@ -1295,7 +1304,7 @@ const handler: Handler = async (event: HandlerEvent) => {
         }
       }
 
-      return jsonResponse(result.success ? 200 : 502, {
+      return jsonResponse(200, {
         success: result.success,
         processando: result.processando,
         chave_acesso: result.chave_acesso,

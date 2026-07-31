@@ -1521,8 +1521,11 @@ async function cancelInvoice(
 
     const result = await res.json();
 
-    if (!res.ok) {
-      return { success: false, message: result.error || 'Erro ao cancelar nota fiscal' };
+    // Rejeição do fisco chega como 200 + success:false (ver jsonResponse em
+    // nf-proxy.ts), então testar só res.ok marcaria como cancelada uma nota
+    // que o fisco recusou cancelar.
+    if (!res.ok || result.success === false) {
+      return { success: false, message: result.error || result.message || 'Erro ao cancelar nota fiscal' };
     }
 
     await supabase
