@@ -255,3 +255,25 @@ describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => 
     expect(toma).toContain('<nro>10</nro>');
   });
 });
+
+describe('DPS Nacional — local da prestação com tomador estrangeiro (rejeição EL0391)', () => {
+  // TCLocPrest é escolha exclusiva: ou o município IBGE, ou o país ISO.
+  const estrangeiro = { cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' } as any;
+
+  it('envia cPaisPrestacao=76 quando o tomador tem NIF', () => {
+    const { xml } = buildDpsXml(elConfig(true), estrangeiro, elItems, '1', 1);
+    expect(xml).toContain('<locPrest><cPaisPrestacao>76</cPaisPrestacao></locPrest>');
+    expect(xml).not.toContain('<cLocPrestacao>');
+  });
+
+  it('mantém o município da prestação para tomador brasileiro', () => {
+    const { xml } = buildDpsXml(elConfig(true), elTomador, elItems, '1', 1);
+    expect(xml).toContain('<locPrest><cLocPrestacao>3300233</cLocPrestacao></locPrest>');
+    expect(xml).not.toContain('<cPaisPrestacao>');
+  });
+
+  it('mantém o município quando o estrangeiro não tem documento (vai por cNaoNIF)', () => {
+    const { xml } = buildDpsXml(elConfig(true), { ...estrangeiro, cpf_cnpj: '' }, elItems, '1', 1);
+    expect(xml).toContain('<cLocPrestacao>3300233</cLocPrestacao>');
+  });
+});

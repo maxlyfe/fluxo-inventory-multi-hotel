@@ -257,16 +257,17 @@ export function buildDpsXml(
   //
   // CPF e CNPJ exigem tamanho exato no schema; documento de tamanho estranho
   // cai no cNaoNIF em vez de reprovar no schema.
+  const doc = (tomador.cpf_cnpj || '').replace(/\D/g, '');
+  const estrangeiro = tomador.doc_tipo === 'passaporte';
+  const docBrValido = !estrangeiro && (doc.length === 11 || doc.length === 14);
+  // TSNIF é tipo C (alfanumérico): preserva letras do passaporte, tira
+  // pontuação e espaço, e respeita o teto de 40.
+  const nif = estrangeiro
+    ? (tomador.cpf_cnpj || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 40)
+    : '';
+
   let tomaXml = '';
   if (tomador.razao_social) {
-    const doc = (tomador.cpf_cnpj || '').replace(/\D/g, '');
-    const estrangeiro = tomador.doc_tipo === 'passaporte';
-    const docBrValido = !estrangeiro && (doc.length === 11 || doc.length === 14);
-    // TSNIF é tipo C (alfanumérico): preserva letras do passaporte, tira
-    // pontuação e espaço, e respeita o teto de 40.
-    const nif = estrangeiro
-      ? (tomador.cpf_cnpj || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 40)
-      : '';
     tomaXml += '<toma>';
     if (docBrValido) {
       tomaXml += doc.length === 14 ? `<CNPJ>${doc}</CNPJ>` : `<CPF>${doc}</CPF>`;
@@ -311,7 +312,17 @@ export function buildDpsXml(
     `</prest>` +
     tomaXml +
     `<serv>` +
-    `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>` +
+    // TCLocPrest é escolha EXCLUSIVA entre cLocPrestacao (município IBGE) e
+    // cPaisPrestacao (país ISO, 2 caracteres) — não dá para mandar os dois.
+    //
+    // Com tomador estrangeiro (NIF), Búzios exige o país: rejeição EL0391
+    // ("para tomador estrangeiro, o serviço deve ser prestado no Brasil,
+    // cPaisPrestacao=76"). O valor 76 vem literalmente da mensagem do próprio
+    // município. Fora esse caso segue o município da prestação, que é o que
+    // mantém o ISS onde o serviço foi prestado.
+    (nif
+      ? `<locPrest><cPaisPrestacao>76</cPaisPrestacao></locPrest>`
+      : `<locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest>`) +
     `<cServ>` +
     // Ordem do leiaute em cServ: cTribNac, cTribMun, xDescServ, cNBS, cIntContrib
     `<cTribNac>${cTribNac}</cTribNac>` +
