@@ -243,51 +243,58 @@ export function buildDpsXml(
   // TCInfoPessoa aceita, em escolha exclusiva, CNPJ | CPF | NIF | cNaoNIF.
   // Manual de Integração NFS-e Nacional v1.01, tipo TCInfoPessoa.
   //
-  // HÓSPEDE ESTRANGEIRO NÃO VAI EM <NIF>, e isso é decisão testada, não descuido.
+  // HÓSPEDE ESTRANGEIRO EM BÚZIOS: por esta rota (DPS nacional) a nota NÃO passa
+  // hoje, e isso é impasse conhecido do município, não bug nosso. Leia antes de
+  // mexer, porque as duas alternativas possíveis já foram testadas à exaustão.
   //
-  // NIF é o número fiscal emitido por administração tributária ESTRANGEIRA (o
-  // CUIT argentino, o RUT uruguaio, o NIF português). Passaporte é documento de
-  // viagem, não número fiscal, então mandá-lo em <NIF> sempre foi uma licença.
-  // Houve motivo: Búzios recusou <cNaoNIF>2</cNaoNIF> com EL0024 ("deve ser
-  // informado o CNPJ, CPF ou NIF do tomador").
+  // NIF é o número fiscal emitido por administração tributária ESTRANGEIRA (CUIT
+  // argentino, RUT uruguaio, NIF português). Passaporte é documento de viagem,
+  // não número fiscal, então mandá-lo em <NIF> é uma licença — que Búzios força,
+  // por recusar cNaoNIF com EL0024 ("deve ser informado o CNPJ, CPF ou NIF").
   //
-  // Só que preencher <NIF> declara "tomador é contribuinte no exterior", e isso
-  // liga a EL0391, que exige cPaisPrestacao=76 — valor que o schema nacional
-  // proíbe (TSCodPaisISO, pattern [A-Z]{2}). Cinco tentativas em produção com
-  // <NIF>, todas recusadas, variando tudo o que podia variar em volta:
+  // O que foi testado em produção, seis tentativas, todas recusadas:
   //
-  //   locPrest=município           → EL0391
-  //   locPrest=cPaisPrestacao BR   → EL0391
-  //   locPrest=cPaisPrestacao 76   → E1235 (schema)
-  //   + comExt/mdPrestacao=2       → EL0391
-  //   + endNac do tomador em Búzios→ EL0391
+  //   cNaoNIF=2 (não exigência)                    → EL0024
+  //   cNaoNIF=1 (dispensado)                       → EL0024
+  //   NIF + locPrest=município                     → EL0391
+  //   NIF + locPrest=cPaisPrestacao BR             → EL0391
+  //   NIF + locPrest=cPaisPrestacao 76             → E1235 (schema: [A-Z]{2})
+  //   NIF + comExt/mdPrestacao=2 + endNac Búzios   → EL0391
   //
-  // Com NIF presente a regra é insatisfazível. Então o passaporte sai da
-  // identificação e o tomador estrangeiro vai por <cNaoNIF>1</cNaoNIF>
-  // ("dispensado do NIF"), que é o enquadramento correto de um turista sem
-  // número fiscal estrangeiro conhecido — e é o único valor de cNaoNIF ainda
-  // não testado contra a EL0024 (a recusa anterior foi com o valor 2).
+  // A EL0391 exige cPaisPrestacao=76, que é o ISO 3166 NUMÉRICO do Brasil, e o
+  // schema só aceita ISO alfa-2 nesse campo. Logo é insatisfazível, e sem NIF a
+  // EL0024 barra. As duas regras do município se contradizem. Chamado aberto
+  // pedindo a correção da EL0391.
   //
-  // O passaporte não se perde: continua gravado em nf_invoices.tomador_cpf_cnpj
-  // e aparece na tela e na impressão da nota.
+  // Fica em <NIF> de propósito: é o estado que passa a emitir no minuto em que a
+  // E&L corrigir a EL0391, sem precisar de deploy. Trocar para cNaoNIF só devolve
+  // EL0024 e ainda exigiria mais um deploy depois da correção.
   //
-  // Se a EL0024 voltar, o próximo passo é omitir o grupo <toma> junto com uma
-  // troca de cIndOp (a E0187 condiciona a obrigatoriedade do tomador ao
-  // indicador de operação), e aí sim o caso é chamado na E&L.
+  // Enquanto isso, quem emite para estrangeiro em Búzios é a rota ABRASF
+  // (nfse_provider='prefeitura'), onde buildRpsXml omite só o bloco de CPF/CNPJ
+  // e mantém nome e endereço: as notas 202600887 e 202600888 do Costa do Sol
+  // saíram autorizadas assim em 30/07/2026. A escolha da rota é do usuário, na
+  // configuração de NF do hotel, e é intencional que este código não desvie
+  // sozinho para lá. Ver Integracoes/NFe-NFSe-Fiscal no cofre.
   //
   // CPF e CNPJ exigem tamanho exato no schema; documento de tamanho estranho
   // cai no cNaoNIF em vez de reprovar no schema.
   const doc = (tomador.cpf_cnpj || '').replace(/\D/g, '');
   const estrangeiro = tomador.doc_tipo === 'passaporte';
   const docBrValido = !estrangeiro && (doc.length === 11 || doc.length === 14);
+  // TSNIF é tipo C (alfanumérico): preserva letras do passaporte, tira
+  // pontuação e espaço, e respeita o teto de 40.
+  const nif = estrangeiro
+    ? (tomador.cpf_cnpj || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 40)
+    : '';
 
   let tomaXml = '';
   if (tomador.razao_social) {
     tomaXml += '<toma>';
     if (docBrValido) {
       tomaXml += doc.length === 14 ? `<CNPJ>${doc}</CNPJ>` : `<CPF>${doc}</CPF>`;
-    } else if (estrangeiro) {
-      tomaXml += '<cNaoNIF>1</cNaoNIF>';
+    } else if (nif) {
+      tomaXml += `<NIF>${nif}</NIF>`;
     } else {
       tomaXml += '<cNaoNIF>2</cNaoNIF>';
     }

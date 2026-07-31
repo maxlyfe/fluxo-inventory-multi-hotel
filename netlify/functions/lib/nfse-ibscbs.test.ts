@@ -210,20 +210,24 @@ describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => 
     expect(toma).toContain('<CNPJ>39232073000225</CNPJ>');
   });
 
-  // Passaporte NÃO vai em <NIF>: preencher NIF declara o tomador como
-  // contribuinte no exterior e liga a EL0391 de Búzios, que exige
-  // cPaisPrestacao=76, valor que o schema proíbe. Cinco tentativas em produção
-  // com <NIF> foram recusadas variando locPrest, comExt e endereço do tomador.
-  // Turista sem número fiscal estrangeiro é cNaoNIF=1 (dispensado do NIF).
-  it('identifica hóspede estrangeiro por cNaoNIF=1, nunca por NIF (EL0391)', () => {
+  // Passaporte vai em <NIF> porque Búzios recusa cNaoNIF com EL0024, testado com
+  // os valores 2 e 1. Por esta rota a nota do estrangeiro não passa mesmo assim
+  // (EL0391 exige cPaisPrestacao=76, proibido pelo schema), e é impasse do
+  // município: chamado aberto. Fica em NIF de propósito, para emitir sozinho
+  // quando a E&L corrigir. Quem emite para estrangeiro hoje é a rota ABRASF.
+  it('emite o passaporte do hóspede estrangeiro em <NIF> (EL0024 recusa cNaoNIF)', () => {
     const toma = buildToma({ cpf_cnpj: '25130937', doc_tipo: 'passaporte', razao_social: 'CARLOS LEONEL MERLO GIMENEZ' });
-    expect(toma).toBe('<toma><cNaoNIF>1</cNaoNIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
+    expect(toma).toBe('<toma><NIF>25130937</NIF><xNome>CARLOS LEONEL MERLO GIMENEZ</xNome></toma>');
   });
 
-  it('não emite <NIF> nem com passaporte alfanumérico', () => {
+  it('preserva as letras do passaporte e descarta pontuação (TSNIF é alfanumérico)', () => {
     const toma = buildToma({ cpf_cnpj: 'ab-123 456/x', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
-    expect(toma).not.toContain('<NIF>');
-    expect(toma).toContain('<cNaoNIF>1</cNaoNIF>');
+    expect(toma).toContain('<NIF>AB123456X</NIF>');
+  });
+
+  it('respeita o teto de 40 caracteres do TSNIF', () => {
+    const toma = buildToma({ cpf_cnpj: 'X'.repeat(60), doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
+    expect(toma).toContain(`<NIF>${'X'.repeat(40)}</NIF>`);
   });
 
   it('usa cNaoNIF=2 quando o documento tem tamanho invalido para CPF/CNPJ', () => {
@@ -232,9 +236,9 @@ describe('DPS Nacional — grupo <toma> obrigatório (rejeição E0187)', () => 
     expect(toma).not.toContain('<CPF>');
   });
 
-  it('usa cNaoNIF=1 para estrangeiro sem nenhum documento', () => {
+  it('usa cNaoNIF para estrangeiro sem nenhum documento', () => {
     const toma = buildToma({ cpf_cnpj: '', doc_tipo: 'passaporte', razao_social: 'ESTRANGEIRO' });
-    expect(toma).toContain('<cNaoNIF>1</cNaoNIF>');
+    expect(toma).toContain('<cNaoNIF>2</cNaoNIF>');
     expect(toma).not.toContain('<NIF>');
   });
 
