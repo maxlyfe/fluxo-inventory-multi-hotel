@@ -2324,6 +2324,9 @@ async function consultarNfsePorFaixa(
 async function reconsultarDpsNacional(invoiceId: string): Promise<{
   success: boolean;
   processando: boolean;
+  /** A Plataforma recusou esta DPS em definitivo. Reconsultar de novo devolve
+   *  sempre o mesmo erro — o caminho é corrigir os dados e emitir outra nota. */
+  rejeitada?: boolean;
   message: string;
 }> {
   const { data: inv } = await supabase
@@ -2375,7 +2378,19 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
   const result = await res.json();
 
   if (!res.ok || result.success === false) {
-    return { success: false, processando: false, message: result.message || result.error || 'Falha na reconsulta.' };
+    const message = result.message || result.error || 'Falha na reconsulta.';
+    // Recusa definitiva precisa ficar registrada na nota: antes a mensagem só
+    // aparecia num toast e a nota seguia como 'emitida' para sempre, como se
+    // ainda estivesse processando. Descobrir o que houve exigia ler o xml_dps
+    // direto no banco.
+    if (result.rejeitada) {
+      await supabase
+        .from('nf_invoices')
+        .update({ status: 'rejeitada', xml_retorno: result.xml_retorno || message })
+        .eq('id', invoiceId);
+      return { success: false, processando: false, rejeitada: true, message };
+    }
+    return { success: false, processando: false, message };
   }
   if (result.processando) {
     return { success: true, processando: true, message: result.message };
@@ -2398,6 +2413,89 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
   return { success: true, processando: false, message: result.message };
 }
 
+// ─── Reemissão de nota rejeitada ────────────────────────────────────────────
+//
+// Uma DPS recusada não tem conserto: a correção é emitir OUTRA nota, com outro
+// número. Esta função devolve tudo que a nota rejeitada já tinha — tomador e
+// itens — para o modal reabrir preenchido, em vez de o operador redigitar a
+// conta inteira.
+export interface ReemissaoData {
+  tipo: NFTipo;
+  bookingNumber: string | null;
+  motivoRejeicao: string | null;
+  tomador: {
+    nome: string;
+    doc_tipo: NFDocTipo;
+    cpf_cnpj: string;
+    email: string;
+    nacionalidade: string;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    uf: string;
+    codigo_municipio: string;
+  };
+  /** Mesmo formato de `GenericNFItem` do NFInvoiceModal; declarado aqui para
+   *  não importar o componente no service (o componente já importa o service). */
+  itens: { id: number; description: string; amount: number }[];
+}
+
+async function carregarNotaParaReemissao(invoiceId: string): Promise<ReemissaoData | null> {
+  const [{ data: inv }, { data: itens }] = await Promise.all([
+    supabase.from('nf_invoices').select('*').eq('id', invoiceId).single(),
+    supabase.from('nf_invoice_items').select('*').eq('invoice_id', invoiceId).order('created_at'),
+  ]);
+  if (!inv) return null;
+
+  const docTipo: NFDocTipo =
+    inv.tomador_doc_tipo === 'passaporte' || inv.tomador_doc_tipo === 'cnpj' || inv.tomador_doc_tipo === 'cpf'
+      ? inv.tomador_doc_tipo
+      : 'cpf';
+
+  // A mensagem de rejeição vive no xml_retorno, que ora é XML (ABRASF) ora é
+  // JSON (Plataforma Nacional). Só o JSON tem a lista `erros` legível.
+  let motivo: string | null = null;
+  if (inv.xml_retorno?.trimStart().startsWith('{')) {
+    try {
+      const j = JSON.parse(inv.xml_retorno);
+      motivo = (j.erros ?? [])
+        .map((e: any) => [e.codigo, e.descricao, e.complemento].filter(Boolean).join(': '))
+        .join(' | ') || null;
+    } catch { /* retorno não-JSON */ }
+  }
+
+  return {
+    tipo: (inv.tipo as NFTipo) || 'nfse',
+    bookingNumber: inv.booking_number ?? null,
+    motivoRejeicao: motivo,
+    tomador: {
+      nome: inv.tomador_nome || '',
+      doc_tipo: docTipo,
+      cpf_cnpj: inv.tomador_cpf_cnpj || '',
+      email: inv.tomador_email || '',
+      nacionalidade: inv.tomador_nacionalidade || '',
+      cep: inv.tomador_cep || '',
+      logradouro: inv.tomador_logradouro || '',
+      numero: inv.tomador_numero || '',
+      complemento: inv.tomador_complemento || '',
+      bairro: inv.tomador_bairro || '',
+      cidade: inv.tomador_cidade || '',
+      uf: inv.tomador_uf || '',
+      codigo_municipio: inv.tomador_codigo_municipio || '',
+    },
+    // IDs negativos: o modal usa o id só para marcar/desmarcar item na UI, e
+    // os positivos pertencem aos lançamentos da Erbon.
+    itens: (itens || []).map((it: any, i: number) => ({
+      id: -(i + 1),
+      description: it.descricao || 'Serviço',
+      amount: Number(it.valor_total) || 0,
+    })),
+  };
+}
+
 export const nfService = {
   getConfig,
   saveConfig,
@@ -2411,6 +2509,7 @@ export const nfService = {
   emitInvoice,
   cancelInvoice,
   reconsultarDpsNacional,
+  carregarNotaParaReemissao,
   testConnection,
   resolveEntryFiscalData,
   resolveServiceFiscalData,

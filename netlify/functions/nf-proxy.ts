@@ -1307,6 +1307,9 @@ const handler: Handler = async (event: HandlerEvent) => {
       return jsonResponse(200, {
         success: result.success,
         processando: result.processando,
+        // Recusa definitiva da Plataforma: o cliente usa isto para oferecer
+        // reemissão em vez de mandar o usuário reconsultar de novo.
+        rejeitada: result.rejeitada,
         chave_acesso: result.chave_acesso,
         numero_nf: result.numero_nf,
         codigo_verificacao: result.codigo_verificacao,

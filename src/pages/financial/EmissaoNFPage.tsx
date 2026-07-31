@@ -9,7 +9,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { erbonService, type ErbonBooking } from '../../lib/erbonService';
-import { nfService, type BatchEmissionProgress, type WCIGuestData } from '../../lib/nfService';
+import { nfService, type BatchEmissionProgress, type WCIGuestData, type ReemissaoData } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
 import { NFInvoiceModal, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
 import { matchesEligibleService, isHomologForTipo } from '../../lib/nfService';
@@ -243,6 +243,9 @@ export default function EmissaoNFPage() {
   // Reconsulta de NFS-e aceita mas ainda em processamento na Plataforma Nacional
   const [reconsultando, setReconsultando] = useState<string | null>(null);
   const [reconsultaMsg, setReconsultaMsg] = useState<string | null>(null);
+  // Reemissão: uma DPS recusada não tem conserto, então a reconsulta que
+  // encontra recusa definitiva abre o modal preenchido para emitir outra.
+  const [reemissao, setReemissao] = useState<ReemissaoData | null>(null);
 
   // ── Classificação (reutilizada pela carga por período e pela busca) ────────
 
@@ -460,6 +463,7 @@ export default function EmissaoNFPage() {
     setReconsultandoLote({ feitas: 0, total: nfsePendentes.length });
     let autorizadas = 0;
     let processando = 0;
+    let rejeitadas = 0;
     let falhas = 0;
     try {
       for (let i = 0; i < nfsePendentes.length; i++) {
@@ -467,6 +471,11 @@ export default function EmissaoNFPage() {
           const res = await nfService.reconsultarDpsNacional(nfsePendentes[i].id);
           if (res.success && !res.processando) autorizadas++;
           else if (res.processando) processando++;
+          // Recusa definitiva não é "falha da reconsulta": a consulta
+          // funcionou, a resposta é que foi negativa. No lote a nota fica
+          // marcada como rejeitada; a reemissão é uma por uma, pelo botão da
+          // própria nota, porque exige alguém corrigir o dado que faltou.
+          else if (res.rejeitada) rejeitadas++;
           else falhas++;
         } catch {
           falhas++;
@@ -475,9 +484,10 @@ export default function EmissaoNFPage() {
       }
       const partes = [`${autorizadas} autorizada(s)`];
       if (processando > 0) partes.push(`${processando} ainda em processamento`);
+      if (rejeitadas > 0) partes.push(`${rejeitadas} rejeitada(s) — use o botão da nota para corrigir e reemitir`);
       if (falhas > 0) partes.push(`${falhas} com falha`);
       setReconsultaMsg(`Reconsulta concluída: ${partes.join(', ')}.`);
-      if (autorizadas > 0) {
+      if (autorizadas > 0 || rejeitadas > 0) {
         await loadReservations();
         await loadAvulsas();
       }
@@ -492,6 +502,23 @@ export default function EmissaoNFPage() {
     try {
       const res = await nfService.reconsultarDpsNacional(invoiceId);
       setReconsultaMsg(res.message);
+
+      // Recusa definitiva: reconsultar de novo devolveria sempre o mesmo erro.
+      // Traz os dados da nota recusada de volta para o modal, com o motivo à
+      // vista, para o operador completar o que falta e mandar uma nota nova.
+      if (res.rejeitada) {
+        const dados = await nfService.carregarNotaParaReemissao(invoiceId);
+        await loadReservations();
+        await loadAvulsas();
+        if (!dados || dados.itens.length === 0) {
+          setReconsultaMsg(`${res.message} — nota marcada como rejeitada, mas não foi possível recuperar os itens para reemitir.`);
+          return;
+        }
+        setReconsultaMsg(`${res.message} — corrija os dados e emita uma nota nova.`);
+        setReemissao(dados);
+        return;
+      }
+
       // Só recarrega quando a autorização chegou: se ainda está processando,
       // recarregar não muda nada e só faz a tela piscar.
       if (res.success && !res.processando) {
@@ -1251,7 +1278,7 @@ export default function EmissaoNFPage() {
                       <button
                         onClick={() => handleReconsultar(inv.id)}
                         disabled={reconsultando === inv.id}
-                        title="Busca o número da NFS-e na prefeitura"
+                        title="Busca o número da NFS-e na prefeitura. Se o fisco tiver recusado a nota, abre o formulário preenchido para corrigir e emitir outra."
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
                       >
                         <RefreshCw className={`w-4 h-4 ${reconsultando === inv.id ? 'animate-spin' : ''}`} /> Reconsultar
@@ -1353,6 +1380,38 @@ export default function EmissaoNFPage() {
             }
             setInvoiceModal(null);
             loadReservations();
+          }}
+        />
+      )}
+
+      {/* Reemissão de nota recusada pelo fisco. Emite uma nota NOVA com os
+          dados da recusada: a DPS rejeitada não pode ser reaproveitada. */}
+      {reemissao && (
+        <NFInvoiceModal
+          isOpen
+          onClose={() => setReemissao(null)}
+          tipo={reemissao.tipo}
+          hotelId={hotelId}
+          // Só o nº da reserva, sem erbonNumber: o objetivo é a ficha de
+          // check-in completar campos vazios, não recarregar a conta da Erbon
+          // (os itens já vêm da nota recusada).
+          wciBookingNumber={reemissao.bookingNumber}
+          booking={{
+            guestList: [{
+              name: reemissao.tomador.nome,
+              email: reemissao.tomador.email,
+              phone: '',
+              documents: [],
+            }],
+          }}
+          selectedEntries={[]}
+          genericItems={reemissao.itens}
+          tomadorPrefill={reemissao.tomador}
+          onSuccess={() => {
+            setReemissao(null);
+            setReconsultaMsg(null);
+            loadReservations();
+            loadAvulsas();
           }}
         />
       )}
@@ -1583,7 +1642,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                       <button
                         onClick={() => onReconsultar(inv.id)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors"
-                        title="A NFS-e foi aceita, mas ainda está em processamento na Plataforma Nacional. Reconsulte para trazer número, chave e XML autorizado."
+                        title="A NFS-e foi aceita, mas ainda está em processamento na Plataforma Nacional. Reconsulte para trazer número, chave e XML autorizado. Se tiver sido recusada, abre o formulário preenchido para corrigir e emitir outra."
                       >
                         <RefreshCw className={`w-4 h-4 ${reconsultandoId === inv.id ? 'animate-spin' : ''}`} /> Reconsultar NFS-e
                       </button>

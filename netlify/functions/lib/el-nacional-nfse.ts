@@ -583,6 +583,10 @@ export async function consultarDpsELNacional(params: {
 }): Promise<{
   success: boolean;
   processando: boolean;
+  /** A Plataforma recusou a DPS em definitivo — nenhuma reconsulta vai mudar
+   *  isso, o caminho é corrigir os dados e emitir uma nota nova. Distinto de
+   *  `success: false` por falha de comunicação, que vale a pena repetir. */
+  rejeitada: boolean;
   chave_acesso: string | null;
   numero_nf: string | null;
   codigo_verificacao: string | null;
@@ -598,11 +602,11 @@ export async function consultarDpsELNacional(params: {
 
   const erros = formatErros(data);
   if (erros) {
-    return { success: false, processando: false, chave_acesso: null, numero_nf: null, codigo_verificacao: null, xml: null, message: erros };
+    return { success: false, processando: false, rejeitada: true, chave_acesso: null, numero_nf: null, codigo_verificacao: null, xml: null, message: erros };
   }
   if (res.status !== 200 && res.status !== 201) {
     return {
-      success: false, processando: false, chave_acesso: null, numero_nf: null, codigo_verificacao: null, xml: null,
+      success: false, processando: false, rejeitada: false, chave_acesso: null, numero_nf: null, codigo_verificacao: null, xml: null,
       message: `API Nacional E&L respondeu HTTP ${res.status}: ${res.body.slice(0, 300)}`,
     };
   }
@@ -611,7 +615,7 @@ export async function consultarDpsELNacional(params: {
   const bruto = data.nfseXmlGZipB64;
   if (!bruto || String(bruto).startsWith('<')) {
     return {
-      success: true, processando: true,
+      success: true, processando: true, rejeitada: false,
       chave_acesso: data.chaveAcesso ?? null, numero_nf: null, codigo_verificacao: null, xml: null,
       message: 'NFS-e ainda em processamento na Plataforma Nacional. Tente novamente em alguns minutos.',
     };
@@ -620,7 +624,7 @@ export async function consultarDpsELNacional(params: {
   let nfseXml = '';
   try { nfseXml = gunzipB64(bruto); } catch {
     return {
-      success: false, processando: true, chave_acesso: data.chaveAcesso ?? null,
+      success: false, processando: true, rejeitada: false, chave_acesso: data.chaveAcesso ?? null,
       numero_nf: null, codigo_verificacao: null, xml: null,
       message: 'A Plataforma devolveu a NFS-e em formato inesperado.',
     };
@@ -628,7 +632,7 @@ export async function consultarDpsELNacional(params: {
 
   const parsed = parseNfseXml(nfseXml);
   return {
-    success: true, processando: false,
+    success: true, processando: false, rejeitada: false,
     chave_acesso: data.chaveAcesso ?? parsed.chave,
     numero_nf: parsed.numero,
     codigo_verificacao: parsed.codigoVerificacao,

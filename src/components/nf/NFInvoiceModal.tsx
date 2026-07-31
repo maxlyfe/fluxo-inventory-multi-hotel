@@ -67,6 +67,26 @@ interface NFInvoiceModalProps {
    * de check-in, mas não têm título na Erbon.
    */
   wciBookingNumber?: string | null;
+  /**
+   * Dados do tomador já conhecidos, usados na reemissão de uma nota rejeitada:
+   * o que o operador digitou da primeira vez volta preenchido, e a busca da
+   * ficha de check-in só completa o que estiver vazio.
+   */
+  tomadorPrefill?: {
+    nome: string;
+    doc_tipo: NFDocTipo;
+    cpf_cnpj: string;
+    email: string;
+    nacionalidade: string;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    uf: string;
+    codigo_municipio: string;
+  } | null;
 }
 
 // Heurística de palavra-chave (fallback quando não há mapeamento Erbon) —
@@ -163,6 +183,7 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
   onSuccess,
   viewInvoiceId = null,
   wciBookingNumber = null,
+  tomadorPrefill = null,
 }) => {
   const isGeneric = !!genericItems?.length;
   const { user } = useAuth();
@@ -431,11 +452,33 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
     setTomadorUf('');
     setTomadorCodMunicipio('');
 
+    // Reemissão: o que a nota rejeitada já tinha entra ANTES da leitura da
+    // reserva e da ficha, e as duas etapas seguintes só completam o que ficou
+    // em branco — nada do que o operador já revisou é sobrescrito.
+    if (tomadorPrefill) {
+      setTomadorNome(tomadorPrefill.nome);
+      setTomadorDocTipo(tomadorPrefill.doc_tipo);
+      setTomadorCpfCnpj(tomadorPrefill.cpf_cnpj);
+      setTomadorEmail(tomadorPrefill.email);
+      setTomadorNacionalidade(tomadorPrefill.nacionalidade);
+      setTomadorCep(tomadorPrefill.cep);
+      setTomadorLogradouro(tomadorPrefill.logradouro);
+      setTomadorNumero(tomadorPrefill.numero);
+      setTomadorComplemento(tomadorPrefill.complemento);
+      setTomadorBairro(tomadorPrefill.bairro);
+      setTomadorCidade(tomadorPrefill.cidade);
+      setTomadorUf(tomadorPrefill.uf);
+      setTomadorCodMunicipio(tomadorPrefill.codigo_municipio);
+    }
+
     // Prefill tomador data from booking guest
     const primaryGuest = booking?.guestList?.[0];
     if (primaryGuest) {
-      setTomadorNome(primaryGuest.name || '');
-      setTomadorEmail(primaryGuest.email || '');
+      // `prev || v` em vez de atribuição direta: sem reemissão o campo acabou
+      // de ser zerado acima, então o efeito é o mesmo; com reemissão, preserva
+      // o valor que veio da nota rejeitada.
+      setTomadorNome(prev => prev || primaryGuest.name || '');
+      setTomadorEmail(prev => prev || primaryGuest.email || '');
 
       // Detect document type
       const passportDoc = primaryGuest.documents?.find(
@@ -448,15 +491,18 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
           d.documentType?.toUpperCase() === 'DOCUMENT'
       );
 
-      if (passportDoc?.number) {
-        setTomadorDocTipo('passaporte');
-        setTomadorCpfCnpj(passportDoc.number);
-      } else if (cpfDoc?.number) {
-        const clean = cpfDoc.number.replace(/\D/g, '');
-        setTomadorDocTipo(clean.length === 14 ? 'cnpj' : 'cpf');
-        setTomadorCpfCnpj(cpfDoc.number);
-      } else {
-        setTomadorCpfCnpj('');
+      // Documento não usa `prev || v`: o tipo tem default 'cpf', que é truthy.
+      if (!tomadorPrefill) {
+        if (passportDoc?.number) {
+          setTomadorDocTipo('passaporte');
+          setTomadorCpfCnpj(passportDoc.number);
+        } else if (cpfDoc?.number) {
+          const clean = cpfDoc.number.replace(/\D/g, '');
+          setTomadorDocTipo(clean.length === 14 ? 'cnpj' : 'cpf');
+          setTomadorCpfCnpj(cpfDoc.number);
+        } else {
+          setTomadorCpfCnpj('');
+        }
       }
 
       // Try WCI lookup for complete data (address, nationality)
@@ -466,36 +512,38 @@ export const NFInvoiceModal: React.FC<NFInvoiceModalProps> = ({
         nfService.lookupWCIGuest(hotelId, bookingNum, primaryGuest.name, primaryGuest.id).then(wci => {
           if (!wci) return;
           setWciLoaded(true);
-          if (wci.nationality) setTomadorNacionalidade(wci.nationality);
-          if (wci.document_type?.toUpperCase() === 'PASSAPORTE') {
-            setTomadorDocTipo('passaporte');
-            if (wci.document_number) setTomadorCpfCnpj(wci.document_number);
-          } else if (wci.document_type?.toUpperCase() === 'CPF' && wci.document_number) {
-            setTomadorDocTipo('cpf');
-            setTomadorCpfCnpj(wci.document_number);
+          if (wci.nationality) setTomadorNacionalidade(prev => prev || wci.nationality!);
+          if (!tomadorPrefill) {
+            if (wci.document_type?.toUpperCase() === 'PASSAPORTE') {
+              setTomadorDocTipo('passaporte');
+              if (wci.document_number) setTomadorCpfCnpj(wci.document_number);
+            } else if (wci.document_type?.toUpperCase() === 'CPF' && wci.document_number) {
+              setTomadorDocTipo('cpf');
+              setTomadorCpfCnpj(wci.document_number);
+            }
           }
           if (wci.email) setTomadorEmail(prev => prev || wci.email!);
           // Fill address from WCI ficha
-          if (wci.address_street) setTomadorLogradouro(wci.address_street);
-          if (wci.address_number) setTomadorNumero(wci.address_number);
-          if (wci.address_complement) setTomadorComplemento(wci.address_complement);
-          if (wci.address_neighborhood) setTomadorBairro(wci.address_neighborhood);
-          if (wci.address_city) setTomadorCidade(wci.address_city);
-          if (wci.address_state) setTomadorUf(wci.address_state);
-          if (wci.address_zipcode) setTomadorCep(wci.address_zipcode);
-          if (wci.address_city_ibge) setTomadorCodMunicipio(wci.address_city_ibge);
+          if (wci.address_street) setTomadorLogradouro(prev => prev || wci.address_street!);
+          if (wci.address_number) setTomadorNumero(prev => prev || wci.address_number!);
+          if (wci.address_complement) setTomadorComplemento(prev => prev || wci.address_complement!);
+          if (wci.address_neighborhood) setTomadorBairro(prev => prev || wci.address_neighborhood!);
+          if (wci.address_city) setTomadorCidade(prev => prev || wci.address_city!);
+          if (wci.address_state) setTomadorUf(prev => prev || wci.address_state!);
+          if (wci.address_zipcode) setTomadorCep(prev => prev || wci.address_zipcode!);
+          if (wci.address_city_ibge) setTomadorCodMunicipio(prev => prev || wci.address_city_ibge!);
           // Fichas antigas não têm o código IBGE: a consulta do CEP completa o
           // que falta (cidade, UF e cMun), sem sobrescrever o que já veio.
           else if (wci.address_zipcode) lookupCep(wci.address_zipcode);
         }).catch(() => {});
       }
-    } else {
+    } else if (!tomadorPrefill) {
       setTomadorNome('');
       setTomadorEmail('');
       setTomadorCpfCnpj('');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible, erbonMappings, wciBookingNumber]);
+  }, [isOpen, tipo, booking, selectedEntries, hotelId, viewInvoiceId, nfceEligible, erbonMappings, wciBookingNumber, tomadorPrefill]);
 
   if (!isOpen) return null;
 
