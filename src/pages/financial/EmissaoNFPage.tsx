@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   FileText, Search, Loader2, CheckCircle2, AlertTriangle, FileCheck,
   ChevronDown, ChevronUp, Calendar, User, Building2, Filter,
@@ -378,6 +378,39 @@ export default function EmissaoNFPage() {
     }
   }, [hotelId, period, filterBy, addNotification, buildClassified]);
 
+  // ── Atualização pontual (sem refazer a busca na Erbon) ─────────────────────
+  // Emitir, cancelar ou reconsultar muda só o que está em nf_invoices. Recarregar
+  // a página inteira significava varrer a Erbon dia a dia de novo (dezenas de
+  // chamadas), perder a busca, a seleção e o card aberto, e obrigar o operador a
+  // procurar a reserva outra vez para emitir a segunda nota. Aqui só as reservas
+  // afetadas são reclassificadas, com uma consulta ao Supabase.
+
+  // Ref para ler a lista atual sem recriar o callback a cada mudança de estado
+  const reservationsRef = useRef<ClassifiedReservation[]>([]);
+  useEffect(() => { reservationsRef.current = reservations; }, [reservations]);
+
+  const refreshReservations = useCallback(async (ids: string[]): Promise<ClassifiedReservation[]> => {
+    const alvos = reservationsRef.current.filter(r => ids.includes(r.id));
+    if (alvos.length === 0) return [];
+    const atualizados = await buildClassified(alvos);
+    const porId = new Map(atualizados.map(r => [r.id, r]));
+    setReservations(prev => prev.map(r => porId.get(r.id) ?? r));
+    return atualizados;
+  }, [buildClassified]);
+
+  /** Depois de emitir/cancelar, a reserva muda de aba. Em vez de deixar o
+   *  operador caçar o card, a tela vai junto: troca a aba, mantém o card aberto
+   *  e rola até ele. */
+  const seguirReserva = useCallback((r: ClassifiedReservation | undefined) => {
+    if (!r) return;
+    setActiveTab(r.tab);
+    setExpandedId(r.id);
+    // O card só existe no DOM depois do render da nova aba
+    setTimeout(() => {
+      document.getElementById(`reserva-${r.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  }, []);
+
   // ── Busca ativa por nº de reserva na Erbon (fora do período carregado) ─────
 
   const handleSearchBooking = useCallback(async () => {
@@ -469,6 +502,15 @@ export default function EmissaoNFPage() {
 
   const [reconsultandoLote, setReconsultandoLote] = useState<{ feitas: number; total: number } | null>(null);
 
+  /** Atualiza só quem é dono da nota: a reserva que a contém, ou a lista de
+   *  avulsas quando a nota não pertence a nenhuma reserva. */
+  const refreshPorNota = useCallback(async (invoiceId: string) => {
+    const dona = reservationsRef.current.find(r =>
+      (r.history ?? r.invoices).some(inv => inv.id === invoiceId));
+    if (dona) await refreshReservations([dona.id]);
+    else await loadAvulsas();
+  }, [refreshReservations, loadAvulsas]);
+
   // Em lote, uma nota por vez. Em paralelo, varias consultas simultaneas ao
   // gateway do municipio aumentariam a chance de erro sem ganho real de tempo.
   const handleReconsultarTodas = useCallback(async () => {
@@ -502,13 +544,17 @@ export default function EmissaoNFPage() {
       if (falhas > 0) partes.push(`${falhas} com falha`);
       setReconsultaMsg(`Reconsulta concluída: ${partes.join(', ')}.`);
       if (autorizadas > 0 || rejeitadas > 0) {
-        await loadReservations();
+        // Só as reservas que tinham nota pendente, sem varrer a Erbon de novo
+        const donas = reservationsRef.current
+          .filter(r => (r.history ?? r.invoices).some(inv => nfsePendentes.some(p => p.id === inv.id)))
+          .map(r => r.id);
+        if (donas.length) await refreshReservations(donas);
         await loadAvulsas();
       }
     } finally {
       setReconsultandoLote(null);
     }
-  }, [nfsePendentes, loadReservations, loadAvulsas]);
+  }, [nfsePendentes, refreshReservations, loadAvulsas]);
 
   const handleReconsultar = useCallback(async (invoiceId: string) => {
     setReconsultando(invoiceId);
@@ -522,8 +568,7 @@ export default function EmissaoNFPage() {
       // vista, para o operador completar o que falta e mandar uma nota nova.
       if (res.rejeitada) {
         const dados = await nfService.carregarNotaParaReemissao(invoiceId);
-        await loadReservations();
-        await loadAvulsas();
+        await refreshPorNota(invoiceId);
         if (!dados || dados.itens.length === 0) {
           setReconsultaMsg(`${res.message} — nota marcada como rejeitada, mas não foi possível recuperar os itens para reemitir.`);
           return;
@@ -536,15 +581,14 @@ export default function EmissaoNFPage() {
       // Só recarrega quando a autorização chegou: se ainda está processando,
       // recarregar não muda nada e só faz a tela piscar.
       if (res.success && !res.processando) {
-        await loadReservations();
-        await loadAvulsas();
+        await refreshPorNota(invoiceId);
       }
     } catch (err) {
       setReconsultaMsg(err instanceof Error ? err.message : 'Falha na reconsulta.');
     } finally {
       setReconsultando(null);
     }
-  }, [loadReservations, loadAvulsas]);
+  }, [refreshPorNota]);
 
   useEffect(() => {
     loadAvulsas();
@@ -996,7 +1040,9 @@ export default function EmissaoNFPage() {
       } else {
         addNotification('error', `Nenhuma nota emitida. ${failures.map(f => `${f.label}: ${f.error}`).join(' | ')}`);
       }
-      loadReservations();
+      // Só as reservas do lote mudaram de estado: reclassifica essas, sem
+      // refazer a varredura da Erbon.
+      await refreshReservations(readyItems.map(e => e.reservation.id));
     } catch (err: any) {
       addNotification('error', `Erro no lote: ${err.message}`);
     } finally {
@@ -1370,7 +1416,7 @@ export default function EmissaoNFPage() {
               onReconsultar={handleReconsultar}
               reconsultandoId={reconsultando}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
-              onRefresh={loadReservations}
+              onRefresh={async () => { const [upd] = await refreshReservations([r.id]); seguirReserva(upd); }}
             />
           ))}
         </div>
@@ -1380,7 +1426,13 @@ export default function EmissaoNFPage() {
       {invoiceModal && (
         <NFInvoiceModal
           isOpen
-          onClose={() => setInvoiceModal(null)}
+          onClose={() => {
+            const id = invoiceModal.booking.id;
+            setInvoiceModal(null);
+            // Ao fechar, a tela já está na aba nova da reserva, com o card
+            // aberto: a segunda nota sai dali mesmo.
+            seguirReserva(reservationsRef.current.find(r => r.id === id));
+          }}
           tipo={invoiceModal.tipo}
           hotelId={hotelId}
           // Reserva interna também tem ficha de web check-in: o nº da reserva
@@ -1406,8 +1458,11 @@ export default function EmissaoNFPage() {
                 .update({ invoice_id: invoiceId })
                 .in('id', invoiceModal.internalChargeIds);
             }
-            setInvoiceModal(null);
-            loadReservations();
+            // O modal NÃO é fechado aqui: quem fecha é o operador, depois de
+            // imprimir o cupom/nota no passo final. Fechar na hora do sucesso
+            // jogava fora a tela de impressão e obrigava a reabrir a nota pelo
+            // "Ver". A lista atualiza por baixo, com uma consulta só.
+            await refreshReservations([invoiceModal.booking.id]);
           }}
         />
       )}
@@ -1435,11 +1490,17 @@ export default function EmissaoNFPage() {
           selectedEntries={[]}
           genericItems={reemissao.itens}
           tomadorPrefill={reemissao.tomador}
-          onSuccess={() => {
+          onSuccess={async () => {
+            const bookingNumber = reemissao.bookingNumber;
             setReemissao(null);
             setReconsultaMsg(null);
-            loadReservations();
-            loadAvulsas();
+            const dona = reservationsRef.current.find(r => r.bookingNumber === bookingNumber);
+            if (dona) {
+              const [atualizada] = await refreshReservations([dona.id]);
+              seguirReserva(atualizada);
+            } else {
+              await loadAvulsas();
+            }
           }}
         />
       )}
@@ -1552,7 +1613,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
   const historicoInativo = historico.filter(inv => !isNFValida(inv));
 
   return (
-    <div className={`border rounded-xl transition-all ${
+    <div id={`reserva-${r.id}`} className={`border rounded-xl transition-all ${
       isEmitidaTab(activeTab) ? 'border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10'
       : activeTab === 'revisao' ? 'border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-900/10'
       : isSelected ? 'border-green-400 dark:border-green-600 bg-green-50/50 dark:bg-green-900/20 ring-1 ring-green-300'
