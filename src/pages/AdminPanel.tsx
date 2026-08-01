@@ -15,7 +15,7 @@ import { useNotification } from '../context/NotificationContext';
 import RequestItem from '../components/RequestItem';
 import Modal from '../components/Modal';
 import { notifyItemDelivered, notifyItemRejected, notifyItemSubstituted } from '../lib/notificationTriggers';
-import DirectDeliveryModal from '../components/DirectDeliveryModal';
+import DirectDeliveryModal, { type DirectDeliveryItem } from '../components/DirectDeliveryModal';
 import RequestLinkModal from '../components/RequestLinkModal';
 import { searchMatch } from '../utils/search';
 import { generateRequisitionPreview, commitRequisitions, type RequisitionPreviewItem } from '../lib/autoRequisitionService';
@@ -673,19 +673,17 @@ const AdminPanel = () => {
     }
   };
 
-  // --- FUNÇÃO MODIFICADA ---
-  const handleConfirmDirectDelivery = async (productId: string, sectorId: string, quantity: number, reason: string) => {
+  // Entrega um único item. Lança em caso de erro — quem chama decide o que fazer.
+  const deliverItemDirectly = async (productId: string, sectorId: string, quantity: number, reason: string) => {
     if (!selectedHotel?.id) return;
 
-    setShowDirectDeliveryModal(false);
+    const product = availableProducts.find(p => p.id === productId);
+    const sector = allSectors.find(s => s.id === sectorId);
+
+    if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
+    if (quantity > product.quantity) throw new Error(`Quantidade insuficiente de "${product.name}" no inventário. Disponível: ${product.quantity}`);
 
     try {
-      const product = availableProducts.find(p => p.id === productId);
-      const sector = allSectors.find(s => s.id === sectorId);
-
-      if (!product || !sector) throw new Error('Produto ou setor não encontrado.');
-      if (quantity > product.quantity) throw new Error(`Quantidade insuficiente no inventário. Disponível: ${product.quantity}`);
-
       // 1. Cria uma requisição com status 'delivered' para manter o histórico
       const { data: newRequisition, error: requisitionError } = await supabase
         .from('requisitions')
@@ -820,16 +818,47 @@ const AdminPanel = () => {
           delivered_by: 'Administrador (Entrega Direta)'
       });
 
-      addNotification('Item entregue diretamente com sucesso!', 'success');
-      fetchAvailableProducts();
-
     } catch (err: any) {
       console.error('Error during direct delivery:', err);
-      addNotification(`Erro na entrega direta: ${err.message}`, 'error');
-      // Recarrega os dados em caso de erro para garantir consistência
-      fetchHistoryRequestsInternal();
-      fetchAvailableProducts();
+      throw new Error(`"${product.name}": ${err.message || 'erro desconhecido'}`);
     }
+  };
+
+  // Entrega em lote — processa item a item e reporta o resultado consolidado.
+  const handleConfirmDirectDelivery = async (
+    items: DirectDeliveryItem[],
+    sectorId: string,
+    reason: string,
+  ) => {
+    if (!selectedHotel?.id) return;
+    const sector = allSectors.find(s => s.id === sectorId);
+    const failures: string[] = [];
+    let delivered = 0;
+
+    for (const item of items) {
+      try {
+        await deliverItemDirectly(item.productId, sectorId, item.quantity, reason);
+        delivered++;
+      } catch (err: any) {
+        failures.push(err.message || 'erro desconhecido');
+      }
+    }
+
+    if (delivered > 0) {
+      addNotification(
+        `${delivered} ${delivered === 1 ? 'item entregue' : 'itens entregues'} para ${sector?.name || 'o setor'}!`,
+        'success',
+      );
+    }
+    if (failures.length > 0) {
+      addNotification(`Falha em ${failures.length} item(ns): ${failures.join(' | ')}`, 'error');
+      // Recarrega para garantir consistência após falha parcial
+      fetchHistoryRequestsInternal();
+    }
+
+    // Fecha sempre: itens já entregues não podem continuar na lista (risco de entrega dupla).
+    setShowDirectDeliveryModal(false);
+    fetchAvailableProducts();
   };
 
   const toggleBudgetSelect = (request: Request) => {
