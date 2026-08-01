@@ -145,6 +145,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
           { module: 'finances', label: 'Painel Financeiro',   href: '/finances',                    icon: DollarSign,   iconName: 'DollarSign',   color: '#10b981' },
           { module: 'finances', label: 'Contas a Pagar',     href: '/finances/contas-a-pagar',     icon: Wallet,       iconName: 'Wallet',       color: '#ef4444' },
           { module: 'finances', label: 'Contas a Receber',   href: '/finances/contas-a-receber',   icon: CreditCard,   iconName: 'CreditCard',   color: '#22c55e' },
+          { module: 'finances', label: 'Cobranças a Disparar', href: '/finances/cobrancas',        icon: Send,         iconName: 'Send',         color: '#f43f5e' },
           { module: 'finances', label: 'Outras Entradas',    href: '/finances/outras-entradas',    icon: HandCoins,    iconName: 'HandCoins',    color: '#14b8a6' },
           { module: 'finances', label: 'Folha de Pagamento', href: '/finances/folha',              icon: Users,        iconName: 'Users',        color: '#a855f7' },
           { module: 'finances', label: 'Gastos Recorrentes', href: '/finances/recorrentes',        icon: Repeat,       iconName: 'Repeat',       color: '#f97316' },

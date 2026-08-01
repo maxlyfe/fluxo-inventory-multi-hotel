@@ -33,6 +33,7 @@ import FornecedoresPage      from './pages/financial/FornecedoresPage';
 import ContasAPagarPage      from './pages/financial/ContasAPagarPage';
 import ContasAReceberPage    from './pages/financial/ContasAReceberPage';
 import RegrasRecebimentoPage from './pages/financial/RegrasRecebimentoPage';
+import CobrancasPage        from './pages/financial/CobrancasPage';
 import OutrasEntradasPage    from './pages/financial/OutrasEntradasPage';
 import FolhaPagamentoPage    from './pages/financial/FolhaPagamentoPage';
 import GastosRecorrentesPage from './pages/financial/GastosRecorrentesPage';
@@ -842,8 +843,15 @@ function App() {
                         <ContasAReceberPage />
                       </PrivateRoute>
                     } />
+                    {/* modules = OR: a chave grossa 'finances' continua valendo
+                        para os perfis que ainda não receberam as granulares. */}
+                    <Route path="/finances/cobrancas" element={
+                      <PrivateRoute modules={['finances', 'finances.billing.view']}>
+                        <CobrancasPage />
+                      </PrivateRoute>
+                    } />
                     <Route path="/finances/regras-recebimento" element={
-                      <PrivateRoute module="finances">
+                      <PrivateRoute modules={['finances', 'finances.ar.rules']}>
                         <RegrasRecebimentoPage />
                       </PrivateRoute>
                     } />

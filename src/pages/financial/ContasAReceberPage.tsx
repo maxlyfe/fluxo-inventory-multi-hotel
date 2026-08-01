@@ -5,17 +5,22 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useHotel } from '../../context/HotelContext';
-import { arService, ArTitle, ArStatus, ArOrigin } from '../../lib/arService';
+import { arService, ArTitle, ArStatus, ArOrigin, ChannelImpact } from '../../lib/arService';
 import { apService, BankAccount, PaymentMethod } from '../../lib/apService';
 import { ModalShell } from '../../components/financial/Fornecedores';
 import {
   fmtBRL, fmtDate, todayISO, FinStatusBadge, PeriodFilter, Period,
   defaultPeriod, SummaryCard, PAYMENT_METHOD_LABELS,
+  ErrorBanner, InfoBanner, EmptyState, estimatedDateLabel,
 } from '../../components/financial/shared';
 
 const ORIGIN_LABELS: Record<ArOrigin, string> = {
   erbon: 'Erbon', omnibees: 'Omnibees', manual: 'Manual', inflow: 'Entrada',
+  faturado: 'Faturado',
 };
+
+/** Chave do sessionStorage que guarda o "dispensar por hoje" do aviso de canal sem regra. */
+const dismissKey = (hotelId: string) => `ar_channels_warning_dismissed_${hotelId}_${todayISO()}`;
 
 // ─── Receipt modal ────────────────────────────────────────────────────────────
 
@@ -136,18 +141,11 @@ function ArTitleModal({ hotelId, onClose, onSaved }: {
       await arService.createManual({
         hotel_id: hotelId,
         description: description.trim(),
-        origin: 'manual',
-        origin_ref: null,
         channel: channel || null,
         gross_amount: g,
         fee_amount: f,
         net_amount: Math.round((g - f) * 100) / 100,
         expected_date: expected,
-        acquirer_id: null,
-        card_brand: null,
-        installments: null,
-        installment_number: 1,
-        notes: null,
       });
       onSaved();
     } catch (err: any) { setError(err.message ?? 'Erro ao salvar'); }
@@ -212,18 +210,32 @@ export default function ContasAReceberPage() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [period, setPeriod] = useState<Period>(defaultPeriod());
-  const [status, setStatus] = useState<'' | ArStatus | 'atrasado'>('');
+  const [status, setStatus] = useState<'' | ArStatus | 'atrasado' | 'aguardando_cobranca'>('');
   const [channelFilter, setChannelFilter] = useState('');
   const [search, setSearch] = useState('');
   const [receiptModal, setReceiptModal] = useState<ArTitle | null>(null);
   const [newModal, setNewModal] = useState(false);
+  const [noRuleChannels, setNoRuleChannels] = useState<ChannelImpact[]>([]);
+  const [warningDismissed, setWarningDismissed] = useState(false);
+  const [view, setView] = useState<'tudo' | 'cartao' | 'parceiros' | 'outros'>('tudo');
+
+  useEffect(() => {
+    if (!selectedHotel?.id) return;
+    setWarningDismissed(sessionStorage.getItem(dismissKey(selectedHotel.id)) === '1');
+  }, [selectedHotel?.id]);
 
   const load = useCallback(async () => {
     if (!selectedHotel?.id) return;
     setLoading(true); setError('');
     try {
-      const filters: any = { from: period.from, to: period.to };
-      if (status) filters.status = status;
+      // include_undated: traz também os títulos faturados que ainda não tiveram
+      // cobrança enviada (expected_date NULL). Eles aparecem em card separado e
+      // ficam FORA do total "A receber no período".
+      const filters: any = { from: period.from, to: period.to, include_undated: true };
+      // "Aguardando cobrança" não é um status de recebível, é um estado de
+      // cobrança: filtra por billing_status, não por status.
+      if (status === 'aguardando_cobranca') filters.billing_status = 'aguardando_cobranca';
+      else if (status) filters.status = status;
       setTitles(await arService.list(selectedHotel.id, filters));
     } catch (err: any) { setError(err.message ?? 'Erro ao carregar'); }
     finally { setLoading(false); }
@@ -234,23 +246,73 @@ export default function ContasAReceberPage() {
   const handleGenerate = async () => {
     if (!selectedHotel?.id) return;
     setGenerating(true); setError(''); setInfo('');
+    const hotelId = selectedHotel.id;
     try {
+      // Antes as duas chamadas tinham .catch(() => 0): a Erbon podia estar fora
+      // do ar e a tela dizia "nenhum recebível novo". Agora a falha aparece.
       const [erbon, bookings] = await Promise.all([
-        arService.generateFromErbon(selectedHotel.id, period.from, period.to).catch(() => 0),
-        arService.generateFromBookings(selectedHotel.id, period.from, period.to).catch(() => 0),
+        arService.generateFromErbon(hotelId, period.from, period.to)
+          .then(r => ({ ok: true as const, r }))
+          .catch((e: any) => ({ ok: false as const, msg: e?.message ?? 'erro desconhecido' })),
+        arService.generateFromBookings(hotelId, period.from, period.to)
+          .then(r => ({ ok: true as const, r }))
+          .catch((e: any) => ({ ok: false as const, msg: e?.message ?? 'erro desconhecido' })),
       ]);
-      const n = erbon + bookings;
-      setInfo(n > 0
-        ? `${n} novo(s) recebível(is) gerado(s) a partir das reservas (Erbon: ${erbon}, Reservas/Omnibees: ${bookings}).`
-        : 'Nenhum recebível novo — tudo já estava gerado para o período.');
+
+      const falhas: string[] = [];
+      if (!erbon.ok) falhas.push(`Erbon: ${erbon.msg}`);
+      if (!bookings.ok) falhas.push(`Reservas internas: ${bookings.msg}`);
+      if (falhas.length) setError(`Parte da geração falhou. ${falhas.join(' · ')}`);
+
+      const inserted = (erbon.ok ? erbon.r.inserted : 0) + (bookings.ok ? bookings.r.inserted : 0);
+      const updated  = (erbon.ok ? erbon.r.deleted  : 0) + (bookings.ok ? bookings.r.deleted  : 0);
+      const kept     = (erbon.ok ? erbon.r.preserved : 0) + (bookings.ok ? bookings.r.preserved : 0);
+
+      const partes = [`${inserted} recebível(is) gravado(s)`];
+      if (updated > inserted) partes.push(`${updated} recalculado(s) pela regra atual`);
+      if (kept) partes.push(`${kept} preservado(s) por já ter recebimento, cobrança ou ajuste manual`);
+      setInfo(inserted || updated || kept ? partes.join(' · ') : 'Nada a gerar no período.');
+
+      // Canais sem regra: junta os dois lados e soma o impacto por canal.
+      const merged = new Map<string, ChannelImpact>();
+      for (const c of [
+        ...(erbon.ok ? erbon.r.channels_without_rule : []),
+        ...(bookings.ok ? bookings.r.channels_without_rule : []),
+      ]) {
+        const cur = merged.get(c.channel);
+        if (cur) { cur.count += c.count; cur.gross_amount += c.gross_amount; }
+        else merged.set(c.channel, { ...c });
+      }
+      const semRegra = Array.from(merged.values()).sort((a, b) => b.gross_amount - a.gross_amount);
+      setNoRuleChannels(semRegra);
+      if (semRegra.length) {
+        sessionStorage.removeItem(dismissKey(hotelId));
+        setWarningDismissed(false);
+      }
+
       load();
     } catch (err: any) { setError(err.message ?? 'Erro ao gerar recebíveis'); }
     finally { setGenerating(false); }
   };
 
+  const dismissWarning = () => {
+    if (!selectedHotel?.id) return;
+    sessionStorage.setItem(dismissKey(selectedHotel.id), '1');
+    setWarningDismissed(true);
+  };
+
   const channels = Array.from(new Set(titles.map(t => t.channel).filter(Boolean))) as string[];
 
+  // Recebível de cartão e de parceiro faturado são negócios diferentes: um cai
+  // da maquininha com taxa, o outro depende de emitir NF e cobrar. Somar os dois
+  // num único total esconde os dois.
+  const isCard = (t: ArTitle) => !!t.acquirer_id;
+  const isPartner = (t: ArTitle) => t.billing_status !== 'nao_aplicavel';
+
   const filtered = titles.filter(t => {
+    if (view === 'cartao' && !isCard(t)) return false;
+    if (view === 'parceiros' && !isPartner(t)) return false;
+    if (view === 'outros' && (isCard(t) || isPartner(t))) return false;
     if (channelFilter && t.channel !== channelFilter) return false;
     if (!search) return true;
     const q = search.toLowerCase();
@@ -259,10 +321,27 @@ export default function ContasAReceberPage() {
 
   const today = todayISO();
   const open = filtered.filter(t => t.status === 'previsto' || t.status === 'parcial');
-  const totalOpen = open.reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
-  const totalLate = open.filter(t => t.expected_date < today).reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
+
+  // Sem data firme = não entra na previsão. O título faturado só ganha data
+  // quando a cobrança é enviada; somar antes disso é inventar caixa.
+  const awaiting = open.filter(t => !t.expected_date);
+  const dated = open.filter(t => !!t.expected_date);
+
+  const totalOpen = dated.reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
+  const totalLate = dated
+    .filter(t => (t.expected_date as string) < today)
+    .reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
   const totalReceived = filtered.reduce((s, t) => s + t.amount_received, 0);
   const totalFees = filtered.reduce((s, t) => s + t.fee_amount, 0);
+  const totalAwaiting = awaiting.reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
+
+  // Recortes por natureza, calculados sobre TODOS os títulos do período (não
+  // sobre o filtro), para os cards não mudarem quando a visão muda.
+  const openAll = titles.filter(t => t.status === 'previsto' || t.status === 'parcial');
+  const cardTitles = openAll.filter(t => isCard(t) && !!t.expected_date);
+  const partnerTitles = openAll.filter(t => isPartner(t) && !!t.expected_date);
+  const cardTotal = cardTitles.reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
+  const partnerTotal = partnerTitles.reduce((s, t) => s + (t.net_amount - t.amount_received), 0);
 
   const handleCancel = async (t: ArTitle) => {
     if (!window.confirm('Cancelar este recebível?')) return;
@@ -301,11 +380,86 @@ export default function ContasAReceberPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      {noRuleChannels.length > 0 && !warningDismissed && (
+        <InfoBanner tone="amber" onDismiss={dismissWarning}>
+          <p className="font-medium">
+            {noRuleChannels.length} canal(is) sem regra de recebimento neste período ·{' '}
+            {fmtBRL(noRuleChannels.reduce((s, c) => s + c.gross_amount, 0))}
+          </p>
+          <p className="text-xs mt-0.5 opacity-90">
+            Sem regra usamos a data do check-out e taxa 0%, então a previsão fica errada.
+            Clique no canal para criar a regra.
+          </p>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {noRuleChannels.map(c => (
+              <Link key={c.channel}
+                to={`/finances/regras-recebimento?novo=1&canal=${encodeURIComponent(c.channel)}`}
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors">
+                <span className="font-semibold">{c.channel}</span>
+                <span className="opacity-75">{fmtBRL(c.gross_amount)}</span>
+              </Link>
+            ))}
+          </div>
+        </InfoBanner>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
         <SummaryCard label="A receber no período" value={fmtBRL(totalOpen)} color="text-blue-600 dark:text-blue-400" />
         <SummaryCard label="Atrasado" value={fmtBRL(totalLate)} color="text-red-600 dark:text-red-400" />
         <SummaryCard label="Recebido" value={fmtBRL(totalReceived)} color="text-green-600 dark:text-green-400" />
         <SummaryCard label="Taxas / comissões" value={fmtBRL(totalFees)} color="text-amber-600 dark:text-amber-400" />
+      </div>
+
+      {(cardTitles.length > 0 || partnerTitles.length > 0 || awaiting.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+          {cardTitles.length > 0 && (
+            <SummaryCard
+              label="A receber de maquininhas"
+              value={fmtBRL(cardTotal)}
+              color="text-indigo-600 dark:text-indigo-400"
+              hint={`${cardTitles.length} título(s) de cartão`}
+            />
+          )}
+          {partnerTitles.length > 0 && (
+            <SummaryCard
+              label="A receber de parceiros faturados"
+              value={fmtBRL(partnerTotal)}
+              color="text-emerald-600 dark:text-emerald-400"
+              hint={`${partnerTitles.length} título(s) com cobrança enviada`}
+            />
+          )}
+          {awaiting.length > 0 && (
+            <SummaryCard
+              dashed
+              label="Aguardando cobrança"
+              value={fmtBRL(totalAwaiting)}
+              color="text-amber-700 dark:text-amber-400"
+              hint={`${awaiting.length} título(s) · não entra na previsão até a cobrança sair`}
+              action={
+                <Link to="/finances/cobrancas" className="text-xs text-amber-800 dark:text-amber-300 underline">
+                  Ir para Cobranças
+                </Link>
+              }
+            />
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {([
+          ['tudo', 'Tudo'],
+          ['cartao', 'Maquininhas'],
+          ['parceiros', 'Parceiros faturados'],
+          ['outros', 'Outros'],
+        ] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              view === k ? 'bg-green-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -315,6 +469,7 @@ export default function ContasAReceberPage() {
           <option value="previsto">Previsto</option>
           <option value="parcial">Parcial</option>
           <option value="atrasado">Atrasado</option>
+          <option value="aguardando_cobranca">Aguardando cobrança</option>
           <option value="recebido">Recebido</option>
           <option value="cancelado">Cancelado</option>
         </select>
@@ -332,16 +487,8 @@ export default function ContasAReceberPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0" />{error}
-        </div>
-      )}
-      {info && (
-        <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-300">
-          {info}
-        </div>
-      )}
+      <ErrorBanner message={error} onRetry={load} onDismiss={() => setError('')} />
+      <InfoBanner message={info} />
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -364,22 +511,53 @@ export default function ContasAReceberPage() {
               {loading ? (
                 <tr><td colSpan={10} className="py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" /></td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={10} className="py-12 text-center text-gray-500">
-                  Nenhum recebível no período. Use "Gerar das reservas" para importar Erbon/Omnibees.
-                </td></tr>
+                <EmptyState
+                  colSpan={10}
+                  icon={<ArrowUpCircle className="w-8 h-8" />}
+                  title="Nenhum recebível no período."
+                  description={'Use "Gerar das reservas" para importar do Erbon e das reservas internas, ou "Novo" para lançar um recebível à mão.'}
+                />
               ) : filtered.map(t => (
                 <tr key={t.id} className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-800 dark:text-gray-200 line-clamp-1">{t.description ?? '—'}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-800 dark:text-gray-200 line-clamp-1">{t.description ?? '—'}</p>
+                      {(t.installment_total ?? 0) > 1 && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                          title={`Parcela ${t.installment_number} de ${t.installment_total}${t.card_brand ? ` · ${t.card_brand}` : ''}`}>
+                          {t.installment_number}/{t.installment_total}
+                        </span>
+                      )}
+                      {t.card_data_source === 'indefinido' && (
+                        <span className="shrink-0 text-amber-500" title="Bandeira ou parcelas não identificadas: taxa e prazo estimados pela regra do canal.">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{t.channel ?? '—'}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">{ORIGIN_LABELS[t.origin]}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{fmtDate(t.expected_date)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {t.expected_date ? (
+                      fmtDate(t.expected_date)
+                    ) : (
+                      <span className="italic text-gray-400 dark:text-gray-500"
+                        title="Data estimada: a cobrança ainda não foi enviada. A previsão firme é gravada ao marcar a cobrança como efetuada.">
+                        {estimatedDateLabel(t.checkout_date)}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">{fmtBRL(t.gross_amount)}</td>
                   <td className="px-4 py-3 text-right text-amber-600 whitespace-nowrap">{t.fee_amount > 0 ? fmtBRL(t.fee_amount) : '—'}</td>
                   <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{fmtBRL(t.net_amount)}</td>
                   <td className="px-4 py-3 text-right text-gray-500 whitespace-nowrap">{t.amount_received > 0 ? fmtBRL(t.amount_received) : '—'}</td>
-                  <td className="px-4 py-3 text-center"><FinStatusBadge status={t.status} dueDate={t.expected_date} /></td>
+                  <td className="px-4 py-3 text-center">
+                    {t.billing_status === 'aguardando_cobranca' || t.billing_status === 'aguardando_nf' ? (
+                      <FinStatusBadge status={t.billing_status} />
+                    ) : (
+                      <FinStatusBadge status={t.status} dueDate={t.expected_date} />
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       {(t.status === 'previsto' || t.status === 'parcial') && (

@@ -837,6 +837,44 @@ export function matchesEligibleService(description: string, svc: NfceEligibleSer
   return svc.matchers.some(m => desc.includes(m) || m.includes(desc));
 }
 
+/**
+ * Faturamento por parceiro: se o tomador desta nota tem regra de canal com
+ * trigger_event='faturamento', prepara o título a receber e o disparo de
+ * cobrança.
+ *
+ * Best effort, pelo mesmo motivo de markEntriesAsEmitted: a nota JÁ está
+ * autorizada no fisco, e reportar falha aqui levaria o operador a emitir de novo
+ * (duplicidade real). O que não for preparado aparece na fila
+ * /finances/cobrancas, que é a rede de segurança do fluxo.
+ *
+ * Import dinâmico para não puxar o billingService (e a cadeia dele) em toda
+ * carga do nfService.
+ */
+async function prepareBillingBestEffort(invoiceId: string): Promise<void> {
+  try {
+    const { billingService } = await import('./billingService');
+    const res = await billingService.prepareForNf(invoiceId);
+    if (res?.ok) {
+      console.log('[nfService] Cobrança preparada para a nota', invoiceId, res);
+    }
+  } catch (e) {
+    console.error('[nfService] Nota autorizada, mas falhou o preparo da cobrança:', e);
+  }
+}
+
+/**
+ * NF cancelada não pode deixar recebível fantasma com data firme na previsão de
+ * caixa. Best effort pelo mesmo motivo do preparo.
+ */
+async function revertBillingBestEffort(invoiceId: string): Promise<void> {
+  try {
+    const { billingService } = await import('./billingService');
+    await billingService.revertForNf(invoiceId);
+  } catch (e) {
+    console.error('[nfService] Nota cancelada, mas falhou o estorno da cobrança:', e);
+  }
+}
+
 async function markEntriesAsEmitted(
   hotelId: string,
   entryIds: number[],
@@ -1547,6 +1585,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
       }
     }
 
+    await prepareBillingBestEffort(invoiceId);
+
     return { success: true, message: 'Nota fiscal autorizada com sucesso', invoice: notaFinal };
   } catch (err: unknown) {
     const message = errMessage(err);
@@ -1662,6 +1702,8 @@ async function cancelInvoice(
       .delete()
       .eq('invoice_id', invoiceId);
 
+    await revertBillingBestEffort(invoiceId);
+
     return { success: true, message: 'Nota fiscal cancelada com sucesso' };
   } catch (err: unknown) {
     const message = errMessage(err);
@@ -1693,6 +1735,7 @@ async function registrarCancelamentoExterno(
 
     // Os lançamentos voltam para a fila: a nota que os segurava não vale mais.
     await clearEmittedEntries(invoiceId);
+    await revertBillingBestEffort(invoiceId);
 
     return { success: true, message: 'Cancelamento registrado. A nota continua no histórico da reserva.' };
   } catch (err: unknown) {
@@ -2565,6 +2608,11 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
       xml_retorno: result.xml_retorno || null,
     })
     .eq('id', invoiceId);
+
+  // Engate obrigatório aqui também: a NFS-e da Plataforma Nacional pode ser
+  // aceita como 'emitida' sem número e só virar 'autorizada' nesta reconsulta.
+  // Sem este ponto, toda NFS-e nacional assíncrona nunca dispararia cobrança.
+  await prepareBillingBestEffort(invoiceId);
 
   return { success: true, processando: false, message: result.message };
 }

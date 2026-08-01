@@ -71,6 +71,18 @@ export const MODULES: Module[] = [
   { key: 'nf.emit.nfse',        label: 'Emitir NFS-e (Serviços)',   description: 'Emitir NFS-e de serviços (diárias, taxas)', group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
   { key: 'nf.emit.devolucao',   label: 'Emitir NF-e de Devolução',  description: 'Emitir NF-e de devolução (finNFe=4)',      group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
   { key: 'nf.cancel',           label: 'Cancelar Nota Fiscal',      description: 'Cancelar nota no fisco ou registrar cancelamento feito no portal', group: 'Emissão de Notas Fiscais', icon: 'Ban' },
+
+  // ── Contas a Receber ────────────────────────────────────────────────────
+  // Gatear SEMPRE com canAny(['finances', '<subchave>']): quem já tem a chave
+  // grossa 'finances' continua com tudo. Sem isso, todo perfil existente perde
+  // acesso no deploy.
+  { key: 'finances.ar.manage',        label: 'Lançar e baixar recebíveis',    description: 'Criar, editar, cancelar e dar baixa em contas a receber',                group: 'Financeiro — Contas a Receber', icon: 'ArrowUpCircle' },
+  { key: 'finances.ar.rules',         label: 'Configurar regras de recebimento', description: 'Canais, parceiros, adquirentes e contas bancárias — define a previsão de caixa', group: 'Financeiro — Contas a Receber', icon: 'Settings' },
+  { key: 'finances.billing.view',     label: 'Ver cobranças a disparar',      description: 'Leitura da fila de cobranças e do histórico',                            group: 'Financeiro — Contas a Receber', icon: 'Send' },
+  { key: 'finances.billing.mark',     label: 'Marcar cobrança efetuada',      description: 'Registrar cobrança, inclusive com data retroativa — move a previsão sem recebimento', group: 'Financeiro — Contas a Receber', icon: 'CheckCircle2' },
+  { key: 'finances.billing.send',     label: 'Disparar cobrança por e-mail',  description: 'Envia e-mail em nome do hotel para o parceiro. Irreversível',            group: 'Financeiro — Contas a Receber', icon: 'Mail' },
+  { key: 'finances.billing.template', label: 'Editar texto da cobrança',      description: 'Assunto e corpo do e-mail que o parceiro lê',                            group: 'Financeiro — Contas a Receber', icon: 'FileText' },
+  { key: 'finances.billing.sender',   label: 'Configurar remetente da unidade', description: 'Servidor, conta e senha de app usados para enviar as cobranças',        group: 'Financeiro — Contas a Receber', icon: 'AtSign' },
 ];
 
 // Gera módulos dinâmicos de setor — chamado pelo RolesManagement com dados do banco

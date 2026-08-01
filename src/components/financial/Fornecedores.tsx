@@ -62,7 +62,7 @@ export function ModalShell({ onClose, children }: { onClose: () => void; childre
 
 // ─── Reusable section divider ─────────────────────────────────────────────────
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+export function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3 mt-1">
       {children}

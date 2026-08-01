@@ -181,60 +181,18 @@ export default function NFeXMLImportModal({
     setParsing(true);
     try {
       // ── 1. Fornecedor: busca interna primeiro, depois API ──────────────────
+      // supplierService.findOrCreateByCnpj faz a sequência completa (local →
+      // Receita → cadastra). Falha na API não aborta a importação: o usuário
+      // pode selecionar o fornecedor manualmente.
       let supplierId: string | undefined;
       const cleanCnpj = parsed.supplierCnpj.replace(/\D/g, '');
 
       if (cleanCnpj.length === 14) {
-        // Consulta banco interno (não consome créditos da API)
-        const { data: existing } = await supabase
-          .from('suppliers')
-          .select('id')
-          .eq('hotel_id', hotelId)
-          .eq('cnpj', cleanCnpj)
-          .maybeSingle();
-
-        if (existing) {
-          supplierId = existing.id;
-        } else {
-          // Não existe localmente → consulta API e cadastra automaticamente
-          try {
-            const cnpjaData = await lookupCnpj(cleanCnpj);
-            const saved = await supplierService.save({
-              type: 'juridica',
-              status: 'ativo',
-              hotel_id: hotelId,
-              cnpj:               cnpjaData.cnpj,
-              razao_social:       cnpjaData.razao_social,
-              nome_fantasia:      cnpjaData.nome_fantasia,
-              situacao:           cnpjaData.situacao,
-              situacao_cadastral: cnpjaData.situacao_cadastral,
-              tipo_empresa:       cnpjaData.tipo_empresa,
-              data_abertura:      cnpjaData.data_abertura,
-              porte:              cnpjaData.porte,
-              capital_social:     cnpjaData.capital_social,
-              natureza_juridica:  cnpjaData.natureza_juridica,
-              cnae_principal_id:  cnpjaData.cnae_principal_id,
-              cnae_principal_desc: cnpjaData.cnae_principal_desc,
-              atividade_economica: cnpjaData.atividade_economica,
-              simples_nacional:   cnpjaData.simples_nacional,
-              mei:                cnpjaData.mei,
-              ibs:                cnpjaData.ibs,
-              cbs:                cnpjaData.cbs,
-              lista_exclusao:     cnpjaData.lista_exclusao,
-              email:              cnpjaData.email,
-              telefone:           cnpjaData.telefone,
-              endereco_cep:       cnpjaData.endereco_cep,
-              endereco_logradouro: cnpjaData.endereco_logradouro,
-              endereco_numero:    cnpjaData.endereco_numero,
-              endereco_complemento: cnpjaData.endereco_complemento,
-              endereco_bairro:    cnpjaData.endereco_bairro,
-              endereco_municipio: cnpjaData.endereco_municipio,
-              endereco_uf:        cnpjaData.endereco_uf,
-            });
-            supplierId = saved.id;
-          } catch {
-            // Falha na API — continua sem supplierId (usuário pode selecionar manualmente)
-          }
+        try {
+          const { supplier } = await supplierService.findOrCreateByCnpj(hotelId, cleanCnpj);
+          supplierId = supplier.id;
+        } catch {
+          // Segue sem supplierId
         }
       }
 
