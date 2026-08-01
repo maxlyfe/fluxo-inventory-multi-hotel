@@ -12,8 +12,9 @@ import { erbonService, type ErbonBooking } from '../../lib/erbonService';
 import { nfService, type BatchEmissionProgress, type WCIGuestData, type ReemissaoData } from '../../lib/nfService';
 import { PeriodFilter, defaultPeriod, type Period } from '../../components/financial/shared';
 import { NFInvoiceModal, type CurrentAccountEntry, type GenericNFItem } from '../../components/nf/NFInvoiceModal';
-import { matchesEligibleService, isHomologForTipo } from '../../lib/nfService';
+import { matchesEligibleService, isHomologForTipo, isNFValida } from '../../lib/nfService';
 import NFViewerModal from '../../components/nf/NFViewerModal';
+import NFHistoryList, { statusVisual, motivoResumo } from '../../components/nf/NFHistoryList';
 import { NFAvulsaModal } from '../../components/nf/NFAvulsaModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -87,6 +88,9 @@ interface ClassifiedReservation extends UnifiedReservation {
   issues: string[];
   /** Notas válidas emitidas em produção para esta reserva (qualquer tela de origem) */
   invoices: NFInvoice[];
+  /** Todas as notas da reserva, inclusive canceladas e rejeitadas — elas não
+   *  bloqueiam nova emissão, mas o documento não pode sumir da tela. */
+  history: NFInvoice[];
 }
 
 /** Pagamento (crédito) da reserva, extraído do contas a receber da Erbon */
@@ -251,12 +255,12 @@ export default function EmissaoNFPage() {
 
   const buildClassified = useCallback(async (unified: UnifiedReservation[]): Promise<ClassifiedReservation[]> => {
     const [invoicesRes, nfConfig] = await Promise.all([
+      // Traz TODAS as notas (menos rascunho): as validas classificam a reserva
+      // em abas, as canceladas/rejeitadas alimentam o historico visivel no card.
       supabase.from('nf_invoices')
         .select('*')
         .eq('hotel_id', hotelId)
-        // 'emitida' = DPS aceita pelo municipio, aguardando numero/chave. Sem
-        // isso a reserva volta para "Adequadas" e permite emitir nota duplicada.
-        .in('status', ['autorizada', 'contingencia', 'emitida']),
+        .neq('status', 'rascunho'),
       nfService.getConfig(hotelId),
     ]);
 
@@ -278,14 +282,17 @@ export default function EmissaoNFPage() {
         ...(invoiceMap.get(r.bookingNumber) || []),
         ...(r.bookingInternalId ? (invoiceByErbonId.get(r.bookingInternalId) || []) : []),
       ];
-      // dedupe por id e mantém só notas do TIPO emitido em produção — homolog
-      // de um tipo não libera reemissão do outro
+      // dedupe por id; o histórico guarda tudo, na ordem mais recente primeiro
       const seen = new Set<string>();
-      const blocking = found.filter(inv => {
-        if (seen.has(inv.id)) return false;
-        seen.add(inv.id);
-        return !isHomologForTipo(nfConfig, inv.tipo);
-      });
+      const history = found
+        .filter(inv => (seen.has(inv.id) ? false : (seen.add(inv.id), true)))
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+
+      // Só bloqueia quem tem documento vivo no fisco e do TIPO emitido em
+      // produção — homolog de um tipo não libera reemissão do outro, e nota
+      // cancelada ou rejeitada libera nova emissão sem sair do histórico.
+      const blocking = history.filter(inv =>
+        isNFValida(inv) && !isHomologForTipo(nfConfig, inv.tipo));
 
       if (blocking.length > 0) {
         const hasNfse = blocking.some(inv => inv.tipo === 'nfse');
@@ -294,7 +301,7 @@ export default function EmissaoNFPage() {
         if (hasNfse && hasNfce) tab = 'todas_emitida';
         else if (hasNfce) tab = 'nfce_emitida';
         else tab = 'nfse_emitida';
-        return { ...r, tab, issues: [], invoices: blocking };
+        return { ...r, tab, issues: [], invoices: blocking, history };
       }
 
       const issues: string[] = [];
@@ -305,10 +312,10 @@ export default function EmissaoNFPage() {
       if (r.totalValue <= 0) issues.push('Valor total zero');
 
       if (issues.length > 0) {
-        return { ...r, tab: 'revisao' as TabKey, issues, invoices: [] };
+        return { ...r, tab: 'revisao' as TabKey, issues, invoices: [], history };
       }
 
-      return { ...r, tab: 'adequadas' as TabKey, issues: [], invoices: [] };
+      return { ...r, tab: 'adequadas' as TabKey, issues: [], invoices: [], history };
     });
   }, [hotelId]);
 
@@ -427,7 +434,9 @@ export default function EmissaoNFPage() {
         .eq('hotel_id', hotelId)
         .is('erbon_booking_id', null)
         .is('booking_number', null)
-        .in('status', ['autorizada', 'contingencia', 'emitida'])
+        // Canceladas e rejeitadas também: sem reserva para pendurar o
+        // histórico, some da tela quem cancela a avulsa aqui.
+        .neq('status', 'rascunho')
         .gte('created_at', period.from)
         .lte('created_at', period.to + 'T23:59:59')
         .order('created_at', { ascending: false });
@@ -442,8 +451,10 @@ export default function EmissaoNFPage() {
   // ficava sem nenhuma forma de reconsultar.
   const nfsePendentes = useMemo(() => {
     const temIdDps = (inv: NFInvoice) => !!inv.id_dps || !!inv.xml_retorno?.includes('idDPS');
+    // isNFValida: uma nota já rejeitada não tem número para buscar — reconsultar
+    // de novo só gastaria chamada e voltaria a mesma recusa.
     const pendente = (inv: NFInvoice) =>
-      inv.tipo === 'nfse' && !inv.numero_nf && !inv.chave_acesso && temIdDps(inv);
+      inv.tipo === 'nfse' && isNFValida(inv) && !inv.numero_nf && !inv.chave_acesso && temIdDps(inv);
 
     const daReserva = reservations.flatMap(r => r.invoices).filter(pendente);
     const avulsasPendentes = avulsas.filter(pendente);
@@ -1248,11 +1259,10 @@ export default function EmissaoNFPage() {
                     {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}
                     {inv.numero_nf ? ` nº ${inv.numero_nf}` : ''}
                   </span>
-                  {inv.status === 'contingencia' && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">contingência</span>
-                  )}
-                  {inv.status === 'emitida' && !inv.numero_nf && (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">aguardando número</span>
+                  {inv.status !== 'autorizada' && (
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${statusVisual(inv).chip}`}>
+                      {statusVisual(inv).label}
+                    </span>
                   )}
                   <div className="flex-1 min-w-[140px]">
                     <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">{inv.tomador_nome || 'Consumidor final'}</span>
@@ -1260,6 +1270,11 @@ export default function EmissaoNFPage() {
                       {new Date(inv.created_at).toLocaleDateString('pt-BR')} às {new Date(inv.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       {inv.tomador_cpf_cnpj ? ` · ${inv.tomador_cpf_cnpj}` : ''}
                     </span>
+                    {motivoResumo(inv) && (
+                      <span className="block text-xs text-gray-500 dark:text-gray-400 line-clamp-2" title={motivoResumo(inv)!}>
+                        {motivoResumo(inv)}
+                      </span>
+                    )}
                   </div>
                   <span className="font-bold text-gray-900 dark:text-white whitespace-nowrap">
                     R$ {Number(inv.valor_total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -1508,6 +1523,10 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
   const fmtMoney = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
   // Rótulos resumidos das formas de pagamento (para o badge do cabeçalho)
   const payLabels = Array.from(new Set(payments.map(p => p.paymentType).filter(Boolean)));
+  // Notas que já não valem no fisco: não bloqueiam nova emissão, mas continuam
+  // no histórico (e o cabeçalho avisa que elas existem).
+  const historico = r.history ?? r.invoices;
+  const historicoInativo = historico.filter(inv => !isNFValida(inv));
 
   return (
     <div className={`border rounded-xl transition-all ${
@@ -1562,7 +1581,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
               ))}
             </div>
           )}
-          {isEmitidaTab(activeTab) && r.invoices.length > 0 && (
+          {(r.invoices.length > 0 || historicoInativo.length > 0) && (
             <div className="flex flex-col items-end gap-0.5">
               {r.invoices.map(inv => (
                 <span key={inv.id} className="text-xs font-medium text-blue-600 dark:text-blue-400">
@@ -1571,6 +1590,19 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                   {inv.status === 'emitida' && !inv.numero_nf ? ' · aguardando número' : ''}
                 </span>
               ))}
+              {/* Cancelada/rejeitada não bloqueia a emissão, mas o card precisa
+                  avisar que existe documento no histórico. */}
+              {historicoInativo.length > 0 && (
+                <span className="text-xs font-medium text-gray-400">
+                  {historicoInativo.length} {historicoInativo.length === 1 ? 'nota' : 'notas'} no histórico
+                  {' '}({[
+                    historicoInativo.filter(i => i.status === 'cancelada').length
+                      ? `${historicoInativo.filter(i => i.status === 'cancelada').length} cancelada(s)` : null,
+                    historicoInativo.filter(i => i.status === 'rejeitada').length
+                      ? `${historicoInativo.filter(i => i.status === 'rejeitada').length} rejeitada(s)` : null,
+                  ].filter(Boolean).join(' · ')})
+                </span>
+              )}
             </div>
           )}
           <span className="font-bold text-gray-900 dark:text-white whitespace-nowrap">
@@ -1612,6 +1644,20 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
             </div>
           )}
 
+          {/* Histórico fiscal completo — vale para qualquer aba: uma reserva
+              que teve a nota cancelada volta para "Adequadas", e o documento
+              cancelado precisa continuar acessível a partir dela. */}
+          {historico.length > 0 && (
+            <div className="mb-3">
+              <NFHistoryList
+                invoices={historico}
+                onView={(id, tipo) => onViewNF(id, tipo)}
+                onReconsultar={onReconsultar}
+                reconsultandoId={reconsultandoId}
+              />
+            </div>
+          )}
+
           <div className="flex gap-2 flex-wrap">
             {activeTab === 'adequadas' && canEmitNfse && (
               <button onClick={() => onEmit('nfse')} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
@@ -1630,59 +1676,10 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
             )}
             {isEmitidaTab(activeTab) && (
               <>
-                {r.invoices.map(inv => (
-                  <React.Fragment key={inv.id}>
-                    <button onClick={() => onViewNF(inv.id, inv.tipo)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">
-                      <Eye className="w-4 h-4" /> Ver {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}{inv.numero_nf ? ` nº ${inv.numero_nf}` : ''}
-                    </button>
-                    {/* A Plataforma Nacional pode aceitar a DPS e ainda estar
-                        processando a NFS-e: nesse caso a nota fica sem número e
-                        sem chave, e só a reconsulta completa os dados. */}
-                    {inv.tipo === 'nfse' && (inv.id_dps || inv.xml_retorno?.includes('idDPS')) && !inv.chave_acesso && !inv.numero_nf && (
-                      <button
-                        onClick={() => onReconsultar(inv.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors"
-                        title="A NFS-e foi aceita, mas ainda está em processamento na Plataforma Nacional. Reconsulte para trazer número, chave e XML autorizado. Se tiver sido recusada, abre o formulário preenchido para corrigir e emitir outra."
-                      >
-                        <RefreshCw className={`w-4 h-4 ${reconsultandoId === inv.id ? 'animate-spin' : ''}`} /> Reconsultar NFS-e
-                      </button>
-                    )}
-                    {/* `xml_retorno` nem sempre é XML: enquanto a NFS-e Nacional
-                        está em processamento, a API devolve um JSON de
-                        acompanhamento. Baixar isso como .xml gerava um arquivo
-                        que o navegador recusa ("'<' not found"), então o
-                        conteúdo é detectado antes de nomear o arquivo. */}
-                    {inv.xml_retorno && (
-                      <button
-                        onClick={() => {
-                          const ehXml = inv.xml_retorno!.trimStart().startsWith('<');
-                          baixarArquivo(
-                            inv.xml_retorno!,
-                            `NF_${inv.numero_nf || inv.id}.${ehXml ? 'xml' : 'json'}`,
-                            ehXml ? 'application/xml' : 'application/json',
-                          );
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
-                      >
-                        <Download className="w-4 h-4" />
-                        {inv.xml_retorno.trimStart().startsWith('<') ? 'XML da nota' : 'Retorno da API'}
-                      </button>
-                    )}
-                    {/* DPS assinada que foi enviada: é aqui que se confere o que
-                        de fato declaramos, incluindo o bloco <IBSCBS>. */}
-                    {inv.xml_dps && (
-                      <button
-                        onClick={() => baixarArquivo(inv.xml_dps!, `DPS_${inv.numero_nf || inv.id}.xml`, 'application/xml')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
-                        title="XML assinado que foi enviado à Plataforma Nacional, com o bloco IBS/CBS declarado."
-                      >
-                        <Download className="w-4 h-4" /> XML enviado (DPS)
-                      </button>
-                    )}
-                  </React.Fragment>
-                ))}
-                {/* Emite apenas o tipo que ainda NÃO tem nota válida em produção;
-                    os lançamentos já emitidos ficam de fora automaticamente */}
+                {/* Ver/reconsultar/baixar XML de cada nota ficam no bloco de
+                    histórico acima — aqui só o que ainda pode ser emitido.
+                    Emite apenas o tipo que ainda NÃO tem nota válida em
+                    produção; os lançamentos já emitidos ficam de fora. */}
                 {canEmitNfse && !r.invoices.some(inv => inv.tipo === 'nfse') && (
                   <button onClick={() => onEmit('nfse')} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
                     <FileText className="w-4 h-4" /> Emitir NFS-e (Serviços)

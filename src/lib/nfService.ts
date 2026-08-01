@@ -714,8 +714,10 @@ export function isHomologForTipo(config: NFHotelConfig | null, tipo: NFTipo): bo
 async function getEmittedEntries(hotelId: string): Promise<Map<number, string>> {
   const config = await getConfig(hotelId);
 
-  // Considera apenas notas válidas (autorizada/contingência) cujo TIPO foi
-  // emitido em produção. Em homologação daquele tipo, libera reemissão.
+  // Considera apenas notas válidas (autorizada/contingência/emitida) cujo TIPO
+  // foi emitido em produção. Em homologação daquele tipo, libera reemissão.
+  // 'emitida' = DPS aceita pelo município aguardando número: a nota existe, e
+  // liberar o lançamento aí gerava nota duplicada para a mesma reserva.
   const { data, error } = await supabase
     .from('nf_emitted_entries')
     .select('erbon_entry_id, invoice_id, nf_invoices!inner(tipo, status)')
@@ -726,15 +728,27 @@ async function getEmittedEntries(hotelId: string): Promise<Map<number, string>> 
   (data ?? []).forEach((row: any) => {
     const inv = row.nf_invoices;
     if (!inv) return;
-    if (inv.status !== 'autorizada' && inv.status !== 'contingencia') return;
+    if (inv.status !== 'autorizada' && inv.status !== 'contingencia' && inv.status !== 'emitida') return;
     if (isHomologForTipo(config, inv.tipo)) return;
     map.set(row.erbon_entry_id, row.invoice_id);
   });
   return map;
 }
 
-// Notas emitidas (autorizadas/contingência) de uma reserva — para reimpressão.
-// Independe do ambiente: sempre lista o que já foi emitido para aquela reserva.
+/** Status de nota que representam um documento que existiu no fisco — o que
+ *  bloqueia reemissão dos mesmos lançamentos. Cancelada e rejeitada ficam de
+ *  fora de propósito: liberam nova emissão, mas continuam no histórico. */
+export const NF_STATUS_VALIDOS = ['autorizada', 'contingencia', 'emitida'] as const;
+
+export function isNFValida(inv: { status: string }): boolean {
+  return (NF_STATUS_VALIDOS as readonly string[]).includes(inv.status);
+}
+
+// Histórico fiscal de uma reserva: TODAS as notas, inclusive canceladas e
+// rejeitadas. Cancelamento e recusa liberam nova emissão, mas o documento não
+// pode sumir da tela — quem confere o portal da prefeitura precisa achar aqui
+// o que foi emitido, quando e por quê deixou de valer. Só o rascunho fica de
+// fora (nunca chegou a ser enviado). Independe do ambiente.
 async function getInvoicesByBooking(
   hotelId: string,
   erbonBookingId: number | null,
@@ -744,12 +758,14 @@ async function getInvoicesByBooking(
     .from('nf_invoices')
     .select('*')
     .eq('hotel_id', hotelId)
-    // 'emitida' = DPS aceita pelo municipio, aguardando numero/chave. A nota
-    // existe e precisa contar como emitida, senao a reserva volta para a fila.
-    .in('status', ['autorizada', 'contingencia', 'emitida'])
+    .neq('status', 'rascunho')
     .order('created_at', { ascending: false });
 
-  if (erbonBookingId != null) {
+  // Casa pelos dois campos quando existem: notas antigas podem ter só um deles
+  // preenchido, e filtrar por um só escondia parte do histórico.
+  if (erbonBookingId != null && bookingNumber) {
+    query = query.or(`erbon_booking_id.eq.${erbonBookingId},booking_number.eq.${bookingNumber}`);
+  } else if (erbonBookingId != null) {
     query = query.eq('erbon_booking_id', erbonBookingId);
   } else if (bookingNumber) {
     query = query.eq('booking_number', bookingNumber);
@@ -826,13 +842,45 @@ async function markEntriesAsEmitted(
   entryIds: number[],
   invoiceId: string,
 ): Promise<void> {
-  const rows = entryIds.map((eid) => ({
+  // Upsert em vez de insert: a tabela tem UNIQUE (hotel_id, erbon_entry_id) e
+  // o lançamento pode já ter rastreio de uma nota anterior (rejeitada depois de
+  // aceita, em homologação, ou o mesmo id repetido na lista). Um insert cru
+  // devolvia 409 DEPOIS de a nota já ter sido autorizada no fisco, e a emissão
+  // aparecia como falha na tela. O dono do rastreio passa a ser a última nota.
+  const rows = [...new Set(entryIds)].map((eid) => ({
     hotel_id: hotelId,
     erbon_entry_id: eid,
     invoice_id: invoiceId,
   }));
-  const { error } = await supabase.from('nf_emitted_entries').insert(rows);
+  if (rows.length === 0) return;
+  const { error } = await supabase
+    .from('nf_emitted_entries')
+    .upsert(rows, { onConflict: 'hotel_id,erbon_entry_id' });
   if (error) throw error;
+}
+
+/** Rastreio de lançamentos de uma nota que deixou de valer (rejeitada). Sem
+ *  isso o lançamento fica preso a uma nota inexistente: a leitura ignora o
+ *  registro (nota não autorizada) e a próxima emissão colide no UNIQUE. */
+async function clearEmittedEntries(invoiceId: string): Promise<void> {
+  const { error } = await supabase
+    .from('nf_emitted_entries')
+    .delete()
+    .eq('invoice_id', invoiceId);
+  if (error) console.error('[nfService] Falha ao limpar rastreio da nota', invoiceId, error);
+}
+
+/** Mensagem legível de qualquer erro: PostgrestError é objeto simples (não
+ *  Error), e caía todo em "Erro desconhecido". */
+function errMessage(err: unknown, fallback = 'Erro desconhecido'): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string };
+    const parts = [e.message, e.details, e.hint].filter(Boolean);
+    if (parts.length) return e.code ? `${parts.join(' — ')} (${e.code})` : parts.join(' — ');
+  }
+  if (typeof err === 'string' && err) return err;
+  return fallback;
 }
 
 // ─── Draft + Emit ────────────────────────────────────────────────────────────
@@ -1383,6 +1431,8 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
           nfse_provider: inv?.tipo === 'nfse' ? (config?.nfse_provider ?? null) : null,
         })
         .eq('id', invoiceId);
+      // Nota recusada não pode continuar segurando os lançamentos.
+      await clearEmittedEntries(invoiceId);
       const rawMsg = result.message || result.error || 'Erro ao emitir nota fiscal';
       return { success: false, message: translateSefazError(rawMsg) };
     }
@@ -1486,13 +1536,20 @@ async function emitInvoice(invoiceId: string, hotelId: string, pagamentos?: { tP
         .map((i: { erbon_entry_id: number | null }) => i.erbon_entry_id)
         .filter((id): id is number => id != null);
       if (entryIds.length > 0) {
-        await markEntriesAsEmitted(hotelId, entryIds, invoiceId);
+        // Falha aqui é de rastreio interno, não da nota: a NFS-e/NF-e já está
+        // autorizada no fisco. Reportar como erro de emissão levava o operador
+        // a emitir a mesma nota de novo (duplicidade real).
+        try {
+          await markEntriesAsEmitted(hotelId, entryIds, invoiceId);
+        } catch (e) {
+          console.error('[nfService] Nota autorizada, mas falhou o rastreio dos lançamentos:', e);
+        }
       }
     }
 
     return { success: true, message: 'Nota fiscal autorizada com sucesso', invoice: notaFinal };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro desconhecido';
+    const message = errMessage(err);
     return { success: false, message };
   }
 }
@@ -1581,7 +1638,7 @@ async function cancelInvoice(
 
     return { success: true, message: 'Nota fiscal cancelada com sucesso' };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro desconhecido';
+    const message = errMessage(err);
     return { success: false, message };
   }
 }
@@ -1630,7 +1687,7 @@ async function fetchDANFSE(
 
     return { success: true, pdfBase64: result.pdfBase64, message: 'DANFSE obtido com sucesso.' };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro desconhecido';
+    const message = errMessage(err);
     return { success: false, message };
   }
 }
@@ -1725,7 +1782,11 @@ async function emitContingencia(
         .map((i: { erbon_entry_id: number | null }) => i.erbon_entry_id)
         .filter((id): id is number => id != null);
       if (entryIds.length > 0) {
-        await markEntriesAsEmitted(hotelId, entryIds, invoiceId);
+        try {
+          await markEntriesAsEmitted(hotelId, entryIds, invoiceId);
+        } catch (e) {
+          console.error('[nfService] Contingência emitida, mas falhou o rastreio dos lançamentos:', e);
+        }
       }
     }
 
@@ -1735,7 +1796,7 @@ async function emitContingencia(
       invoice: updated as NFInvoice,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro desconhecido';
+    const message = errMessage(err);
     return { success: false, message };
   }
 }
@@ -2422,6 +2483,10 @@ async function reconsultarDpsNacional(invoiceId: string): Promise<{
         .from('nf_invoices')
         .update({ status: 'rejeitada', xml_retorno: result.xml_retorno || message })
         .eq('id', invoiceId);
+      // A DPS tinha sido aceita, então os lançamentos já foram marcados como
+      // faturados. Com a recusa eles voltam para a fila — e sem apagar o
+      // rastreio a próxima emissão da mesma reserva colidia no UNIQUE.
+      await clearEmittedEntries(invoiceId);
       return { success: false, processando: false, rejeitada: true, message };
     }
     return { success: false, processando: false, message };

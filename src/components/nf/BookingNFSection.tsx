@@ -14,6 +14,7 @@ import {
 import { format, parseISO } from 'date-fns';
 import { nfService } from '../../lib/nfService';
 import { NFInvoiceModal, isServiceEntry, type CurrentAccountEntry } from './NFInvoiceModal';
+import NFHistoryList from './NFHistoryList';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -125,35 +126,13 @@ export const BookingNFSection: React.FC<BookingNFSectionProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Notas já emitidas desta reserva (qualquer tela de origem) */}
-      {bookingInvoices.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-            <FileCheck2 className="w-3.5 h-3.5" /> Notas fiscais desta reserva
-          </p>
-          {bookingInvoices.map(inv => (
-            <div key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30">
-              <div className="min-w-0">
-                <span className="block text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
-                  {inv.tipo === 'nfse' ? 'NFS-e' : inv.tipo === 'nfce' ? 'NFC-e' : 'NF-e'}
-                  {inv.numero_nf ? ` · Nº ${inv.numero_nf}` : ''}{inv.serie ? `/${inv.serie}` : ''}
-                  {inv.status === 'contingencia' ? ' · contingência' : ''}
-                </span>
-                <span className="block text-[11px] text-gray-400 truncate">
-                  {inv.created_at ? new Date(inv.created_at).toLocaleString('pt-BR') : ''}
-                  {inv.valor_total != null ? ` · R$ ${Number(inv.valor_total).toFixed(2)}` : ''}
-                </span>
-              </div>
-              <button
-                onClick={() => { setViewInvoiceId(inv.id); setViewInvoiceTipo(inv.tipo); }}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors"
-                title="Revisualizar e reimprimir esta nota">
-                <FileCheck2 className="w-3.5 h-3.5" /> Reimprimir
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Histórico fiscal da reserva: inclui canceladas e rejeitadas, que não
+          bloqueiam nova emissão mas precisam continuar visíveis. */}
+      <NFHistoryList
+        invoices={bookingInvoices}
+        onView={(id, tipo) => { setViewInvoiceId(id); setViewInvoiceTipo(tipo); }}
+        title="Notas fiscais desta reserva"
+      />
 
       {/* Débitos (consumos) — clicar no item seleciona para a emissão de NF */}
       <div>
