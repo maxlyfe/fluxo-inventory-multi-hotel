@@ -899,6 +899,23 @@ const SectorStock = () => {
         ? allHotels.find(h => h.id === transferDestHotel)?.name || 'hotel destino'
         : '';
 
+      // Custo unitário para o histórico em /inventory/transfers — sem ele a
+      // transferência entra com valor "—" e fica de fora do saldo em R$ entre
+      // os hotéis. Mesma regra do trigger handle_hotel_transfer e do
+      // NewHotelTransferModal: preço médio, senão última compra.
+      const priceByProduct = new Map<string, number>();
+      if (isInterHotel) {
+        const { data: pricedProducts, error: priceError } = await supabase
+          .from('products')
+          .select('id, average_price, last_purchase_price')
+          .in('id', itemsToTransfer.map(i => i.productId));
+        if (priceError) console.error('Erro ao buscar custo dos produtos:', priceError);
+        for (const p of pricedProducts || []) {
+          const price = p.average_price ?? p.last_purchase_price;
+          if (price != null) priceByProduct.set(p.id, Number(price));
+        }
+      }
+
       for (const item of itemsToTransfer) {
         // 1. Desconta do setor de origem DE FORMA ATÔMICA
         const { error: srcError } = await supabase.rpc('decrement_sector_stock', {
@@ -929,8 +946,11 @@ const SectorStock = () => {
               destination_hotel_id: transferDestHotel,
               product_id: item.productId,
               quantity: item.qty,
+              unit_value: priceByProduct.get(item.productId) ?? null,
               status: 'completed',
               completed_at: new Date().toISOString(),
+              source_sector_id: sectorId!,
+              destination_sector_id: transferDestSector,
               notes: `Setor: ${srcSectorName} → ${destSectorName} (${destHotelName})`,
             });
 

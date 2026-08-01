@@ -20,7 +20,7 @@ import {
   TrendingUp, TrendingDown, Scale, Building2, Search,
   ArrowUpRight, ArrowDownLeft, CheckCircle2,
   Clock, X, HandCoins, Loader2, Calendar as CalendarIcon,
-  Download, AlertTriangle, FileSpreadsheet,
+  Download, AlertTriangle, FileSpreadsheet, ArrowRight, Boxes, Warehouse,
 } from 'lucide-react';
 import { format, parseISO, startOfDay, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -41,11 +41,47 @@ interface Transfer {
   source_hotel:      { id: string; name: string } | null;
   destination_hotel: { id: string; name: string } | null;
   product: { id: string; name: string; image_url: string | null; category: string } | null;
+  // Preenchidos quando a transferência sai/entra em um estoque setorial.
+  // NULL nas duas pontas = movimento entre estoques principais.
+  source_sector_id?: string | null;
+  destination_sector_id?: string | null;
+  source_sector:      { id: string; name: string } | null;
+  destination_sector: { id: string; name: string } | null;
 }
 
 type Tab = 'balance' | 'byDay' | 'byItem';
 
+/** Uma ponta da transferência: hotel + (setor | estoque principal) */
+interface Endpoint {
+  hotelName: string;
+  sectorName: string | null; // null = estoque principal
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Transferências setoriais antigas (antes das colunas source/destination_sector_id)
+// só guardavam os setores em texto livre: 'Setor: Cozinha → Restaurante (Brava Club)'.
+const LEGACY_SECTOR_NOTE = /^Setor:\s*(.+?)\s*→\s*(.+?)\s*\(([^)]*)\)\s*$/;
+
+function parseLegacySectors(notes: string | null): { src: string; dst: string } | null {
+  if (!notes) return null;
+  const m = notes.match(LEGACY_SECTOR_NOTE);
+  return m ? { src: m[1], dst: m[2] } : null;
+}
+
+/** Resolve as duas pontas de uma transferência (coluna estruturada → fallback nas notas) */
+function endpointsOf(t: Transfer): { from: Endpoint; to: Endpoint; isSectorTransfer: boolean } {
+  const legacy = parseLegacySectors(t.notes);
+  const srcSector = t.source_sector?.name ?? legacy?.src ?? null;
+  const dstSector = t.destination_sector?.name ?? legacy?.dst ?? null;
+  return {
+    from: { hotelName: t.source_hotel?.name || '?', sectorName: srcSector },
+    to:   { hotelName: t.destination_hotel?.name || '?', sectorName: dstSector },
+    isSectorTransfer: !!(srcSector || dstSector),
+  };
+}
+
+const endpointLabel = (e: Endpoint) => `${e.hotelName} · ${e.sectorName ?? 'Estoque principal'}`;
 
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
@@ -160,17 +196,30 @@ const TransferHistory: React.FC = () => {
     if (!selectedHotel?.id) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('hotel_transfers')
-        .select(`
+      const BASE_COLUMNS = `
           id, source_hotel_id, destination_hotel_id, product_id,
           quantity, unit_value, status, notes, created_at, completed_at,
           source_hotel:hotels!hotel_transfers_source_hotel_id_fkey(id, name),
           destination_hotel:hotels!hotel_transfers_destination_hotel_id_fkey(id, name),
-          product:products!hotel_transfers_product_id_fkey(id, name, image_url, category)
-        `)
+          product:products!hotel_transfers_product_id_fkey(id, name, image_url, category)`;
+      const SECTOR_COLUMNS = `,
+          source_sector_id, destination_sector_id,
+          source_sector:sectors!hotel_transfers_source_sector_id_fkey(id, name),
+          destination_sector:sectors!hotel_transfers_destination_sector_id_fkey(id, name)`;
+
+      const run = (columns: string) => supabase
+        .from('hotel_transfers')
+        .select(columns)
         .or(`source_hotel_id.eq.${selectedHotel.id},destination_hotel_id.eq.${selectedHotel.id}`)
         .order('created_at', { ascending: false });
+
+      let { data, error } = await run(BASE_COLUMNS + SECTOR_COLUMNS);
+      if (error) {
+        // Migration 20260801120000 ainda não aplicada: cai para o schema antigo.
+        // O detalhamento por setor ainda funciona lendo o padrão gravado em `notes`.
+        console.warn('Colunas de setor indisponíveis em hotel_transfers, usando fallback:', error.message);
+        ({ data, error } = await run(BASE_COLUMNS));
+      }
       if (error) throw error;
       setTransfers((data || []) as unknown as Transfer[]);
     } catch (err: any) {
@@ -351,12 +400,16 @@ const TransferHistory: React.FC = () => {
     }
     const rows = filteredTransfers.map(t => {
       const isSent = t.source_hotel_id === selectedHotel?.id;
+      const { from, to, isSectorTransfer } = endpointsOf(t);
       return {
         'Data':       format(parseISO(t.created_at), 'dd/MM/yyyy', { locale: ptBR }),
         'Hora':       format(parseISO(t.created_at), 'HH:mm'),
         'Direção':    isSent ? 'Enviado' : 'Recebido',
+        'Tipo':       isSectorTransfer ? 'Estoque setorial' : 'Estoque principal',
         'Origem':     t.source_hotel?.name || '',
+        'Setor Origem':  from.sectorName || 'Estoque principal',
         'Destino':    t.destination_hotel?.name || '',
+        'Setor Destino': to.sectorName || 'Estoque principal',
         'Item':       t.product?.name || '',
         'Categoria':  t.product?.category || '',
         'Quantidade': t.quantity,
@@ -687,7 +740,7 @@ const TransferHistory: React.FC = () => {
                               <tr>
                                 <th className="text-left  py-2 px-3 font-semibold">Hora</th>
                                 <th className="text-left  py-2 px-3 font-semibold">Dir</th>
-                                <th className="text-left  py-2 px-3 font-semibold">Hotel</th>
+                                <th className="text-left  py-2 px-3 font-semibold">Origem → Destino</th>
                                 <th className="text-left  py-2 px-3 font-semibold">Item</th>
                                 <th className="text-right py-2 px-3 font-semibold">Qtd</th>
                                 <th className="text-right py-2 px-3 font-semibold">V. Unit</th>
@@ -698,7 +751,7 @@ const TransferHistory: React.FC = () => {
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                               {list.map(t => {
                                 const isSent = t.source_hotel_id === selectedHotel.id;
-                                const otherName = (isSent ? t.destination_hotel?.name : t.source_hotel?.name) || '?';
+                                const { from, to } = endpointsOf(t);
                                 const total = (t.unit_value || 0) * t.quantity;
                                 return (
                                   <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -708,7 +761,7 @@ const TransferHistory: React.FC = () => {
                                         ? <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 font-bold">→</span>
                                         : <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-bold">←</span>}
                                     </td>
-                                    <td className="py-2 px-3 text-gray-800 dark:text-gray-200">{otherName}</td>
+                                    <td className="py-2 px-3"><RouteCell from={from} to={to} /></td>
                                     <td className="py-2 px-3 text-gray-800 dark:text-gray-200">
                                       {t.product?.name || '—'}
                                       {t.product?.category && (
@@ -775,6 +828,7 @@ const TransferHistory: React.FC = () => {
                           <tr>
                             <th className="text-left  py-2 px-3 font-semibold">Data</th>
                             <th className="text-left  py-2 px-3 font-semibold">Dir</th>
+                            <th className="text-left  py-2 px-3 font-semibold">Origem → Destino</th>
                             <th className="text-right py-2 px-3 font-semibold">Qtd</th>
                             <th className="text-right py-2 px-3 font-semibold">V. Unit (nesse dia)</th>
                             <th className="text-right py-2 px-3 font-semibold">V. Total</th>
@@ -784,6 +838,7 @@ const TransferHistory: React.FC = () => {
                         <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                           {h.lines.map(t => {
                             const isSent = t.source_hotel_id === selectedHotel.id;
+                            const { from, to } = endpointsOf(t);
                             const total = (t.unit_value || 0) * t.quantity;
                             return (
                               <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -795,6 +850,7 @@ const TransferHistory: React.FC = () => {
                                     ? <span className="text-red-600 dark:text-red-400 font-bold">→</span>
                                     : <span className="text-green-600 dark:text-green-400 font-bold">←</span>}
                                 </td>
+                                <td className="py-2 px-3"><RouteCell from={from} to={to} /></td>
                                 <td className="py-2 px-3 text-right font-semibold text-gray-800 dark:text-gray-200">{t.quantity}</td>
                                 <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{fmtBRLOrDash(t.unit_value)}</td>
                                 <td className="py-2 px-3 text-right font-bold text-gray-800 dark:text-gray-200">
@@ -876,6 +932,34 @@ const TransferHistory: React.FC = () => {
 };
 
 // ─── Subcomponentes ─────────────────────────────────────────────────────────
+
+// Uma ponta da rota: hotel em cima, setor (ou "Estoque principal") embaixo.
+function EndpointCell({ ep }: { ep: Endpoint }) {
+  const isSector = ep.sectorName != null;
+  return (
+    <div className="min-w-0" title={endpointLabel(ep)}>
+      <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-200 truncate">{ep.hotelName}</p>
+      <p className={`text-[10px] truncate flex items-center gap-1 ${
+        isSector ? 'text-indigo-600 dark:text-indigo-400 font-medium' : 'text-gray-400 dark:text-gray-500'
+      }`}>
+        {isSector
+          ? <><Boxes className="w-2.5 h-2.5 flex-shrink-0" />{ep.sectorName}</>
+          : <><Warehouse className="w-2.5 h-2.5 flex-shrink-0" />Estoque principal</>}
+      </p>
+    </div>
+  );
+}
+
+// Rota completa "de onde sai → para onde vai", em nível de hotel + setor.
+function RouteCell({ from, to }: { from: Endpoint; to: Endpoint }) {
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <EndpointCell ep={from} />
+      <ArrowRight className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+      <EndpointCell ep={to} />
+    </div>
+  );
+}
 
 // Combobox com busca type-ahead — substitui o <select> nativo (ruim com 500+ itens)
 function ItemCombobox({ items, value, onChange }: {
