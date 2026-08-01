@@ -213,6 +213,8 @@ export default function EmissaoNFPage() {
   const [filterBy, setFilterBy] = useState<'checkout' | 'checkin'>('checkout');
   const [loading, setLoading] = useState(false);
   const [reservations, setReservations] = useState<ClassifiedReservation[]>([]);
+  // Horário da última varredura da Erbon (a lista não se atualiza sozinha)
+  const [ultimaBusca, setUltimaBusca] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('adequadas');
 
   // Pesquisa por nº de reserva / hóspede
@@ -371,6 +373,7 @@ export default function EmissaoNFPage() {
       ];
 
       setReservations(await buildClassified(unified));
+      setUltimaBusca(new Date());
     } catch (err: any) {
       addNotification('error', `Erro ao carregar reservas: ${err.message}`);
     } finally {
@@ -1144,9 +1147,26 @@ export default function EmissaoNFPage() {
               : `Reconsultar ${nfsePendentes.length} NFS-e pendente${nfsePendentes.length > 1 ? 's' : ''}`}
           </button>
         )}
-        <button onClick={() => { loadReservations(); loadAvulsas(); }} disabled={loading} className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
-        </button>
+        {/* Único caminho (junto com a carga inicial) que refaz a varredura da
+            Erbon. As ações da tela atualizam só a reserva mexida, então o
+            horário da última busca fica à vista para não haver dúvida sobre a
+            idade da lista. */}
+        <div className="flex items-center gap-2">
+          {ultimaBusca && !loading && (
+            <span className="text-xs text-gray-400 whitespace-nowrap">
+              reservas de {ultimaBusca.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={() => { loadReservations(); loadAvulsas(); }}
+            disabled={loading}
+            title="Busca as reservas na Erbon de novo, com o período e o filtro atuais"
+            className="flex items-center gap-2 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-sm font-bold transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Buscando reservas…' : 'Atualizar reservas'}
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
