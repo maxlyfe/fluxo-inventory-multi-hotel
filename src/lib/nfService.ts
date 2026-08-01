@@ -1562,7 +1562,7 @@ async function cancelInvoice(
   try {
     const { data: inv } = await supabase
       .from('nf_invoices')
-      .select('nfse_provider, chave_acesso, hotel_id')
+      .select('tipo, nfse_provider, chave_acesso, hotel_id, numero_nf, numero_protocolo')
       .eq('id', invoiceId)
       .single();
 
@@ -1570,7 +1570,27 @@ async function cancelInvoice(
     let proxyAction = 'cancel';
     let bodyPayload: Record<string, unknown>;
 
-    if (inv?.nfse_provider === 'adn' && inv.chave_acesso) {
+    if (inv?.tipo === 'nfce' || inv?.tipo === 'nfe') {
+      // NFC-e/NF-e cancelam por evento na SEFAZ: exige chave + protocolo de
+      // autorização. Fora do prazo legal o caminho é a nota de devolução.
+      if (!inv.chave_acesso || !inv.numero_protocolo) {
+        return {
+          success: false,
+          message: 'Nota sem chave de acesso ou protocolo: não dá para cancelar na SEFAZ. Use o registro de cancelamento externo se ela já foi cancelada fora do sistema.',
+        };
+      }
+      proxyAction = 'cancel-nfe';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config?.certificado_base64,
+        certificado_senha: config?.certificado_senha,
+        ambiente: config?.ambiente || 'producao',
+        cnpj: config?.cnpj,
+        chave_acesso: inv.chave_acesso,
+        numero_protocolo: inv.numero_protocolo,
+        motivo,
+      };
+    } else if (inv?.nfse_provider === 'adn' && inv.chave_acesso) {
       proxyAction = 'cancel-nfse-adn';
       bodyPayload = {
         action: proxyAction,
@@ -1581,13 +1601,19 @@ async function cancelInvoice(
         motivo,
         ambiente: config?.adn_ambiente || 'homologacao',
       };
+    } else if (inv?.nfse_provider === 'el-nacional' && inv.chave_acesso) {
+      proxyAction = 'cancel-nfse-el-nacional';
+      bodyPayload = {
+        action: proxyAction,
+        certificado_base64: config?.certificado_base64,
+        certificado_senha: config?.certificado_senha,
+        token: (config as any)?.el_token,
+        ambiente: (config as any)?.el_ambiente || 'homologacao',
+        cnpj: config?.cnpj,
+        chave_acesso: inv.chave_acesso,
+        motivo,
+      };
     } else {
-      const { data: invFull } = await supabase
-        .from('nf_invoices')
-        .select('numero_nf')
-        .eq('id', invoiceId)
-        .single();
-
       bodyPayload = {
         action: 'cancel',
         certificado_base64: config?.certificado_base64,
@@ -1595,7 +1621,7 @@ async function cancelInvoice(
         ambiente: config?.ambiente || 'producao',
         cnpj: config?.cnpj,
         inscricao_municipal: config?.inscricao_municipal,
-        numero_nf: invFull?.numero_nf,
+        numero_nf: inv?.numero_nf,
         codigo_municipio: config?.endereco_codigo_municipio || '3300233',
         motivo,
       };
@@ -1640,6 +1666,37 @@ async function cancelInvoice(
   } catch (err: unknown) {
     const message = errMessage(err);
     return { success: false, message };
+  }
+}
+
+/** Cancelamento feito FORA do sistema (portal da prefeitura, contador, etc.).
+ *  Não fala com o fisco: só registra no sistema o que já aconteceu lá, para a
+ *  nota parar de contar como válida e não travar nova emissão dos mesmos
+ *  lançamentos. A nota continua no histórico, com data e motivo. */
+async function registrarCancelamentoExterno(
+  invoiceId: string,
+  motivo: string,
+  canceladoPor: string | null,
+  canceladaEm?: string,
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const { error } = await supabase
+      .from('nf_invoices')
+      .update({
+        status: 'cancelada',
+        cancelada_em: canceladaEm || new Date().toISOString(),
+        motivo_cancelamento: motivo,
+        cancelado_por: canceladoPor,
+      })
+      .eq('id', invoiceId);
+    if (error) throw error;
+
+    // Os lançamentos voltam para a fila: a nota que os segurava não vale mais.
+    await clearEmittedEntries(invoiceId);
+
+    return { success: true, message: 'Cancelamento registrado. A nota continua no histórico da reserva.' };
+  } catch (err: unknown) {
+    return { success: false, message: errMessage(err) };
   }
 }
 
@@ -2607,6 +2664,7 @@ export const nfService = {
   createDraftInvoice,
   emitInvoice,
   cancelInvoice,
+  registrarCancelamentoExterno,
   reconsultarDpsNacional,
   carregarNotaParaReemissao,
   testConnection,

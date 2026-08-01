@@ -132,6 +132,7 @@ export const BookingNFSection: React.FC<BookingNFSectionProps> = ({
         invoices={bookingInvoices}
         onView={(id, tipo) => { setViewInvoiceId(id); setViewInvoiceTipo(tipo); }}
         title="Notas fiscais desta reserva"
+        onChanged={() => { loadNFData(); onEmitted?.(); }}
       />
 
       {/* Débitos (consumos) — clicar no item seleciona para a emissão de NF */}

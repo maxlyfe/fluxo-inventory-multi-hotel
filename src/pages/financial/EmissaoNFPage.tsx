@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FileText, Search, Loader2, CheckCircle2, AlertTriangle, FileCheck,
   ChevronDown, ChevronUp, Calendar, User, Building2, Filter,
-  CheckSquare, Square, Zap, RefreshCw, Download, Eye, X, CreditCard,
+  CheckSquare, Square, Zap, RefreshCw, Download, Eye, X, CreditCard, Ban,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -15,6 +15,7 @@ import { NFInvoiceModal, type CurrentAccountEntry, type GenericNFItem } from '..
 import { matchesEligibleService, isHomologForTipo, isNFValida } from '../../lib/nfService';
 import NFViewerModal from '../../components/nf/NFViewerModal';
 import NFHistoryList, { statusVisual, motivoResumo } from '../../components/nf/NFHistoryList';
+import NFCancelModal from '../../components/nf/NFCancelModal';
 import { NFAvulsaModal } from '../../components/nf/NFAvulsaModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -234,6 +235,8 @@ export default function EmissaoNFPage() {
     internalChargeIds?: string[];
   } | null>(null);
   const [viewerInvoice, setViewerInvoice] = useState<{ id: string; tipo: NFTipo } | null>(null);
+  // Cancelamento de nota avulsa (a da reserva sai pelo próprio histórico do card)
+  const [cancelandoAvulsa, setCancelandoAvulsa] = useState<NFInvoice | null>(null);
   // NF avulsa (sem reserva)
   const [avulsaOpen, setAvulsaOpen] = useState(false);
   const [avulsas, setAvulsas] = useState<NFInvoice[]>([]);
@@ -1324,6 +1327,15 @@ export default function EmissaoNFPage() {
                         <Download className="w-4 h-4" /> DPS
                       </button>
                     )}
+                    {isNFValida(inv) && can('nf.cancel') && (
+                      <button
+                        onClick={() => setCancelandoAvulsa(inv)}
+                        title="Cancelar no fisco ou registrar um cancelamento já feito no portal"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <Ban className="w-4 h-4" /> Cancelar
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1358,6 +1370,7 @@ export default function EmissaoNFPage() {
               onReconsultar={handleReconsultar}
               reconsultandoId={reconsultando}
               onMarkAdequate={() => handleMarkAdequate(r.id)}
+              onRefresh={loadReservations}
             />
           ))}
         </div>
@@ -1457,6 +1470,14 @@ export default function EmissaoNFPage() {
           onSuccess={() => setViewerInvoice(null)}
         />
       )}
+      {cancelandoAvulsa && (
+        <NFCancelModal
+          invoice={cancelandoAvulsa}
+          onClose={() => setCancelandoAvulsa(null)}
+          onDone={() => loadAvulsas()}
+        />
+      )}
+
       {viewerInvoice && viewerInvoice.tipo !== 'nfce' && (
         <NFViewerModal
           isOpen
@@ -1486,6 +1507,8 @@ interface ReservationCardProps {
   onReconsultar: (invoiceId: string) => void;
   reconsultandoId: string | null;
   onMarkAdequate: () => void;
+  /** Recarrega a lista depois de cancelar uma nota (a reserva muda de aba) */
+  onRefresh: () => void;
 }
 
 // Download de arquivo gerado no cliente. Extensão e MIME vêm de fora porque o
@@ -1516,7 +1539,7 @@ function baixarArquivo(conteudo: string, nomeArquivo: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-function ReservationCard({ reservation: r, payments, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onReconsultar, reconsultandoId, onMarkAdequate }: ReservationCardProps) {
+function ReservationCard({ reservation: r, payments, activeTab, expanded, isSelected, onToggleExpand, onToggleSelect, canEmitNfse, canEmitNfce, onEmit, onViewNF, onReconsultar, reconsultandoId, onMarkAdequate, onRefresh }: ReservationCardProps) {
   const fmtDate = (d: string) => {
     try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
   };
@@ -1654,6 +1677,7 @@ function ReservationCard({ reservation: r, payments, activeTab, expanded, isSele
                 onView={(id, tipo) => onViewNF(id, tipo)}
                 onReconsultar={onReconsultar}
                 reconsultandoId={reconsultandoId}
+                onChanged={onRefresh}
               />
             </div>
           )}

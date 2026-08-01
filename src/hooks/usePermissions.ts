@@ -70,6 +70,7 @@ export const MODULES: Module[] = [
   { key: 'nf.emit.nfe',         label: 'Emitir NF-e (Produtos)',    description: 'Emitir NF-e modelo 55 de produtos',        group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
   { key: 'nf.emit.nfse',        label: 'Emitir NFS-e (Serviços)',   description: 'Emitir NFS-e de serviços (diárias, taxas)', group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
   { key: 'nf.emit.devolucao',   label: 'Emitir NF-e de Devolução',  description: 'Emitir NF-e de devolução (finNFe=4)',      group: 'Emissão de Notas Fiscais', icon: 'Receipt' },
+  { key: 'nf.cancel',           label: 'Cancelar Nota Fiscal',      description: 'Cancelar nota no fisco ou registrar cancelamento feito no portal', group: 'Emissão de Notas Fiscais', icon: 'Ban' },
 ];
 
 // Gera módulos dinâmicos de setor — chamado pelo RolesManagement com dados do banco

@@ -4,9 +4,11 @@
 // documento continua visível: quem confere o portal da prefeitura precisa
 // encontrar aqui o que foi emitido, quando, e por que deixou de valer.
 // Usado pela página de Emissão de NF e pelo extrato da reserva.
-import React from 'react';
-import { Eye, Download, RefreshCw, FileCheck2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Eye, Download, RefreshCw, FileCheck2, Ban } from 'lucide-react';
 import { isNFValida } from '../../lib/nfService';
+import { usePermissions } from '../../hooks/usePermissions';
+import NFCancelModal from './NFCancelModal';
 import type { NFInvoice, NFTipo } from '../../types/nf';
 
 interface NFHistoryListProps {
@@ -17,6 +19,8 @@ interface NFHistoryListProps {
   reconsultandoId?: string | null;
   /** Título do bloco; passe null para não renderizar cabeçalho */
   title?: string | null;
+  /** Recarregar a lista depois de cancelar (sem isso o botão some da tela) */
+  onChanged?: () => void;
 }
 
 const TIPO_LABEL: Record<string, string> = { nfse: 'NFS-e', nfce: 'NFC-e', nfe: 'NF-e' };
@@ -104,8 +108,11 @@ function baixarArquivo(conteudo: string, nomeArquivo: string, mime: string) {
 }
 
 export const NFHistoryList: React.FC<NFHistoryListProps> = ({
-  invoices, onView, onReconsultar, reconsultandoId, title = 'Histórico fiscal desta reserva',
+  invoices, onView, onReconsultar, reconsultandoId, title = 'Histórico fiscal desta reserva', onChanged,
 }) => {
+  const { can } = usePermissions();
+  const [cancelando, setCancelando] = useState<NFInvoice | null>(null);
+
   if (invoices.length === 0) return null;
 
   return (
@@ -196,10 +203,29 @@ export const NFHistoryList: React.FC<NFHistoryListProps> = ({
                   <Download className="w-3.5 h-3.5" /> DPS
                 </button>
               )}
+              {/* Só nota que ainda vale: cancelar o que já foi cancelado ou
+                  recusado não faz sentido, e a nota segue no histórico. */}
+              {isNFValida(inv) && can('nf.cancel') && (
+                <button
+                  onClick={() => setCancelando(inv)}
+                  title="Cancelar no fisco ou registrar um cancelamento já feito no portal"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg text-xs font-bold transition-colors"
+                >
+                  <Ban className="w-3.5 h-3.5" /> Cancelar
+                </button>
+              )}
             </div>
           </div>
         );
       })}
+
+      {cancelando && (
+        <NFCancelModal
+          invoice={cancelando}
+          onClose={() => setCancelando(null)}
+          onDone={() => onChanged?.()}
+        />
+      )}
     </div>
   );
 };
