@@ -260,6 +260,13 @@ GRANT EXECUTE ON FUNCTION public.rpc_ar_prepare_resend(uuid, boolean) TO authent
 -- ──────────────────────────────────────────────────────────────────────────────
 -- Sem isso a tela não distingue "enviada uma vez" de "enviada quatro vezes", e o
 -- operador reenvia para um parceiro que já recebeu três cobranças iguais.
+--
+-- ATENÇÃO À ORDEM DAS COLUNAS: CREATE OR REPLACE VIEW só aceita colunas NOVAS no
+-- FIM da lista. Inserir no meio o Postgres interpreta como renomear a coluna
+-- daquela posição e recusa com
+--   42P16: cannot change name of view column "dias_parado" to "envios_ok"
+-- Por isso envios_ok e ultimo_envio_em vão depois de dias_parado, mesmo que
+-- agrupar com as outras colunas de disparo ficasse mais legível.
 CREATE OR REPLACE VIEW public.v_ar_billing_queue
 WITH (security_invoker = true) AS
 SELECT
@@ -275,11 +282,12 @@ SELECT
   nf.pdf_url, nf.danfse_url, nf.created_at AS nf_created_at,
   d.id AS dispatch_id, d.status AS dispatch_status, d.to_email AS dispatch_to_email,
   d.from_email, d.attempts, d.error AS dispatch_error, d.sent_at, d.marked_manually,
+  (CURRENT_DATE - COALESCE(nf.created_at::date, t.created_at::date)) AS dias_parado,
+  -- Colunas NOVAS obrigatoriamente no fim (ver nota sobre 42P16 acima).
   (SELECT count(*) FROM ar_billing_dispatch_attempts a
     WHERE a.dispatch_id = d.id AND a.status = 'enviado')::int AS envios_ok,
   (SELECT max(a.created_at) FROM ar_billing_dispatch_attempts a
-    WHERE a.dispatch_id = d.id AND a.status = 'enviado') AS ultimo_envio_em,
-  (CURRENT_DATE - COALESCE(nf.created_at::date, t.created_at::date)) AS dias_parado
+    WHERE a.dispatch_id = d.id AND a.status = 'enviado') AS ultimo_envio_em
 FROM ar_titles t
 LEFT JOIN suppliers s               ON s.id = t.supplier_id
 LEFT JOIN channel_receiving_rules r ON r.id = t.channel_rule_id

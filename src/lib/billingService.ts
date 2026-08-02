@@ -58,11 +58,15 @@ export interface BillingQueueRow {
   sent_at: string | null;
   marked_manually: boolean | null;
 
-  /** Quantas vezes a cobrança já saiu de fato. Reenvio incrementa. */
+  dias_parado: number | null;
+
+  /**
+   * Quantas vezes a cobrança já saiu de fato. Reenvio incrementa.
+   * Ficam no fim porque a view só aceita coluna nova no fim (ver a nota sobre
+   * 42P16 em 20260802220000_ar_billing_resend.sql).
+   */
   envios_ok: number | null;
   ultimo_envio_em: string | null;
-
-  dias_parado: number | null;
 }
 
 export interface BillingQueueFilters {
