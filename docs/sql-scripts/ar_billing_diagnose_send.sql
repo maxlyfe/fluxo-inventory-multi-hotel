@@ -27,15 +27,17 @@ cfg AS (
   SELECT c.* FROM hotel_email_config c, alvo WHERE c.hotel_id = alvo.hotel_id
 ),
 
+-- Toda coluna qualificada com "a.": ar_billing_dispatches (dentro de `alvo`)
+-- também tem provider, status e error, e o cross join deixaria os nomes ambíguos.
 tentativas AS (
   SELECT count(*)::int AS n,
-         max(attempt_no) AS ultima,
-         (array_agg(provider ORDER BY attempt_no DESC))[1] AS ultimo_provider,
-         (array_agg(status   ORDER BY attempt_no DESC))[1] AS ultimo_status,
-         (array_agg(error    ORDER BY attempt_no DESC))[1] AS ultimo_erro,
-         (array_agg(provider_message_id ORDER BY attempt_no DESC))[1] AS ultimo_message_id
-    FROM ar_billing_dispatch_attempts a, alvo
-   WHERE a.dispatch_id = alvo.id
+         max(a.attempt_no) AS ultima,
+         (array_agg(a.provider           ORDER BY a.attempt_no DESC))[1] AS ultimo_provider,
+         (array_agg(a.status             ORDER BY a.attempt_no DESC))[1] AS ultimo_status,
+         (array_agg(a.error              ORDER BY a.attempt_no DESC))[1] AS ultimo_erro,
+         (array_agg(a.provider_message_id ORDER BY a.attempt_no DESC))[1] AS ultimo_message_id
+    FROM ar_billing_dispatch_attempts a
+    JOIN alvo ON alvo.id = a.dispatch_id
 )
 
 SELECT ord, verificacao, status, detalhe FROM (
