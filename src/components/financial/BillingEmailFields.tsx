@@ -17,14 +17,41 @@ import {
 import { EmailChipsInput, isValidEmail } from './shared';
 import type { BillingDispatchMode } from '../../lib/arService';
 
-/** Variáveis aceitas no assunto e no corpo. Espelha a lista da RPC. */
+/**
+ * Variáveis aceitas no assunto e no corpo. Espelha o v_vars de
+ * rpc_ar_prepare_billing_for_nf (migration 20260802200000). Ao mexer aqui,
+ * mexa lá também: variável que não existe na RPC sai literal no e-mail.
+ */
 export const BILLING_VARS = [
   'parceiro', 'razao_social', 'cnpj', 'numero_nf', 'chave_nf', 'link_nf',
-  'valor', 'reserva', 'hospede', 'checkin', 'checkout', 'vencimento',
+  'valor_bruto', 'valor_taxa', 'valor_liquido', 'taxa_percent', 'valor',
+  'reserva', 'hospede', 'checkin', 'checkout', 'vencimento',
   'hotel', 'dias_prazo',
 ] as const;
 
 export type BillingVar = typeof BILLING_VARS[number];
+
+/** O que cada tag significa, no title do botão. */
+export const BILLING_VAR_HINTS: Record<string, string> = {
+  parceiro: 'Nome fantasia do parceiro (ou razão social)',
+  razao_social: 'Razão social do parceiro',
+  cnpj: 'CNPJ do parceiro, só dígitos',
+  numero_nf: 'Número da nota fiscal',
+  chave_nf: 'Chave de acesso da nota',
+  link_nf: 'Link do DANFSE ou PDF da nota',
+  valor_bruto: 'Valor da nota fiscal',
+  valor_taxa: 'Comissão retida, conforme a taxa da regra',
+  valor_liquido: 'Valor bruto menos a comissão: o que o hotel espera receber',
+  taxa_percent: 'A taxa da regra, em porcentagem (ex.: 15)',
+  valor: 'Apelido de valor_bruto, mantido para templates antigos',
+  reserva: 'Número da reserva',
+  hospede: 'Nome do tomador da nota',
+  checkin: 'Data de check-in',
+  checkout: 'Data de check-out',
+  vencimento: 'Data prevista de recebimento',
+  hotel: 'Nome da unidade',
+  dias_prazo: 'Dias de prazo da regra',
+};
 
 export const DEFAULT_SUBJECT = 'Cobrança NF {{numero_nf}} - {{hotel}}';
 export const DEFAULT_BODY = [
@@ -55,11 +82,20 @@ export function unknownVars(...templates: string[]): string[] {
   return Array.from(found);
 }
 
-const PREVIEW_VARS: Record<string, string> = {
+/**
+ * Valores de exemplo da pré-visualização.
+ *
+ * Os três valores fecham a conta de propósito (2.400,00 - 360,00 = 2.040,00 a
+ * 15%): pré-visualização com números que não somam faz o operador publicar um
+ * template errado sem perceber.
+ */
+export const PREVIEW_VARS: Record<string, string> = {
   parceiro: 'ACME TURISMO LTDA', razao_social: 'ACME TURISMO LTDA',
   cnpj: '12.345.678/0001-00', numero_nf: '1234',
   chave_nf: '3326 0812 3456 7800 0100 5500 1000 0012 3410 0000 0017',
-  link_nf: 'https://.../danfse/1234.pdf', valor: '2.400,00',
+  link_nf: 'https://.../danfse/1234.pdf',
+  valor_bruto: '2.400,00', valor_taxa: '360,00', valor_liquido: '2.040,00',
+  taxa_percent: '15', valor: '2.400,00',
   reserva: '88123', hospede: 'João da Silva',
   checkin: '10/07/2026', checkout: '12/07/2026', vencimento: '11/08/2026',
   hotel: 'Costa do Sol Boutique Hotel', dias_prazo: '30',
@@ -182,7 +218,12 @@ export default function BillingEmailFields({
             <div className="flex flex-wrap gap-1 mt-2">
               {BILLING_VARS.map(v => (
                 <button key={v} type="button" onClick={() => insertVar(v)} disabled={disabled}
-                  className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 disabled:opacity-50">
+                  title={BILLING_VAR_HINTS[v] ?? v}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono disabled:opacity-50 ${
+                    v.startsWith('valor') || v === 'taxa_percent'
+                      ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                      : 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+                  }`}>
                   {`{{${v}}}`}
                 </button>
               ))}

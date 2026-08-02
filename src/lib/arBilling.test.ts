@@ -14,6 +14,10 @@ vi.mock('./supabase', () => ({ supabase: {} }));
 import { parseCardInfo } from './arService';
 import { parseBookingRefsInput, previewExpectedDates, partnerName } from './billingService';
 import type { BillingQueueRow } from './billingService';
+import {
+  BILLING_VARS, BILLING_VAR_HINTS, PREVIEW_VARS, DEFAULT_SUBJECT, DEFAULT_BODY,
+  renderBillingTemplate, unknownVars,
+} from '../components/financial/BillingEmailFields';
 
 describe('parseCardInfo', () => {
   it('reconhece bandeira e modalidade em rótulo da Erbon', () => {
@@ -120,5 +124,59 @@ describe('partnerName', () => {
     expect(partnerName({ nome_fantasia: 'ACME', razao_social: 'ACME LTDA' } as BillingQueueRow)).toBe('ACME');
     expect(partnerName({ nome_fantasia: null, razao_social: 'ACME LTDA' } as BillingQueueRow)).toBe('ACME LTDA');
     expect(partnerName({ nome_fantasia: null, razao_social: null } as BillingQueueRow)).toBe('Sem parceiro');
+  });
+});
+
+// ─── Template de cobrança ─────────────────────────────────────────────────────
+// A lista de variáveis existe em DOIS lugares: BILLING_VARS aqui e o v_vars de
+// rpc_ar_prepare_billing_for_nf no Postgres. Não há como o teste alcançar o
+// banco, então ele tranca o que dá: que a lista da tela esteja internamente
+// coerente. Variável sem valor de exemplo renderiza VAZIO na pré-visualização, e
+// o operador publica um template achando que a tag não existe.
+
+describe('variáveis do template de cobrança', () => {
+  it('toda variável tem valor de exemplo na pré-visualização', () => {
+    const semExemplo = BILLING_VARS.filter(v => !(v in PREVIEW_VARS));
+    expect(semExemplo).toEqual([]);
+  });
+
+  it('toda variável tem explicação no botão', () => {
+    const semDica = BILLING_VARS.filter(v => !BILLING_VAR_HINTS[v]);
+    expect(semDica).toEqual([]);
+  });
+
+  it('os templates padrão não usam variável desconhecida', () => {
+    expect(unknownVars(DEFAULT_SUBJECT, DEFAULT_BODY)).toEqual([]);
+  });
+
+  it('os três valores da pré-visualização fecham a conta bruto - taxa = liquido', () => {
+    const n = (s: string) => Number(s.replace(/\./g, '').replace(',', '.'));
+    expect(n(PREVIEW_VARS.valor_bruto) - n(PREVIEW_VARS.valor_taxa))
+      .toBeCloseTo(n(PREVIEW_VARS.valor_liquido), 2);
+  });
+
+  it('a taxa da pré-visualização corresponde ao percentual mostrado', () => {
+    const n = (s: string) => Number(s.replace(/\./g, '').replace(',', '.'));
+    const esperado = n(PREVIEW_VARS.valor_bruto) * n(PREVIEW_VARS.taxa_percent) / 100;
+    expect(n(PREVIEW_VARS.valor_taxa)).toBeCloseTo(esperado, 2);
+  });
+
+  it('valor continua como apelido de valor_bruto, para template já salvo', () => {
+    expect(PREVIEW_VARS.valor).toBe(PREVIEW_VARS.valor_bruto);
+  });
+
+  it('substitui as tags de valor no corpo', () => {
+    const corpo = 'Bruto {{valor_bruto}}, taxa {{valor_taxa}} ({{taxa_percent}}%), líquido {{valor_liquido}}.';
+    expect(renderBillingTemplate(corpo, PREVIEW_VARS))
+      .toBe('Bruto 2.400,00, taxa 360,00 (15%), líquido 2.040,00.');
+  });
+
+  it('tag repetida é substituída em todas as ocorrências', () => {
+    expect(renderBillingTemplate('{{valor_bruto}} e {{valor_bruto}}', PREVIEW_VARS))
+      .toBe('2.400,00 e 2.400,00');
+  });
+
+  it('acusa variável inventada, que sairia literal no e-mail', () => {
+    expect(unknownVars('Total: {{valor_total_geral}}')).toEqual(['valor_total_geral']);
   });
 });
