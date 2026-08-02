@@ -11,7 +11,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Send, Loader2, RefreshCw, Search, Settings2, CheckCircle2, Clock,
-  AlertTriangle, XCircle, Hand, FileText, Inbox, ArrowUpCircle,
+  AlertTriangle, XCircle, Hand, FileText, Inbox, ArrowUpCircle, History,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useHotel } from '../../context/HotelContext';
@@ -27,6 +27,7 @@ import {
   SummaryCard, ErrorBanner, InfoBanner, EmptyState, SelectionBar, BulkPasteBox,
 } from '../../components/financial/shared';
 import BulkMarkBilledModal from '../../components/financial/BulkMarkBilledModal';
+import BackfillNfModal from '../../components/financial/BackfillNfModal';
 
 type Tab = 'a_disparar' | 'falhas' | 'historico';
 
@@ -97,6 +98,7 @@ export default function CobrancasPage() {
   const [pasteResult, setPasteResult] = useState<RefLookup | null>(null);
   const [locating, setLocating] = useState(false);
   const [bulkModal, setBulkModal] = useState(false);
+  const [backfillModal, setBackfillModal] = useState(false);
   const [sending, setSending] = useState(false);
 
   /** Envia agora as cobranças selecionadas, com resultado item a item. */
@@ -237,6 +239,13 @@ export default function CobrancasPage() {
             className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
             <Settings2 className="w-4 h-4" /> Regras
           </Link>
+          {canMark && (
+            <button onClick={() => setBackfillModal(true)}
+              title="Trazer para a fila notas emitidas antes de o parceiro ser cadastrado"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+              <History className="w-4 h-4" /> Buscar NFs emitidas
+            </button>
+          )}
           <button onClick={load} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -396,10 +405,26 @@ export default function CobrancasPage() {
                   <EmptyState colSpan={11} icon={<Inbox className="w-8 h-8" />}
                     title="Nenhuma cobrança registrada no período." />
                 ) : (
+                  // A fila vazia tem duas causas MUITO diferentes: não há nada a
+                  // cobrar, ou a nota foi emitida antes de o parceiro existir e
+                  // por isso nunca entrou aqui. Oferecer as duas saídas evita a
+                  // conclusão de que o módulo está quebrado.
                   <EmptyState colSpan={11} icon={<CheckCircle2 className="w-8 h-8" />}
-                    title="Nenhuma cobrança pendente. Tudo em dia."
-                    description="As cobranças aparecem aqui quando uma NF é emitida para um CNPJ que tem regra de canal com evento Faturamento."
-                    action={<Link to="/finances/regras-recebimento" className="text-sm text-blue-600 hover:underline">Criar regra de faturamento</Link>} />
+                    title="Nenhuma cobrança pendente no período."
+                    description="A cobrança entra na fila no momento em que a NF é autorizada para um CNPJ com regra de evento Faturamento. Se você cadastrou o parceiro depois de emitir a nota, ela não passou por essa etapa: use Buscar NFs emitidas."
+                    action={
+                      <div className="flex flex-wrap items-center justify-center gap-3">
+                        {canMark && (
+                          <button onClick={() => setBackfillModal(true)}
+                            className="text-sm text-rose-600 hover:underline font-medium">
+                            Buscar NFs emitidas
+                          </button>
+                        )}
+                        <Link to="/finances/regras-recebimento" className="text-sm text-blue-600 hover:underline">
+                          Criar regra de faturamento
+                        </Link>
+                      </div>
+                    } />
                 )
               ) : filtered.map(r => (
                 <React.Fragment key={r.ar_title_id}>
@@ -473,6 +498,33 @@ export default function CobrancasPage() {
           rows={selectedRows}
           onClose={() => setBulkModal(false)}
           onDone={() => { setSelected(new Set()); setPasteResult(null); load(); }}
+        />
+      )}
+
+      {backfillModal && (
+        <BackfillNfModal
+          hotelId={selectedHotel.id}
+          onClose={() => setBackfillModal(false)}
+          onDone={res => {
+            // O período da tela filtra pela data de EMISSÃO da nota. Uma nota
+            // reprocessada costuma ser mais antiga que o período atual, então
+            // entraria na fila sem aparecer na lista — e o operador concluiria
+            // que a busca não funcionou. Amplia o período para cobri-la.
+            const wider = {
+              from: res.from < period.from ? res.from : period.from,
+              to:   res.to   > period.to   ? res.to   : period.to,
+            };
+            const changed = wider.from !== period.from || wider.to !== period.to;
+            setTab('a_disparar');
+            setSelected(new Set());
+            setInfo(
+              `${res.prepared} cobrança(s) trazidas para a fila.` +
+              (changed ? ' O período da tela foi ampliado para mostrá-las.' : '')
+            );
+            // Só um dos dois: setPeriod já dispara o recarregamento pelo efeito, e
+            // chamar load() junto criaria duas buscas concorrentes.
+            if (changed) setPeriod(wider); else load();
+          }}
         />
       )}
     </div>

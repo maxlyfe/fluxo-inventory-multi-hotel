@@ -97,6 +97,46 @@ export interface RefLookup {
   notFound: string[];
 }
 
+/** Resultado do reprocessamento de NFs já emitidas. */
+export interface BackfillResult {
+  scanned: number;
+  prepared: number;
+  already: number;
+  skipped: number;
+  /** motivo → quantidade */
+  reasons: Record<string, number>;
+  details: {
+    nf_invoice_id: string;
+    numero_nf: string | null;
+    booking_ref: string | null;
+    tomador: string | null;
+    valor: number | null;
+    emitida_em: string;
+    reason: string;
+  }[];
+  details_truncated: boolean;
+  from: string;
+  to: string;
+}
+
+/**
+ * Texto do motivo em português, com a ação correspondente.
+ * O motivo cru ('sem_regra_faturamento') não diz ao operador o que fazer.
+ */
+export const BACKFILL_REASON_LABELS: Record<string, string> = {
+  sem_regra_faturamento:
+    'O CNPJ do tomador não tem regra de faturamento cadastrada. Crie a regra em Regras de Recebimento e rode de novo.',
+  tomador_nao_e_cnpj:
+    'Tomador é pessoa física. Nota de hóspede não vira cobrança de parceiro.',
+  nf_sem_status_valido:
+    'A nota não está autorizada, emitida nem em contingência.',
+  nf_nao_encontrada:
+    'A nota não foi encontrada. Pode ter sido excluída.',
+  titulo_nao_resolvido:
+    'Não foi possível criar nem localizar o recebível desta nota. Verifique se o título da reserva está cancelado.',
+  desconhecido: 'Motivo não identificado.',
+};
+
 export interface DispatchAttempt {
   id: string;
   dispatch_id: string;
@@ -267,6 +307,38 @@ export const billingService = {
     return data as {
       ok: boolean; reason?: string; ar_title_id?: string;
       dispatch_mode?: BillingDispatchMode; to_email?: string | null; has_email?: boolean;
+    };
+  },
+
+  /**
+   * Reprocessa NFs JÁ EMITIDAS no período e traz para a fila as que casam com
+   * regra de parceiro faturado.
+   *
+   * É o caminho para o caso mais comum na adoção: a nota saiu antes de alguém
+   * cadastrar o parceiro, então o engate da emissão devolveu
+   * 'sem_regra_faturamento' e nada apareceu na fila.
+   *
+   * Seguro repetir: a RPC de preparação preserva cobrança já enviada ou marcada
+   * à mão.
+   */
+  async backfillFromEmittedNfs(hotelId: string, from: string, to: string): Promise<BackfillResult> {
+    const { data, error } = await supabase.rpc('rpc_ar_backfill_billing_for_period', {
+      p_hotel_id: hotelId,
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw error;
+    const d = (data ?? {}) as any;
+    return {
+      scanned: Number(d.scanned ?? 0),
+      prepared: Number(d.prepared ?? 0),
+      already: Number(d.already ?? 0),
+      skipped: Number(d.skipped ?? 0),
+      reasons: (d.reasons ?? {}) as Record<string, number>,
+      details: (d.details ?? []) as BackfillResult['details'],
+      details_truncated: Boolean(d.details_truncated),
+      from: String(d.from ?? from),
+      to: String(d.to ?? to),
     };
   },
 
