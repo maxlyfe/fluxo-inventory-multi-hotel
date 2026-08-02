@@ -11,7 +11,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Send, Loader2, RefreshCw, Search, Settings2, CheckCircle2, Clock,
-  AlertTriangle, XCircle, Hand, FileText, Inbox, ArrowUpCircle, History,
+  AlertTriangle, XCircle, Hand, FileText, Inbox, ArrowUpCircle, History, RotateCcw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useHotel } from '../../context/HotelContext';
@@ -100,6 +100,8 @@ export default function CobrancasPage() {
   const [bulkModal, setBulkModal] = useState(false);
   const [backfillModal, setBackfillModal] = useState(false);
   const [sending, setSending] = useState(false);
+  /** dispatch_id em reenvio, para o spinner ficar só na linha clicada. */
+  const [resending, setResending] = useState<string | null>(null);
 
   /** Envia agora as cobranças selecionadas, com resultado item a item. */
   const handleSendNow = async () => {
@@ -156,6 +158,48 @@ export default function CobrancasPage() {
       setError(err?.message ?? 'Erro ao enviar as cobranças');
     } finally {
       setSending(false);
+    }
+  };
+
+  /**
+   * Reenvia uma cobrança já enviada, com o texto regerado pelo modelo atual.
+   *
+   * A confirmação diz as duas coisas que o operador precisa saber antes de
+   * clicar: que o parceiro vai receber outra mensagem, e que a previsão de
+   * recebimento NÃO muda (senão ele reenviaria esperando reiniciar o prazo).
+   */
+  const handleResend = async (row: BillingQueueRow) => {
+    if (!selectedHotel?.id || !row.dispatch_id) return;
+
+    const jaEnviou = row.envios_ok ?? 0;
+    if (!window.confirm(
+      `Reenviar a cobrança da reserva ${row.booking_ref ?? '—'} para `
+      + `${row.dispatch_to_email ?? 'o parceiro'}?\n\n`
+      + 'O texto será regerado com o modelo de e-mail atual da regra.\n'
+      + 'A previsão de recebimento NÃO muda: para alterar o prazo, marque a '
+      + 'cobrança manualmente com a data nova.'
+      + (jaEnviou > 1 ? `\n\nAtenção: esta cobrança já foi enviada ${jaEnviou} vezes.` : '')
+    )) return;
+
+    setResending(row.dispatch_id); setError(''); setInfo('');
+    try {
+      const res = await billingService.resend(selectedHotel.id, row.dispatch_id, true);
+      if (res.sent.length) {
+        const aviso = res.sent.find(s => s.warning)?.warning;
+        if (aviso) setError(`Reenviada, mas ${aviso}.`);
+        else setInfo(`Cobrança reenviada para ${row.dispatch_to_email ?? 'o parceiro'}.`);
+      } else if (res.failed.length) {
+        setError(`Falha no reenvio: ${res.failed[0].error}`);
+      } else if (res.skipped.length) {
+        setError(`Não reenviada. ${skipReasonLabel(res.skipped[0].reason)}`);
+      } else {
+        setError(res.message ?? 'O reenvio não foi processado e o servidor não informou o motivo.');
+      }
+      load();
+    } catch (err: any) {
+      setError(err?.message ?? 'Erro ao reenviar a cobrança');
+    } finally {
+      setResending(null);
     }
   };
 
@@ -430,7 +474,8 @@ export default function CobrancasPage() {
                     title="Nenhuma falha de envio." />
                 ) : tab === 'historico' ? (
                   <EmptyState colSpan={11} icon={<Inbox className="w-8 h-8" />}
-                    title="Nenhuma cobrança registrada no período." />
+                    title="Nenhuma cobrança registrada no período."
+                    description="Aqui ficam as cobranças já enviadas ou marcadas como efetuadas. Cada uma pode ser reenviada, com o texto regerado pelo modelo atual da regra." />
                 ) : (
                   // A fila vazia tem duas causas MUITO diferentes: não há nada a
                   // cobrar, ou a nota foi emitida antes de o parceiro existir e
@@ -500,7 +545,32 @@ export default function CobrancasPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-center"><DispatchBadge row={r} /></td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <DispatchBadge row={r} />
+                        {/* Reenvio: só faz sentido para o que já saiu, e no
+                            histórico é onde o operador vai procurar. */}
+                        {canSend && tab === 'historico' && r.dispatch_id
+                          && r.dispatch_status === 'enviado' && (
+                          <button onClick={() => handleResend(r)} disabled={resending === r.dispatch_id}
+                            title={
+                              'Reenviar usando o modelo de e-mail atual da regra. '
+                              + 'A previsão de recebimento não muda.'
+                              + ((r.envios_ok ?? 0) > 1 ? ` Já foi enviada ${r.envios_ok} vezes.` : '')
+                            }
+                            className="p-1 text-gray-400 hover:text-rose-600 disabled:opacity-50">
+                            {resending === r.dispatch_id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <RotateCcw className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                      </div>
+                      {tab === 'historico' && (r.envios_ok ?? 0) > 1 && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                          {r.envios_ok}× enviada
+                        </p>
+                      )}
+                    </td>
                   </tr>
                   {r.dispatch_status === 'falha' && r.dispatch_error && (
                     <tr className="bg-red-50/50 dark:bg-red-900/10">

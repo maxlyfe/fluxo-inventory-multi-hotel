@@ -58,6 +58,10 @@ export interface BillingQueueRow {
   sent_at: string | null;
   marked_manually: boolean | null;
 
+  /** Quantas vezes a cobrança já saiu de fato. Reenvio incrementa. */
+  envios_ok: number | null;
+  ultimo_envio_em: string | null;
+
   dias_parado: number | null;
 }
 
@@ -170,6 +174,10 @@ export interface DispatchAttempt {
   error: string | null;
   http_status: number | null;
   created_at: string;
+  /** O que saiu NESTA tentativa. O reenvio regera o texto do disparo. */
+  subject: string | null;
+  body: string | null;
+  to_email: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -416,6 +424,70 @@ export const billingService = {
     }
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) throw new Error(json?.error ?? `Falha no envio (${res.status})`);
+    return {
+      sent: json.sent ?? [],
+      failed: json.failed ?? [],
+      skipped: json.skipped ?? [],
+      message: json.message ?? undefined,
+    };
+  },
+
+  /**
+   * Reenvia uma cobrança JÁ ENVIADA.
+   *
+   * Duas coisas importam aqui, e as duas são deliberadas:
+   *
+   * 1. O texto é regerado pelo modelo ATUAL da regra (`refreshText`), e o destino
+   *    reavaliado. Reenviar preso ao texto antigo não resolveria o caso mais
+   *    comum: o template foi corrigido, ou o e-mail do parceiro mudou.
+   * 2. O prazo de recebimento NÃO é reiniciado. `rpc_ar_mark_billing_sent`
+   *    devolve 'ja_cobrado' para título consolidado, então o reenvio passa por lá
+   *    sem efeito. Para mudar a data de propósito, use a marcação manual com a
+   *    data nova — explícita e registrada.
+   */
+  async resend(hotelId: string, dispatchId: string, refreshText = true): Promise<{
+    sent: { dispatch_id: string; ar_title_id: string; warning?: string }[];
+    failed: { dispatch_id: string; ar_title_id: string; error: string }[];
+    skipped: { dispatch_id: string; ar_title_id: string; reason: string }[];
+    message?: string;
+  }> {
+    const { data, error } = await supabase.rpc('rpc_ar_prepare_resend', {
+      p_dispatch_id: dispatchId,
+      p_refresh_text: refreshText,
+    });
+    if (error) throw error;
+
+    const prep = (data ?? {}) as { ok?: boolean; reason?: string };
+    if (!prep.ok) {
+      throw new Error(
+        prep.reason === 'sem_email'
+          ? 'A cobrança não tem e-mail de destino. Preencha o e-mail de cobrança na regra do parceiro.'
+          : prep.reason === 'regra_do_parceiro_removida'
+            ? 'A regra do parceiro foi removida, então não há modelo para regerar o texto. Recrie a regra antes de reenviar.'
+            : prep.reason === 'disparo_nao_encontrado'
+              ? 'Cobrança não encontrada. Recarregue a fila.'
+              : `Não foi possível preparar o reenvio (${prep.reason ?? 'motivo desconhecido'}).`
+      );
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('Sessão expirada. Entre novamente.');
+
+    const res = await fetch('/.netlify/functions/ar-billing-send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ hotel_id: hotelId, dispatch_ids: [dispatchId] }),
+    });
+
+    if (res.status === 404) {
+      throw new Error(
+        'A função de envio não está disponível neste ambiente. '
+        + 'Rode com "npm run dev:netlify" ou publique na Netlify.'
+      );
+    }
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) throw new Error(json?.error ?? `Falha no reenvio (${res.status})`);
     return {
       sent: json.sent ?? [],
       failed: json.failed ?? [],

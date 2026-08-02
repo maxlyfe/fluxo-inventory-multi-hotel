@@ -178,7 +178,10 @@ export async function processDispatches(
       transport,
     );
 
-    await svc.from('ar_billing_dispatch_attempts').insert({
+    // Assunto, corpo e destino são gravados NA TENTATIVA, não só no disparo: o
+    // reenvio regera o texto pelo modelo atual, e sem isto não haveria como
+    // provar meses depois o que o parceiro recebeu em cada envio.
+    const { error: attemptError } = await svc.from('ar_billing_dispatch_attempts').insert({
       hotel_id: d.hotel_id,
       dispatch_id: d.id,
       attempt_no: attempt,
@@ -186,7 +189,18 @@ export async function processDispatches(
       provider: result.provider,
       provider_message_id: result.messageId ?? null,
       error: result.error ?? null,
+      subject: d.subject ?? null,
+      body: d.body ?? null,
+      to_email: d.to_email ?? null,
     });
+    // O erro é checado porque esta linha É a auditoria: se ela não gravar, não há
+    // como provar depois o que foi enviado. UNIQUE (dispatch_id, attempt_no)
+    // significa que uma colisão aqui indica contador de tentativas fora de ordem.
+    if (attemptError) {
+      console.error(
+        `[AR Billing] ${d.id}: falha ao registrar a tentativa ${attempt}: ${attemptError.message}`
+      );
+    }
 
     if (result.ok) {
       await svc.from('ar_billing_dispatches').update({
