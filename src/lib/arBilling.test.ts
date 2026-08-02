@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('./supabase', () => ({ supabase: {} }));
 
 import { parseCardInfo } from './arService';
-import { parseBookingRefsInput, previewExpectedDates, partnerName } from './billingService';
+import { parseBookingRefsInput, previewExpectedDates, partnerName, skipReasonLabel } from './billingService';
 import type { BillingQueueRow } from './billingService';
 import {
   BILLING_VARS, BILLING_VAR_HINTS, PREVIEW_VARS, DEFAULT_SUBJECT, DEFAULT_BODY,
@@ -178,5 +178,35 @@ describe('variáveis do template de cobrança', () => {
 
   it('acusa variável inventada, que sairia literal no e-mail', () => {
     expect(unknownVars('Total: {{valor_total_geral}}')).toEqual(['valor_total_geral']);
+  });
+});
+
+// ─── Motivos de cobrança não enviada ─────────────────────────────────────────
+// Todo motivo que netlify/functions/lib/ar-billing.ts empurra para `skipped`
+// precisa de tradução, senão a tela mostra o identificador cru ao operador e ele
+// não sabe o que fazer. A lista abaixo espelha os `outcome.skipped.push` de lá.
+
+describe('skipReasonLabel', () => {
+  const MOTIVOS_EMITIDOS = [
+    'modo_teste_email_provider_log',
+    'sem_email',
+    'sem_remetente_configurado',
+    'ja_enviado',
+    'ja_manual',
+    'ja_cancelado',
+  ];
+
+  it('traduz todos os motivos que a function emite', () => {
+    const semTraducao = MOTIVOS_EMITIDOS.filter(m => skipReasonLabel(m) === m);
+    expect(semTraducao).toEqual([]);
+  });
+
+  it('a tradução diz o que fazer, não só o que houve', () => {
+    expect(skipReasonLabel('sem_remetente_configurado')).toMatch(/Remetente de E-mail/);
+    expect(skipReasonLabel('modo_teste_email_provider_log')).toMatch(/smtp/);
+  });
+
+  it('motivo desconhecido volta como veio, em vez de sumir', () => {
+    expect(skipReasonLabel('motivo_novo_qualquer')).toBe('motivo_novo_qualquer');
   });
 });

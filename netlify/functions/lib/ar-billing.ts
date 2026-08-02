@@ -4,7 +4,10 @@
 // consolidação da data existir em UM lugar só.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { sendEmail, resolveAttachment, type EmailTransportConfig, type EmailAttachment } from './email';
+import {
+  sendEmail, resolveAttachment, isDryRunProvider,
+  type EmailTransportConfig, type EmailAttachment,
+} from './email';
 import { decryptSecret } from './crypto';
 
 export interface SendOutcome {
@@ -117,6 +120,22 @@ export async function processDispatches(
         error: 'Sem e-mail de destino cadastrado', next_retry_at: null, updated_at: new Date().toISOString(),
       }).eq('id', d.id);
       outcome.skipped.push({ dispatch_id: d.id, ar_title_id: d.ar_title_id, reason: 'sem_email' });
+      continue;
+    }
+
+    // Modo de teste: sai ANTES de contar tentativa e antes de qualquer escrita
+    // que pareça sucesso. Nunca marca como enviado nem consolida o prazo — o
+    // corpo renderizado já está gravado no próprio disparo para conferência.
+    if (isDryRunProvider()) {
+      await svc.from('ar_billing_dispatches').update({
+        error: 'EMAIL_PROVIDER=log: modo de teste, nenhum e-mail foi enviado. '
+             + 'Troque para smtp na Netlify para enviar de verdade.',
+        next_retry_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', d.id);
+      outcome.skipped.push({
+        dispatch_id: d.id, ar_title_id: d.ar_title_id, reason: 'modo_teste_email_provider_log',
+      });
       continue;
     }
 

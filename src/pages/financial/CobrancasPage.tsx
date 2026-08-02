@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom';
 import { useHotel } from '../../context/HotelContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
-  billingService, parseBookingRefsInput, partnerName,
+  billingService, parseBookingRefsInput, partnerName, skipReasonLabel,
   type BillingQueueRow, type RefLookup,
 } from '../../lib/billingService';
 import type { ArBillingStatus } from '../../lib/arService';
@@ -115,14 +115,31 @@ export default function CobrancasPage() {
         selectedHotel.id,
         selectedRows.map(r => r.ar_title_id),
       );
-      const partes = [`${res.sent.length} enviada(s)`];
-      if (res.failed.length) partes.push(`${res.failed.length} falhou(ram)`);
-      if (res.skipped.length) {
-        const motivos = Array.from(new Set(res.skipped.map(s => s.reason))).join(', ');
-        partes.push(`${res.skipped.length} ignorada(s): ${motivos}`);
+
+      // Só é sucesso se ALGO saiu. Antes, com as três listas vazias, a tela
+      // mostrava "0 enviada(s)" em verde — indistinguível de ter enviado, que é
+      // o pior resultado possível numa tela de cobrança.
+      const partes: string[] = [];
+      if (res.sent.length) partes.push(`${res.sent.length} enviada(s)`);
+      if (res.failed.length) {
+        const erros = Array.from(new Set(res.failed.map(f => f.error))).slice(0, 2).join(' · ');
+        partes.push(`${res.failed.length} falhou(ram): ${erros}`);
       }
+      if (res.skipped.length) {
+        const motivos = Array.from(new Set(res.skipped.map(s => skipReasonLabel(s.reason)))).join(' · ');
+        partes.push(`${res.skipped.length} não saiu(ram). ${motivos}`);
+      }
+      if (!partes.length) {
+        partes.push(
+          res.message
+          ?? 'Nada foi enviado e o servidor não informou o motivo. Recarregue a fila e confira o status da cobrança.'
+        );
+      }
+
       const msg = partes.join(' · ');
-      if (res.failed.length || res.skipped.length) setError(msg); else setInfo(msg);
+      if (res.sent.length && !res.failed.length && !res.skipped.length) setInfo(msg);
+      else setError(msg);
+
       setSelected(new Set());
       load();
     } catch (err: any) {

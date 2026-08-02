@@ -46,6 +46,19 @@ export interface EmailResult {
   authFailure?: boolean;
 }
 
+/**
+ * O provedor está em modo de teste (não envia nada)?
+ *
+ * Existe para quem chama poder tratar o modo 'log' ANTES de considerar a cobrança
+ * efetuada. Sem esta checagem, 'log' devolvia ok:true, o disparo era marcado como
+ * enviado e o prazo de recebimento era consolidado — nenhum e-mail saía e a tela
+ * dizia "enviada". Numa unidade em produção isso é dado financeiro errado com
+ * cara de sucesso.
+ */
+export function isDryRunProvider(): boolean {
+  return (process.env.EMAIL_PROVIDER || 'smtp') === 'log';
+}
+
 const MAX_ATTACHMENT_BYTES = 7 * 1024 * 1024;
 const ATTACHMENT_TIMEOUT_MS = 8000;
 
@@ -99,7 +112,15 @@ export async function sendEmail(msg: EmailMessage, transport: EmailTransportConf
       bodyPreview: msg.text.slice(0, 300),
       attachments: (msg.attachments ?? []).map(a => a.filename),
     });
-    return { ok: true, provider: 'log', messageId: 'log-only' };
+    // ok:false de propósito. Devolver ok:true fazia o chamador marcar a cobrança
+    // como enviada e consolidar o prazo de recebimento sem nenhum e-mail ter
+    // saído. Quem chama deve usar isDryRunProvider() e nem chegar aqui; se
+    // chegou, o resultado tem que ser inequívoco.
+    return {
+      ok: false,
+      provider: 'log',
+      error: 'EMAIL_PROVIDER=log: modo de teste, nenhum e-mail foi enviado',
+    };
   }
 
   try {

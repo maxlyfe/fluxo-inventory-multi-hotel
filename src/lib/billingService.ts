@@ -137,6 +137,29 @@ export const BACKFILL_REASON_LABELS: Record<string, string> = {
   desconhecido: 'Motivo não identificado.',
 };
 
+/**
+ * Motivo de o disparo não ter saído, em português, com a ação.
+ * O motivo cru ('sem_remetente_configurado') não diz ao operador o que fazer.
+ */
+export const SKIP_REASON_LABELS: Record<string, string> = {
+  modo_teste_email_provider_log:
+    'O ambiente está em modo de teste (EMAIL_PROVIDER=log). Nada foi enviado. '
+    + 'Troque para smtp nas variáveis da Netlify e faça um novo deploy.',
+  sem_remetente_configurado:
+    'A unidade não tem remetente de e-mail ativo. Configure em Regras de '
+    + 'Recebimento, aba Remetente de E-mail.',
+  sem_email:
+    'A cobrança não tem e-mail de destino. Preencha o e-mail de cobrança na '
+    + 'regra do parceiro, ou o e-mail no cadastro do fornecedor.',
+  ja_enviado: 'A cobrança já havia sido enviada.',
+  ja_manual: 'A cobrança já havia sido marcada como efetuada manualmente.',
+  ja_cancelado: 'O disparo está cancelado.',
+};
+
+export function skipReasonLabel(reason: string): string {
+  return SKIP_REASON_LABELS[reason] ?? reason;
+}
+
 export interface DispatchAttempt {
   id: string;
   dispatch_id: string;
@@ -371,6 +394,8 @@ export const billingService = {
     sent: { dispatch_id: string; ar_title_id: string }[];
     failed: { dispatch_id: string; ar_title_id: string; error: string }[];
     skipped: { dispatch_id: string; ar_title_id: string; reason: string }[];
+    /** Explicação do servidor quando nada foi processado. NÃO descartar. */
+    message?: string;
   }> {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
@@ -391,7 +416,12 @@ export const billingService = {
     }
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) throw new Error(json?.error ?? `Falha no envio (${res.status})`);
-    return { sent: json.sent ?? [], failed: json.failed ?? [], skipped: json.skipped ?? [] };
+    return {
+      sent: json.sent ?? [],
+      failed: json.failed ?? [],
+      skipped: json.skipped ?? [],
+      message: json.message ?? undefined,
+    };
   },
 
   async cancelDispatch(dispatchId: string): Promise<void> {
