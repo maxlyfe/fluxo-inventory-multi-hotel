@@ -121,6 +121,16 @@ export default function CobrancasPage() {
       // o pior resultado possível numa tela de cobrança.
       const partes: string[] = [];
       if (res.sent.length) partes.push(`${res.sent.length} enviada(s)`);
+      // E-mail saiu mas algo depois dele falhou. Não é falha de envio (mandar de
+      // novo duplicaria a cobrança), mas não pode passar como sucesso limpo.
+      const avisos = res.sent.filter(s => s.warning);
+      if (avisos.length) {
+        partes.push(
+          `${avisos.length} ${avisos.length === 1 ? 'precisa' : 'precisam'} de atenção: `
+          + `${avisos[0].warning}. Marque a cobrança manualmente com a data de hoje `
+          + 'para acertar o prazo.'
+        );
+      }
       if (res.failed.length) {
         const erros = Array.from(new Set(res.failed.map(f => f.error))).slice(0, 2).join(' · ');
         partes.push(`${res.failed.length} falhou(ram): ${erros}`);
@@ -137,7 +147,7 @@ export default function CobrancasPage() {
       }
 
       const msg = partes.join(' · ');
-      if (res.sent.length && !res.failed.length && !res.skipped.length) setInfo(msg);
+      if (res.sent.length && !res.failed.length && !res.skipped.length && !avisos.length) setInfo(msg);
       else setError(msg);
 
       setSelected(new Set());

@@ -11,7 +11,13 @@ import {
 import { decryptSecret } from './crypto';
 
 export interface SendOutcome {
-  sent: { dispatch_id: string; ar_title_id: string; provider_message_id?: string }[];
+  sent: {
+    dispatch_id: string;
+    ar_title_id: string;
+    provider_message_id?: string;
+    /** E-mail saiu, mas algo depois dele falhou (ex.: consolidação do prazo). */
+    warning?: string;
+  }[];
   failed: { dispatch_id: string; ar_title_id: string; error: string }[];
   skipped: { dispatch_id: string; ar_title_id: string; reason: string }[];
 }
@@ -195,7 +201,13 @@ export async function processDispatches(
       }).eq('id', d.id);
 
       // Consolida a previsão: o prazo conta da data do envio.
-      await svc.rpc('rpc_ar_mark_billing_sent', {
+      //
+      // O erro TEM que ser checado. supabase-js devolve {error} em vez de lançar,
+      // e um `await svc.rpc(...)` solto engolia a exceção da RPC — foi assim que
+      // o guarda de service role passou despercebido: o e-mail saía, o disparo
+      // virava 'enviado', e o recebível ficava sem data firme, invisível na
+      // previsão de caixa e eternamente na aba "A disparar".
+      const { error: markError } = await svc.rpc('rpc_ar_mark_billing_sent', {
         p_hotel_id: d.hotel_id,
         p_billed_on: new Date().toISOString().slice(0, 10),
         p_ar_title_ids: [d.ar_title_id],
@@ -205,8 +217,27 @@ export async function processDispatches(
         p_force: false,
       });
 
+      if (markError) {
+        // O e-mail já saiu: é irreversível e NÃO pode ser reportado como falha de
+        // envio (levaria o operador a mandar de novo). Registra a inconsistência
+        // no disparo para ela ficar visível na fila em vez de silenciosa.
+        const aviso =
+          'E-mail enviado, mas a previsão de recebimento NÃO foi consolidada: '
+          + markError.message
+          + '. Marque a cobrança manualmente com a data de hoje para acertar o prazo.';
+        await svc.from('ar_billing_dispatches').update({
+          error: aviso, updated_at: new Date().toISOString(),
+        }).eq('id', d.id);
+        console.error(`[AR Billing] ${d.id}: ${aviso}`);
+      }
+
       outcome.sent.push({
-        dispatch_id: d.id, ar_title_id: d.ar_title_id, provider_message_id: result.messageId,
+        dispatch_id: d.id,
+        ar_title_id: d.ar_title_id,
+        provider_message_id: result.messageId,
+        warning: markError
+          ? 'enviada, mas a previsão de recebimento não foi consolidada'
+          : undefined,
       });
     } else {
       const esgotou = attempt >= MAX_ATTEMPTS;

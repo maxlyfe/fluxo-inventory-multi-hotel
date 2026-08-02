@@ -391,7 +391,7 @@ export const billingService = {
    * no meio e as cobranças pendentes se perderiam em silêncio.
    */
   async send(hotelId: string, arTitleIds: string[]): Promise<{
-    sent: { dispatch_id: string; ar_title_id: string }[];
+    sent: { dispatch_id: string; ar_title_id: string; warning?: string }[];
     failed: { dispatch_id: string; ar_title_id: string; error: string }[];
     skipped: { dispatch_id: string; ar_title_id: string; reason: string }[];
     /** Explicação do servidor quando nada foi processado. NÃO descartar. */
