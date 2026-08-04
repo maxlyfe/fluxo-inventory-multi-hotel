@@ -138,17 +138,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }
 
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) { setSession(null); setUser(null); setLoading(false); return; }
-      loadSessionAndProfile(session);
-    });
+    // Erro aqui quase nunca significa "não está logado": significa refresh de token
+    // falhando (rate limit 429, rede caindo, servidor fora do ar). Zerar a sessão de
+    // primeira jogava o usuário na tela de login mesmo com refresh_token válido —
+    // agora tenta de novo antes de desistir e só então considera deslogado.
+    let cancelled = false;
+    const GET_SESSION_RETRY_DELAYS_MS = [0, 1200, 3000];
+
+    (async () => {
+      for (let attempt = 0; attempt < GET_SESSION_RETRY_DELAYS_MS.length; attempt++) {
+        const delay = GET_SESSION_RETRY_DELAYS_MS[attempt];
+        if (delay) await new Promise(r => setTimeout(r, delay));
+        if (cancelled) return;
+
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (cancelled) return;
+
+        if (!error) { loadSessionAndProfile(session); return; }
+        console.warn(
+          `[Auth] getSession falhou (tentativa ${attempt + 1}/${GET_SESSION_RETRY_DELAYS_MS.length}):`,
+          error.message
+        );
+      }
+
+      if (cancelled) return;
+      setSession(null); setUser(null); setLoading(false);
+    })();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') { loadSessionAndProfile(session); return; }
       if (event === 'SIGNED_OUT' || !session) { setSession(null); setUser(null); setNeedsName(false); setLoading(false); return; }
       loadSessionAndProfile(session);
     });
-    return () => { authListener?.subscription.unsubscribe(); };
+    return () => { cancelled = true; authListener?.subscription.unsubscribe(); };
   }, []);
 
   // Realtime — recarrega perfil automaticamente quando o role/custom_role_id muda no banco

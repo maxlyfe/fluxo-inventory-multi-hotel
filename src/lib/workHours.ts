@@ -8,11 +8,13 @@ import { sendPushNotificationToUser } from './notifications';
 //   • A hora atual está dentro do turno cadastrado
 export async function isUserInWorkHours(userId: string): Promise<boolean> {
   // 1. Checar preferência
+  // maybeSingle: se a linha não estiver visível (sessão sem JWT válido, RLS),
+  // .single() devolvia 406 e poluía o console — aqui vira null e cai no default.
   const { data: profile } = await supabase
     .from('profiles')
     .select('notify_work_hours_only')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
   if (profile?.notify_work_hours_only === false) return true; // filtro explicitamente desativado
   // Default: filtro ativado (true ou null/undefined)

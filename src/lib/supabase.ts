@@ -9,11 +9,64 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Supabase URL and Anon Key must be defined in environment variables");
 }
 
+// ─── Resiliência no refresh de token ───────────────────────────────────────────
+// O auth-js só considera falha de refresh "temporária" quando o status é 502/503/504
+// (NETWORK_ERROR_CODES). Qualquer outro status — inclusive 429 (rate limit) — cai em
+// _removeSession(): a sessão é APAGADA do localStorage e o usuário volta para a tela
+// de login mesmo com refresh_token perfeitamente válido.
+// O limite de refresh do Supabase é por IP, então uma rede compartilhada (todos os
+// colaboradores de um hotel saindo pelo mesmo IP público) estoura o teto e derruba
+// todo mundo em loop de login.
+// Solução: tentar de novo respeitando Retry-After e, se o 429 persistir, devolver 503
+// para o auth-js tratar como falha transitória, PRESERVAR a sessão e voltar a tentar
+// no próximo ciclo de auto-refresh.
+const isRefreshTokenCall = (url: string) =>
+  url.includes('/auth/v1/token') && url.includes('grant_type=refresh_token');
+
+const REFRESH_RETRY_DELAYS_MS = [0, 800, 2000];
+
+const resilientFetch: typeof fetch = async (input, init) => {
+  const url =
+    typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+
+  if (!isRefreshTokenCall(url)) return fetch(input, init);
+
+  let lastResponse: Response | null = null;
+
+  for (let attempt = 0; attempt < REFRESH_RETRY_DELAYS_MS.length; attempt++) {
+    const delay = REFRESH_RETRY_DELAYS_MS[attempt];
+    if (delay) await new Promise(r => setTimeout(r, delay));
+
+    lastResponse = await fetch(input instanceof Request ? input.clone() : input, init);
+    if (lastResponse.status !== 429) return lastResponse;
+
+    // Respeita Retry-After quando for curto o suficiente para valer a espera
+    const retryAfter = Number(lastResponse.headers.get('Retry-After'));
+    if (retryAfter > 0 && retryAfter <= 5) {
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+    }
+    console.warn(`[Auth] Refresh de token limitado (429) — tentativa ${attempt + 1}/${REFRESH_RETRY_DELAYS_MS.length}.`);
+  }
+
+  console.warn('[Auth] Refresh ainda limitado por rate limit — mantendo a sessão e tentando de novo mais tarde.');
+  const body = await lastResponse!.text().catch(() => '');
+  return new Response(
+    body ||
+      JSON.stringify({ message: 'Refresh de token limitado por rate limit; tratado como falha temporária.' }),
+    {
+      status: 503,
+      statusText: 'Refresh rate limited',
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+};
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     flowType: 'pkce',          // PKCE: retorna ?code= em vez de #access_token=
     detectSessionInUrl: true,  // troca o code por sessão automaticamente no browser
   },
+  global: { fetch: resilientFetch },
 });
 
 // Helper function to create a query builder with hotel filter
