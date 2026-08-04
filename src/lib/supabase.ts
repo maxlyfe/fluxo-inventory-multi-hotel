@@ -17,13 +17,30 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // O limite de refresh do Supabase é por IP, então uma rede compartilhada (todos os
 // colaboradores de um hotel saindo pelo mesmo IP público) estoura o teto e derruba
 // todo mundo em loop de login.
-// Solução: tentar de novo respeitando Retry-After e, se o 429 persistir, devolver 503
-// para o auth-js tratar como falha transitória, PRESERVAR a sessão e voltar a tentar
-// no próximo ciclo de auto-refresh.
+// Solução: traduzir o 429 para 503, que o auth-js trata como falha transitória e
+// PRESERVA a sessão, voltando a tentar no próximo ciclo de auto-refresh.
+//
+// NÃO tentar de novo em cima do 429: o limite é por IP e por janela de tempo, então
+// cada tentativa extra gasta cota e mantém a janela saturada — o app nunca sai do 429
+// sozinho. Por isso existe o cooldown: depois de um 429, as chamadas de refresh são
+// curto-circuitadas localmente (sem tocar a rede) até a janela ter chance de liberar.
+// Sem isso, o auto-refresh do auth-js (a cada 30s) mais o setAuth do Realtime mantêm
+// um fluxo constante de requisições contra uma cota que já estourou.
 const isRefreshTokenCall = (url: string) =>
   url.includes('/auth/v1/token') && url.includes('grant_type=refresh_token');
 
-const REFRESH_RETRY_DELAYS_MS = [0, 800, 2000];
+const DEFAULT_REFRESH_COOLDOWN_S = 60;
+const MAX_REFRESH_COOLDOWN_S = 300;
+
+// Momento (epoch ms) a partir do qual voltamos a tentar o refresh de verdade
+let refreshBlockedUntil = 0;
+
+const transientRefreshFailure = (message: string) =>
+  new Response(JSON.stringify({ message }), {
+    status: 503,
+    statusText: 'Refresh rate limited',
+    headers: { 'Content-Type': 'application/json' },
+  });
 
 const resilientFetch: typeof fetch = async (input, init) => {
   const url =
@@ -31,33 +48,27 @@ const resilientFetch: typeof fetch = async (input, init) => {
 
   if (!isRefreshTokenCall(url)) return fetch(input, init);
 
-  let lastResponse: Response | null = null;
-
-  for (let attempt = 0; attempt < REFRESH_RETRY_DELAYS_MS.length; attempt++) {
-    const delay = REFRESH_RETRY_DELAYS_MS[attempt];
-    if (delay) await new Promise(r => setTimeout(r, delay));
-
-    lastResponse = await fetch(input instanceof Request ? input.clone() : input, init);
-    if (lastResponse.status !== 429) return lastResponse;
-
-    // Respeita Retry-After quando for curto o suficiente para valer a espera
-    const retryAfter = Number(lastResponse.headers.get('Retry-After'));
-    if (retryAfter > 0 && retryAfter <= 5) {
-      await new Promise(r => setTimeout(r, retryAfter * 1000));
-    }
-    console.warn(`[Auth] Refresh de token limitado (429) — tentativa ${attempt + 1}/${REFRESH_RETRY_DELAYS_MS.length}.`);
+  const now = Date.now();
+  if (now < refreshBlockedUntil) {
+    // Em cooldown: não gasta cota. Devolve falha transitória sem sair do navegador.
+    return transientRefreshFailure(
+      `Refresh em cooldown por rate limit; liberando em ${Math.ceil((refreshBlockedUntil - now) / 1000)}s.`
+    );
   }
 
-  console.warn('[Auth] Refresh ainda limitado por rate limit — mantendo a sessão e tentando de novo mais tarde.');
-  const body = await lastResponse!.text().catch(() => '');
-  return new Response(
-    body ||
-      JSON.stringify({ message: 'Refresh de token limitado por rate limit; tratado como falha temporária.' }),
-    {
-      status: 503,
-      statusText: 'Refresh rate limited',
-      headers: { 'Content-Type': 'application/json' },
-    }
+  const response = await fetch(input, init);
+  if (response.status !== 429) return response;
+
+  const retryAfter = Number(response.headers.get('Retry-After'));
+  const cooldownS =
+    retryAfter > 0 ? Math.min(retryAfter, MAX_REFRESH_COOLDOWN_S) : DEFAULT_REFRESH_COOLDOWN_S;
+  refreshBlockedUntil = Date.now() + cooldownS * 1000;
+
+  console.warn(
+    `[Auth] Refresh de token limitado (429). Pausando tentativas por ${cooldownS}s para a cota do IP liberar; a sessão foi mantida.`
+  );
+  return transientRefreshFailure(
+    `Refresh de token limitado por rate limit; pausado por ${cooldownS}s.`
   );
 };
 
