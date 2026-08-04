@@ -27,7 +27,7 @@ interface PrivateRouteProps {
 }
 
 const PrivateRoute = ({ children, module, modules, adminOnly, devOnly, customCheck }: PrivateRouteProps) => {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionExpired, logout } = useAuth();
   const { can, canAny, isAdmin, isDev } = usePermissions();
   const location          = useLocation();
 
@@ -36,6 +36,28 @@ const PrivateRoute = ({ children, module, modules, adminOnly, devOnly, customChe
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white" />
+      </div>
+    );
+  }
+
+  // ── Sessão vencida sem renovação possível ─────────────────────────────────
+  // Estado explícito e estável. Sem isto a aplicação alternava entre liberar e
+  // bloquear a cada evento de auth, porque o refresh não conseguia renovar.
+  if (sessionExpired) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-900">
+        <div className="w-full max-w-sm rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center shadow-sm">
+          <h1 className="text-lg font-bold text-gray-900 dark:text-white">Sessão expirada</h1>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            Não foi possível renovar seu acesso automaticamente. Entre novamente para continuar.
+          </p>
+          <button
+            onClick={() => logout()}
+            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+          >
+            Entrar novamente
+          </button>
+        </div>
       </div>
     );
   }

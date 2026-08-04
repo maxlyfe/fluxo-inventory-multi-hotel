@@ -35,6 +35,18 @@ const MAX_REFRESH_COOLDOWN_S = 300;
 // Momento (epoch ms) a partir do qual voltamos a tentar o refresh de verdade
 let refreshBlockedUntil = 0;
 
+// Sinal para a UI: quando o refresh está barrado, a sessão guardada não tem mais
+// como ser renovada. Quem escuta (AuthContext) mostra "sessão expirada" em vez de
+// deixar a tela piscando entre bloqueado e liberado a cada evento de auth.
+export const AUTH_REFRESH_BLOCKED_EVENT = 'lyfe:auth-refresh-blocked';
+export const AUTH_REFRESH_RECOVERED_EVENT = 'lyfe:auth-refresh-recovered';
+
+export const isRefreshRateLimited = () => Date.now() < refreshBlockedUntil;
+
+const emit = (name: string, detail?: unknown) => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(name, { detail }));
+};
+
 const transientRefreshFailure = (message: string) =>
   new Response(JSON.stringify({ message }), {
     status: 503,
@@ -57,7 +69,13 @@ const resilientFetch: typeof fetch = async (input, init) => {
   }
 
   const response = await fetch(input, init);
-  if (response.status !== 429) return response;
+  if (response.status !== 429) {
+    if (response.ok && refreshBlockedUntil) {
+      refreshBlockedUntil = 0;
+      emit(AUTH_REFRESH_RECOVERED_EVENT);
+    }
+    return response;
+  }
 
   const retryAfter = Number(response.headers.get('Retry-After'));
   const cooldownS =
@@ -67,6 +85,7 @@ const resilientFetch: typeof fetch = async (input, init) => {
   console.warn(
     `[Auth] Refresh de token limitado (429). Pausando tentativas por ${cooldownS}s para a cota do IP liberar; a sessão foi mantida.`
   );
+  emit(AUTH_REFRESH_BLOCKED_EVENT, { until: refreshBlockedUntil });
   return transientRefreshFailure(
     `Refresh de token limitado por rate limit; pausado por ${cooldownS}s.`
   );

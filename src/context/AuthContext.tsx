@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import {
+  supabase,
+  AUTH_REFRESH_BLOCKED_EVENT,
+  AUTH_REFRESH_RECOVERED_EVENT,
+} from '../lib/supabase';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 interface AppUser {
@@ -26,6 +30,8 @@ interface AuthContextType {
   loading: boolean;
   needsName: boolean;
   isCompatibilityMode: boolean;
+  // Token vencido e refresh barrado por rate limit — só um novo login resolve
+  sessionExpired: boolean;
   refreshProfile: (forceFullCheck?: boolean) => Promise<void>;
   login: (
     identifier: string,
@@ -121,6 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading]     = useState(true);
   const [needsName, setNeedsName] = useState(false);
   const [isCompat, setIsCompat]   = useState(GLOBAL_COMPATIBILITY_MODE);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -166,11 +173,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'TOKEN_REFRESHED') { loadSessionAndProfile(session); return; }
-      if (event === 'SIGNED_OUT' || !session) { setSession(null); setUser(null); setNeedsName(false); setLoading(false); return; }
+      if (event === 'SIGNED_OUT') {
+        setSession(null); setUser(null); setNeedsName(false); setLoading(false);
+        return;
+      }
+
+      if (!session) {
+        // Sessão nula só significa "anônimo" no evento inicial. Nos outros é falha
+        // transitória de refresh — zerar o user aqui fazia a tela piscar entre
+        // bloqueado e liberado a cada evento de auth. Mantém o usuário atual e
+        // deixa o estado de sessão expirada (abaixo) cuidar do aviso.
+        if (event === 'INITIAL_SESSION') {
+          setSession(null); setUser(null); setNeedsName(false);
+        } else {
+          console.warn(`[Auth] Evento ${event} sem sessão — mantendo o usuário atual (falha transitória).`);
+        }
+        setLoading(false);
+        return;
+      }
+
+      setSessionExpired(false);
       loadSessionAndProfile(session);
     });
     return () => { cancelled = true; authListener?.subscription.unsubscribe(); };
+  }, []);
+
+  // Sessão expirada sem renovação possível (refresh barrado por rate limit).
+  // Estado estável e explícito: melhor uma tela dizendo "entre novamente" do que
+  // a aplicação alternando entre funcionar e bloquear.
+  useEffect(() => {
+    const onBlocked = () => setSessionExpired(true);
+    const onRecovered = () => setSessionExpired(false);
+    window.addEventListener(AUTH_REFRESH_BLOCKED_EVENT, onBlocked);
+    window.addEventListener(AUTH_REFRESH_RECOVERED_EVENT, onRecovered);
+    return () => {
+      window.removeEventListener(AUTH_REFRESH_BLOCKED_EVENT, onBlocked);
+      window.removeEventListener(AUTH_REFRESH_RECOVERED_EVENT, onRecovered);
+    };
   }, []);
 
   // Realtime — recarrega perfil automaticamente quando o role/custom_role_id muda no banco
@@ -246,7 +285,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refresh_token: data.refresh_token,
       });
       if (sessionError) return { success: false, message: sessionError.message };
-      if (sessionData.user) return { success: true, user: mapSupabaseUserToAppUser(sessionData.user) };
+      if (sessionData.user) {
+        setSessionExpired(false);
+        return { success: true, user: mapSupabaseUserToAppUser(sessionData.user) };
+      }
       return { success: false, message: 'Usuário não retornado.' };
     } catch (e: unknown) {
       return { success: false, message: e instanceof Error ? e.message : 'Erro desconhecido' };
@@ -323,6 +365,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setSession(null);
       setNeedsName(false);
+      setSessionExpired(false);
       if (error) return { success: false, message: error.message };
       return { success: true };
     } catch (e: unknown) {
@@ -353,7 +396,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, needsName, isCompatibilityMode: isCompat, refreshProfile, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
+    <AuthContext.Provider value={{ user, loading, needsName, isCompatibilityMode: isCompat, sessionExpired, refreshProfile, login, loginWithGoogle, saveName, logout, session, forceSignOut }}>
       {children}
     </AuthContext.Provider>
   );
