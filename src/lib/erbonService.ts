@@ -9,9 +9,12 @@ const ERBON_PROXY_PREFIX = '/erbon-api';
 const NETLIFY_PROXY = '/.netlify/functions/erbon-proxy';
 const isDev = import.meta.env.DEV;
 
-/** Remove /swagger/index.html que o usuário pode colar por engano */
+/** Remove /swagger/index.html que o usuário pode colar por engano e garante protocolo */
 function sanitizeBaseUrl(raw: string): string {
-  return raw.replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
+  const url = raw.trim().replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
+  if (!url) return url;
+  // Sem protocolo o proxy não consegue montar a URL e devolve 400
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 
 function resolveErbonUrl(baseUrl: string, path: string): string {
@@ -576,7 +579,15 @@ export const erbonService = {
       });
 
       if (!authRes.ok) {
-        return { success: false, error: `Autenticação falhou (${authRes.status})` };
+        // A Erbon devolve 400 com o motivo em texto puro (ex.: "#2# - Wrong username or password").
+        // Sem isso a tela mostra só o status e parece problema de conexão.
+        const detail = (await authRes.text().catch(() => '')).trim().slice(0, 200);
+        return {
+          success: false,
+          error: detail
+            ? `Autenticação falhou (${authRes.status}): ${detail}`
+            : `Autenticação falhou (${authRes.status})`,
+        };
       }
 
       // Parse token (pode vir como string pura, JSON string, ou objeto)
@@ -608,7 +619,13 @@ export const erbonService = {
       });
 
       if (!hotelRes.ok) {
-        return { success: false, error: `Hotel não encontrado (${hotelRes.status})` };
+        const detail = (await hotelRes.text().catch(() => '')).trim().slice(0, 200);
+        return {
+          success: false,
+          error: detail
+            ? `Hotel não encontrado (${hotelRes.status}): ${detail}`
+            : `Hotel não encontrado (${hotelRes.status})`,
+        };
       }
 
       const hotelData = await hotelRes.json();

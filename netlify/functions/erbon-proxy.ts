@@ -8,8 +8,10 @@ const DEFAULT_BASE = 'https://api.erbonsoftware.com';
 function sanitizeBaseUrl(raw?: string): string {
   if (!raw) return DEFAULT_BASE;
   // Remove /swagger/index.html ou /swagger que o usuário pode colar por engano
-  let url = raw.replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
-  return url || DEFAULT_BASE;
+  let url = raw.trim().replace(/\/swagger(\/index\.html)?$/i, '').replace(/\/+$/, '');
+  if (!url) return DEFAULT_BASE;
+  // Base salva sem protocolo quebra o new URL() e virava 400 genérico
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 
 // Headers customizados da API Erbon que devem ser repassados pelo proxy
