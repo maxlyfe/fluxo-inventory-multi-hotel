@@ -103,6 +103,52 @@ export interface WebCheckinGuest {
   };
 }
 
+// ── Modo manual / contingência (Erbon fora do ar) ──────────────────────────
+//
+// Uma sessão é MANUAL quando o check-in foi feito sem consultar a Erbon, seja
+// porque o hotel não tem integração, porque a recepção digitou `**` antes do
+// número da reserva, ou porque a Erbon não respondeu na hora da busca.
+//
+// A marca fica no próprio número da reserva (`**12345`), gravado em
+// `wci_sessions.booking_number` e propagado para `wci_checkin_fichas`. Assim a
+// contingência é auto-explicativa em /reception/wci-fichas e não depende de
+// coluna nova nem de migration.
+
+export const MANUAL_REF_PREFIX = '**';
+
+/** true quando o número da reserva carrega a marca de sessão manual. */
+export function isManualRef(ref?: string | null): boolean {
+  return !!ref && ref.trim().startsWith(MANUAL_REF_PREFIX);
+}
+
+/** Garante exatamente um prefixo `**` no número informado. */
+export function toManualRef(bookingNumber: string): string {
+  const clean = (bookingNumber || '').trim().replace(/^\*+/, '').trim();
+  return `${MANUAL_REF_PREFIX}${clean}`;
+}
+
+/** Remove a marca `**` — para exibir ou casar com o número real da reserva. */
+export function stripManualRef(ref?: string | null): string {
+  return (ref || '').trim().replace(/^\*+/, '').trim();
+}
+
+// Sessões manuais usam Date.now() como booking_id sintético; qualquer ID acima
+// deste piso não é um bookingInternalID da Erbon.
+const SYNTHETIC_BOOKING_ID_FLOOR = 2_000_000_000;
+
+/**
+ * Decide se esta sessão pode falar com a Erbon. Vale para as telas seguintes
+ * (lista de hóspedes, FNRH, assinatura), que não devem tentar sincronizar uma
+ * reserva que a Erbon não conhece.
+ */
+export function isManualSession(
+  bookingId?: number | null,
+  bookingNumber?: string | null
+): boolean {
+  if (isManualRef(bookingNumber)) return true;
+  return !!bookingId && bookingId >= SYNTHETIC_BOOKING_ID_FLOOR;
+}
+
 // ── Cache em memória (evita chamadas Supabase repetidas por navegação) ─────
 
 const _hotelCache = new Map<string, { id: string; erbonHotelId: string; hasErbon: boolean } | null>();

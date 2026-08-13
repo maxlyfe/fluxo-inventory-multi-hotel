@@ -14,6 +14,8 @@ import {
   searchReservation,
   createWCISession,
   createManualSession,
+  isManualRef,
+  toManualRef,
   WebCheckinGuest,
 } from './webCheckinService';
 import { supabase } from '../../lib/supabase';
@@ -192,6 +194,40 @@ export default function WCIReservationSearch() {
     });
   }, [wciCode]);
 
+  // ── Contingência: segue o check-in sem consultar a Erbon ────────────────
+  // Usado em dois casos: a recepção digitou `**` antes do número (pulo
+  // deliberado) ou a Erbon não respondeu (queda de API). Nos dois, a reserva
+  // fica gravada como `**{número}` e a ficha aparece normalmente em
+  // /reception/wci-fichas, sinalizada pela marca.
+  const startManualSession = async (rawNumber: string): Promise<boolean> => {
+    if (!realHotelId || !wciCode) return false;
+    const manualRef = toManualRef(rawNumber);
+    const plainNumber = manualRef.slice(2);
+    if (!plainNumber) {
+      setError(t('notFound'));
+      return false;
+    }
+
+    // Reserva travada pela recepção não pode ser reaberta pelo hóspede — mesma
+    // regra do fluxo manual dos hotéis sem Erbon. Confere as duas grafias
+    // porque o bloqueio pode ter sido criado com ou sem a marca.
+    const { data: lockData } = await supabase
+      .from('wci_booking_locks')
+      .select('id')
+      .eq('hotel_id', realHotelId)
+      .in('booking_number', [manualRef, plainNumber])
+      .limit(1);
+
+    if (lockData && lockData.length > 0) {
+      setError('Esta reserva está bloqueada para edição. Por favor, dirija-se à recepção.');
+      return false;
+    }
+
+    const token = await createManualSession(realHotelId, '', manualRef);
+    navigate(`/web-checkin/${wciCode}/guests/${token}`);
+    return true;
+  };
+
   // ── Handler: busca Erbon (modo byBooking ou byGuest) ────────────────────
   const handleErbonSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,6 +239,20 @@ export default function WCIReservationSearch() {
     if (mode === 'byBooking') {
       const num = bookingNumberErbon.trim();
       if (!num) return;
+
+      // `**` antes do número: pula a consulta e vai direto para o cadastro
+      if (isManualRef(num)) {
+        setLoading(true);
+        try {
+          await startManualSession(num);
+        } catch (err: any) {
+          setError(err.message || t('errorGeneral'));
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
       input = { mode: 'byBooking', bookingNumber: num };
     } else {
       // byGuest — valida sobrenome + datas
@@ -249,6 +299,21 @@ export default function WCIReservationSearch() {
       );
       navigate(`/web-checkin/${wciCode}/guests/${token}`);
     } catch (err: any) {
+      // A busca só lança quando a Erbon falha (config, token, HTTP, rede) —
+      // reserva inexistente volta como null e já foi tratada acima. Então, com
+      // o número da reserva em mãos, o check-in segue em contingência em vez de
+      // parar o hóspede na porta. Sem o número (busca por sobrenome) não há o
+      // que gravar, e aí o erro aparece.
+      if (mode === 'byBooking') {
+        try {
+          // navegou, ou já deixou na tela um erro mais específico (reserva travada)
+          await startManualSession(bookingNumberErbon);
+          return;
+        } catch { /* cai no erro abaixo */ }
+      } else {
+        setError(t('erbonOfflineUseBooking'));
+        return;
+      }
       setError(err.message || t('errorGeneral'));
     } finally {
       setLoading(false);

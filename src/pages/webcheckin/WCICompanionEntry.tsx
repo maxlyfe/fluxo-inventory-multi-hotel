@@ -38,6 +38,7 @@ import {
   finalizeFicha,
   buildGuestKey,
   uploadBase64ToStorage,
+  isManualSession,
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
@@ -429,9 +430,13 @@ export default function WCICompanionEntry() {
         resolveSession(sessionToken),
       ]);
 
+      // Sessão manual (`**` ou queda da Erbon na busca) não sincroniza com a
+      // Erbon: a reserva não existe lá. Vale mesmo em hotel integrado.
+      const manualSession = isManualSession(session?.bookingId, session?.bookingNumber);
+
       if (hotel) {
         setRealHotelId(hotel.id);
-        setHasErbon(hotel.hasErbon);
+        setHasErbon(hotel.hasErbon && !manualSession);
         // Carregar políticas em paralelo (não bloqueia o formulário)
         fetchHotelPolicies(hotel.id).then(p => {
           setPolicies({
@@ -449,7 +454,9 @@ export default function WCICompanionEntry() {
         // (feito ANTES de setResolving(false) → formulário já aparece preenchido)
         if (!isNew && existingGuestId && hotel) {
           // 1. Dados frescos da Erbon (inclui nationality, birthDate, address via in-house)
-          const fresh = await fetchFreshBookingGuests(hotel.id, session.bookingId);
+          const fresh = manualSession
+            ? null
+            : await fetchFreshBookingGuests(hotel.id, session.bookingId);
           let g: WebCheckinGuest | undefined = fresh?.find(x => x.id === existingGuestId);
 
           // 2. Fallback: cache Supabase / localStorage

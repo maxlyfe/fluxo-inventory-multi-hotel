@@ -12,6 +12,7 @@ import {
   uploadDocumentPhoto,
   resolveHotelByCode,
   resolveSession,
+  isManualSession,
   WebCheckinGuest,
 } from './webCheckinService';
 import type { ErbonGuestPayload } from '../../lib/erbonService';
@@ -352,7 +353,7 @@ export default function WCIFNRHForm() {
       // Resolve hotel UUID and hasErbon flag
       const hotelInfo = await resolveHotelByCode(hotelId!);
       const hotelUUID = hotelInfo?.id || hotelId!;
-      const hasErbon  = hotelInfo?.hasErbon ?? false;
+      const hasErbonHotel = hotelInfo?.hasErbon ?? false;
 
       // Upload photos if selected
       let docFrontUrl: string | undefined;
@@ -400,6 +401,10 @@ export default function WCIFNRHForm() {
       // Resolve o numeric booking ID real (bookingId do param é o token opaco)
       const session = await resolveSession(bookingId!).catch(() => null);
       const numericBookingId = session?.bookingId ?? 0;
+
+      // Sessão manual (`**` ou queda da Erbon na busca): a reserva não existe
+      // do lado da Erbon, então nem tenta sincronizar — grava só no LyFe.
+      const hasErbon = hasErbonHotel && !isManualSession(numericBookingId, session?.bookingNumber);
 
       // Envio à Erbon é best-effort: nunca pode bloquear o salvamento local.
       // 1ª tentativa com payload completo; se a Erbon rejeitar (ex.: 400 por
