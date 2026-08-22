@@ -181,8 +181,18 @@ export function getGreeting(): string {
 
 /** Formata número para padrão WhatsApp: apenas dígitos com código do país */
 export function formatWhatsAppNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  // Números brasileiros: 10-11 dígitos (DDD + número) — SEMPRE adicionar 55
+  const raw = String(phone ?? '').trim();
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+
+  // Código do país explícito (+54 9 351..., 0054...): o número já está completo
+  // e nada deve ser acrescentado. Sem esta regra, um celular de 10-11 dígitos de
+  // outro país (EUA, Chile, Argentina sem o 9) caía no ramo brasileiro abaixo e
+  // ganhava um 55 na frente, virando um número que não existe.
+  if (raw.startsWith('+')) return digits;
+  if (raw.startsWith('00')) return digits.replace(/^00/, '');
+
+  // Sem código de país, assume Brasil: 10-11 dígitos (DDD + número) recebem o 55.
   // Isso cobre inclusive DDD 55 (Santa Maria, RS) que começaria com "55..."
   if (digits.length >= 10 && digits.length <= 11) {
     return `55${digits}`;
@@ -191,14 +201,16 @@ export function formatWhatsAppNumber(phone: string): string {
   if (digits.length >= 12 && digits.length <= 13 && digits.startsWith('55')) {
     return digits;
   }
-  // Fallback: retorna como está (números internacionais)
+  // Fallback: retorna como está (números internacionais digitados sem o +)
   return digits;
 }
 
 /** Valida formato de número WhatsApp */
 export function isValidWhatsAppNumber(phone: string): boolean {
-  const digits = phone.replace(/\D/g, '');
-  // Aceita com ou sem código do país (mínimo 10, máximo 15 dígitos)
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  // Aceita com ou sem código do país. O teto de 15 é o do E.164; o piso de 10
+  // corresponde a DDD + número no Brasil e cobre com folga os celulares
+  // internacionais, que têm pelo menos isso com o código do país.
   return digits.length >= 10 && digits.length <= 15;
 }
 

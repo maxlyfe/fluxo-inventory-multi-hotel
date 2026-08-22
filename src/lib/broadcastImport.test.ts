@@ -95,6 +95,30 @@ describe('parseContactsWorkbook', () => {
     expect(r.contacts).toHaveLength(2);
   });
 
+  it('mantem numero do exterior intacto quando vem com +', () => {
+    const r = parseContactsWorkbook(planilha([
+      ['telefone', 'nome'],
+      ['+54 9 351 123 4567', 'Argentina'],
+      ['+1 212 555 1234', 'EUA'],
+    ]));
+    expect(r.contacts).toEqual([
+      { phone: '5493511234567', name: 'Argentina' },
+      { phone: '12125551234', name: 'EUA' },
+    ]);
+    expect(r.rejected).toHaveLength(0);
+  });
+
+  it('nao acrescenta 55 em numero estrangeiro de 11 digitos com +', () => {
+    // +1 212 555 1234 tem 11 digitos: sem o `+`, cairia na regra brasileira
+    const r = parseContactsWorkbook(planilha([['telefone'], ['+12125551234']]));
+    expect(r.contacts[0].phone).toBe('12125551234');
+  });
+
+  it('aceita prefixo internacional 00', () => {
+    const r = parseContactsWorkbook(planilha([['telefone'], ['005493511234567']]));
+    expect(r.contacts[0].phone).toBe('5493511234567');
+  });
+
   it('usa o telefone como nome quando o nome está vazio', () => {
     const r = parseContactsWorkbook(planilha([['telefone', 'nome'], ['5522999476601', '']]));
     expect(r.contacts[0].name).toBe('5522999476601');

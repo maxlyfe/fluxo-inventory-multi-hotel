@@ -14,7 +14,7 @@ import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import { waInboxService, WaLabel, WaConversation } from '../../lib/whatsappService';
-import { whatsappService, WhatsAppConfig } from '../../lib/whatsappService';
+import { whatsappService, WhatsAppConfig, formatWhatsAppNumber, isValidWhatsAppNumber } from '../../lib/whatsappService';
 import { downloadTemplate, parseContactsWorkbook, ImportSummary } from '../../lib/broadcastImport';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -167,8 +167,10 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
   };
 
   const addManual = () => {
-    const phone = manualPhone.replace(/\D/g, '');
-    if (phone.length < 10) return;
+    // formatWhatsAppNumber recebe o texto cru, com o `+`: é ele que distingue
+    // um número estrangeiro completo de um brasileiro sem o código do país.
+    if (!isValidWhatsAppNumber(manualPhone)) return;
+    const phone = formatWhatsAppNumber(manualPhone);
     const name = manualName.trim() || phone;
     if (!isSelected(phone)) {
       onChange([...selected, { phone, name }]);
@@ -294,7 +296,7 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
             <input
               value={manualPhone}
               onChange={e => setManualPhone(e.target.value)}
-              placeholder="55119xxxxx (somente dígitos)"
+              placeholder="5511999998888 ou +54 9 351 1234567"
               className="flex-1 px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-400"
             />
             <input
@@ -312,7 +314,9 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
             </button>
           </div>
           <p className="text-[10px] text-gray-400">
-            Informe o número com código do país. Ex: <code>5511999887766</code>
+            Brasileiro pode ir sem o código do país (<code>22999476601</code>) — o 55 entra sozinho.
+            Do exterior, escreva com <code>+</code> e o código do país (<code>+54 9 351 1234567</code>);
+            com o <code>+</code> nada é acrescentado ao número.
           </p>
         </div>
       )}
@@ -349,7 +353,8 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
 
           <p className="text-[10px] text-gray-400">
             Baixe o modelo, preencha a aba <strong>Contatos</strong> (coluna <code>telefone</code> obrigatória,
-            <code> nome</code> opcional) e suba o arquivo. Número com máscara e sem o 55 na frente são aceitos.
+            <code> nome</code> opcional) e suba o arquivo. Número com máscara e brasileiro sem o 55 são aceitos.
+            Para o exterior, escreva com <code>+</code> e o código do país.
           </p>
 
           {importError && (

@@ -46,13 +46,18 @@ function normalizeHeader(value: string): string {
 /**
  * Excel entrega número de telefone como número quando a célula não é texto, e
  * aí `1.55229e+12` chega no lugar dos dígitos. Formatar o valor inteiro resolve
- * os casos reais; o `replace` cobre o que vier com máscara.
+ * os casos reais.
+ *
+ * Devolve o texto **preservando o `+`**, e não só os dígitos: o `+` é o que
+ * distingue "+54 9 351..." (argentino, completo) de "22999476601" (brasileiro
+ * sem o código do país). Quem decide o que fazer com isso é
+ * formatWhatsAppNumber.
  */
-function cellToDigits(value: unknown): string {
+function cellToPhoneText(value: unknown): string {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? String(Math.round(value)) : '';
   }
-  return String(value ?? '').replace(/\D/g, '');
+  return String(value ?? '').trim();
 }
 
 /**
@@ -74,14 +79,18 @@ export function buildTemplateWorkbook(): XLSX.WorkBook {
     ['2.', 'Coluna "telefone" é obrigatória. Coluna "nome" é opcional.'],
     ['3.', 'O telefone pode ter máscara: (22) 99947-6601 e 5522999476601 valem igual.'],
     ['4.', 'Número brasileiro sem o 55 na frente recebe o 55 automaticamente.'],
-    ['5.', 'Número repetido entra uma vez só.'],
-    ['6.', 'Não renomeie a aba "Contatos" nem os cabeçalhos.'],
+    ['5.', 'Número do exterior: escreva com + e o código do país. Ex: +54 9 351 123 4567.'],
+    ['6.', 'Com o + na frente, nada e acrescentado ao numero — ele vai como esta.'],
+    ['7.', 'Número repetido entra uma vez só.'],
+    ['8.', 'Não renomeie a aba "Contatos" nem os cabeçalhos.'],
     [],
     ['Exemplo de preenchimento:'],
     ['telefone', 'nome'],
     ['5522999476601', 'Maria Silva'],
     ['(22) 99947-6601', 'Joao Souza'],
     ['22999476601', ''],
+    ['+54 9 351 123 4567', 'Contato na Argentina'],
+    ['+1 212 555 1234', 'Contato nos EUA'],
   ]);
   instrucoes['!cols'] = [{ wch: 22 }, { wch: 60 }];
   XLSX.utils.book_append_sheet(wb, instrucoes, 'Como preencher');
@@ -144,8 +153,8 @@ export function parseContactsWorkbook(
     const rawName  = nameCol >= 0 ? row[nameCol] : '';
     const line = i + 1;
 
-    const digits = cellToDigits(rawPhone);
-    const original = String(rawPhone ?? '').trim();
+    const original = cellToPhoneText(rawPhone);
+    const digits = original.replace(/\D/g, '');
 
     // Linha em branco não é erro do operador, é só espaço na planilha.
     if (!digits && !String(rawName ?? '').trim()) continue;
@@ -163,7 +172,9 @@ export function parseContactsWorkbook(
       continue;
     }
 
-    const phone = formatWhatsAppNumber(digits);
+    // `original` e não `digits`: o `+` precisa sobreviver até aqui para o
+    // número estrangeiro não receber um 55 na frente.
+    const phone = formatWhatsAppNumber(original);
     if (seen.has(phone)) {
       duplicates++;
       continue;
