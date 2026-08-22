@@ -79,6 +79,9 @@ export type WhatsAppProvider = 'meta' | 'evolution';
 export interface WhatsAppConfig {
   id: string;
   hotel_id: string | null;
+  /** Grupo dono da config. Espelha hotels.group_id; obrigatório na config
+   *  global, que é global DO GRUPO e nunca do sistema inteiro. */
+  group_id: string | null;
   provider: WhatsAppProvider;
   /** Meta Cloud API */
   phone_number_id: string | null;
@@ -201,6 +204,29 @@ export function isValidWhatsAppNumber(phone: string): boolean {
 
 // ── Service ─────────────────────────────────────────────────────────────────
 
+/**
+ * Traduz erros do Postgres ao salvar a config para algo acionável na tela.
+ * Sem isso o usuário recebia apenas "409 Conflict" no console.
+ */
+function describeConfigError(error: { code?: string; message?: string }): Error {
+  if (error?.code === '23505') {
+    if (error.message?.includes('idx_wa_config_instance')) {
+      return new Error('Este nome de instância não está disponível. Escolha outro.');
+    }
+    if (error.message?.includes('idx_wa_config_hotel')) {
+      return new Error('Este hotel já possui uma configuração de WhatsApp. Recarregue a página e edite a existente.');
+    }
+    return new Error('Já existe um registro com estes dados.');
+  }
+  if (error?.code === '23514') {
+    return new Error('Faltam campos obrigatórios para o provider escolhido.');
+  }
+  if (error?.code === '42501') {
+    return new Error('Você não tem permissão para alterar a configuração de WhatsApp.');
+  }
+  return new Error(error?.message || 'Erro ao salvar a configuração de WhatsApp.');
+}
+
 export const whatsappService = {
 
   // ── Config ──────────────────────────────────────────────────────────────
@@ -269,9 +295,36 @@ export const whatsappService = {
     return globalConfig;
   },
 
+  /**
+   * Config própria do hotel (ou da unidade de origem, quando anexada).
+   *
+   * Diferente de getConfig(), não cai na config global: a tela de admin precisa
+   * saber se o hotel tem config própria. Carregar a global no formulário fazia a
+   * tela marcar "Configuração Global" sem o operador perceber — e um save ali
+   * sobrescreve as credenciais de todos os hotéis.
+   */
+  async getOwnConfig(hotelId: string): Promise<WhatsAppConfig | null> {
+    const ownerId = await this.resolveConfigHotelId(hotelId);
+
+    const { data } = await supabase
+      .from('whatsapp_configs')
+      .select('*')
+      .eq('hotel_id', ownerId)
+      .maybeSingle();
+
+    return data;
+  },
+
   async saveConfig(config: Partial<WhatsAppConfig>): Promise<WhatsAppConfig> {
     const hotelId = config.hotel_id || null;
     const provider: WhatsAppProvider = config.provider || 'meta';
+
+    // Config global é global do GRUPO. Sem group_id ela seria global do sistema
+    // — um grupo mexendo no comportamento dos outros, que é o que a RLS agora
+    // bloqueia. Falhar aqui dá uma mensagem melhor que o erro da policy.
+    if (!hotelId && !config.group_id) {
+      throw new Error('Configuração global exige um grupo. Recarregue a página e tente de novo.');
+    }
 
     // Valida o conjunto mínimo de campos do provider escolhido antes de bater no
     // banco, para devolver uma mensagem melhor que a violação de CHECK constraint.
@@ -308,6 +361,49 @@ export const whatsappService = {
     }
     const { data: existing } = await query.maybeSingle();
 
+    // instance_name é único no banco inteiro (o webhook do Evolution identifica a
+    // origem por ele). Sem esta checagem o usuário só via um 409 sem explicação ao
+    // reaproveitar em outro hotel um nome de instância já usado.
+    if (payload.instance_name) {
+      const { data: clash } = await supabase
+        .from('whatsapp_configs')
+        .select('id, hotel_id')
+        .eq('instance_name', payload.instance_name)
+        .maybeSingle();
+
+      if (clash && clash.id !== existing?.id) {
+        // Só identifica o dono quando ele é do mesmo grupo. Um hotel de outro
+        // grupo não pode ser nomeado aqui: a mensagem de erro seria um canal de
+        // vazamento entre tenants — quem configura no grupo A descobriria o nome
+        // de um hotel do grupo B.
+        const [clashHotel, currentHotel] = await Promise.all([
+          clash.hotel_id
+            ? supabase.from('hotels').select('name, group_id').eq('id', clash.hotel_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+          hotelId
+            ? supabase.from('hotels').select('group_id').eq('id', hotelId).maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        const mesmoGrupo =
+          !!clashHotel.data?.group_id &&
+          clashHotel.data.group_id === currentHotel.data?.group_id;
+
+        if (mesmoGrupo) {
+          throw new Error(
+            `A instância "${payload.instance_name}" já está em uso pelo hotel ` +
+            `${clashHotel.data!.name}. Cada hotel precisa da sua própria instância no ` +
+            'Evolution — escolha outro nome (ex.: acrescente o código do hotel no final).'
+          );
+        }
+
+        throw new Error(
+          `O nome de instância "${payload.instance_name}" não está disponível. ` +
+          'Escolha outro — vale acrescentar o código do hotel no final para não repetir.'
+        );
+      }
+    }
+
     if (existing) {
       const { data, error } = await supabase
         .from('whatsapp_configs')
@@ -315,16 +411,17 @@ export const whatsappService = {
         .eq('id', existing.id)
         .select()
         .single();
-      if (error) throw error;
+      if (error) throw describeConfigError(error);
       return data;
     }
 
     const { data, error } = await supabase
       .from('whatsapp_configs')
-      .insert({ hotel_id: hotelId, ...payload })
+      // group_id do hotel é preenchido pelo trigger; na config global vem daqui.
+      .insert({ hotel_id: hotelId, group_id: config.group_id || null, ...payload })
       .select()
       .single();
-    if (error) throw error;
+    if (error) throw describeConfigError(error);
     return data;
   },
 
@@ -518,9 +615,12 @@ export const whatsappService = {
   async sendImageBase64(params: {
     hotelId: string;
     recipientPhone: string;
+    /** base64 puro, sem o prefixo data:image/...;base64, */
     imageBase64: string;
     caption: string;
     fileName?: string;
+    /** Default image/png — informe quando a imagem vier do disco do usuário */
+    mimeType?: string;
     delay?: number;
   }): Promise<{ success: boolean; messageId?: string; error?: string }> {
     const config = await this.getConfig(params.hotelId);
@@ -541,7 +641,7 @@ export const whatsappService = {
       number: formatWhatsAppNumber(params.recipientPhone),
       media: params.imageBase64,
       mediatype: 'image',
-      mimetype: 'image/png',
+      mimetype: params.mimeType || 'image/png',
       fileName: params.fileName || 'pedido.png',
       caption: params.caption,
       delay: params.delay,

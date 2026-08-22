@@ -1,12 +1,12 @@
 // src/pages/messages/WhatsAppBroadcast.tsx
 // Disparos em massa via WhatsApp — seleciona destinatários, escolhe template, envia e rastreia progresso
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Radio, Users, Tag, Phone, Search, ChevronDown, ChevronUp,
   Send, CheckCircle2, XCircle, Loader2, AlertCircle, Clock,
   Filter, RefreshCw, History, MessageSquare, Building2,
-  CheckSquare, Square, Info, X, Plus
+  CheckSquare, Square, Info, X, Plus, FileSpreadsheet, Download, Upload, Image as ImageIcon
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -15,6 +15,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import { waInboxService, WaLabel, WaConversation } from '../../lib/whatsappService';
 import { whatsappService, WhatsAppConfig } from '../../lib/whatsappService';
+import { downloadTemplate, parseContactsWorkbook, ImportSummary } from '../../lib/broadcastImport';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ interface BroadcastRecord {
   targets: BroadcastResult[];
   provider: string | null;
   body_text: string | null;
+  image_name: string | null;
   created_at: string;
   created_by: string | null;
 }
@@ -76,13 +78,17 @@ interface TargetSelectorProps {
 }
 
 function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorProps) {
-  const [tab, setTab] = useState<'contacts' | 'conversations' | 'manual'>('conversations');
+  const [tab, setTab] = useState<'contacts' | 'conversations' | 'manual' | 'import'>('conversations');
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [labelFilter, setLabelFilter] = useState<string>('');
   const [manualPhone, setManualPhone] = useState('');
   const [manualName, setManualName] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const loadConversations = useCallback(async () => {
     setLoading(true);
@@ -127,6 +133,39 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
     }
   };
 
+  /**
+   * Lê a planilha e já soma os contatos à seleção. Os númaros que a lista
+   * traz repetidos, ou que já estavam selecionados, entram uma vez só — quem
+   * decide isso é o parser, que recebe a seleção atual.
+   */
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportError(null);
+    setImportSummary(null);
+
+    try {
+      if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+        throw new Error('Formato inválido. Use .xlsx, .xls ou .csv — baixe o modelo se estiver em dúvida.');
+      }
+      const buffer = await file.arrayBuffer();
+      const summary = parseContactsWorkbook(buffer, selected.map(t => t.phone));
+      setImportSummary(summary);
+
+      if (summary.contacts.length > 0) {
+        onChange([...selected, ...summary.contacts.map(c => ({ phone: c.phone, name: c.name }))]);
+      }
+    } catch (err: unknown) {
+      setImportError(err instanceof Error ? err.message : 'Não foi possível ler a planilha.');
+    } finally {
+      setImporting(false);
+      // Permite subir o mesmo arquivo de novo depois de corrigi-lo
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   const addManual = () => {
     const phone = manualPhone.replace(/\D/g, '');
     if (phone.length < 10) return;
@@ -145,6 +184,7 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
         {[
           { key: 'conversations', label: 'Conversas abertas', icon: MessageSquare },
           { key: 'manual',        label: 'Número manual',     icon: Phone },
+          { key: 'import',        label: 'Importar Excel',     icon: FileSpreadsheet },
         ].map(t => (
           <button
             key={t.key}
@@ -277,6 +317,88 @@ function TargetSelector({ hotelId, selected, onChange, labels }: TargetSelectorP
         </div>
       )}
 
+      {/* Import tab */}
+      {tab === 'import' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => downloadTemplate()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Baixar modelo
+            </button>
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={importing}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white rounded-lg transition-colors"
+            >
+              {importing
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Upload className="h-3.5 w-3.5" />}
+              {importing ? 'Lendo planilha...' : 'Importar planilha'}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+          </div>
+
+          <p className="text-[10px] text-gray-400">
+            Baixe o modelo, preencha a aba <strong>Contatos</strong> (coluna <code>telefone</code> obrigatória,
+            <code> nome</code> opcional) e suba o arquivo. Número com máscara e sem o 55 na frente são aceitos.
+          </p>
+
+          {importError && (
+            <div className="flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <AlertCircle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+              <span className="text-xs text-red-700 dark:text-red-300">{importError}</span>
+            </div>
+          )}
+
+          {importSummary && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="px-2 py-1 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 font-semibold">
+                  {importSummary.contacts.length} adicionado{importSummary.contacts.length === 1 ? '' : 's'}
+                </span>
+                {importSummary.duplicates > 0 && (
+                  <span className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                    {importSummary.duplicates} repetido{importSummary.duplicates === 1 ? '' : 's'} ignorado{importSummary.duplicates === 1 ? '' : 's'}
+                  </span>
+                )}
+                {importSummary.rejected.length > 0 && (
+                  <span className="px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 font-semibold">
+                    {importSummary.rejected.length} com problema
+                  </span>
+                )}
+              </div>
+
+              {importSummary.rejected.length > 0 && (
+                <div className="border border-red-200 dark:border-red-800 rounded-lg overflow-hidden">
+                  <div className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-[10px] font-bold text-red-700 dark:text-red-300 uppercase tracking-wide">
+                    Linhas não importadas
+                  </div>
+                  <div className="max-h-32 overflow-y-auto divide-y divide-red-100 dark:divide-red-900/40">
+                    {importSummary.rejected.map((r, i) => (
+                      <div key={`${r.line}-${i}`} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]">
+                        <span className="text-gray-600 dark:text-gray-300">
+                          Linha {r.line}{r.value ? `: ${r.value}` : ''}
+                        </span>
+                        <span className="text-red-600 dark:text-red-400 flex-shrink-0">{r.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Selected summary */}
       {selected.length > 0 && (
         <div className="flex items-center justify-between px-3 py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
@@ -311,6 +433,9 @@ export default function WhatsAppBroadcast() {
   const [languageCode, setLanguageCode] = useState('pt_BR');
   const [bodyText, setBodyText] = useState('');
   const [params, setParams] = useState<TemplateParam[]>([{ key: '1', value: '' }]);
+  /** Imagem anexada ao disparo: base64 puro + metadados para preview e envio */
+  const [image, setImage] = useState<{ base64: string; dataUrl: string; name: string; mime: string; sizeKb: number } | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<BroadcastResult[] | null>(null);
   const [progress, setProgress] = useState(0);
@@ -403,6 +528,41 @@ export default function WhatsAppBroadcast() {
     setParams(prev => prev.map((p, i) => i === idx ? { ...p, value } : p));
   };
 
+  /**
+   * O Evolution recebe a imagem em base64 puro (sem o prefixo data:), igual ao
+   * disparo do pedido de compra. O limite de 5 MB é o da própria mensagem de
+   * mídia do WhatsApp — acima disso o envio falha contato a contato, e é muito
+   * melhor barrar aqui do que descobrir no meio do lote.
+   */
+  const MAX_IMAGE_KB = 5 * 1024;
+
+  const handlePickImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      addNotification('Anexe um arquivo de imagem (JPG, PNG ou WEBP).', 'error');
+      return;
+    }
+
+    const sizeKb = Math.round(file.size / 1024);
+    if (sizeKb > MAX_IMAGE_KB) {
+      addNotification(`Imagem de ${(sizeKb / 1024).toFixed(1)} MB. O limite é 5 MB — reduza antes de enviar.`, 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
+      setImage({ base64, dataUrl, name: file.name, mime: file.type, sizeKb });
+    };
+    reader.onerror = () => addNotification('Não foi possível ler a imagem.', 'error');
+    reader.readAsDataURL(file);
+
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
   const handleSend = async () => {
     if (!hotelId || !config) {
       addNotification('Configure a integração WhatsApp primeiro.', 'error');
@@ -413,10 +573,19 @@ export default function WhatsAppBroadcast() {
       return;
     }
     if (isEvolution) {
-      if (!bodyText.trim()) {
-        addNotification('Escreva a mensagem que será enviada.', 'error');
+      if (!bodyText.trim() && !image) {
+        addNotification('Escreva a mensagem ou anexe uma imagem.', 'error');
         return;
       }
+    } else if (image) {
+      // A Meta exige mídia em URL pública e header de template aprovado; não dá
+      // para mandar arquivo do disco por aqui.
+      addNotification(
+        'Anexo de imagem só funciona no provider Evolution. Na Meta a imagem precisa vir '
+        + 'de um template aprovado com header de mídia.',
+        'error',
+      );
+      return;
     } else if (!templateName.trim()) {
       addNotification('Informe o nome do template.', 'error');
       return;
@@ -430,18 +599,31 @@ export default function WhatsAppBroadcast() {
     const bodyParams = params.filter(p => p.value.trim()).map(p => p.value);
     // No Evolution não existe template aprovado. O rótulo serve só para o histórico.
     const label = isEvolution ? (templateName.trim() || 'mensagem_livre') : templateName.trim();
+    // Legenda da imagem: mesmo texto do corpo, com os parâmetros já aplicados.
+    const renderedBody = bodyPreview();
 
     for (let i = 0; i < targets.length; i++) {
       const t = targets[i];
       try {
-        const res = await whatsappService.sendTemplate({
-          hotelId,
-          recipientPhone: t.phone,
-          templateName: label,
-          languageCode,
-          bodyParams: bodyParams.length > 0 ? bodyParams : undefined,
-          bodyText: isEvolution ? bodyText : undefined,
-        });
+        // Com imagem anexada o texto vira legenda: uma mensagem só, em vez de
+        // foto e texto separados chegando fora de ordem.
+        const res = image
+          ? await whatsappService.sendImageBase64({
+              hotelId,
+              recipientPhone: t.phone,
+              imageBase64: image.base64,
+              caption: renderedBody,
+              fileName: image.name,
+              mimeType: image.mime,
+            })
+          : await whatsappService.sendTemplate({
+              hotelId,
+              recipientPhone: t.phone,
+              templateName: label,
+              languageCode,
+              bodyParams: bodyParams.length > 0 ? bodyParams : undefined,
+              bodyText: isEvolution ? bodyText : undefined,
+            });
         // sendTemplate devolve o erro no retorno em vez de lançar
         resultsList[i] = res.success
           ? { ...resultsList[i], status: 'sent', waMessageId: res.messageId }
@@ -465,6 +647,9 @@ export default function WhatsAppBroadcast() {
       template_name: label,
       provider: config.provider,
       body_text: isEvolution ? bodyText : null,
+      // Guarda o nome do arquivo, não a imagem: o histórico precisa dizer que
+      // houve anexo, e base64 de 5 MB por linha inviabilizaria a tabela.
+      image_name: image?.name || null,
       total: targets.length,
       sent: sentCount,
       failed: failedCount,
@@ -479,6 +664,7 @@ export default function WhatsAppBroadcast() {
   const reset = () => {
     setResults(null);
     setTargets([]);
+    setImage(null);
     setTemplateName('');
     setBodyText('');
     setParams([{ key: '1', value: '' }]);
@@ -658,6 +844,61 @@ export default function WhatsAppBroadcast() {
                 </div>
               )}
 
+              {/* Imagem anexada */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                  Imagem (opcional)
+                </label>
+
+                {image ? (
+                  <div className="flex items-center gap-3 p-2.5 border border-gray-200 dark:border-gray-600 rounded-lg">
+                    <img
+                      src={image.dataUrl}
+                      alt="Anexo do disparo"
+                      className="h-14 w-14 object-cover rounded-lg flex-shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-gray-900 dark:text-white truncate">{image.name}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {image.sizeKb < 1024 ? `${image.sizeKb} KB` : `${(image.sizeKb / 1024).toFixed(1)} MB`}
+                      </p>
+                    </div>
+                    {!results && (
+                      <button
+                        onClick={() => setImage(null)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                        title="Remover imagem"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={!!results || !isEvolution}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    Anexar imagem
+                  </button>
+                )}
+
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePickImage}
+                  className="hidden"
+                />
+
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {isEvolution
+                    ? 'Até 5 MB. O texto acima vai como legenda da imagem, em uma única mensagem.'
+                    : 'Disponível apenas no provider Evolution — a Meta exige template aprovado com header de mídia.'}
+                </p>
+              </div>
+
               {/* Template name */}
               <div>
                 <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
@@ -808,6 +1049,15 @@ export default function WhatsAppBroadcast() {
                         <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded-full">
                           {rec.total} dest.
                         </span>
+                        {rec.image_name && (
+                          <span
+                            className="flex items-center gap-1 text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full"
+                            title={rec.image_name}
+                          >
+                            <ImageIcon className="h-2.5 w-2.5" />
+                            com imagem
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="text-[10px] text-green-600 dark:text-green-400 font-semibold">

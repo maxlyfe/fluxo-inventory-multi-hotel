@@ -8,6 +8,7 @@ import {
   LogOut, Save, Link2, Share2,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
+import { useGroup } from '../../context/GroupContext';
 import { useNotification } from '../../context/NotificationContext';
 import {
   whatsappService, WhatsAppConfig, WhatsAppMessageTemplate, WhatsAppMessageLog,
@@ -39,6 +40,7 @@ function suggestInstanceName(hotelName: string): string {
 
 const WhatsAppIntegration: React.FC = () => {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { addNotification } = useNotification();
 
   const [activeTab, setActiveTab] = useState<TabId>('config');
@@ -52,6 +54,8 @@ const WhatsAppIntegration: React.FC = () => {
   const [showToken, setShowToken] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isGlobal, setIsGlobal] = useState(false);
+  /** Hotel sem config própria que hoje envia pela config global */
+  const [usaGlobal, setUsaGlobal] = useState(false);
 
   // Compartilhamento do WhatsApp entre unidades do mesmo grupo
   const [hotels, setHotels] = useState<Array<{ id: string; name: string }>>([]);
@@ -122,7 +126,9 @@ const WhatsAppIntegration: React.FC = () => {
       setQr(null);
       setConnState('unknown');
       try {
-        const config = await whatsappService.getConfig(selectedHotel.id);
+        // getOwnConfig e não getConfig: a global não pode entrar no formulário
+        // deste hotel, senão salvar aqui sobrescreve a config de todos.
+        const config = await whatsappService.getOwnConfig(selectedHotel.id);
         if (config) {
           setSavedConfig(config);
           setProvider(config.provider || 'meta');
@@ -137,14 +143,20 @@ const WhatsAppIntegration: React.FC = () => {
           });
           setIsGlobal(config.hotel_id === null);
           setConnState((config.connection_status as EvolutionConnectionState) || 'unknown');
+          setUsaGlobal(false);
         } else {
           setSavedConfig(null);
           setProvider('meta');
+          setIsGlobal(false);
           setConfigForm({
             phone_number_id: '', waba_id: '', access_token: '', display_phone: '',
             base_url: '', api_key: '',
             instance_name: suggestInstanceName(selectedHotel.name),
           });
+          // Sem config própria o envio cai na global, se existir. O formulário fica
+          // vazio de propósito — preencher aqui cria a config deste hotel.
+          const herdada = await whatsappService.getConfig(selectedHotel.id);
+          setUsaGlobal(!!herdada && herdada.hotel_id === null);
         }
       } catch {
         // sem config = ok
@@ -210,6 +222,8 @@ const WhatsAppIntegration: React.FC = () => {
     try {
       const saved = await whatsappService.saveConfig({
         hotel_id: isGlobal ? null : selectedHotel?.id || null,
+        // Global aqui significa "global deste grupo", nunca do sistema todo.
+        group_id: currentGroup?.id || null,
         provider,
         phone_number_id: configForm.phone_number_id,
         waba_id: configForm.waba_id,
@@ -574,16 +588,24 @@ const WhatsAppIntegration: React.FC = () => {
                 </div>
               )}
 
+              {usaGlobal && !isGlobal && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 text-sm text-amber-800 dark:text-amber-200">
+                  {selectedHotel.name} ainda não tem credenciais próprias e hoje envia pela
+                  <strong> configuração global</strong>. Preencher os campos abaixo cria a config
+                  deste hotel, sem alterar a global.
+                </div>
+              )}
+
               {/* Scope toggle */}
               <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={isGlobal} onChange={e => setIsGlobal(e.target.checked)}
                     className="h-4 w-4 rounded text-green-600 border-gray-300 focus:ring-green-500" />
                   <div>
-                    <span className="font-semibold text-gray-800 dark:text-gray-200">Configuração Global</span>
+                    <span className="font-semibold text-gray-800 dark:text-gray-200">Configuração Global do Grupo</span>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {isGlobal
-                        ? 'Todos os hotéis usarão estas credenciais.'
+                        ? `Todos os hotéis de ${currentGroup?.name || 'este grupo'} usarão estas credenciais.`
                         : `Credenciais apenas para ${selectedHotel.name}.`}
                     </p>
                   </div>

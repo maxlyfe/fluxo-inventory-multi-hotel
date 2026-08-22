@@ -107,6 +107,39 @@ function validateTarget(rawUrl: string): { url: URL } | { error: string } {
   return { url };
 }
 
+/**
+ * O fetch do Node responde apenas "fetch failed" quando não alcança o destino, e
+ * isso chegava na tela como um 502 sem pista nenhuma. A causa real está em
+ * err.cause.code — e no caso mais comum aqui (túnel do Cloudflare que caiu, cujo
+ * hostname deixa de existir no DNS) ela diz exatamente o que houve.
+ */
+function describeFetchFailure(err: unknown, host: string): string {
+  const cause = (err as { cause?: { code?: string } })?.cause;
+  const code = cause?.code;
+  const message = err instanceof Error ? err.message : 'erro desconhecido';
+
+  if (err instanceof Error && err.name === 'TimeoutError') {
+    return `O servidor Evolution em ${host} não respondeu em 25s. Verifique se o container está no ar.`;
+  }
+
+  switch (code) {
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return `O endereço ${host} não existe mais no DNS. Se você usa um túnel temporário do Cloudflare (*.trycloudflare.com), a URL muda a cada reinicio: gere o túnel de novo e atualize a URL base aqui.`;
+    case 'ECONNREFUSED':
+      return `${host} recusou a conexão. O host responde, mas o Evolution não está escutando na porta esperada.`;
+    case 'ETIMEDOUT':
+    case 'UND_ERR_CONNECT_TIMEOUT':
+      return `Tempo esgotado ao conectar em ${host}. Verifique firewall e se o servidor está ligado.`;
+    case 'CERT_HAS_EXPIRED':
+    case 'DEPTH_ZERO_SELF_SIGNED_CERT':
+    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
+      return `O certificado HTTPS de ${host} não é válido (${code}).`;
+    default:
+      return `Falha ao alcançar o Evolution API em ${host}: ${code || message}`;
+  }
+}
+
 const handler: Handler = async (event: HandlerEvent) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS, body: '' };
@@ -189,11 +222,10 @@ const handler: Handler = async (event: HandlerEvent) => {
       body: responseBody,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro desconhecido';
     return {
       statusCode: 502,
       headers: jsonHeaders,
-      body: JSON.stringify({ error: `Falha ao alcançar o Evolution API: ${message}` }),
+      body: JSON.stringify({ error: describeFetchFailure(err, validated.url.host) }),
     };
   }
 };
