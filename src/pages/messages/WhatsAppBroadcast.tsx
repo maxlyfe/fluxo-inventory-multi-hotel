@@ -18,7 +18,7 @@ import { whatsappService, WhatsAppConfig, formatWhatsAppNumber, isValidWhatsAppN
 import { downloadTemplate, parseContactsWorkbook, ImportSummary } from '../../lib/broadcastImport';
 import {
   broadcastService, isBroadcastStale, pendingTargets,
-  BroadcastRow, BroadcastTargetState, BroadcastParam, BroadcastStatus,
+  BroadcastRow, BroadcastTargetState, BroadcastParam, BroadcastStatus, OutboundActivity,
 } from '../../lib/broadcastService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
 import { MessagesHeader, EmptyState, SkeletonRows } from './MessagesUI';
@@ -470,7 +470,7 @@ export default function WhatsAppBroadcast() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const cancelRef = useRef(false);
   /** Prova de vida tirada das mensagens que realmente sairam da instancia */
-  const [activity, setActivity] = useState<{ count: number; contacts: number; lastAt: string | null } | null>(null);
+  const [activity, setActivity] = useState<OutboundActivity | null>(null);
 
   // History
   const [history, setHistory] = useState<BroadcastRecord[]>([]);
@@ -912,50 +912,74 @@ export default function WhatsAppBroadcast() {
         </div>
       )}
 
-      {/* Envio detectado sem linha de disparo. Cobre o caso de uma aba antiga
-          ainda enviando: não há progresso gravado, mas as mensagens que saíram
-          provam que está acontecendo. */}
-      {!activeBroadcast && activity?.lastAt
-        && (Date.now() - new Date(activity.lastAt).getTime()) < 3 * 60_000 && (
-        <div className="rounded-2xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 sm:p-5 space-y-2">
-          <div className="flex items-center gap-2.5">
-            <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
-            </span>
-            <p className="text-sm font-bold text-blue-800 dark:text-blue-200">
-              Envio acontecendo agora nesta instância
-            </p>
-          </div>
+      {/* Atividade da instância, lida das mensagens que realmente saíram.
+          Aparece mesmo quando NADA está acontecendo: silêncio na tela é
+          indistinguível de "sem informação", e era exatamente essa a dúvida
+          de quem tinha um disparo rodando sem saber onde ele estava. */}
+      {!activeBroadcast && activity && activity.count > 0 && (() => {
+        const desdeUltima = activity.lastAt ? Date.now() - new Date(activity.lastAt).getTime() : Infinity;
+        const enviando    = desdeUltima < 2 * 60_000;
+        const lento       = enviando && (activity.paceSeconds ?? 0) > 15;
 
-          <p className="text-xs text-blue-700 dark:text-blue-300">
-            <strong>{activity.count}</strong> mensagens para <strong>{activity.contacts}</strong> contatos
-            nos últimos 15 minutos — a última{' '}
-            {formatDistanceToNow(new Date(activity.lastAt), { locale: ptBR, addSuffix: true })}.
-            {activity.count > 1 && (
-              <> Ritmo: <strong>~{Math.round(900 / activity.count)}s</strong> por mensagem.</>
+        return (
+          <div className={`rounded-2xl border p-4 sm:p-5 space-y-2 ${
+            enviando
+              ? 'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
+              : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+          }`}>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {enviando ? (
+                <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+                </span>
+              ) : (
+                <Clock className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              )}
+              <p className={`text-sm font-bold ${enviando ? 'text-blue-800 dark:text-blue-200' : 'text-gray-800 dark:text-gray-100'}`}>
+                {enviando ? 'Envio acontecendo agora nesta instância' : 'Nenhum envio em andamento'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+              <span><strong>{activity.count}</strong> mensagens</span>
+              <span><strong>{activity.contacts}</strong> contatos</span>
+              {activity.paceSeconds !== null && (
+                <span>ritmo <strong>~{activity.paceSeconds}s</strong> por mensagem</span>
+              )}
+              {activity.lastAt && (
+                <span>
+                  última {formatDistanceToNow(new Date(activity.lastAt), { locale: ptBR, addSuffix: true })}
+                </span>
+              )}
+              <span className="text-gray-400">nas últimas 2 horas</span>
+            </div>
+
+            {lento && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                Bem mais lento que os 3 a 8s programados. Isso acontece quando a aba que envia fica em
+                segundo plano — o navegador estrangula temporizadores de abas escondidas. Deixe aquela
+                aba visível para o disparo voltar ao ritmo normal.
+              </p>
             )}
-          </p>
 
-          {/* O navegador estrangula timers de aba em segundo plano: o intervalo
-              programado é de 3 a 8s, e passar muito disso significa que a aba que
-              envia está escondida. Vale avisar, porque muda horas de duração. */}
-          {activity.count > 1 && (900 / activity.count) > 15 && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
-              Está bem mais lento que os 3 a 8s programados. Isso acontece quando a aba que envia
-              fica em segundo plano — o navegador estrangula os temporizadores de abas escondidas.
-              Deixe aquela aba visível na tela para o disparo voltar ao ritmo normal.
-            </p>
-          )}
+            {!enviando && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                Saíram mensagens há pouco, mas nada nos últimos 2 minutos, e não há disparo registrado como
+                em andamento. Se você tinha um disparo rodando, a aba que enviava não está mais ativa —
+                ele parou aí. Disparos começados por esta tela ficam registrados e podem ser retomados.
+              </p>
+            )}
 
-          <p className="text-[11px] text-blue-700/80 dark:text-blue-300/80 leading-relaxed">
-            Este envio não tem progresso gravado: foi começado por uma aba com a versão anterior
-            da tela, que só registrava o disparo no fim. Dá para acompanhar por aqui e pelas
-            conversas, mas o “X de Y” e o botão de retomar só valem para disparos começados a
-            partir de agora. <strong>Não feche a aba que está enviando.</strong>
-          </p>
-        </div>
-      )}
+            {enviando && (
+              <p className="text-[11px] text-blue-700/80 dark:text-blue-300/80 leading-relaxed">
+                Se este envio não aparece com “X de Y”, ele foi começado por uma aba com a versão anterior
+                da tela, que só registrava o disparo no fim. <strong>Não feche a aba que está enviando.</strong>
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Disparo em andamento — visível em qualquer aba, sobrevive ao F5 */}
       {activeBroadcast && (() => {

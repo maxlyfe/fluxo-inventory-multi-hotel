@@ -65,6 +65,16 @@ export function pendingTargets(row: Pick<BroadcastRow, 'targets'>): BroadcastTar
   return (row.targets || []).filter(t => t.status === 'pending');
 }
 
+/** Resumo do que realmente saiu pela instância numa janela de tempo */
+export interface OutboundActivity {
+  count: number;
+  contacts: number;
+  lastAt: string | null;
+  firstAt: string | null;
+  /** Segundos médios entre envios, medidos no intervalo real */
+  paceSeconds: number | null;
+}
+
 export const broadcastService = {
   /**
    * Cria a linha do disparo já com todos os destinatários em 'pending'.
@@ -165,8 +175,8 @@ export const broadcastService = {
    */
   async getOutboundActivity(
     hotelId: string,
-    minutes = 15,
-  ): Promise<{ count: number; contacts: number; lastAt: string | null }> {
+    minutes = 120,
+  ): Promise<OutboundActivity> {
     const desde = new Date(Date.now() - minutes * 60_000).toISOString();
 
     const { data } = await supabase
@@ -178,10 +188,24 @@ export const broadcastService = {
       .order('created_at', { ascending: false });
 
     const linhas = data || [];
+    const lastAt  = linhas[0]?.created_at || null;
+    const firstAt = linhas[linhas.length - 1]?.created_at || null;
+
+    // Ritmo medido no intervalo real entre a primeira e a última, não na
+    // janela consultada: uma janela de 2h com 5 mensagens em 1 minuto daria
+    // um ritmo falso de 24 minutos por mensagem.
+    let paceSeconds: number | null = null;
+    if (linhas.length > 1 && firstAt && lastAt) {
+      const spanMs = new Date(lastAt).getTime() - new Date(firstAt).getTime();
+      paceSeconds = Math.round(spanMs / 1000 / (linhas.length - 1));
+    }
+
     return {
       count: linhas.length,
       contacts: new Set(linhas.map(l => l.conversation_id)).size,
-      lastAt: linhas[0]?.created_at || null,
+      lastAt,
+      firstAt,
+      paceSeconds,
     };
   },
 
