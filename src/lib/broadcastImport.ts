@@ -128,7 +128,7 @@ export function parseContactsWorkbook(
     return { contacts: [], rejected: [{ line: 0, value: '', reason: 'Planilha vazia' }], duplicates: 0 };
   }
 
-  const header = (rows[0] || []).map(normalizeHeader);
+  const header = (rows[0] || []).map(h => normalizeHeader(String(h ?? '')));
   let phoneCol = header.findIndex(h => PHONE_HEADERS.includes(h));
   let nameCol  = header.findIndex(h => NAME_HEADERS.includes(h));
 

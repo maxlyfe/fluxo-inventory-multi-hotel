@@ -8,7 +8,7 @@ import {
   Filter, RefreshCw, History, MessageSquare, Building2,
   CheckSquare, Square, Info, X, Plus, FileSpreadsheet, Download, Upload, Image as ImageIcon
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useHotel } from '../../context/HotelContext';
 import { useNotification } from '../../context/NotificationContext';
