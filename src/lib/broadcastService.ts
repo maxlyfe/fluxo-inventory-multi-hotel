@@ -154,6 +154,37 @@ export const broadcastService = {
     return (data as BroadcastRow) || null;
   },
 
+  /**
+   * Atividade de saída recente da instância, lida de whatsapp_messages.
+   *
+   * Serve para o caso em que existe envio acontecendo sem linha de disparo:
+   * disparos começados por uma aba com a versão antiga da tela, envio manual do
+   * inbox, auto-resposta. A linha de whatsapp_broadcasts é a fonte certa quando
+   * existe; isto aqui é a prova de vida de último recurso, tirada das mensagens
+   * que realmente saíram.
+   */
+  async getOutboundActivity(
+    hotelId: string,
+    minutes = 15,
+  ): Promise<{ count: number; contacts: number; lastAt: string | null }> {
+    const desde = new Date(Date.now() - minutes * 60_000).toISOString();
+
+    const { data } = await supabase
+      .from('whatsapp_messages')
+      .select('conversation_id, created_at')
+      .eq('hotel_id', hotelId)
+      .eq('direction', 'outbound')
+      .gte('created_at', desde)
+      .order('created_at', { ascending: false });
+
+    const linhas = data || [];
+    return {
+      count: linhas.length,
+      contacts: new Set(linhas.map(l => l.conversation_id)).size,
+      lastAt: linhas[0]?.created_at || null,
+    };
+  },
+
   async getById(id: string): Promise<BroadcastRow | null> {
     const { data } = await supabase
       .from('whatsapp_broadcasts')

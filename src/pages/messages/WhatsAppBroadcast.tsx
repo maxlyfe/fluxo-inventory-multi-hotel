@@ -469,6 +469,8 @@ export default function WhatsAppBroadcast() {
   /** Id do disparo que ESTA aba está tocando; null quando quem envia é outra */
   const [activeId, setActiveId] = useState<string | null>(null);
   const cancelRef = useRef(false);
+  /** Prova de vida tirada das mensagens que realmente sairam da instancia */
+  const [activity, setActivity] = useState<{ count: number; contacts: number; lastAt: string | null } | null>(null);
 
   // History
   const [history, setHistory] = useState<BroadcastRecord[]>([]);
@@ -529,6 +531,7 @@ export default function WhatsAppBroadcast() {
   const onBroadcastChange = useCallback((payload: { new?: BroadcastRow }) => {
     const row = payload.new;
     if (!row) return;
+
     if (row.status === 'running') {
       setActiveBroadcast(row);
       // Quem envia é outra aba: espelha o progresso aqui também.
@@ -539,6 +542,14 @@ export default function WhatsAppBroadcast() {
     } else if (activeBroadcast?.id === row.id) {
       setActiveBroadcast(null);
     }
+
+    // A aba de histórico acompanha o disparo em andamento linha a linha, em vez
+    // de só mostrar o resultado depois que tudo acabou.
+    setHistory(prev => {
+      const existe = prev.some(r => r.id === row.id);
+      if (existe) return prev.map(r => (r.id === row.id ? { ...r, ...row } : r));
+      return [row as unknown as BroadcastRecord, ...prev];
+    });
   }, [activeId, activeBroadcast?.id]);
 
   useRealtimeSubscription<BroadcastRow>(
@@ -561,6 +572,26 @@ export default function WhatsAppBroadcast() {
     window.addEventListener('beforeunload', aviso);
     return () => window.removeEventListener('beforeunload', aviso);
   }, [sending]);
+
+  /**
+   * Prova de vida independente da linha de disparo: conta o que saiu de verdade
+   * nos últimos 15 minutos. É o único jeito de enxergar um envio disparado por
+   * uma aba com a versão antiga da tela, que não grava progresso nenhum.
+   */
+  useEffect(() => {
+    if (!hotelId) return;
+    let ativo = true;
+
+    const ler = () => {
+      broadcastService.getOutboundActivity(hotelId)
+        .then(a => { if (ativo) setActivity(a); })
+        .catch(() => { /* silencioso: é indicador, não funcionalidade crítica */ });
+    };
+
+    ler();
+    const t = window.setInterval(ler, 10_000);
+    return () => { ativo = false; window.clearInterval(t); };
+  }, [hotelId]);
 
   // Sem batimento por mais de 1 minuto, um disparo "em andamento" está morto.
   // O re-render por segundo mantém o painel honesto sem precisar de F5.
@@ -878,6 +909,51 @@ export default function WhatsAppBroadcast() {
         <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           <span>Nenhuma configuração WhatsApp ativa para este hotel. Configure em <strong>Configurações → Integração WhatsApp</strong>.</span>
+        </div>
+      )}
+
+      {/* Envio detectado sem linha de disparo. Cobre o caso de uma aba antiga
+          ainda enviando: não há progresso gravado, mas as mensagens que saíram
+          provam que está acontecendo. */}
+      {!activeBroadcast && activity?.lastAt
+        && (Date.now() - new Date(activity.lastAt).getTime()) < 3 * 60_000 && (
+        <div className="rounded-2xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 sm:p-5 space-y-2">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+            </span>
+            <p className="text-sm font-bold text-blue-800 dark:text-blue-200">
+              Envio acontecendo agora nesta instância
+            </p>
+          </div>
+
+          <p className="text-xs text-blue-700 dark:text-blue-300">
+            <strong>{activity.count}</strong> mensagens para <strong>{activity.contacts}</strong> contatos
+            nos últimos 15 minutos — a última{' '}
+            {formatDistanceToNow(new Date(activity.lastAt), { locale: ptBR, addSuffix: true })}.
+            {activity.count > 1 && (
+              <> Ritmo: <strong>~{Math.round(900 / activity.count)}s</strong> por mensagem.</>
+            )}
+          </p>
+
+          {/* O navegador estrangula timers de aba em segundo plano: o intervalo
+              programado é de 3 a 8s, e passar muito disso significa que a aba que
+              envia está escondida. Vale avisar, porque muda horas de duração. */}
+          {activity.count > 1 && (900 / activity.count) > 15 && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+              Está bem mais lento que os 3 a 8s programados. Isso acontece quando a aba que envia
+              fica em segundo plano — o navegador estrangula os temporizadores de abas escondidas.
+              Deixe aquela aba visível na tela para o disparo voltar ao ritmo normal.
+            </p>
+          )}
+
+          <p className="text-[11px] text-blue-700/80 dark:text-blue-300/80 leading-relaxed">
+            Este envio não tem progresso gravado: foi começado por uma aba com a versão anterior
+            da tela, que só registrava o disparo no fim. Dá para acompanhar por aqui e pelas
+            conversas, mas o “X de Y” e o botão de retomar só valem para disparos começados a
+            partir de agora. <strong>Não feche a aba que está enviando.</strong>
+          </p>
         </div>
       )}
 
@@ -1343,7 +1419,7 @@ export default function WhatsAppBroadcast() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 mt-0.5">
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         <span className="text-[10px] text-green-600 dark:text-green-400 font-semibold">
                           ✓ {rec.sent} enviados
                         </span>
@@ -1356,6 +1432,22 @@ export default function WhatsAppBroadcast() {
                           {format(new Date(rec.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                         </span>
                       </div>
+
+                      {/* Barra ao vivo: enquanto o disparo corre, a linha do
+                          histórico avança junto, sem precisar recarregar. */}
+                      {rec.status === 'running' && (
+                        <div className="mt-1.5 space-y-1">
+                          <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                              style={{ width: `${rec.total > 0 ? Math.round(((rec.sent + rec.failed) / rec.total) * 100) : 0}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-blue-600 dark:text-blue-300 font-semibold">
+                            {rec.sent + rec.failed} de {rec.total} · {rec.total - rec.sent - rec.failed} na fila
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {expandedId === rec.id ? (
                       <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
