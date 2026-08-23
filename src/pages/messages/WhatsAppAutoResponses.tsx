@@ -8,6 +8,7 @@ import {
   ChevronUp, ChevronDown, Info, Zap
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
+import { MessagesHeader } from './MessagesUI';
 import { useNotification } from '../../context/NotificationContext';
 import { waInboxService, WaAutoResponse, whatsappService } from '../../lib/whatsappService';
 
@@ -386,27 +387,21 @@ export default function WhatsAppAutoResponses() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-3xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-violet-100 dark:bg-violet-900/30 rounded-xl">
-            <Bot className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Auto-respostas</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Regras automáticas de resposta por gatilho
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => setModal({})}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-xl transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Nova regra
-        </button>
-      </div>
+      <MessagesHeader
+        icon={Bot}
+        tone="violet"
+        title="Auto-respostas"
+        subtitle="Regras automáticas de resposta por gatilho"
+        actions={
+          <button
+            onClick={() => setModal({})}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-xl transition-colors shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Nova regra
+          </button>
+        }
+      />
 
       {/* Info banner */}
       <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-300">

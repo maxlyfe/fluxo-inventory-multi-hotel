@@ -12,6 +12,7 @@ import { waInboxService, WaConversation, WaMessage, WaLabel, WhatsAppMessageTemp
 import { whatsappService, WhatsAppProvider } from '../../lib/whatsappService';
 import { useRealtimeSubscription } from '../../hooks/useRealtime';
 import WaMediaBubble from '../../components/WaMediaBubble';
+import { MessagesNav } from './MessagesUI';
 import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -405,6 +406,12 @@ const WhatsAppInbox: React.FC = () => {
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             </div>
+          </div>
+
+          {/* Navegacao do modulo: o inbox e tela cheia, entao ela mora aqui na
+              coluna da esquerda em vez de um cabecalho de pagina. */}
+          <div className="mb-3">
+            <MessagesNav compact />
           </div>
 
           {/* Search */}

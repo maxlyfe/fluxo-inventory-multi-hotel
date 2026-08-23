@@ -16,6 +16,12 @@ import { supabase } from '../../lib/supabase';
 import { waInboxService, WaLabel, WaConversation } from '../../lib/whatsappService';
 import { whatsappService, WhatsAppConfig, formatWhatsAppNumber, isValidWhatsAppNumber } from '../../lib/whatsappService';
 import { downloadTemplate, parseContactsWorkbook, ImportSummary } from '../../lib/broadcastImport';
+import {
+  broadcastService, isBroadcastStale, pendingTargets,
+  BroadcastRow, BroadcastTargetState, BroadcastParam, BroadcastStatus,
+} from '../../lib/broadcastService';
+import { useRealtimeSubscription } from '../../hooks/useRealtime';
+import { MessagesHeader, EmptyState, SkeletonRows } from './MessagesUI';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +56,7 @@ interface BroadcastRecord {
   provider: string | null;
   body_text: string | null;
   image_name: string | null;
+  status: BroadcastStatus;
   created_at: string;
   created_by: string | null;
 }
@@ -61,6 +68,19 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   sent:    { label: 'Enviado',   cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' },
   failed:  { label: 'Falhou',    cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
 };
+
+/** Interpola {{1}}, {{2}}... com os parâmetros preenchidos */
+function renderBody(body: string, params: BroadcastParam[]): string {
+  const values = params.filter(p => p.value.trim()).map(p => p.value);
+  return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (m, idx) => values[Number(idx) - 1] ?? m);
+}
+
+/** Percentual concluido de uma lista de destinatarios */
+function calcProgress(list: BroadcastTargetState[]): number {
+  if (list.length === 0) return 0;
+  const feitos = list.filter(t => t.status !== 'pending').length;
+  return Math.round((feitos / list.length) * 100);
+}
 
 function StatusIcon({ status }: { status: string }) {
   if (status === 'sent')    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
@@ -444,6 +464,11 @@ export default function WhatsAppBroadcast() {
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<BroadcastResult[] | null>(null);
   const [progress, setProgress] = useState(0);
+  /** Disparo em andamento no hotel — desta aba ou de outra */
+  const [activeBroadcast, setActiveBroadcast] = useState<BroadcastRow | null>(null);
+  /** Id do disparo que ESTA aba está tocando; null quando quem envia é outra */
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const cancelRef = useRef(false);
 
   // History
   const [history, setHistory] = useState<BroadcastRecord[]>([]);
@@ -478,10 +503,7 @@ export default function WhatsAppBroadcast() {
     isEvolution ? 3000 + Math.floor(Math.random() * 5000) : 300;
 
   /** Preview da mensagem com os parâmetros já interpolados */
-  const bodyPreview = () => {
-    const values = params.filter(p => p.value.trim()).map(p => p.value);
-    return bodyText.replace(/\{\{\s*(\d+)\s*\}\}/g, (m, idx) => values[Number(idx) - 1] ?? m);
-  };
+  const bodyPreview = () => renderBody(bodyText, params);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -492,6 +514,62 @@ export default function WhatsAppBroadcast() {
   useEffect(() => {
     if (activeTab === 'history' && hotelId) loadHistory();
   }, [activeTab, hotelId]);
+
+  // Disparo em andamento: ao abrir a tela (ou depois de um F5), mostra o que
+  // está acontecendo mesmo que quem envia seja outra aba.
+  useEffect(() => {
+    if (!hotelId) return;
+    let ativo = true;
+    broadcastService.getActive(hotelId)
+      .then(row => { if (ativo) setActiveBroadcast(row); })
+      .catch(() => { /* sem disparo ativo = ok */ });
+    return () => { ativo = false; };
+  }, [hotelId]);
+
+  const onBroadcastChange = useCallback((payload: { new?: BroadcastRow }) => {
+    const row = payload.new;
+    if (!row) return;
+    if (row.status === 'running') {
+      setActiveBroadcast(row);
+      // Quem envia é outra aba: espelha o progresso aqui também.
+      if (row.id !== activeId) {
+        setResults(row.targets || []);
+        setProgress(calcProgress(row.targets || []));
+      }
+    } else if (activeBroadcast?.id === row.id) {
+      setActiveBroadcast(null);
+    }
+  }, [activeId, activeBroadcast?.id]);
+
+  useRealtimeSubscription<BroadcastRow>(
+    'whatsapp_broadcasts',
+    hotelId ? `hotel_id=eq.${hotelId}` : undefined,
+    onBroadcastChange as never,
+  );
+
+  /**
+   * O envio vive nesta aba: fechar ou recarregar mata o disparo no meio. O
+   * navegador só deixa avisar, não impedir — mas o aviso é a diferença entre
+   * perder 380 contatos e não perder.
+   */
+  useEffect(() => {
+    if (!sending) return;
+    const aviso = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', aviso);
+    return () => window.removeEventListener('beforeunload', aviso);
+  }, [sending]);
+
+  // Sem batimento por mais de 1 minuto, um disparo "em andamento" está morto.
+  // O re-render por segundo mantém o painel honesto sem precisar de F5.
+  const [, forcarTick] = useState(0);
+  useEffect(() => {
+    if (!activeBroadcast || sending) return;
+    const t = window.setInterval(() => forcarTick(n => n + 1), 5000);
+    return () => window.clearInterval(t);
+  }, [activeBroadcast, sending]);
 
   const loadConfig = async () => {
     if (!hotelId) return;
@@ -568,6 +646,107 @@ export default function WhatsAppBroadcast() {
     if (imageInputRef.current) imageInputRef.current.value = '';
   };
 
+  /**
+   * Motor do disparo. Recebe a linha já criada em whatsapp_broadcasts e percorre
+   * apenas os destinatários ainda pendentes — é o mesmo caminho do primeiro
+   * envio e da retomada de um disparo interrompido.
+   *
+   * Grava o progresso a cada mensagem. Parece muita escrita, mas com 3 a 8
+   * segundos entre envios o custo é irrelevante perto do que se perde quando a
+   * aba morre no meio de 400 contatos.
+   */
+  const runBroadcast = async (row: BroadcastRow) => {
+    if (!hotelId) return;
+
+    const lista: BroadcastTargetState[] = [...(row.targets || [])];
+    const bodyParams = (row.params || []).filter(p => p.value.trim()).map(p => p.value);
+    const legenda = renderBody(row.body_text || '', row.params || []);
+
+    setSending(true);
+    setActiveId(row.id);
+    setResults(lista);
+    setProgress(calcProgress(lista));
+    cancelRef.current = false;
+
+    for (let i = 0; i < lista.length; i++) {
+      if (lista[i].status !== 'pending') continue;
+
+      if (cancelRef.current) {
+        await broadcastService.saveProgress(row.id, {
+          sent: lista.filter(t => t.status === 'sent').length,
+          failed: lista.filter(t => t.status === 'failed').length,
+          targets: lista,
+        });
+        await broadcastService.finish(row.id, 'canceled');
+        setSending(false);
+        setActiveId(null);
+        setActiveBroadcast(null);
+        loadHistory();
+        addNotification('Disparo cancelado. Os pendentes não foram enviados.', 'info');
+        return;
+      }
+
+      const t = lista[i];
+      try {
+        // Com imagem anexada o texto vira legenda: uma mensagem só, em vez de
+        // foto e texto separados chegando fora de ordem.
+        const res = image
+          ? await whatsappService.sendImageBase64({
+              hotelId,
+              recipientPhone: t.phone,
+              imageBase64: image.base64,
+              caption: legenda,
+              fileName: image.name,
+              mimeType: image.mime,
+            })
+          : await whatsappService.sendTemplate({
+              hotelId,
+              recipientPhone: t.phone,
+              templateName: row.template_name,
+              languageCode,
+              bodyParams: bodyParams.length > 0 ? bodyParams : undefined,
+              bodyText: row.provider === 'evolution' ? (row.body_text || undefined) : undefined,
+            });
+        // sendTemplate devolve o erro no retorno em vez de lançar
+        lista[i] = res.success
+          ? { ...t, status: 'sent', waMessageId: res.messageId }
+          : { ...t, status: 'failed', error: res.error || 'Erro no envio' };
+      } catch (err: unknown) {
+        lista[i] = { ...t, status: 'failed', error: err instanceof Error ? err.message : 'Erro desconhecido' };
+      }
+
+      const enviados = lista.filter(x => x.status === 'sent').length;
+      const falhas   = lista.filter(x => x.status === 'failed').length;
+
+      setResults([...lista]);
+      setProgress(calcProgress(lista));
+
+      // O progresso vai para o banco antes da pausa: se a aba morrer durante a
+      // espera, o que já saiu está registrado.
+      try {
+        await broadcastService.saveProgress(row.id, { sent: enviados, failed: falhas, targets: lista });
+      } catch {
+        // Falha de rede na gravação não pode abortar o envio em si.
+      }
+
+      const faltam = lista.some((x, idx) => idx > i && x.status === 'pending');
+      if (faltam) await new Promise(r => setTimeout(r, sendInterval()));
+    }
+
+    const enviados = lista.filter(x => x.status === 'sent').length;
+    const falhas   = lista.filter(x => x.status === 'failed').length;
+
+    await broadcastService.finish(row.id, 'completed');
+    setSending(false);
+    setActiveId(null);
+    setActiveBroadcast(null);
+    loadHistory();
+    addNotification(
+      `Disparo concluído: ${enviados} enviados, ${falhas} falhas.`,
+      enviados > 0 ? 'success' : 'error',
+    );
+  };
+
   const handleSend = async () => {
     if (!hotelId || !config) {
       addNotification('Configure a integração WhatsApp primeiro.', 'error');
@@ -596,74 +775,58 @@ export default function WhatsAppBroadcast() {
       return;
     }
 
-    setSending(true);
-    setProgress(0);
-    const resultsList: BroadcastResult[] = targets.map(t => ({ ...t, status: 'pending' as const }));
-    setResults([...resultsList]);
-
-    const bodyParams = params.filter(p => p.value.trim()).map(p => p.value);
-    // No Evolution não existe template aprovado. O rótulo serve só para o histórico.
-    const label = isEvolution ? (templateName.trim() || 'mensagem_livre') : templateName.trim();
-    // Legenda da imagem: mesmo texto do corpo, com os parâmetros já aplicados.
-    const renderedBody = bodyPreview();
-
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i];
-      try {
-        // Com imagem anexada o texto vira legenda: uma mensagem só, em vez de
-        // foto e texto separados chegando fora de ordem.
-        const res = image
-          ? await whatsappService.sendImageBase64({
-              hotelId,
-              recipientPhone: t.phone,
-              imageBase64: image.base64,
-              caption: renderedBody,
-              fileName: image.name,
-              mimeType: image.mime,
-            })
-          : await whatsappService.sendTemplate({
-              hotelId,
-              recipientPhone: t.phone,
-              templateName: label,
-              languageCode,
-              bodyParams: bodyParams.length > 0 ? bodyParams : undefined,
-              bodyText: isEvolution ? bodyText : undefined,
-            });
-        // sendTemplate devolve o erro no retorno em vez de lançar
-        resultsList[i] = res.success
-          ? { ...resultsList[i], status: 'sent', waMessageId: res.messageId }
-          : { ...resultsList[i], status: 'failed', error: res.error || 'Erro no envio' };
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-        resultsList[i] = { ...resultsList[i], status: 'failed', error: msg };
-      }
-      setProgress(Math.round(((i + 1) / targets.length) * 100));
-      setResults([...resultsList]);
-
-      if (i < targets.length - 1) await new Promise(r => setTimeout(r, sendInterval()));
+    // Um número só não pode estar em dois disparos ao mesmo tempo, e dois
+    // disparos simultâneos na mesma instância é a receita para bloqueio.
+    const emAndamento = await broadcastService.getActive(hotelId);
+    if (emAndamento && !isBroadcastStale(emAndamento)) {
+      addNotification('Já existe um disparo em andamento neste hotel. Aguarde ou cancele antes de começar outro.', 'error');
+      setActiveBroadcast(emAndamento);
+      return;
     }
 
-    // Persist broadcast record
-    const sentCount   = resultsList.filter(r => r.status === 'sent').length;
-    const failedCount = resultsList.filter(r => r.status === 'failed').length;
+    // No Evolution não existe template aprovado. O rótulo serve só para o histórico.
+    const label = isEvolution ? (templateName.trim() || 'mensagem_livre') : templateName.trim();
 
-    await supabase.from('whatsapp_broadcasts').insert({
-      hotel_id: hotelId,
-      template_name: label,
-      provider: config.provider,
-      body_text: isEvolution ? bodyText : null,
-      // Guarda o nome do arquivo, não a imagem: o histórico precisa dizer que
-      // houve anexo, e base64 de 5 MB por linha inviabilizaria a tabela.
-      image_name: image?.name || null,
-      total: targets.length,
-      sent: sentCount,
-      failed: failedCount,
-      params,
-      targets: resultsList,
-    });
+    try {
+      const row = await broadcastService.start({
+        hotelId,
+        templateName: label,
+        provider: config.provider,
+        bodyText: isEvolution ? bodyText : null,
+        // Guarda o nome do arquivo, não a imagem: o histórico precisa dizer que
+        // houve anexo, e base64 de 5 MB por linha inviabilizaria a tabela.
+        imageName: image?.name || null,
+        params,
+        targets,
+      });
+      setActiveBroadcast(row);
+      await runBroadcast(row);
+    } catch (err: unknown) {
+      setSending(false);
+      addNotification(err instanceof Error ? err.message : 'Não foi possível iniciar o disparo.', 'error');
+    }
+  };
 
-    setSending(false);
-    addNotification(`Disparo concluído: ${sentCount} enviados, ${failedCount} falhas.`, sentCount > 0 ? 'success' : 'error');
+  /** Continua um disparo que ficou pela metade, sem reenviar quem já recebeu */
+  const handleResume = async (row: BroadcastRow) => {
+    if (row.image_name && !image) {
+      addNotification(
+        `Este disparo levava a imagem "${row.image_name}". Anexe a imagem de novo antes de retomar, `
+        + 'senão quem falta receberia só o texto.',
+        'error',
+      );
+      return;
+    }
+    setActiveBroadcast(row);
+    await runBroadcast(row);
+  };
+
+  /** Encerra um disparo abandonado por outra aba, liberando a instância */
+  const handleDiscard = async (row: BroadcastRow) => {
+    await broadcastService.finish(row.id, 'interrupted');
+    setActiveBroadcast(null);
+    loadHistory();
+    addNotification('Disparo marcado como interrompido.', 'info');
   };
 
   const reset = () => {
@@ -686,34 +849,29 @@ export default function WhatsAppBroadcast() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
-            <Radio className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+      <MessagesHeader
+        icon={Radio}
+        tone="blue"
+        title="Disparos em massa"
+        subtitle="Envie a mesma mensagem para muitos contatos, um a um"
+        tabs={
+          <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+            {([['send', 'Novo disparo', Send], ['history', 'Histórico', History]] as const).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all
+                  ${activeTab === key
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Disparos em massa</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Envie templates WhatsApp para múltiplos contatos</p>
-          </div>
-        </div>
-        {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-700 rounded-xl">
-          {([['send', 'Novo disparo', Send], ['history', 'Histórico', History]] as const).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all
-                ${activeTab === key
-                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+        }
+      />
 
       {/* Config warning */}
       {!config && (
@@ -722,6 +880,115 @@ export default function WhatsAppBroadcast() {
           <span>Nenhuma configuração WhatsApp ativa para este hotel. Configure em <strong>Configurações → Integração WhatsApp</strong>.</span>
         </div>
       )}
+
+      {/* Disparo em andamento — visível em qualquer aba, sobrevive ao F5 */}
+      {activeBroadcast && (() => {
+        const parado   = isBroadcastStale(activeBroadcast);
+        const desteTab = activeBroadcast.id === activeId && sending;
+        const feitos   = activeBroadcast.sent + activeBroadcast.failed;
+        const pct      = activeBroadcast.total > 0 ? Math.round((feitos / activeBroadcast.total) * 100) : 0;
+        const faltam   = pendingTargets(activeBroadcast).length;
+
+        return (
+          <div className={`rounded-2xl border p-4 sm:p-5 space-y-3 ${
+            parado
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-800'
+              : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-800'
+          }`}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                {parado
+                  ? <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
+                  : <Loader2 className="h-5 w-5 text-blue-500 animate-spin flex-shrink-0" />}
+                <div>
+                  <p className={`text-sm font-bold ${parado ? 'text-amber-800 dark:text-amber-200' : 'text-blue-800 dark:text-blue-200'}`}>
+                    {parado ? 'Disparo interrompido' : desteTab ? 'Enviando agora' : 'Disparo em andamento em outra aba'}
+                  </p>
+                  <p className="text-[11px] text-gray-600 dark:text-gray-400 font-mono">
+                    {activeBroadcast.template_name}
+                    {activeBroadcast.image_name && ' · com imagem'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {desteTab && (
+                  <button
+                    onClick={() => { cancelRef.current = true; }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Parar
+                  </button>
+                )}
+                {parado && faltam > 0 && (
+                  <button
+                    onClick={() => handleResume(activeBroadcast)}
+                    disabled={sending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white rounded-lg transition-colors"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    Retomar ({faltam} restantes)
+                  </button>
+                )}
+                {parado && (
+                  <button
+                    onClick={() => handleDiscard(activeBroadcast)}
+                    className="px-3 py-1.5 text-xs font-bold text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors"
+                  >
+                    Encerrar
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                <span>{feitos} de {activeBroadcast.total}</span>
+                <span>{pct}%</span>
+              </div>
+              <div className="h-2.5 bg-white/70 dark:bg-gray-800/70 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${parado ? 'bg-amber-400' : 'bg-blue-500'}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-3 text-[11px]">
+                <span className="text-green-600 dark:text-green-400 font-semibold">✓ {activeBroadcast.sent} enviados</span>
+                {activeBroadcast.failed > 0 && (
+                  <span className="text-red-500 font-semibold">✗ {activeBroadcast.failed} falhas</span>
+                )}
+                <span className="text-gray-500 dark:text-gray-400">⏳ {faltam} na fila</span>
+                <span className="text-gray-400">
+                  último sinal {formatDistanceToNow(new Date(activeBroadcast.updated_at), { locale: ptBR, addSuffix: true })}
+                </span>
+              </div>
+            </div>
+
+            {parado && (
+              <p className="text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed">
+                O envio roda na aba do navegador. Esta aba foi fechada ou recarregada no meio do disparo,
+                então os {faltam} restantes não saíram. <strong>Retomar</strong> continua de onde parou,
+                sem reenviar para quem já recebeu.
+                {activeBroadcast.image_name && ' Como este disparo levava imagem, anexe o mesmo arquivo antes de retomar.'}
+              </p>
+            )}
+
+            {!parado && !desteTab && (
+              <p className="text-[11px] text-blue-800 dark:text-blue-200">
+                Outra aba está enviando. Não feche aquela janela — este painel atualiza sozinho.
+              </p>
+            )}
+
+            {desteTab && (
+              <p className="text-[11px] text-blue-800 dark:text-blue-200">
+                Não feche nem recarregue esta aba até terminar. O progresso fica salvo a cada envio,
+                então mesmo assim dá para retomar depois.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Send tab */}
       {activeTab === 'send' && (
@@ -1030,14 +1297,15 @@ export default function WhatsAppBroadcast() {
           </div>
 
           {historyLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+            <div className="p-5">
+              <SkeletonRows rows={4} />
             </div>
           ) : history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2 text-gray-400">
-              <History className="h-10 w-10 opacity-30" />
-              <p className="text-sm">Nenhum disparo registrado</p>
-            </div>
+            <EmptyState
+              icon={History}
+              title="Nenhum disparo registrado"
+              hint="Os disparos aparecem aqui assim que começam, com o progresso ao vivo e o resultado contato a contato."
+            />
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {history.map(rec => (
@@ -1054,6 +1322,17 @@ export default function WhatsAppBroadcast() {
                         <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded-full">
                           {rec.total} dest.
                         </span>
+                        {rec.status && rec.status !== 'completed' && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                            rec.status === 'running'
+                              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300'
+                              : rec.status === 'canceled'
+                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'
+                                : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                          }`}>
+                            {rec.status === 'running' ? 'em andamento' : rec.status === 'canceled' ? 'cancelado' : 'interrompido'}
+                          </span>
+                        )}
                         {rec.image_name && (
                           <span
                             className="flex items-center gap-1 text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full"
