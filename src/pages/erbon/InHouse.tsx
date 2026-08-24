@@ -1,7 +1,7 @@
 // src/pages/erbon/InHouse.tsx
 import React, { useState, useMemo } from 'react';
 import {
-  Users, RefreshCw, Loader2, Search, BedDouble, ChevronRight,
+  Users, RefreshCw, Loader2, Search, BedDouble, ChevronRight, LogIn, LogOut,
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Wrench, RefreshCw, Loader2, CheckCircle, AlertTriangle,
-  Search, BedDouble, History, Filter, LogIn, LogOut, User
+  Search, BedDouble, History, Filter, LogIn, LogOut, User, Clock
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { useAuth } from '../../context/AuthContext';

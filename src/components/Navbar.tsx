@@ -49,6 +49,10 @@ const hotelNameMapping: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Navbar
 // ---------------------------------------------------------------------------
+interface NavbarProps {
+  onMenuToggle: () => void;
+}
+
 const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   const { user, logout: authLogout } = useAuth();
   const { can, isAdmin, isDev, canAccessContacts } = usePermissions();

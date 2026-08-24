@@ -1,6 +1,11 @@
 [build]
   publish = "dist"
-  command = "npx tsc --noEmit --skipLibCheck && npm run build"
+  # `npx tsc --noEmit` sem -p caia no tsconfig.json da raiz, que e um
+  # projeto-solucao (files: [] + references). Sem --build o tsc nao entra nos
+  # projetos referenciados: checava zero arquivo e aprovava tudo. Um import
+  # faltando passou por ai e derrubou a tela em producao. O script abaixo checa
+  # o projeto de verdade e barra os erros que quebram em runtime.
+  command = "node scripts/check-fatal-ts.mjs && npm run build"
 
 [functions]
   directory = "netlify/functions"

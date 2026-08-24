@@ -13,7 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:apk": "node scripts/build-apk.js",
-    "build:webcheckin-apk": "node scripts/build-webcheckin-apk.js"
+    "build:webcheckin-apk": "node scripts/build-webcheckin-apk.js",
+    "check:fatal": "node scripts/check-fatal-ts.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.3",

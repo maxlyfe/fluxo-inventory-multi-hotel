@@ -1091,7 +1091,7 @@ const GuestEditModal: React.FC<{
             Cancelar
           </button>
           <button
-            onClick={handleSave}
+            onClick={handleSaveGuest}
             disabled={saving || !form.name.trim()}
             className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition disabled:opacity-50"
           >
