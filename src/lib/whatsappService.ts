@@ -6,7 +6,10 @@
 
 import { supabase } from './supabase';
 import { differenceInHours } from 'date-fns';
-import { evolutionApi, renderTemplateBody, type EvolutionCredentials } from './evolutionService';
+import {
+  evolutionApi, renderTemplateBody,
+  type EvolutionCredentials, type NumberCheck,
+} from './evolutionService';
 
 const WHATSAPP_PROXY = '/.netlify/functions/whatsapp-proxy';
 
@@ -613,6 +616,48 @@ export const whatsappService = {
       const message = err instanceof Error ? err.message : 'Erro ao enviar';
       return { success: false, error: message };
     }
+  },
+
+  // ── Validação prévia de números ───────────────────────────────
+
+  /**
+   * Diz quais números da lista têm WhatsApp, sem enviar nada.
+   *
+   * Use antes de um disparo. Tentar entregar para número que não tem WhatsApp é
+   * um dos sinais de spam mais fortes que uma conta emite — numa lista fria isso
+   * costuma ser a maior parte das falhas, e foi o que derrubou a conta no
+   * disparo de 23/08/2026.
+   *
+   * Só existe no provider Evolution: a Meta Cloud API não tem endpoint para
+   * consultar se um número existe.
+   */
+  async checkNumbersHaveWhatsApp(params: {
+    hotelId: string;
+    phones: string[];
+    onProgress?: (feitos: number, total: number) => void;
+  }): Promise<{ success: boolean; results: NumberCheck[]; error?: string }> {
+    const config = await this.getConfig(params.hotelId);
+    if (!config) {
+      return { success: false, results: [], error: 'WhatsApp não configurado para este hotel' };
+    }
+
+    if (config.provider !== 'evolution') {
+      return {
+        success: false,
+        results: [],
+        error: 'A validação prévia só existe no provider Evolution. '
+          + 'A Meta Cloud API não oferece consulta de número.',
+      };
+    }
+
+    const creds = evolutionCredentials(config);
+    if (!creds) return { success: false, results: [], error: 'Configuração Evolution incompleta.' };
+
+    // Normaliza antes de consultar, pelo mesmo caminho do envio: não adianta
+    // validar "22999476601" e depois enviar para "5522999476601".
+    const normalizados = params.phones.map(p => formatWhatsAppNumber(p));
+
+    return evolutionApi.checkNumbers(creds, normalizados, { onProgress: params.onProgress });
   },
 
   // ── Envio de imagem com legenda ────────────────────────────────────────

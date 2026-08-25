@@ -71,6 +71,67 @@ export function renderTemplateBody(bodyText: string, bodyParams?: string[]): str
   });
 }
 
+/** Resultado da consulta de um numero no WhatsApp */
+export interface NumberCheck {
+  /** O numero exatamente como foi consultado */
+  number: string;
+  /** null = o servidor nao respondeu sobre este numero */
+  exists: boolean | null;
+  jid?: string;
+}
+
+/**
+ * Casa a resposta do /chat/whatsappNumbers com a lista consultada.
+ *
+ * Duas armadilhas do mundo real tratadas aqui:
+ *
+ * 1. O formato varia entre versoes do Evolution: ora um array puro, ora
+ *    { numbers: [...] }, e a chave do numero ora e `number`, ora so o `jid`.
+ *
+ * 2. O numero devolvido nem sempre e igual ao consultado. No Brasil e comum
+ *    perguntar por um celular com o nono digito e o WhatsApp responder com o
+ *    JID antigo, sem ele (ou o contrario). Comparar string com string perderia
+ *    a resposta e marcaria como "nao verificado" um numero que existe. Por isso
+ *    o casamento cai para os ultimos 8 digitos, que sao estaveis.
+ *
+ * Numero sem resposta vira `exists: null` — "nao sei" e diferente de "nao tem",
+ * e a tela nao pode descartar contato por falta de informacao.
+ */
+export function matchNumberChecks(consultados: string[], raw: unknown): NumberCheck[] {
+  const lista: any[] = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as any)?.numbers)
+      ? (raw as any).numbers
+      : [];
+
+  const porDigitos = new Map<string, any>();
+  const porSufixo  = new Map<string, any>();
+
+  for (const item of lista) {
+    if (!item || typeof item !== 'object') continue;
+    const bruto = String(item.number ?? item.jid ?? '').replace(/\D/g, '');
+    if (!bruto) continue;
+    porDigitos.set(bruto, item);
+    const sufixo = bruto.slice(-8);
+    if (sufixo.length === 8 && !porSufixo.has(sufixo)) porSufixo.set(sufixo, item);
+  }
+
+  return consultados.map(number => {
+    const digitos = number.replace(/\D/g, '');
+    const achado = porDigitos.get(digitos) || porSufixo.get(digitos.slice(-8));
+
+    if (!achado) return { number, exists: null };
+
+    // Alguns builds devolvem a existencia em `exists`, outros so mandam o jid
+    // dos que existem. Ter jid sem campo `exists` conta como existente.
+    const exists = typeof achado.exists === 'boolean'
+      ? achado.exists
+      : Boolean(achado.jid);
+
+    return { number, exists, jid: achado.jid ? String(achado.jid) : undefined };
+  });
+}
+
 async function call<T = any>(
   cfg: EvolutionCredentials,
   action: string,
@@ -279,6 +340,51 @@ export const evolutionApi = {
       },
     });
     return res.ok ? { success: true } : { success: false, error: res.error };
+  },
+
+  /**
+   * Pergunta ao WhatsApp quais numeros da lista existem. **Nao envia mensagem.**
+   *
+   * Serve para limpar a lista antes do disparo: tentar entregar para numeros que
+   * nao tem WhatsApp e um dos sinais mais fortes de spam que uma conta emite —
+   * usuario de verdade nao erra dezenas de numeros seguidos.
+   *
+   * Vai em lotes porque a consulta passa pelo socket do Baileys, e uma lista de
+   * centenas de numeros numa tacada so costuma estourar timeout do proxy (25s).
+   */
+  async checkNumbers(
+    cfg: EvolutionCredentials,
+    numbers: string[],
+    opts: { batchSize?: number; onProgress?: (feitos: number, total: number) => void } = {},
+  ): Promise<{ success: boolean; results: NumberCheck[]; error?: string }> {
+    const limpos = numbers.map(n => n.replace(/\D/g, '')).filter(Boolean);
+    if (limpos.length === 0) return { success: true, results: [] };
+
+    const tamanhoLote = opts.batchSize ?? 40;
+    const resultados: NumberCheck[] = [];
+
+    for (let i = 0; i < limpos.length; i += tamanhoLote) {
+      const lote = limpos.slice(i, i + tamanhoLote);
+      const res = await call(cfg, 'check-numbers', { numbers: lote });
+
+      if (!res.ok) {
+        // Devolve o que ja deu certo: meia lista validada ainda e melhor que
+        // nenhuma, e a tela mostra os que ficaram sem resposta.
+        return {
+          success: false,
+          results: [...resultados, ...lote.map(n => ({ number: n, exists: null }))],
+          error: res.error,
+        };
+      }
+
+      resultados.push(...matchNumberChecks(lote, res.data));
+      opts.onProgress?.(Math.min(i + tamanhoLote, limpos.length), limpos.length);
+
+      // Respiro entre lotes: a consulta tambem e trafego no socket.
+      if (i + tamanhoLote < limpos.length) await new Promise(r => setTimeout(r, 700));
+    }
+
+    return { success: true, results: resultados };
   },
 
   async findWebhook(cfg: EvolutionCredentials): Promise<{ success: boolean; url?: string; enabled?: boolean; error?: string }> {
