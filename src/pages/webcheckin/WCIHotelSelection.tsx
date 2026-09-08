@@ -277,7 +277,11 @@ export default function WCIHotelSelection() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchWebCheckinHotels(group?.id)
+    // Enquanto o grupo do slug não resolve, segue carregando: buscar sem grupo
+    // agora devolve lista vazia (falha fechada) e piscaria "nenhuma unidade".
+    if (!group?.id) return;
+    setLoading(true);
+    fetchWebCheckinHotels(group.id)
       .then(setHotels)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

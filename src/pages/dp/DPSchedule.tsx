@@ -15,6 +15,7 @@ import {
 import { format, startOfWeek, addWeeks, subWeeks, addDays, isSameDay, parseISO, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNotification } from '../../context/NotificationContext';
+import { useGroupHotels } from '../../hooks/useGroupHotels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1551,7 +1552,8 @@ export default function DPSchedule() {
   const defaultHotelId = selectedHotel?.id || '';
 
   const [weekStart, setWeekStart]     = useState(getWeekSunday(new Date()));
-  const [hotels, setHotels]           = useState<Hotel[]>([]);
+  // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+  const { hotels } = useGroupHotels<Hotel>();
   const [filterHotel, setFilterHotel] = useState(defaultHotelId);
   const [employees, setEmployees]     = useState<Employee[]>([]);
   const [schedule, setSchedule]       = useState<Schedule | null>(null);
@@ -1591,10 +1593,6 @@ export default function DPSchedule() {
     .sort((a, b) => SECTORS_ORDER.indexOf(a) - SECTORS_ORDER.indexOf(b));
 
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => setHotels(data || []));
-  }, []);
-
   // Fetch occurrence types whenever hotel changes + auto-seed defaults
   useEffect(() => {
     if (!hotelId) return;

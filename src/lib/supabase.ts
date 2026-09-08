@@ -667,10 +667,18 @@ export const saveWeeklyControlEntries = async (entries: WeeklyControlEntry[]) =>
   }
 };
 
-// --- Função para buscar todos os hotéis ---
-export const getHotels = async () => {
+// --- Unidades de um grupo ---
+// O grupo é obrigatório: o RLS de hotels libera tudo para o perfil dev, então
+// um select sem group_id devolvia unidades de outros tenants. Sem grupo a
+// lista volta vazia de propósito. Ver src/lib/hotelsService.ts.
+export const getHotels = async (groupId?: string | null) => {
   try {
-    const { data, error } = await supabase.from("hotels").select("id, name"); // Schema: id (uuid), name (text)
+    if (!groupId) return { success: true, data: [] as { id: string; name: string }[] };
+    const { data, error } = await supabase
+      .from("hotels")
+      .select("id, name")
+      .eq("group_id", groupId)
+      .order("name");
     if (error) throw error;
     return { success: true, data };
   } catch (err) {

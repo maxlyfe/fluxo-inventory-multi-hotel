@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useGroupHotels } from '../hooks/useGroupHotels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -179,7 +180,8 @@ export default function MaintenanceDashboard() {
   const [search, setSearch]         = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterHotel, setFilterHotel]   = useState<string>(defaultHotelId);
-  const [hotels, setHotels]         = useState<{id:string;name:string}[]>([]);
+  // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+  const { hotels } = useGroupHotels<{id:string;name:string}>();
   const [stats, setStats]           = useState<Stats>({ open:0, assigned:0, in_progress:0, waiting_material:0, resolved:0, urgent:0 });
 
   // ---------------------------------------------------------------------------
@@ -215,10 +217,6 @@ export default function MaintenanceDashboard() {
       setLoading(false);
     }
   }, [filterStatus, filterHotel, canChangeHotel, defaultHotelId]);
-
-  useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => setHotels(data || []));
-  }, []);
 
   // Atualiza filtro de hotel quando o usuário troca de unidade
   useEffect(() => {

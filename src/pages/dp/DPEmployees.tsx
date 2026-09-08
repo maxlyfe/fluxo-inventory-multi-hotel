@@ -16,6 +16,7 @@ import EmployeesReportModal from '../../components/EmployeesReportModal';
 import { format, differenceInDays, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { whatsappService, formatWhatsAppNumber, isValidWhatsAppNumber } from '../../lib/whatsappService';
+import { useGroupHotels } from '../../hooks/useGroupHotels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -219,7 +220,8 @@ export default function DPEmployees() {
 
   // List state
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [hotels, setHotels]       = useState<{ id: string; name: string }[]>([]);
+  // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+  const { hotels } = useGroupHotels<{ id: string; name: string }>();
   const [showReport, setShowReport] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [fetchError, setFetchError] = useState('');
@@ -314,10 +316,6 @@ export default function DPEmployees() {
       setLoading(false);
     }
   }, [filterHotel, filterSector, filterStatus, canChangeHotel, defaultHotelId]);
-
-  useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => setHotels(data || []));
-  }, []);
 
   useEffect(() => { fetchEmployees(); }, [fetchEmployees]);
 

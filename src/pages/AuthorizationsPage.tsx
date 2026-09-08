@@ -28,6 +28,7 @@ import { useNotification } from "../context/NotificationContext";
 import { getBudgetHistory, updateBudgetStatus, getHotels, updateBudgetItems, updateBudgetItemStatus, updateBudgetItemPayment } from "../lib/supabase";
 import { createNotification } from "../lib/notifications";
 import { dispatchOrderForBudget, describeDispatch } from "../lib/orderDispatch";
+import { useGroup } from '../context/GroupContext';
 
 const unitOptions = [
   { value: "", label: "Selecione" },
@@ -124,6 +125,7 @@ const getHotelPillActive = (name: string | undefined) => {
 const AuthorizationsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { currentGroup } = useGroup();
   const { addNotification } = useNotification();
   const [allBudgets, setAllBudgets] = useState<Budget[]>([]);
   const [filteredBudgets, setFilteredBudgets] = useState<Budget[]>([]);
@@ -157,7 +159,9 @@ const AuthorizationsPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const hotelsResult = await getHotels();
+      // Só unidades do grupo atual: sem isso a tela puxava orçamentos de
+      // outros tenants junto com os hotéis deles.
+      const hotelsResult = await getHotels(currentGroup?.id);
       if (hotelsResult.success && hotelsResult.data) {
         setHotels(hotelsResult.data);
       } else {
@@ -193,7 +197,7 @@ const AuthorizationsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [addNotification, activeHotelFilter]);
+  }, [addNotification, activeHotelFilter, currentGroup?.id]);
 
   useEffect(() => {
     fetchAllBudgetsAndHotels();

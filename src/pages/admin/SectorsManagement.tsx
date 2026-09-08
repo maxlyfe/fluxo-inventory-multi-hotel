@@ -12,6 +12,7 @@ import {
   Building2, LayoutGrid, Package, GripVertical, AlertCircle,
   ChevronUp, ChevronDown, Boxes, ArrowRight,
 } from 'lucide-react';
+import { useGroupHotels } from '../../hooks/useGroupHotels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -179,7 +180,8 @@ export default function SectorsManagement() {
   const canManage = isAdmin || can('sectors_management');
   const canChangeHotel = isAdmin || ['management'].includes(user?.role || '');
 
-  const [hotels, setHotels]           = useState<Hotel[]>([]);
+  // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+  const { hotels } = useGroupHotels<Hotel>();
   const [filterHotel, setFilterHotel] = useState(selectedHotel?.id || '');
   const [sectors, setSectors]         = useState<Sector[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -202,10 +204,6 @@ export default function SectorsManagement() {
   const [transferSector, setTransferSector] = useState<Sector | null>(null);
 
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => setHotels(data || []));
-  }, []);
-
   useEffect(() => {
     if (!canChangeHotel && selectedHotel?.id) setFilterHotel(selectedHotel.id);
   }, [selectedHotel?.id]);

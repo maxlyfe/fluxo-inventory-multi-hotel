@@ -13,6 +13,7 @@ import {
   ChevronDown, X, Upload, Loader2, ArrowLeft, Building2,
   Hash, Layers, Edit3, User, Briefcase, Tag, AlignLeft,
 } from 'lucide-react';
+import { useGroupHotels } from '../hooks/useGroupHotels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +65,8 @@ export default function MaintenanceNewTicket() {
   const canChangeHotel = ['admin', 'management'].includes(user?.role || '');
 
   // Form state
-  const [hotels, setHotels]               = useState<Hotel[]>([]);
+  // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+  const { hotels } = useGroupHotels<Hotel>();
   const [hotelId, setHotelId]             = useState(defaultHotelId);
   const [locationType, setLocationType]   = useState<'room'|'common'|'sector'|'free'>('room');
   const [locationDetail, setLocationDetail] = useState('');
@@ -87,13 +89,10 @@ export default function MaintenanceNewTicket() {
   // ---------------------------------------------------------------------------
   // Load hotels
   // ---------------------------------------------------------------------------
+  // Só auto-seleciona o único hotel se não há hotel já definido
   useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => {
-      setHotels(data || []);
-      // Só auto-seleciona o único hotel se não há hotel já definido
-      if (!hotelId && data && data.length === 1) setHotelId(data[0].id);
-    });
-  }, []);
+    if (!hotelId && hotels.length === 1) setHotelId(hotels[0].id);
+  }, [hotels, hotelId]);
 
   // ---------------------------------------------------------------------------
   // Photo handling

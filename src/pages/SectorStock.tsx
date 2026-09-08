@@ -27,6 +27,8 @@ import { LiveFlash } from '../components/ui/LiveFlash';
 import { processErbonSalesDeductions, type DeductionResult } from '../lib/erbonStockDeductionService';
 import { detectSeason, getApplicableMinMax, type Season, type SeasonInfo } from '../lib/seasonHelper';
 import { findProductIdByBarcode } from '../lib/barcodeLookup';
+import { listGroupHotels } from '../lib/hotelsService';
+import { useGroup } from '../context/GroupContext';
 
 // Interfaces permanecem as mesmas
 interface Product {
@@ -120,6 +122,7 @@ const SectorStock = () => {
   const { sectorId } = useParams();
   const navigate = useNavigate();
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const { user } = useAuth();
   const { addNotification } = useNotification(); 
   const { parseNumber } = useFormatters();
@@ -335,17 +338,17 @@ const SectorStock = () => {
               .order('name');
             if (sectorsData) setHotelSectors(sectorsData);
 
-            // Busca todos os hotéis para transferência inter-hotel
-            const { data: hotelsData } = await supabase
-              .from('hotels')
-              .select('id, name')
-              .neq('id', selectedHotel.id)
-              .order('name');
-            if (hotelsData) setAllHotels(hotelsData);
+            // Unidades para transferência inter-hotel: só as do MESMO grupo.
+            // Transferir estoque entre grupos diferentes não existe como
+            // operação, e sem o filtro o perfil dev enxergava todas.
+            setAllHotels(await listGroupHotels(
+              currentGroup?.id,
+              { excludeHotelId: selectedHotel.id }
+            ));
         }
     };
     fetchInitialData();
-  }, [selectedHotel, fetchSectorAndStockData, fetchPendingEntries, fetchAllHotelPortionProducts]);
+  }, [selectedHotel, currentGroup?.id, fetchSectorAndStockData, fetchPendingEntries, fetchAllHotelPortionProducts]);
   
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

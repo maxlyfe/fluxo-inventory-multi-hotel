@@ -15,6 +15,7 @@ import {
   Shield, ArrowUpDown, CheckCircle, Package, Pencil, History, Save,
   Archive, ArchiveRestore, Printer, Check, CheckSquare, Square,
 } from 'lucide-react';
+import { useGroupHotels } from '../hooks/useGroupHotels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,7 +103,8 @@ export default function MaintenanceEquipment() {
   const defaultHotelId = selectedHotel?.id || '';
 
   const [equipment, setEquipment] = useState<Equipment[]>([]);
-  const [hotels, setHotels]       = useState<{id:string;name:string}[]>([]);
+  // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+  const { hotels } = useGroupHotels<{id:string;name:string}>();
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');
   const [filterHotel, setFilterHotel]   = useState(defaultHotelId);
@@ -168,12 +170,6 @@ export default function MaintenanceEquipment() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    supabase.from('hotels').select('id, name').order('name').then(({ data }) => {
-      setHotels(data || []);
-    });
-  }, []);
 
   // Quando selectedHotel muda (troca de unidade), atualiza form e filtro
   useEffect(() => {

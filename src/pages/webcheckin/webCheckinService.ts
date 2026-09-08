@@ -169,6 +169,10 @@ function generateToken(length = 12): string {
 // ── Hotéis disponíveis ─────────────────────────────────────────────────────
 
 export async function fetchWebCheckinHotels(groupId?: string | null): Promise<WebCheckinHotel[]> {
+  // Falha fechada: sem grupo resolvido a lista volta vazia. Antes o filtro era
+  // opcional e um acesso sem slug listava as unidades de todos os tenants.
+  if (!groupId) return [];
+
   let query = anonClient
     .from('hotels')
     .select(`
@@ -180,7 +184,7 @@ export async function fetchWebCheckinHotels(groupId?: string | null): Promise<We
 
   // Multi-tenant: o app de check-in é configurado por grupo (slug). Mostra
   // apenas os hotéis do grupo configurado.
-  if (groupId) query = query.eq('group_id', groupId);
+  query = query.eq('group_id', groupId);
 
   const { data, error } = await query.order('name');
 

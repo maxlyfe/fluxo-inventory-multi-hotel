@@ -779,11 +779,14 @@ export const getNotificationTypes = async () => {
   return data || [];
 };
 
-// Função para buscar hotéis
-export const getHotels = async () => {
+// Unidades de um grupo. O grupo é obrigatório pelo mesmo motivo descrito em
+// src/lib/hotelsService.ts: sem ele o perfil dev enxerga todos os tenants.
+export const getHotels = async (groupId?: string | null) => {
+  if (!groupId) return [];
   const { data, error } = await supabase
     .from("hotels")
     .select("id, name")
+    .eq("group_id", groupId)
     .order("name");
 
   if (error) {

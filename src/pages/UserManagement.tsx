@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNavigate } from 'react-router-dom';
+import { listGroupHotels } from '../lib/hotelsService';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -856,11 +857,12 @@ const UserManagement = () => {
     setAccessLoading(true);
     setAccessGranted(new Set());
     try {
+      // Conceder acesso só a unidades do grupo atual
       const [hotelsRes, accessRes] = await Promise.all([
-        supabase.from('hotels').select('id, name, code').eq('is_active', true).order('name'),
+        listGroupHotels<{ id: string; name: string; code: string }>(currentGroup?.id, { columns: 'id, name, code' }),
         supabase.from('user_hotel_access').select('hotel_id').eq('user_id', u.id),
       ]);
-      setAccessHotels(hotelsRes.data || []);
+      setAccessHotels(hotelsRes);
       setAccessGranted(new Set((accessRes.data || []).map((r: any) => r.hotel_id)));
     } catch (e: any) {
       showToast('error', 'Erro ao carregar acesso: ' + e.message);

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { PaymentMethod } from './apService';
+import { listGroupHotels } from './hotelsService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -620,13 +621,10 @@ export const arService = {
 
   /** Unidades ativas do grupo, para o multiselect de replicação. */
   async listGroupHotels(groupId?: string | null): Promise<{ id: string; name: string }[]> {
-    let q = supabase.from('hotels').select('id, name, group_id, is_active').order('name');
-    if (groupId) q = q.eq('group_id', groupId);
-    const { data, error } = await q;
-    if (error) throw error;
-    return (data ?? [])
-      .filter((h: any) => h.is_active !== false)
-      .map((h: any) => ({ id: h.id, name: h.name }));
+    // Sem grupo devolve vazio em vez da lista inteira: o RLS libera tudo para
+    // o perfil dev. Ver src/lib/hotelsService.ts.
+    const rows = await listGroupHotels<{ id: string; name: string }>(groupId);
+    return rows.map(h => ({ id: h.id, name: h.name }));
   },
 
   /**

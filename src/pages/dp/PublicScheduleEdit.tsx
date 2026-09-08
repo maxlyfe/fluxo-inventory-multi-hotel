@@ -9,6 +9,7 @@ import {
   Loader2, AlertTriangle, Check, Zap, X, Calendar, Building2, Moon, Sun,
 } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, parseISO, differenceInCalendarDays, subWeeks } from 'date-fns';
+import { listGroupHotels, getHotelGroupId } from '../../lib/hotelsService';
 
 // ---------------------------------------------------------------------------
 // Types (mirrored from DPSchedule)
@@ -762,10 +763,13 @@ export default function PublicScheduleEdit() {
           .from('hotels').select('id, name').eq('id', tk.hotel_id).single();
         if (hotel) setHotelName(hotel.name);
 
-        // 3. Load all hotels (for transfer dropdown)
-        const { data: allHotels } = await supabase
-          .from('hotels').select('id, name').order('name');
-        setHotels((allHotels || []) as Hotel[]);
+        // 3. Unidades para o dropdown de transferência: só as do grupo do
+        // hotel do token. Esta página é aberta por link público, sem login e
+        // sem GroupContext, então o grupo vem do próprio hotel do token.
+        // Antes listava todas as unidades da base, expondo nomes de outros
+        // grupos a quem tivesse o link.
+        const tokenGroupId = await getHotelGroupId(tk.hotel_id);
+        setHotels(await listGroupHotels<Hotel>(tokenGroupId));
 
         // 4. Load employees for this hotel + sector
         const { data: empData } = await supabase

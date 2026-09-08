@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGroup } from '../context/GroupContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
+import { listGroupHotels } from '../lib/hotelsService';
 
 /**
  * Interface para definir a estrutura de um objeto Hotel,
@@ -75,16 +76,17 @@ const HotelSelection = () => {
       setLoading(true);
       setError(null);
 
-      const { data, error: fetchError } = await supabase
-        .from('hotels')
-        .select('*')
-        .order('id', { ascending: true });
-
-      if (fetchError) {
-        throw fetchError;
-      }
-
-      setHotels(data || []);
+      // Só unidades do grupo atual, filtrado no servidor. Sem grupo definido
+      // a lista fica vazia de propósito: o RLS deixa o perfil dev ver todas as
+      // unidades de todos os grupos, então um select sem group_id misturava
+      // tenants nesta tela. Ver src/lib/hotelsService.ts.
+      // includeInactive: a regra de ocultos é aplicada abaixo (dev vê ocultos
+      // do próprio grupo para poder reativá-los).
+      setHotels(await listGroupHotels<Hotel>(currentGroup?.id, {
+        columns: '*',
+        includeInactive: true,
+        orderBy: 'name',
+      }));
 
     } catch (err: any) {
       console.error("Erro ao buscar hotéis:", err);
@@ -92,7 +94,7 @@ const HotelSelection = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentGroup?.id]);
 
   useEffect(() => {
     fetchHotels();
@@ -211,10 +213,8 @@ const HotelSelection = () => {
   // Usuários comuns só veem hotéis ativos; o dev vê todos (para gerenciar)
   // Filtra pelo GRUPO ATUAL (inclusive para o dev — evita misturar hotéis de
   // grupos diferentes). Mantém a regra de ocultos (dev vê ocultos do grupo).
-  const groupId = currentGroup?.id;
-  const visibleHotels = hotels
-    .filter(h => !groupId || h.group_id === groupId)
-    .filter(h => isDev ? true : h.is_active !== false);
+  // O grupo já foi filtrado na consulta; aqui só resta a regra de ocultos.
+  const visibleHotels = hotels.filter(h => isDev ? true : h.is_active !== false);
 
   // Sem login → landing de marketing (anônimo não vê unidades de ninguém)
   if (!user) return <Navigate to="/" replace />;

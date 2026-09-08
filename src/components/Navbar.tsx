@@ -6,7 +6,6 @@ import classNames from 'classnames';
 import React, { useState, useEffect, useMemo, Fragment } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Menu, Transition } from '@headlessui/react';
-import { supabase } from "../lib/supabase";
 import NotificationBell from "./NotificationBell";
 import SettingsModal from "./SettingsModal";
 import UnreadBadge from "./chat/UnreadBadge";
@@ -35,6 +34,7 @@ import {
   Boxes as BoxesIcon,
   MessageSquare as MessageSquareIcon,
 } from "lucide-react";
+import { listGroupHotels } from '../lib/hotelsService';
 
 // ---------------------------------------------------------------------------
 // Hotel name abbreviations
@@ -81,18 +81,13 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   }, [selectedHotel]);
 
   useEffect(() => {
-    // Não lista hotéis ocultos (is_active=false). O RLS também protege no
-    // servidor; este filtro garante resultado imediato no cliente.
-    supabase.from('hotels').select('id, name, is_active, group_id').order('name').then(({ data }) => {
-      if (!data) return;
-      const gid = currentGroup?.id;
-      setAllHotels(
-        data
-          .filter((h: any) => h.is_active !== false)
-          .filter((h: any) => !gid || h.group_id === gid) // só hotéis do grupo atual
-          .map((h: any) => ({ id: h.id, name: h.name })),
-      );
-    });
+    // Só unidades ativas do grupo atual. O filtro agora vai no servidor e sem
+    // grupo definido a lista fica vazia: antes o "!gid ||" abria a lista
+    // inteira, e para o perfil dev, que o RLS deixa ver tudo, isso mostrava
+    // unidades de outros grupos no seletor.
+    listGroupHotels(currentGroup?.id)
+      .then(rows => setAllHotels(rows.map(h => ({ id: h.id, name: h.name }))))
+      .catch(() => setAllHotels([]));
   }, [currentGroup?.id]);
 
   const handleSignOut = async () => {

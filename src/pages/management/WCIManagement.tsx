@@ -7,6 +7,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useHotel } from '../../context/HotelContext';
 import { Loader2, Save, Eye, EyeOff, ChevronDown, ChevronUp, CheckCircle, AlertTriangle, FileText, Shield, RotateCcw, Type } from 'lucide-react';
+import { listGroupHotels } from '../../lib/hotelsService';
+import { useGroup } from '../../context/GroupContext';
 
 type PolicyLang = 'pt' | 'en' | 'es';
 type DocTab     = 'hotel' | 'lgpd';
@@ -121,6 +123,7 @@ A assinatura digital aposta neste documento tem validade jurídica plena nos ter
 
 export default function WCIManagement() {
   const { selectedHotel } = useHotel();
+  const { currentGroup } = useGroup();
   const [hotels, setHotels] = useState<HotelPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -132,14 +135,21 @@ export default function WCIManagement() {
 
   useEffect(() => {
     fetchHotels();
-  }, []);
+  }, [currentGroup?.id]);
 
   const fetchHotels = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('hotels')
-      .select('id, name, image_url, wci_visible, wci_hotel_terms, wci_lgpd_terms, wci_hotel_terms_en, wci_lgpd_terms_en, wci_hotel_terms_es, wci_lgpd_terms_es')
-      .order('name');
+    // Só unidades do grupo atual: ver src/lib/hotelsService.ts
+    let data: any[] = [];
+    let error: { message: string } | null = null;
+    try {
+      data = await listGroupHotels<any>(currentGroup?.id, {
+        columns: 'id, name, image_url, wci_visible, wci_hotel_terms, wci_lgpd_terms, wci_hotel_terms_en, wci_lgpd_terms_en, wci_hotel_terms_es, wci_lgpd_terms_es',
+        includeInactive: true,
+      });
+    } catch (e: any) {
+      error = e;
+    }
     if (error) { setError(error.message); setLoading(false); return; }
     setHotels((data || []).map((h: any) => ({
       ...h,

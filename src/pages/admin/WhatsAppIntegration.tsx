@@ -18,6 +18,7 @@ import {
   evolutionApi, connectionStateLabel, EvolutionConnectionState, EvolutionQrCode,
 } from '../../lib/evolutionService';
 import { supabase } from '../../lib/supabase';
+import { listGroupHotels } from '../../lib/hotelsService';
 
 // ── CSS helpers ──────────────────────────────────────────────────────────────
 const inputCls = 'w-full p-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors';
@@ -174,8 +175,9 @@ const WhatsAppIntegration: React.FC = () => {
   const loadSharing = useCallback(async () => {
     if (!selectedHotel) return;
     try {
-      const [{ data: lista }, anexados, ownerId] = await Promise.all([
-        supabase.from('hotels').select('id, name, whatsapp_source_hotel_id').order('name'),
+      // Compartilhar número entre unidades só faz sentido dentro do grupo
+      const [lista, anexados, ownerId] = await Promise.all([
+        listGroupHotels<any>(currentGroup?.id, { columns: 'id, name, whatsapp_source_hotel_id' }),
         whatsappService.getAttachedHotels(selectedHotel.id),
         whatsappService.resolveConfigHotelId(selectedHotel.id),
       ]);
@@ -191,7 +193,7 @@ const WhatsAppIntegration: React.FC = () => {
     } catch (err) {
       console.error('Erro ao carregar compartilhamento:', err);
     }
-  }, [selectedHotel]);
+  }, [selectedHotel, currentGroup?.id]);
 
   useEffect(() => { loadSharing(); }, [loadSharing]);
 
