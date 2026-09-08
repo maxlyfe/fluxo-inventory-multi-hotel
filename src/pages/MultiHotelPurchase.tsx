@@ -12,6 +12,8 @@ import {
   ExternalLink, Edit3, Trash2, Link2, X, MessageSquare,
 } from 'lucide-react';
 import WhatsAppContactPicker from '../components/WhatsAppContactPicker';
+import { fetchAllRows } from '../lib/fetchAllRows';
+import { searchMatchAll } from '../utils/search';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -293,14 +295,21 @@ const MultiHotelPurchase = () => {
     setLoadingItems(true);
     try {
       const hotelIds = Array.from(selectedHotelIds);
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, category, supplier, image_url, quantity, min_quantity, max_quantity, unit, hotel_id')
-        .in('hotel_id', hotelIds)
-        .eq('is_active', true)
-        .order('name');
 
-      if (error) throw error;
+      // Paginado: o PostgREST corta em 1000 linhas por padrão. Com vários
+      // hotéis o catálogo passa disso fácil e o corte caía no meio do alfabeto
+      // (ordem é por nome), fazendo itens reais sumirem da busca: "dadinho de
+      // tapioca" aparecia e "tapioca" não, porque o T já ficava de fora.
+      const data = await fetchAllRows<RawProduct>((from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, category, supplier, image_url, quantity, min_quantity, max_quantity, unit, hotel_id')
+          .in('hotel_id', hotelIds)
+          .eq('is_active', true)
+          .order('name')
+          .order('id')
+          .range(from, to)
+      );
 
       // Build current selection map (preserve selected state & purchase_qty edits)
       const prevMap = new Map<string, MultiHotelItem>();
@@ -311,7 +320,7 @@ const MultiHotelPurchase = () => {
       // Merge products by name
       const itemMap = new Map<string, MultiHotelItem>();
 
-      for (const p of (data || []) as RawProduct[]) {
+      for (const p of data) {
         const key = p.name.trim().toLowerCase();
 
         if (!itemMap.has(key)) {
@@ -376,12 +385,15 @@ const MultiHotelPurchase = () => {
     ));
   }, []);
 
-  const selectAllFiltered = useCallback(() => {
+  // Função simples de propósito: com useCallback([]) o callback congelava a
+  // lista da primeira renderização (vazia) e "Selecionar todos" não marcava
+  // nada; e filteredItems é declarado abaixo, então não pode entrar nas deps.
+  const selectAllFiltered = () => {
     const filteredKeys = new Set(filteredItems.map(i => i.key));
     setItems(prev => prev.map(item =>
       filteredKeys.has(item.key) ? { ...item, selected: true } : item
     ));
-  }, []);
+  };
 
   const deselectAll = useCallback(() => {
     setItems(prev => prev.map(item => ({ ...item, selected: false })));
@@ -417,7 +429,9 @@ const MultiHotelPurchase = () => {
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
-      if (searchTerm && !item.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      // searchMatchAll ignora acentos e a ordem das palavras: "goma tapioca"
+      // acha "Tapioca de Goma" e "acucar" acha "Açúcar".
+      if (searchTerm && !searchMatchAll(searchTerm, item.name, item.supplier, item.category)) return false;
       if (selectedSupplier && item.supplier !== selectedSupplier) return false;
       if (selectedCategory && item.category !== selectedCategory) return false;
       if (showOnlyLowStock) {

@@ -900,6 +900,38 @@ export const whatsappService = {
     }
   },
 
+  /**
+   * Vincula um contato a produtos SEM apagar os vínculos já existentes.
+   *
+   * Diferente de syncProductContacts, que substitui a lista inteira: aqui o
+   * contato novo entra somando aos fornecedores que o produto já tinha. É o que
+   * o envio de cotação precisa quando alguém adiciona um número na hora e quer
+   * guardá-lo no cadastro do produto.
+   */
+  async addProductContacts(productIds: string[], contactId: string): Promise<void> {
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (ids.length === 0) return;
+    const rows = ids.map(product_id => ({ product_id, contact_id: contactId }));
+    // UNIQUE(product_id, contact_id) no banco: ignoreDuplicates deixa os
+    // vínculos que já existiam intactos em vez de estourar 23505.
+    const { error } = await supabase
+      .from('product_supplier_contacts')
+      .upsert(rows, { onConflict: 'product_id,contact_id', ignoreDuplicates: true });
+    if (error) throw error;
+  },
+
+  /** Product ids de um ou mais orçamentos dinâmicos, deduplicados */
+  async getBudgetProductIds(budgetIds: string[]): Promise<string[]> {
+    const ids = [...new Set(budgetIds.filter(Boolean))];
+    if (ids.length === 0) return [];
+    const { data, error } = await supabase
+      .from('dynamic_budget_items')
+      .select('product_id')
+      .in('budget_id', ids);
+    if (error) throw error;
+    return [...new Set((data || []).map(i => i.product_id).filter(Boolean))] as string[];
+  },
+
   // ── Budget Contacts (buscar contatos vinculados a um orçamento) ───────
 
   async getBudgetContacts(budgetId: string): Promise<SupplierContact[]> {

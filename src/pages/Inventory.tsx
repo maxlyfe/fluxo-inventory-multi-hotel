@@ -19,6 +19,7 @@ import ProductLinkModal from '../components/ProductLinkModal';
 import NewHotelTransferModal from '../components/NewHotelTransferModal';
 import { searchMatch } from '../utils/search';
 import { findProductIdByBarcode } from '../lib/barcodeLookup';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import { useNotification } from '../context/NotificationContext';
 import NewProductModal from '../components/NewProductModal';
 import { useAuth } from '../context/AuthContext';
@@ -208,11 +209,20 @@ const Inventory = () => {
     try {
       if (!selectedHotel?.id) throw new Error('Hotel não selecionado');
       setLoading(true); setError(''); setImageErrors({});
-      const { data, error: fetchError } = await supabase
-        .from('products').select('*, is_starred').eq('hotel_id', selectedHotel.id).order('name');
-      if (fetchError) throw fetchError;
-      setProducts(data || []);
-      setCategories([...new Set(data?.map(p => p.category) || [])].sort());
+      // Paginado: o PostgREST corta em 1000 linhas por padrão e, como a lista
+      // vem ordenada por nome, o corte faria produtos do fim do alfabeto
+      // desaparecerem da tela e da busca sem nenhum erro visível.
+      const data = await fetchAllRows<Product>((from, to) =>
+        supabase
+          .from('products')
+          .select('*, is_starred')
+          .eq('hotel_id', selectedHotel.id)
+          .order('name')
+          .order('id')
+          .range(from, to)
+      );
+      setProducts(data);
+      setCategories([...new Set(data.map(p => p.category))].sort());
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(`Erro ao carregar produtos: ${msg}`);
