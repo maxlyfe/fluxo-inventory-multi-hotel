@@ -23,13 +23,15 @@ interface Props {
 }
 
 const DEFAULT_MESSAGE =
-  'Olá! Segue o link para requisição de materiais do setor *{setor}*.\n\n' +
+  'Bom dia, equipe!\n\n' +
+  'Hoje é dia de atualizar a requisição do seu setor. Acesse o link do seu setor abaixo e envie as solicitações necessárias:\n\n' +
   '{link}\n\n' +
-  'Válido até {validade}. É só abrir, informar seu nome e fazer o pedido, sem precisar de login.';
+  'Os links valem até {validade}. É só abrir, informar seu nome e fazer o pedido, sem precisar de login.\n\n' +
+  'Qualquer dúvida, estou à disposição. Obrigado pela colaboração!';
 
 const PLACEHOLDERS: { key: string; label: string }[] = [
-  { key: '{setor}',    label: 'Nome do setor' },
-  { key: '{link}',     label: 'Link do setor' },
+  { key: '{setor}',    label: 'Nome do setor (todos os selecionados, separados por vírgula)' },
+  { key: '{link}',     label: 'Lista de setores com os links, um por bloco' },
   { key: '{validade}', label: 'Data de validade' },
   { key: '{hotel}',    label: 'Nome do hotel' },
 ];
@@ -100,24 +102,35 @@ export default function RequestLinkModal({ isOpen, onClose }: Props) {
   const hasMessage    = message.trim().length > 0;
   const hasLinkToken  = message.includes('{link}');
 
-  /** Aplica o template a um link específico. */
-  const renderMessage = (l: GeneratedLink) => {
+  /** Lista "Setor:\nURL", um bloco por setor. */
+  const linkList = (entries: GeneratedLink[]) =>
+    entries.map(l => `${l.sectorName}:\n${l.url}`).join('\n\n');
+
+  /**
+   * Aplica o template. Uma mensagem só para todos os setores: `{link}` vira a
+   * lista inteira quando são vários, e a URL crua quando é um setor sozinho
+   * (nesse caso o nome já vem por `{setor}`).
+   */
+  const renderMessage = (entries: GeneratedLink[]) => {
+    if (entries.length === 0) return '';
+    const single = entries.length === 1;
+    const linkText = single ? entries[0].url : linkList(entries);
+    const sectorText = single
+      ? entries[0].sectorName
+      : entries.map(l => l.sectorName).join(', ');
     const body = message
-      .replace(/\{setor\}/g, l.sectorName)
+      .replace(/\{setor\}/g, sectorText)
       .replace(/\{validade\}/g, fmtExpiry)
       .replace(/\{hotel\}/g, selectedHotel?.name || '')
-      .replace(/\{link\}/g, l.url);
-    return hasLinkToken ? body : `${body}\n\n${l.url}`;
+      .replace(/\{link\}/g, linkText);
+    return hasLinkToken ? body : `${body}\n\n${linkText}`;
   };
 
-  /** Texto de um único setor (com mensagem, se houver). */
-  const textForOne = (l: GeneratedLink) => (hasMessage ? renderMessage(l) : l.url);
+  /** Texto de um setor só (com mensagem, se houver). */
+  const textForOne = (l: GeneratedLink) => (hasMessage ? renderMessage([l]) : l.url);
 
-  /** Texto de todos os setores gerados. */
-  const textForAll = () => {
-    if (!hasMessage) return links.map(l => `${l.sectorName}:\n${l.url}`).join('\n\n');
-    return links.map(l => renderMessage(l)).join('\n\n\n');
-  };
+  /** Texto único com todos os setores gerados. */
+  const textForAll = () => (hasMessage ? renderMessage(links) : linkList(links));
 
   const insertPlaceholder = (key: string) => {
     const el = messageRef.current;
@@ -132,11 +145,20 @@ export default function RequestLinkModal({ isOpen, onClose }: Props) {
     });
   };
 
-  const previewLink: GeneratedLink = links[0] || {
-    sectorId: 'preview',
-    sectorName: sectors.find(s => selected.has(s.id))?.name || 'Cozinha',
-    url: `${window.location.origin}/request/exemplo`,
-  };
+  /** Setores da prévia: os já gerados ou, antes disso, os selecionados. */
+  const previewEntries: GeneratedLink[] = links.length > 0
+    ? links
+    : (() => {
+        const chosen = sectors.filter(s => selected.has(s.id));
+        const base = chosen.length > 0
+          ? chosen
+          : [{ id: 'preview', name: sectors[0]?.name || 'Cozinha' }];
+        return base.map((s, i) => ({
+          sectorId: s.id,
+          sectorName: s.name,
+          url: `${window.location.origin}/request/exemplo${base.length > 1 ? i + 1 : ''}`,
+        }));
+      })();
 
   const handleGenerate = async () => {
     if (!selectedHotel?.id || selected.size === 0 || !expiryValid) return;
@@ -321,7 +343,7 @@ export default function RequestLinkModal({ isOpen, onClose }: Props) {
                   </div>
                   {hasMessage && !hasLinkToken && (
                     <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2">
-                      Sem a variável {'{link}'}, o link é adicionado no final da mensagem.
+                      Sem a variável {'{link}'}, a lista de links vai para o final da mensagem.
                     </p>
                   )}
                 </div>
@@ -334,11 +356,11 @@ export default function RequestLinkModal({ isOpen, onClose }: Props) {
                     </label>
                     <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                       <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words leading-relaxed">
-                        {renderMessage(previewLink)}
+                        {renderMessage(previewEntries)}
                       </p>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Uma mensagem por setor selecionado, tudo junto ao copiar.
+                      Uma mensagem só, com todos os setores selecionados dentro dela.
                     </p>
                   </div>
                 )}
@@ -352,7 +374,7 @@ export default function RequestLinkModal({ isOpen, onClose }: Props) {
                 <p className="text-xs text-teal-700 dark:text-teal-300 leading-relaxed">
                   Envie cada link ao grupo do setor. Válidos até <strong>{fmtExpiry}</strong>.
                   Quem abrir informa o nome e faz o pedido, sem precisar de login.
-                  {hasMessage && ' Ao copiar, a mensagem predefinida vai junto.'}
+                  {hasMessage && ' "Copiar mensagem + links" monta uma mensagem só com todos os setores; o botão de cada linha copia a mensagem daquele setor sozinho.'}
                 </p>
               </div>
               <div className="space-y-2">
