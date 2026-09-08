@@ -787,6 +787,7 @@ export const getHotels = async (groupId?: string | null) => {
     .from("hotels")
     .select("id, name")
     .eq("group_id", groupId)
+    .eq("is_active", true)
     .order("name");
 
   if (error) {

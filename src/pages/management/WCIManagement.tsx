@@ -145,7 +145,6 @@ export default function WCIManagement() {
     try {
       data = await listGroupHotels<any>(currentGroup?.id, {
         columns: 'id, name, image_url, wci_visible, wci_hotel_terms, wci_lgpd_terms, wci_hotel_terms_en, wci_lgpd_terms_en, wci_hotel_terms_es, wci_lgpd_terms_es',
-        includeInactive: true,
       });
     } catch (e: any) {
       error = e;

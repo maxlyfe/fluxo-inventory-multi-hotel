@@ -119,7 +119,7 @@ const ProductLinkModal: React.FC<Props> = ({ currentProduct, onClose, onLinked }
   useEffect(() => {
     // Só hotéis do MESMO grupo — nunca vincular produtos entre grupos diferentes
     if (!currentGroup?.id) { setHotels([]); return; }
-    supabase.from('hotels').select('id, name').eq('group_id', currentGroup.id).order('name')
+    supabase.from('hotels').select('id, name').eq('group_id', currentGroup.id).eq('is_active', true).order('name')
       .then(({ data }) => {
         setHotels((data || []).filter(h => h.id !== selectedHotel?.id));
       });

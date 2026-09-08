@@ -204,7 +204,7 @@ export default function PerformanceReport() {
 
   useEffect(() => {
     if (!currentGroup?.id) { setHotels([]); return; }
-    supabase.from('hotels').select('id, name, code').eq('group_id', currentGroup.id).order('name').then(({ data }) => {
+    supabase.from('hotels').select('id, name, code').eq('group_id', currentGroup.id).eq('is_active', true).order('name').then(({ data }) => {
       setHotels(data ?? []);
       if (!selectedHotelId && data?.length) setSelectedHotelId(data[0].id);
     });

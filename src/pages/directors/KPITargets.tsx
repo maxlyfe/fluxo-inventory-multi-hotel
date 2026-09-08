@@ -49,7 +49,7 @@ export default function KPITargets() {
     (async () => {
       if (!currentGroup?.id) { setHotels([]); return; }
       const { data } = await supabase.from('hotels').select('id, name, code')
-        .eq('group_id', currentGroup.id).order('name');
+        .eq('group_id', currentGroup.id).eq('is_active', true).order('name');
       if (data) {
         setHotels(data);
         if (selectedHotel) setTargetHotel(selectedHotel.id);

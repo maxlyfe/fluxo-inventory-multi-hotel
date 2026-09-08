@@ -667,10 +667,17 @@ export const saveWeeklyControlEntries = async (entries: WeeklyControlEntry[]) =>
   }
 };
 
-// --- Unidades de um grupo ---
+// --- Unidades ATIVAS de um grupo ---
 // O grupo é obrigatório: o RLS de hotels libera tudo para o perfil dev, então
 // um select sem group_id devolvia unidades de outros tenants. Sem grupo a
 // lista volta vazia de propósito. Ver src/lib/hotelsService.ts.
+//
+// is_active também é obrigatório aqui, e não é detalhe: unidades ocultas com
+// nome de teste ("Hotel TESTES", "TESTE 2") apareciam em /authorizations e
+// pareciam vazamento de outro grupo, quando na verdade são unidades do próprio
+// grupo que alguém arquivou. O helper listGroupHotels já filtra por padrão;
+// esta função ficou fora dele só para não criar import circular com este
+// arquivo, então repete a regra.
 export const getHotels = async (groupId?: string | null) => {
   try {
     if (!groupId) return { success: true, data: [] as { id: string; name: string }[] };
@@ -678,6 +685,7 @@ export const getHotels = async (groupId?: string | null) => {
       .from("hotels")
       .select("id, name")
       .eq("group_id", groupId)
+      .eq("is_active", true)
       .order("name");
     if (error) throw error;
     return { success: true, data };

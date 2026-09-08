@@ -166,7 +166,9 @@ async function getNotificationTypes(): Promise<NotificationType[]> {
 }
 
 async function getHotels(groupId?: string | null): Promise<Hotel[]> {
-  let q = supabase.from('hotels').select('id, name').order('name');
+  // Ativas e do grupo: unidade oculta não deve virar opção de preferência de
+  // notificação, e sem grupo a lista fica vazia (o RLS libera tudo para o dev).
+  let q = supabase.from('hotels').select('id, name').eq('is_active', true).order('name');
   if (groupId) q = q.eq('group_id', groupId);
   const { data, error } = await q;
   if (error) throw error;

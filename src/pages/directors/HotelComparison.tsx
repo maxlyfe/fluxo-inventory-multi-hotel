@@ -36,7 +36,7 @@ export default function HotelComparison() {
     (async () => {
       if (!currentGroup?.id) { setHotels([]); return; }
       const { data } = await supabase.from('hotels').select('id, name, code')
-        .eq('group_id', currentGroup.id).order('name');
+        .eq('group_id', currentGroup.id).eq('is_active', true).order('name');
       if (data) {
         setHotels(data);
         setSelected(new Set(data.map(h => h.id)));

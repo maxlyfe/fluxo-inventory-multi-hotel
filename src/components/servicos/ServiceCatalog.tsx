@@ -106,6 +106,7 @@ const ServiceCatalog: React.FC = () => {
       .from('hotels')
       .select('id, name')
       .eq('group_id', currentGroup.id)
+      .eq('is_active', true)
       .neq('id', selectedHotel.id)
       .order('name')
       .then(({ data }) => setGroupHotels(data ?? []));

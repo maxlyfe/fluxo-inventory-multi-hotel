@@ -53,6 +53,7 @@ const SyncProductsModal: React.FC<SyncProductsModalProps> = ({
         .from('hotels')
         .select('id, name')
         .eq('group_id', currentGroup.id)
+        .eq('is_active', true)
         .neq('id', selectedHotel.id)
         .order('name');
       setHotels(data || []);

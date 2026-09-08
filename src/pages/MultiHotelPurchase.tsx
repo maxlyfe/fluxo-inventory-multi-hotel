@@ -148,6 +148,7 @@ const MultiHotelPurchase = () => {
           .from('hotels')
           .select('id, name, code, image_url, fantasy_name')
           .eq('group_id', currentGroup.id)
+          .eq('is_active', true)
           .order('name');
 
         if (error) throw error;
