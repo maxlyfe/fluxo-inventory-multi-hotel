@@ -12,6 +12,7 @@ import {
   AlertCircle, Shirt, Package, Edit2, X, Printer, Hash, Trash2,
   Link2, UserCheck, UserX, Search, ShieldOff, GraduationCap, Stethoscope,
 } from 'lucide-react';
+import EmployeeDocumentsPanel from '../../components/personnel/EmployeeDocumentsPanel';
 import { format, differenceInDays, differenceInMonths, differenceInYears, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -240,7 +241,7 @@ export default function DPEmployeeDetail() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [dismissals, setDismissals] = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
-  const [activeTab,  setActiveTab]  = useState<'info' | 'uniforms' | 'history' | 'trainings' | 'exams' | 'dismissal'>('info');
+  const [activeTab,  setActiveTab]  = useState<'info' | 'uniforms' | 'history' | 'docs' | 'trainings' | 'exams' | 'dismissal'>('info');
   const [trainings, setTrainings] = useState<any[]>([]);
   const [medExams, setMedExams]   = useState<any[]>([]);
 
@@ -1280,13 +1281,14 @@ export default function DPEmployeeDetail() {
           { id: 'info',      label: 'Informações',          icon: User    },
           { id: 'uniforms',  label: 'Uniformes',            icon: Shirt   },
           { id: 'history',   label: `Entregas (${deliveries.length})`, icon: Package },
+          { id: 'docs',      label: 'Documentos',           icon: FileText },
           { id: 'trainings', label: `Treinamentos (${trainings.length})`, icon: GraduationCap },
           { id: 'exams',     label: `Exames (${medExams.length})`, icon: Stethoscope },
           ...(employee?.status === 'dismissed' || dismissals.length > 0
             ? [{ id: 'dismissal', label: 'Desligamento', icon: UserX }]
             : []
           )
-        ] as { id: 'info' | 'uniforms' | 'history' | 'trainings' | 'exams' | 'dismissal'; label: string; icon: any }[]).map(tab => {
+        ] as { id: 'info' | 'uniforms' | 'history' | 'docs' | 'trainings' | 'exams' | 'dismissal'; label: string; icon: any }[]).map(tab => {
           const Icon = tab.icon;
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -1306,6 +1308,9 @@ export default function DPEmployeeDetail() {
       {activeTab === 'info'     && <TabInfo />}
       {activeTab === 'uniforms' && <TabUniforms />}
       {activeTab === 'history'  && <TabHistory />}
+      {activeTab === 'docs' && employee && (
+        <EmployeeDocumentsPanel employeeId={employee.id} employeeName={employee.name} />
+      )}
       {activeTab === 'trainings' && (
         <div className="space-y-3">
           {trainings.length === 0 ? (

@@ -55,6 +55,7 @@ import MultiHotelPurchase    from './pages/MultiHotelPurchase';
 import EmployeePortal        from './pages/portal/EmployeePortal';
 import MySchedule            from './pages/portal/MySchedule';
 import MyDocuments           from './pages/portal/MyDocuments';
+import MyPayslips            from './pages/portal/MyPayslips';
 import EventsCalendar        from './pages/portal/EventsCalendar';
 import TasksPage             from './pages/portal/TasksPage';
 import MotivationalMessages  from './pages/portal/MotivationalMessages';
@@ -499,6 +500,11 @@ function App() {
                     <Route path="/portal/my-documents" element={
                       <PrivateRoute module="employee_portal">
                         <MyDocuments />
+                      </PrivateRoute>
+                    } />
+                    <Route path="/portal/my-payslips" element={
+                      <PrivateRoute module="employee_portal">
+                        <MyPayslips />
                       </PrivateRoute>
                     } />
                     <Route path="/portal/events" element={

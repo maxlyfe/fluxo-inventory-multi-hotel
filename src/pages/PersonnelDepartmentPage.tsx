@@ -1,18 +1,20 @@
 // src/pages/PersonnelDepartmentPage.tsx
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { UsersRound, Users, CalendarDays, Gift, Cake, Package } from 'lucide-react';
+import { UsersRound, Users, CalendarDays, Gift, Cake, Package, FileText } from 'lucide-react';
 import DPEmployees from './dp/DPEmployees';
 import DPSchedule from './dp/DPSchedule';
 import DPBirthdays from './dp/DPBirthdays';
 import DPBaskets from './dp/DPBaskets';
+import DPDocuments from './dp/DPDocuments';
 
-type MainTab    = 'employees' | 'schedule' | 'benefits';
+type MainTab    = 'employees' | 'schedule' | 'documents' | 'benefits';
 type BenefitTab = 'birthdays' | 'baskets';
 
 const MAIN_TABS = [
   { id: 'employees' as MainTab, label: 'Colaboradores', icon: Users        },
   { id: 'schedule'  as MainTab, label: 'Escala',        icon: CalendarDays },
+  { id: 'documents' as MainTab, label: 'Documentos',    icon: FileText     },
   { id: 'benefits'  as MainTab, label: 'Benefícios',    icon: Gift         },
 ];
 
@@ -23,7 +25,7 @@ const BENEFIT_TABS = [
 
 const PersonnelDepartmentPage: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const initialTab = (['employees', 'schedule', 'benefits'] as MainTab[])
+  const initialTab = (['employees', 'schedule', 'documents', 'benefits'] as MainTab[])
     .includes(searchParams.get('tab') as MainTab) ? (searchParams.get('tab') as MainTab) : 'employees';
   const [mainTab,    setMainTab]    = useState<MainTab>(initialTab);
   const [benefitTab, setBenefitTab] = useState<BenefitTab>('birthdays');
@@ -69,6 +71,7 @@ const PersonnelDepartmentPage: React.FC = () => {
       {/* Conteúdo */}
       {mainTab === 'employees' && <DPEmployees />}
       {mainTab === 'schedule'  && <DPSchedule />}
+      {mainTab === 'documents' && <DPDocuments />}
 
       {mainTab === 'benefits' && (
         <div>

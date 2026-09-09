@@ -27,6 +27,7 @@ interface Employee {
   user_id: string | null;
   name: string;
   cpf: string | null;
+  payroll_code: string | null;
   rg: string | null;
   phone: string | null;
   email: string | null;
@@ -106,7 +107,7 @@ const WORK_SCHEDULES = [
 ];
 
 const EMPTY_FORM = {
-  hotel_id: '', user_id: '', name: '', cpf: '', rg: '', phone: '', email: '',
+  hotel_id: '', user_id: '', name: '', cpf: '', payroll_code: '', rg: '', phone: '', email: '',
   birth_date: '', address: '',
   address_cep: '', address_street: '', address_number: '',
   address_neighborhood: '', address_city: '', address_state: '',
@@ -333,6 +334,7 @@ export default function DPEmployees() {
       e.name.toLowerCase().includes(q) ||
       (e.role || '').toLowerCase().includes(q) ||
       (e.cpf || '').includes(q) ||
+      (e.payroll_code || '').includes(q) ||
       (e.phone || '').includes(q)
     );
   });
@@ -435,7 +437,7 @@ export default function DPEmployees() {
     setEditId(emp.id);
     setForm({
       hotel_id: emp.hotel_id, user_id: emp.user_id || '',
-      name: emp.name, cpf: emp.cpf || '', rg: emp.rg || '',
+      name: emp.name, cpf: emp.cpf || '', payroll_code: emp.payroll_code || '', rg: emp.rg || '',
       phone: emp.phone || '', email: emp.email || '',
       birth_date: emp.birth_date || '', address: emp.address || '',
       address_cep: (emp as any).address_cep || '',
@@ -500,6 +502,7 @@ export default function DPEmployees() {
         user_id:        form.user_id || null,
         name:           form.name.trim(),
         cpf:            form.cpf || null,
+        payroll_code:   form.payroll_code.trim() || null,
         rg:             form.rg || null,
         phone:          form.phone || null,
         email:          form.email || null,
@@ -1066,6 +1069,15 @@ export default function DPEmployees() {
                 <label className={labelCls}>CPF</label>
                 <input type="text" value={form.cpf} onChange={e => setForm(f => ({ ...f, cpf: e.target.value }))}
                   placeholder="000.000.000-00" className={inputCls} />
+              </div>
+              <div>
+                {/* Chave de casamento do contracheque enviado em lote: o
+                    demonstrativo de pagamento traz matricula e nome, nao CPF.
+                    Sem ela, o casamento automatico depende so do nome, que erra
+                    em homonimo e em nome abreviado. */}
+                <label className={labelCls}>Matrícula (folha)</label>
+                <input type="text" value={form.payroll_code} onChange={e => setForm(f => ({ ...f, payroll_code: e.target.value }))}
+                  placeholder="000118" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>RG</label>
