@@ -24,6 +24,7 @@ const EVENT_ROUTE_MAP: Record<string, string> = {
   TASK_COMPLETED:           '/portal/tasks',
   TASK_COMMENT:             '/portal/tasks',
   NOTE_SHARED:              '/portal/tasks',
+  EMPLOYEE_DOCUMENT_PENDING_SIGNATURE: '/portal/my-payslips',
 };
 
 /**

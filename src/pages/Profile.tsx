@@ -123,7 +123,20 @@ export default function Profile() {
       if (error) throw error;
       setEmployee(matchEmployee);
       setMatchEmployee(null);
-      setMessage({ type: 'success', text: `Vinculado ao cadastro de ${matchEmployee.name}! 🎉` });
+
+      // Contracheque enviado antes do vinculo ficou guardado na ficha; a RLS
+      // libera todo o retroativo agora. Avisa uma vez, com o total.
+      const { notifyPendingDocumentsAfterLink } = await import('../lib/employeeDocumentsService');
+      const notified = await notifyPendingDocumentsAfterLink(matchEmployee.id, user.id, {
+        hotelId: (matchEmployee as any).hotel_id ?? null,
+      });
+
+      setMessage({
+        type: 'success',
+        text: notified > 0
+          ? `Vinculado ao cadastro de ${matchEmployee.name}! Você tem ${notified} documento(s) aguardando assinatura em Meus Contracheques.`
+          : `Vinculado ao cadastro de ${matchEmployee.name}! 🎉`,
+      });
     } catch (e: any) {
       setMessage({ type: 'error', text: e.message || 'Erro ao vincular.' });
     } finally { setLinking(false); }

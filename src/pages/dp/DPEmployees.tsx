@@ -10,13 +10,15 @@ import {
   Users, Plus, Search, X, Loader2, AlertTriangle, ChevronDown,
   Building2, Phone, Calendar, Briefcase, UserCheck, UserX,
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
-  ArrowRightLeft, FileText, Check, Trash2,
+  ArrowRightLeft, FileText, Check, Trash2, PenLine,
 } from 'lucide-react';
 import EmployeesReportModal from '../../components/EmployeesReportModal';
 import { format, differenceInDays, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { whatsappService, formatWhatsAppNumber, isValidWhatsAppNumber } from '../../lib/whatsappService';
 import { useGroupHotels } from '../../hooks/useGroupHotels';
+import { usePendingSignatures } from '../../hooks/usePendingSignatures';
+import { usePermissions } from '../../hooks/usePermissions';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -214,6 +216,13 @@ function ContractBadge({ emp }: { emp: Employee }) {
 export default function DPEmployees() {
   const { user } = useAuth();
   const { selectedHotel } = useHotel();
+  const { canAny } = usePermissions();
+
+  // Indicador de contracheque aguardando assinatura, ao vivo. Só consulta para
+  // quem pode ver documento — sem a permissão a RLS devolveria lista vazia de
+  // qualquer forma, e a subscrição seria desperdício.
+  const canSeeDocs = canAny(['personnel_department', 'personnel.payslips.view']);
+  const { countByEmployee: pendingSignatures } = usePendingSignatures(canSeeDocs);
   const navigate = useNavigate();
 
   const canChangeHotel = ['admin', 'management'].includes(user?.role || '');
@@ -1523,6 +1532,7 @@ export default function DPEmployees() {
             const sCfg = STATUS_CONFIG[emp.status] ?? STATUS_CONFIG.active;
             const StatusIcon = sCfg.icon;
             const initials = emp.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
+            const pendingCount = pendingSignatures.get(emp.id) ?? 0;
 
             return (
               <div key={emp.id}
@@ -1539,11 +1549,34 @@ export default function DPEmployees() {
                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{emp.role} · {emp.sector}</p>
                   </div>
 
-                  {/* Status badge */}
-                  <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${sCfg.bg} ${sCfg.color}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />
-                    {sCfg.label}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {/* Contracheque aguardando assinatura. Reativo: o hook
+                        escuta `employee_documents` e o indicador apaga assim
+                        que a pessoa assina pelo celular, sem recarregar. */}
+                    {pendingCount > 0 && (
+                      <button
+                        onClick={() => navigate(`/dp/employee/${emp.id}?tab=docs`)}
+                        title={pendingCount === 1
+                          ? '1 documento aguardando assinatura'
+                          : `${pendingCount} documentos aguardando assinatura`}
+                        aria-label={`${pendingCount} documento(s) aguardando assinatura de ${emp.name}`}
+                        className="relative inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/70 transition-colors"
+                      >
+                        <PenLine className="h-3.5 w-3.5" />
+                        {pendingCount > 1 && (
+                          <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold leading-[14px] text-center">
+                            {pendingCount > 9 ? '9+' : pendingCount}
+                          </span>
+                        )}
+                      </button>
+                    )}
+
+                    {/* Status badge */}
+                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${sCfg.bg} ${sCfg.color}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />
+                      {sCfg.label}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Info */}

@@ -104,6 +104,8 @@ export interface GroupEmployee extends MatchableEmployee {
   sector: string | null;
   role: string | null;
   status: string | null;
+  /** Conta de sistema vinculada. Sem ela nao ha como notificar nem assinar. */
+  user_id: string | null;
   hotel_name?: string;
 }
 
@@ -202,7 +204,7 @@ export async function listGroupEmployees(groupId: string | null | undefined): Pr
   const rows = await fetchAllRows<GroupEmployee>((from, to) =>
     supabase
       .from('employees')
-      .select('id, name, cpf, payroll_code, hotel_id, sector, role, status')
+      .select('id, name, cpf, payroll_code, hotel_id, sector, role, status, user_id')
       .in('hotel_id', hotelIds)
       .neq('status', 'deleted')
       .order('name')
@@ -296,7 +298,7 @@ export async function listDocumentLines(documentId: string): Promise<DocumentLin
 export async function resolveMyEmployee(userId: string): Promise<GroupEmployee | null> {
   const { data, error } = await supabase
     .from('employees')
-    .select('id, name, cpf, payroll_code, hotel_id, sector, role, status')
+    .select('id, name, cpf, payroll_code, hotel_id, sector, role, status, user_id')
     .eq('user_id', userId)
     .neq('status', 'deleted')
     // Um usuário pode ter vínculo em mais de uma unidade ao longo do tempo; o
@@ -307,6 +309,60 @@ export async function resolveMyEmployee(userId: string): Promise<GroupEmployee |
 
   if (error) throw error;
   return (data?.[0] as GroupEmployee) ?? null;
+}
+
+/**
+ * Avisa o colaborador dos documentos que ja o esperavam quando a conta foi
+ * vinculada.
+ *
+ * Existe por causa de uma assimetria do modulo: o documento e gravado contra
+ * `employees.id`, entao subir contracheque de quem ainda nao tem conta funciona
+ * e o arquivo fica guardado na ficha. O acesso tambem se resolve sozinho, porque
+ * a RLS avalia `employees.user_id = auth.uid()` no momento da consulta — vincular
+ * a conta libera todo o retroativo de uma vez, sem migrar nada.
+ *
+ * O que NAO se resolve sozinho e o aviso: a notificacao de "contracheque
+ * disponivel" e disparada no envio do lote, e naquele momento nao havia
+ * destinatario. Sem esta chamada, a pessoa passa a ter N documentos pendentes e
+ * nenhuma notificacao dizendo isso.
+ *
+ * Manda UMA notificacao com o total, nao uma por documento: um ano de folha
+ * retroativa viraria doze pushes seguidos, que e como se ensina o usuario a
+ * ignorar notificacao.
+ *
+ * Melhor esforco: devolve quantos documentos motivaram o aviso, e nunca lanca —
+ * falhar aqui nao pode desfazer o vinculo, que e a operacao principal.
+ */
+export async function notifyPendingDocumentsAfterLink(
+  employeeId: string,
+  userId: string,
+  options: { hotelId?: string | null } = {},
+): Promise<number> {
+  try {
+    const pending = await countPendingSignature(employeeId);
+    if (pending === 0) return 0;
+
+    // Import tardio: `notifications.ts` puxa `workHours`, que puxa outras
+    // partes do app. Carregar isso no caminho de leitura de documentos seria
+    // peso morto em toda tela do modulo.
+    const { createNotification } = await import('./notifications');
+
+    await createNotification({
+      user_id: userId,
+      title: pending === 1 ? 'Contracheque disponível' : 'Contracheques disponíveis',
+      message: pending === 1
+        ? 'Você tem 1 contracheque disponível para assinatura'
+        : `Você tem ${pending} contracheques disponíveis para assinatura`,
+      event_key: 'EMPLOYEE_DOCUMENT_PENDING_SIGNATURE',
+      target_path: '/portal/my-payslips',
+      hotel_id: options.hotelId ?? null,
+      related_entity_type: 'employee_document',
+    });
+
+    return pending;
+  } catch {
+    return 0;
+  }
 }
 
 /** Quantos documentos do colaborador aguardam assinatura (para o widget). */

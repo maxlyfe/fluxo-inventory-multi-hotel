@@ -2,7 +2,7 @@
 // Ficha completa do colaborador: dados, contratos, uniformes, histórico de entregas e Termo PDF
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGroup } from '../../context/GroupContext';
@@ -13,6 +13,7 @@ import {
   Link2, UserCheck, UserX, Search, ShieldOff, GraduationCap, Stethoscope,
 } from 'lucide-react';
 import EmployeeDocumentsPanel from '../../components/personnel/EmployeeDocumentsPanel';
+import { notifyPendingDocumentsAfterLink } from '../../lib/employeeDocumentsService';
 import { format, differenceInDays, differenceInMonths, differenceInYears, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -88,6 +89,9 @@ const inputCls = `w-full px-4 py-3 text-sm border border-gray-200 dark:border-gr
   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
   placeholder:text-gray-400 transition-all`;
 const labelCls = 'block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5';
+
+type TabId = 'info' | 'uniforms' | 'history' | 'docs' | 'trainings' | 'exams' | 'dismissal';
+const TAB_IDS: TabId[] = ['info', 'uniforms', 'history', 'docs', 'trainings', 'exams', 'dismissal'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -236,18 +240,25 @@ export default function DPEmployeeDetail() {
   const { user } = useAuth();
   const { currentGroup } = useGroup();
   const navigate  = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [employee,   setEmployee]   = useState<Employee | null>(null);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [dismissals, setDismissals] = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
-  const [activeTab,  setActiveTab]  = useState<'info' | 'uniforms' | 'history' | 'docs' | 'trainings' | 'exams' | 'dismissal'>('info');
+  // `?tab=docs` permite o indicador de assinatura pendente na lista abrir
+  // direto os documentos, em vez de cair em Informações e obrigar a clicar.
+  const initialTab = TAB_IDS.includes(searchParams.get('tab') as TabId)
+    ? (searchParams.get('tab') as TabId)
+    : 'info';
+  const [activeTab,  setActiveTab]  = useState<TabId>(initialTab);
   const [trainings, setTrainings] = useState<any[]>([]);
   const [medExams, setMedExams]   = useState<any[]>([]);
 
   // Vinculação de usuário do sistema
   const [linkedUser,        setLinkedUser]        = useState<{ id: string; email: string; full_name: string | null } | null>(null);
   const [showLinkModal,     setShowLinkModal]     = useState(false);
+  const [linkNotice,        setLinkNotice]        = useState('');
   const [userSearchTerm,    setUserSearchTerm]    = useState('');
   const [userSearchResults, setUserSearchResults] = useState<{ id: string; email: string; full_name: string | null }[]>([]);
   const [searchingUsers,    setSearchingUsers]    = useState(false);
@@ -460,6 +471,19 @@ export default function DPEmployeeDetail() {
       setShowLinkModal(false);
       setUserSearchTerm('');
       setUserSearchResults([]);
+
+      // Documentos enviados antes do vinculo ficaram guardados na ficha e a
+      // RLS acaba de liberar todos de uma vez — mas a notificacao de cada um
+      // foi disparada quando ainda nao havia destinatario. Avisa agora, uma vez,
+      // com o total. Nao lanca: falhar aqui nao pode desfazer o vinculo.
+      const notified = await notifyPendingDocumentsAfterLink(employee.id, userId, {
+        hotelId: employee.hotel_id,
+      });
+      if (notified > 0) setLinkNotice(
+        notified === 1
+          ? 'Usuário vinculado. 1 documento pendente foi liberado e o colaborador foi avisado.'
+          : `Usuário vinculado. ${notified} documentos pendentes foram liberados e o colaborador foi avisado.`,
+      );
     } catch (err: any) {
       setLinkError(err.message || 'Erro ao vincular usuário.');
     } finally {
@@ -480,6 +504,8 @@ export default function DPEmployeeDetail() {
       if (error) throw error;
       setEmployee(prev => prev ? { ...prev, user_id: null } : prev);
       setLinkedUser(null);
+      // O aviso fala de acesso liberado: mantê-lo depois de desvincular mentiria.
+      setLinkNotice('');
     } catch (err: any) {
       console.error('Erro ao desvincular:', err);
     } finally {
@@ -834,6 +860,25 @@ export default function DPEmployeeDetail() {
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Sem acesso vinculado</p>
               <p className="text-xs text-gray-400 mt-0.5">Vincule uma conta para registrar ações no nome deste colaborador</p>
             </div>
+          </div>
+        )}
+
+        {/* Retroativo liberado pelo vinculo (documentos que ja esperavam) */}
+        {linkNotice && (
+          <div className="flex items-start gap-2 mt-3 p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800">
+            <FileText className="h-3.5 w-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-600 dark:text-blue-400">{linkNotice}</p>
+          </div>
+        )}
+
+        {/* Aviso quando ha documento pendente e ninguem para assinar */}
+        {!linkedUser && (
+          <div className="flex items-start gap-2 mt-3 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600">
+            <FileText className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Contracheques enviados antes do vínculo continuam guardados na aba Documentos.
+              Ao vincular uma conta, o colaborador passa a ver e assinar todo o retroativo.
+            </p>
           </div>
         )}
 
@@ -1288,7 +1333,7 @@ export default function DPEmployeeDetail() {
             ? [{ id: 'dismissal', label: 'Desligamento', icon: UserX }]
             : []
           )
-        ] as { id: 'info' | 'uniforms' | 'history' | 'docs' | 'trainings' | 'exams' | 'dismissal'; label: string; icon: any }[]).map(tab => {
+        ] as { id: TabId; label: string; icon: any }[]).map(tab => {
           const Icon = tab.icon;
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}

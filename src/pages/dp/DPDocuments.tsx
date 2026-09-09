@@ -17,6 +17,7 @@ import { useGroup } from '../../context/GroupContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useGroupHotels } from '../../hooks/useGroupHotels';
 import { sanitizeError } from '../../utils/errorHandler';
+import { createNotification } from '../../lib/notifications';
 import { searchMatchAll } from '../../utils/search';
 import { renderPdfPages, imageToPdfPage, type PdfPage } from '../../lib/pdfjsLoader';
 import {
@@ -214,6 +215,15 @@ function SendTab() {
   );
   const unmatched = rows.filter(r => !r.skipped && !r.employeeId);
 
+  // Colaborador sem `user_id` nao recebe notificacao nem consegue entrar no
+  // Portal para assinar: o documento fica arquivado e pendente para sempre. O
+  // DP precisa ver isso antes de gravar, nao descobrir na cobranca.
+  const unlinked = rows.filter(r => {
+    if (r.skipped || !r.employeeId) return false;
+    const e = employeeById.get(r.employeeId);
+    return Boolean(e && !e.user_id);
+  });
+
   async function handleSaveAll() {
     // Trava de duplo clique — cada linha vira arquivo no storage, e um clique
     // duplo criaria documento repetido antes de a unique do banco reclamar.
@@ -236,7 +246,7 @@ function SendTab() {
         const competence = row.parsed.referenceMonth;
         const label = competence ? competence.slice(0, 7) : 'sem-competencia';
 
-        await createDocumentWithFile(
+        const created = await createDocumentWithFile(
           {
             employeeId: employee.id,
             // A unidade do documento é a do CADASTRO, não a do CNPJ que emitiu:
@@ -274,7 +284,32 @@ function SendTab() {
           user?.id ?? null,
         );
 
+        // A linha e marcada como gravada ANTES de notificar. O documento ja
+        // esta no banco; se a notificacao falhasse e a linha aparecesse como
+        // erro, o DP reenviaria e bateria na unique de competencia. O try
+        // interno garante que nada aqui chegue ao catch de fora.
         updateRow(row.key, { status: 'saved' });
+
+        if (selectedType.requires_signature && employee.user_id) {
+          try {
+            await createNotification({
+              user_id: employee.user_id,
+              title: 'Contracheque disponível',
+              message: competence
+                ? `Seu contracheque de ${formatCompetence(competence)} está disponível para assinatura`
+                : 'Seu contracheque está disponível para assinatura',
+              event_key: 'EMPLOYEE_DOCUMENT_PENDING_SIGNATURE',
+              target_path: '/portal/my-payslips',
+              hotel_id: employee.hotel_id,
+              related_entity_id: created.id,
+              related_entity_type: 'employee_document',
+              created_by: user?.id ?? null,
+            });
+          } catch {
+            // `createNotification` ja engole os proprios erros; este catch e
+            // cinto de seguranca para nao derrubar o resto do lote.
+          }
+        }
       } catch (err) {
         updateRow(row.key, { status: 'error', errorMessage: sanitizeError(err) });
       }
@@ -384,6 +419,9 @@ function SendTab() {
               <Chip tone="neutral">{rows.length} página(s)</Chip>
               <Chip tone="ok">{rows.filter(r => r.status === 'saved').length} gravada(s)</Chip>
               <Chip tone="warn">{unmatched.length} sem colaborador</Chip>
+              {unlinked.length > 0 && (
+                <Chip tone="warn">{unlinked.length} sem conta vinculada</Chip>
+              )}
               {rows.some(r => r.status === 'error') && (
                 <Chip tone="error">{rows.filter(r => r.status === 'error').length} com erro</Chip>
               )}
@@ -412,6 +450,14 @@ function SendTab() {
               <p className="mt-2.5 text-xs text-gray-500 dark:text-gray-400">
                 {highConfidence.length} página(s) casaram com alta confiança (matrícula, CPF ou nome
                 idêntico). As demais pedem conferência.
+              </p>
+            )}
+
+            {unlinked.length > 0 && (
+              <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
+                {unlinked.length} colaborador(es) sem conta de sistema vinculada: o documento fica
+                arquivado, mas eles não recebem a notificação nem conseguem assinar pelo Portal.
+                Vincule o usuário na ficha de cada um (Informações → Vinculação de usuário).
               </p>
             )}
           </div>
@@ -551,6 +597,9 @@ function ReviewCard({
                 <Chip tone="neutral">
                   emitido por {row.parsed.employerName}
                 </Chip>
+              )}
+              {employee && !employee.user_id && (
+                <Chip tone="warn">sem conta vinculada — nao vai assinar</Chip>
               )}
             </div>
           )}
