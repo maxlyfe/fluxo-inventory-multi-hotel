@@ -12,8 +12,11 @@ import { ptBR } from 'date-fns/locale';
 import {
   Calendar, Clock, FileText, Gift, MessageCircle,
   ChevronRight, Shirt, CheckCircle, XCircle,
-  Sparkles, PartyPopper, Loader2,
+  Sparkles, PartyPopper, Loader2, Receipt, PenLine,
 } from 'lucide-react';
+import {
+  resolveMyEmployee, listEmployeeDocuments, type EmployeeDocument,
+} from '../../lib/employeeDocumentsService';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -330,6 +333,73 @@ function DocumentsWidget({ deliveries, loading }: { deliveries: UniformDelivery[
   );
 }
 
+// ---------------------------------------------------------------------------
+// Widget: Contracheques
+//
+// Carrega por conta própria (resolveMyEmployee, sem filtro de unidade) e não
+// pelo `employee` do dashboard: aquele é resolvido com `hotel_id =
+// selectedHotel`, e o contracheque pode ser da unidade em que a pessoa está
+// cadastrada, diferente da que está selecionada na barra. Com o filtro, o
+// widget ficaria vazio justamente para quem trocou de unidade.
+// ---------------------------------------------------------------------------
+function PayslipsWidget({ documents, loading }: { documents: EmployeeDocument[]; loading: boolean }) {
+  if (loading) return (
+    <WidgetCard title="Contracheques" icon={Receipt} color="#6366f1">
+      <LoadingPlaceholder />
+    </WidgetCard>
+  );
+
+  const pending = documents.filter(d => d.requires_signature && d.signature_status === 'pending');
+
+  return (
+    <WidgetCard title="Contracheques" icon={Receipt} href="/portal/my-payslips" color="#6366f1">
+      {documents.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-4">Nenhum contracheque disponível</p>
+      ) : (
+        <div className="space-y-2">
+          {pending.length > 0 && (
+            <div className="flex items-center gap-2 py-1.5 px-2 rounded-xl bg-amber-50 dark:bg-amber-900/20">
+              <PenLine className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                {pending.length === 1
+                  ? '1 documento aguardando assinatura'
+                  : `${pending.length} documentos aguardando assinatura`}
+              </p>
+            </div>
+          )}
+          {documents.slice(0, 3).map(d => (
+            <div key={d.id} className="flex items-center justify-between py-1.5 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-800 dark:text-white truncate">
+                  {d.employee_document_types?.name || 'Documento'} · {formatCompetenceLabel(d.reference_month)}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {d.net_pay !== null
+                    ? d.net_pay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                    : 'sem valor lido'}
+                </p>
+              </div>
+              <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                d.requires_signature && d.signature_status === 'pending'
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                  : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+              }`}>
+                {d.requires_signature && d.signature_status === 'pending' ? 'assinar' : 'assinado'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </WidgetCard>
+  );
+}
+
+function formatCompetenceLabel(reference: string | null): string {
+  if (!reference) return 'sem competência';
+  const [year, month] = reference.split('-');
+  return `${month}/${year}`;
+}
+
 function LoadingPlaceholder() {
   return (
     <div className="space-y-2 py-2">
@@ -354,6 +424,7 @@ export default function EmployeePortal() {
   const [messages, setMessages]             = useState<MotivationalMessage[]>([]);
   const [events, setEvents]                 = useState<EventItem[]>([]);
   const [deliveries, setDeliveries]         = useState<UniformDelivery[]>([]);
+  const [payslips, setPayslips]             = useState<EmployeeDocument[]>([]);
   const [loading, setLoading]               = useState(true);
 
   useEffect(() => {
@@ -364,7 +435,7 @@ export default function EmployeePortal() {
   async function loadPortalData() {
     setLoading(true);
     try {
-      await Promise.all([loadEmployee(), loadEmployees(), loadMessages(), loadEvents()]);
+      await Promise.all([loadEmployee(), loadEmployees(), loadMessages(), loadEvents(), loadPayslips()]);
     } finally {
       setLoading(false);
     }
@@ -412,6 +483,17 @@ export default function EmployeePortal() {
         .order('delivery_date', { ascending: false })
         .limit(5);
       setDeliveries(uniformData || []);
+    }
+  }
+
+  async function loadPayslips() {
+    if (!user?.id) return;
+    try {
+      const me = await resolveMyEmployee(user.id);
+      setPayslips(me ? await listEmployeeDocuments(me.id) : []);
+    } catch {
+      // Widget é resumo: falha aqui não deve derrubar o dashboard inteiro.
+      setPayslips([]);
     }
   }
 
@@ -481,6 +563,7 @@ export default function EmployeePortal() {
         <EventsWidget events={events} loading={loading} />
         <MotivationalWidget messages={messages} loading={loading} />
         <BirthdaysWidget employees={allEmployees} loading={loading} />
+        <PayslipsWidget documents={payslips} loading={loading} />
         <DocumentsWidget deliveries={deliveries} loading={loading} />
       </div>
     </div>

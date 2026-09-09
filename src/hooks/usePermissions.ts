@@ -83,6 +83,23 @@ export const MODULES: Module[] = [
   { key: 'finances.billing.send',     label: 'Disparar cobrança por e-mail',  description: 'Envia e-mail em nome do hotel para o parceiro. Irreversível',            group: 'Financeiro — Contas a Receber', icon: 'Mail' },
   { key: 'finances.billing.template', label: 'Editar texto da cobrança',      description: 'Assunto e corpo do e-mail que o parceiro lê',                            group: 'Financeiro — Contas a Receber', icon: 'FileText' },
   { key: 'finances.billing.sender',   label: 'Configurar remetente da unidade', description: 'Servidor, conta e senha de app usados para enviar as cobranças',        group: 'Financeiro — Contas a Receber', icon: 'AtSign' },
+
+  // ── Documentos do Colaborador ───────────────────────────────────────────
+  // Gatear leitura e envio com canAny(['personnel_department', '<subchave>']),
+  // pelo mesmo motivo do bloco acima.
+  //
+  // 'delete' é a exceção: gateia SÓ com can('personnel.payslips.delete'), sem
+  // herdar da chave grossa. Apagar contracheque assinado destrói o comprovante
+  // de recebimento do colaborador — quem pode fazer isso é concessão explícita,
+  // e por isso a chave também fica fora do backfill (20260909120100).
+  //
+  // Estas quatro chaves são lidas TAMBÉM pelo banco, via has_permission() nas
+  // policies de employee_documents e do bucket employee-documents. Renomear uma
+  // aqui sem mexer na migration abre ou fecha acesso no servidor em silêncio.
+  { key: 'personnel.payslips.view',   label: 'Ver documentos de colaborador', description: 'Ler contracheques e documentos na ficha do colaborador (dado sensível)', group: 'Pessoas — Documentos', icon: 'FileText' },
+  { key: 'personnel.payslips.upload', label: 'Enviar documentos em lote',     description: 'Subir contracheques (PDF/imagem) e conciliar com os colaboradores',      group: 'Pessoas — Documentos', icon: 'Upload' },
+  { key: 'personnel.payslips.delete', label: 'Excluir documento',             description: 'Apagar documento e o comprovante assinado. Irreversível',                group: 'Pessoas — Documentos', icon: 'Trash2' },
+  { key: 'personnel.doctypes.manage', label: 'Gerir tipos de documento',      description: 'Criar e editar tipos (contracheque, férias, advertência) e suas regras', group: 'Pessoas — Documentos', icon: 'Settings' },
 ];
 
 // Gera módulos dinâmicos de setor — chamado pelo RolesManagement com dados do banco

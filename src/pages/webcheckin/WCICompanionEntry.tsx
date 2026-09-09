@@ -16,6 +16,7 @@ function AutoReturn({ delay, to, navigate }: { delay: number; to: string; naviga
 
 import { useNavigate, useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
+import { renderPdfPages } from '../../lib/pdfjsLoader';
 import {
   ClipboardList, PenLine, CheckCircle,
   Loader2, RotateCcw, ChevronRight,
@@ -1398,40 +1399,22 @@ export default function WCICompanionEntry() {
       return { preview: jpegDataUrl, base64: jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''), name: file.name.replace(/\.[^.]+$/, '.jpg') };
     };
 
-    /** Carrega PDF.js do CDN (uma vez) e converte cada página em JPEG */
+    /**
+     * Converte cada página do PDF em JPEG.
+     *
+     * O carregamento do PDF.js e o render das páginas vivem em
+     * `src/lib/pdfjsLoader.ts` desde 09/09/2026, quando um segundo consumidor
+     * apareceu (leitura de contracheque em lote no DP). Aqui fica só o que é
+     * específico deste fluxo: o teto de 6 páginas e o nome dos anexos.
+     */
     const pdfToJpegs = async (file: File): Promise<Array<{ preview: string; base64: string; name: string }>> => {
-      // Carrega PDF.js via CDN se ainda não disponível
-      if (!(window as any).pdfjsLib) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('Falha ao carregar PDF.js'));
-          document.head.appendChild(script);
-        });
-        (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      }
-      const pdfLib = (window as any).pdfjsLib;
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfLib.getDocument({ data: arrayBuffer }).promise;
-      const results: Array<{ preview: string; base64: string; name: string }> = [];
-      const numPages = Math.min(pdf.numPages, 6); // máx 6 páginas
+      const pages = await renderPdfPages(file, { scale: 1.5, quality: 0.82, maxPages: 6 });
       const baseName = file.name.replace(/\.pdf$/i, '');
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const cvs = document.createElement('canvas');
-        cvs.width = viewport.width; cvs.height = viewport.height;
-        await page.render({ canvasContext: cvs.getContext('2d')!, viewport }).promise;
-        const jpegDataUrl = cvs.toDataURL('image/jpeg', 0.82);
-        results.push({
-          preview: jpegDataUrl,
-          base64: jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''),
-          name: numPages > 1 ? `${baseName}_p${i}.jpg` : `${baseName}.jpg`,
-        });
-      }
-      return results;
+      return pages.map(page => ({
+        preview: page.jpegDataUrl,
+        base64: page.jpegDataUrl.replace(/^data:image\/jpeg;base64,/, ''),
+        name: pages.length > 1 ? `${baseName}_p${page.pageNumber}.jpg` : `${baseName}.jpg`,
+      }));
     };
 
     const handleFileInput = async (files: FileList | null) => {
