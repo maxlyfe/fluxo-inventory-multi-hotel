@@ -716,7 +716,13 @@ export async function submitSignature(
   const path = `/hotel/${config.erbon_hotel_id}/booking/${bookingInternalId}/signature`;
   const extraHeaders: Record<string, string> = {};
   if (guestId && guestId > 0) extraHeaders['idGuest'] = String(guestId);
-  await erbonPost(hotelId, path, JSON.stringify(signatureBase64), extraHeaders);
+  const result = await erbonPost(hotelId, path, JSON.stringify(signatureBase64), extraHeaders);
+  // Recusa da Erbon precisa virar erro: quem chama trata (mostra falha ao
+  // hospede, marca a ficha como pendente de reenvio). Antes o status era
+  // ignorado e uma recusa passava por sucesso.
+  if (!result.ok) {
+    throw new Error(`Erbon recusou a assinatura (HTTP ${result.status})${result.text ? `: ${result.text.slice(0, 200)}` : ''}`);
+  }
 }
 
 export async function submitAttachment(

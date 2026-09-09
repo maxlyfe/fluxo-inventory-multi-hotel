@@ -4,19 +4,27 @@ import {
   ClipboardCheck, ChevronDown, ChevronUp, Search, X,
   FileImage, Check, AlertCircle, Loader2, User, Users,
   MapPin, Car, Briefcase, Globe, CalendarDays, FileText, Shield,
-  Copy, ExternalLink, Lock, Unlock, Printer,
+  Copy, ExternalLink, Lock, Unlock, Printer, Send, RefreshCw,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '../../lib/supabase';
+import { erbonService } from '../../lib/erbonService';
 import { useHotel } from '../../context/HotelContext';
 import FNRHPrintModal from './FNRHPrintModal';
+import {
+  resendGuestToErbon, ResendBlockedError,
+  type ResendResult, type ResendStep,
+} from './wciErbonResendService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface FichaGuest {
   id: string;
   is_main_guest: boolean;
+  erbon_guest_id: number | null;
+  erbon_synced_at: string | null;
+  erbon_sync_error: string | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -54,6 +62,7 @@ interface FichaGuest {
 interface Ficha {
   id: string;
   booking_number: string | null;
+  booking_internal_id: number | null;
   room_number: string | null;
   guest_name: string;
   hotel_terms_accepted: boolean;
@@ -74,7 +83,8 @@ interface Ficha {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const GUEST_QUERY = `
-  id, is_main_guest, name, email, phone,
+  id, is_main_guest, erbon_guest_id, erbon_synced_at, erbon_sync_error,
+  name, email, phone,
   document_type, document_number, document_expiration,
   birth_date, gender_id, nationality, profession, vehicle_registration,
   address_street, address_number, address_complement,
@@ -87,7 +97,7 @@ const GUEST_QUERY = `
 `;
 
 const FICHA_QUERY = `
-  id, booking_number, room_number, guest_name,
+  id, booking_number, booking_internal_id, room_number, guest_name,
   hotel_terms_accepted, lgpd_accepted, hotel_terms_text, lgpd_terms_text,
   hotel_rules_doc_url, lgpd_doc_url,
   signature_data, source, status, created_at, checkin_date, checkout_date,
@@ -221,9 +231,110 @@ function Field({ label, value, copyValue, icon }: { label: string; value: string
   );
 }
 
+// ── Reenvio para a Erbon ─────────────────────────────────────────────────────
+//
+// O envio no fluxo do hospede e best-effort de proposito (a Erbon fora do ar
+// nao pode travar o check-in). Este botao e o caminho de volta: repete cadastro,
+// documentos e termo assinado daquele hospede, sem refazer o check-in.
+
+const STEP_ICON: Record<ResendStep['status'], React.ReactNode> = {
+  ok:      <Check className="w-3 h-3 text-green-500" />,
+  error:   <X className="w-3 h-3 text-red-500" />,
+  skipped: <AlertCircle className="w-3 h-3 text-slate-300 dark:text-slate-500" />,
+};
+
+function ErbonResendButton({
+  guest, ficha, hotelId, erbonActive,
+}: { guest: FichaGuest; ficha: Ficha; hotelId: string; erbonActive: boolean }) {
+  const [sending, setSending] = useState(false);
+  const [result,  setResult]  = useState<ResendResult | null>(null);
+  const [blocked, setBlocked] = useState<string | null>(null);
+
+  // Estado do ultimo envio: o resultado desta sessao manda; sem ele, vale o que
+  // esta gravado na linha do hospede.
+  const syncedAt   = result ? (result.ok ? new Date().toISOString() : null) : guest.erbon_synced_at;
+  const syncError  = result ? (result.ok ? null : 'Falha no ultimo reenvio')  : guest.erbon_sync_error;
+
+  async function handleResend() {
+    if (sending) return;
+    setSending(true);
+    setBlocked(null);
+    setResult(null);
+    try {
+      setResult(await resendGuestToErbon(hotelId, ficha, guest));
+    } catch (e) {
+      setBlocked(e instanceof ResendBlockedError
+        ? e.message
+        : (e as Error)?.message || 'Nao foi possivel reenviar.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="ml-auto flex flex-col items-end gap-1.5 shrink-0">
+      <div className="flex items-center gap-2">
+        {syncError ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" title={syncError}>
+            <AlertCircle className="w-3 h-3" /> Erbon com erro
+          </span>
+        ) : syncedAt ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+            <Check className="w-3 h-3" /> Erbon {fmtDate(syncedAt)}
+          </span>
+        ) : null}
+
+        {erbonActive && (
+          <button
+            type="button"
+            disabled={sending}
+            onClick={handleResend}
+            title="Reenviar cadastro, documentos e termo assinado deste hospede para a Erbon"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all active:scale-95 border-indigo-300 dark:border-indigo-700/60 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 ${sending ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+          >
+            {sending
+              ? <><Loader2 className="w-3 h-3 animate-spin" /> Enviando...</>
+              : result
+                ? <><RefreshCw className="w-3 h-3" /> Reenviar</>
+                : <><Send className="w-3 h-3" /> Enviar a Erbon</>
+            }
+          </button>
+        )}
+      </div>
+
+      {blocked && (
+        <p className="max-w-xs text-right text-[11px] text-amber-600 dark:text-amber-400">{blocked}</p>
+      )}
+
+      {result && (
+        <div className={`w-full sm:w-72 rounded-lg border px-2.5 py-2 space-y-1 ${
+          result.ok
+            ? 'border-green-200 dark:border-green-800/60 bg-green-50 dark:bg-green-900/20'
+            : 'border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20'
+        }`}>
+          <p className={`text-[10px] font-semibold uppercase tracking-wide ${result.ok ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+            {result.ok ? 'Reenvio concluido' : 'Reenvio com falhas'}
+          </p>
+          {result.steps.map(step => (
+            <div key={step.key} className="flex items-start gap-1.5 text-left">
+              <span className="mt-0.5 shrink-0">{STEP_ICON[step.status]}</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                {step.label}
+                {step.detail && <span className="text-slate-400 dark:text-slate-500"> — {step.detail}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Guest card ────────────────────────────────────────────────────────────────
 
-function GuestCard({ guest }: { guest: FichaGuest }) {
+function GuestCard({ guest, ficha, hotelId, erbonActive }: {
+  guest: FichaGuest; ficha: Ficha; hotelId: string; erbonActive: boolean;
+}) {
   // Logradouro e número vêm em colunas separadas (o número é campo próprio na
   // NFC-e/NFS-e e no FNRH Gov); aqui voltam a ser uma linha só, legível.
   const logradouro = [
@@ -242,14 +353,15 @@ function GuestCard({ guest }: { guest: FichaGuest }) {
   return (
     <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-2">
-        <User className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+      <div className="flex flex-wrap items-start gap-2">
+        <User className="w-4 h-4 mt-0.5 text-slate-500 dark:text-slate-400 shrink-0" />
         <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm">{guest.name || '—'}</span>
         {guest.is_main_guest && (
-          <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
             Principal
           </span>
         )}
+        <ErbonResendButton guest={guest} ficha={ficha} hotelId={hotelId} erbonActive={erbonActive} />
       </div>
 
       {/* Dados pessoais */}
@@ -440,18 +552,22 @@ function groupByBooking(fichas: Ficha[]): ReservaGroup[] {
 interface ReservaGroupRowProps {
   group: ReservaGroup;
   hotelId: string;
+  erbonActive: boolean;
   isLocked: boolean;
   togglingLock: boolean;
   onToggleLock: (bookingNumber: string, currentlyLocked: boolean) => void;
 }
 
-function ReservaGroupRow({ group, hotelId, isLocked, togglingLock, onToggleLock }: ReservaGroupRowProps) {
+function ReservaGroupRow({ group, hotelId, erbonActive, isLocked, togglingLock, onToggleLock }: ReservaGroupRowProps) {
   const [expanded, setExpanded]     = useState(false);
   const [expandedFicha, setExpandedFicha] = useState<string | null>(null);
   const [fnrhModalOpen, setFnrhModalOpen] = useState(false);
 
-  // Todos os hóspedes de todas as fichas desta reserva
-  const allGuests = group.fichas.flatMap(f => f.wci_checkin_guests);
+  // Todos os hóspedes de todas as fichas desta reserva. O par ficha↔hóspede é
+  // preciso para o reenvio à Erbon: assinatura e termos vivem na ficha, cadastro
+  // e documentos no hóspede.
+  const guestEntries = group.fichas.flatMap(f => f.wci_checkin_guests.map(g => ({ ficha: f, guest: g })));
+  const allGuests = guestEntries.map(e => e.guest);
   const mainFicha = group.fichas[0];
 
   // Determina badge da reserva: verde se todas OK, amarelo se alguma partial, vermelho se cancelada
@@ -578,7 +694,9 @@ function ReservaGroupRow({ group, hotelId, isLocked, togglingLock, onToggleLock 
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                 Hóspedes ({allGuests.length})
               </p>
-              {allGuests.map(g => <GuestCard key={g.id} guest={g} />)}
+              {guestEntries.map(({ ficha, guest }) => (
+                <GuestCard key={guest.id} guest={guest} ficha={ficha} hotelId={hotelId} erbonActive={erbonActive} />
+              ))}
             </div>
           ) : (
             <p className="text-xs text-slate-400 dark:text-slate-500 italic">Nenhum hóspede cadastrado.</p>
@@ -682,6 +800,9 @@ export default function WCIFichasView() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo]     = useState('');
 
+  // Integração Erbon do hotel — decide se o botão de reenvio da ficha aparece
+  const [erbonActive, setErbonActive] = useState(false);
+
   // Lock state
   const [lockedBookings, setLockedBookings] = useState<Set<string>>(new Set());
   const [togglingLock, setTogglingLock]     = useState<string | null>(null); // booking number being toggled
@@ -757,6 +878,9 @@ export default function WCIFichasView() {
       setSearchName(''); setSearchDocument(''); setSearchBooking(''); setDateFrom(''); setDateTo('');
       loadFichas({ name: '', doc: '', booking: '', from: '', to: '' });
       loadLocks();
+      erbonService.getConfig(selectedHotel.id)
+        .then(cfg => setErbonActive(!!cfg?.is_active))
+        .catch(() => setErbonActive(false));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHotel?.id]);
@@ -848,6 +972,7 @@ export default function WCIFichasView() {
               key={g.bookingNumber}
               group={g}
               hotelId={selectedHotel!.id}
+              erbonActive={erbonActive}
               isLocked={lockedBookings.has(g.bookingNumber)}
               togglingLock={togglingLock === g.bookingNumber}
               onToggleLock={handleToggleLock}
