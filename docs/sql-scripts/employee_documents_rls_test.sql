@@ -189,45 +189,78 @@ ROLLBACK;
 
 
 -- ============================================================================
--- PARTE 3 -- O colaborador nao consegue ESCREVER.
+-- PARTE 3 -- O colaborador nao consegue ESCREVER. Tres testes, um por vez.
 -- ============================================================================
--- `employee_documents` nasceu sem policy de UPDATE de proposito: assinar passa
+-- `employee_documents` nasceu SEM policy de UPDATE de proposito: assinar passa
 -- pela RPC. Se algum UPDATE aqui afetar linha, alguem pode adulterar o proprio
 -- valor de verba pelo cliente.
--- ESPERADO: todos 'OK'. Rodando em transacao com ROLLBACK, nada persiste
--- mesmo se algo passar.
+--
+-- Esta e a unica parte que vale mesmo impersonando conta ADMIN/DEV: `is_admin()`
+-- libera LEITURA nas policies, mas nao inventa uma policy de UPDATE que nao
+-- existe. Ou seja, da para rodar com o uuid do titular do documento ainda que
+-- ele seja admin.
+--
+-- Tudo em BEGIN/ROLLBACK: nada persiste nem se algum teste passar por engano.
+--
+-- NOTA: a versao anterior deste arquivo usava `BEGIN ... EXCEPTION ... END` em
+-- SQL puro para capturar o erro do INSERT. Isso e sintaxe de PL/pgSQL e daria
+-- erro de sintaxe aqui. A forma certa e mais simples: deixar o INSERT falhar, e
+-- tratar a MENSAGEM DE ERRO como o resultado positivo do teste (3c).
+
+-- ── 3a. UPDATE: adulterar o valor liquido ───────────────────────────────────
+-- ESPERADO: 'OK: 0 linhas afetadas'.
 /*
 BEGIN;
   SET LOCAL role authenticated;
   SET LOCAL request.jwt.claims = '{"sub":"<UUID_COLABORADOR>","role":"authenticated"}';
 
-  CREATE TEMP TABLE _r(verificacao text, status text, detalhe text) ON COMMIT DROP;
-
-  -- UPDATE no proprio documento (adulterar o liquido)
-  WITH x AS (UPDATE employee_documents SET net_pay = 1 WHERE true RETURNING 1)
-  INSERT INTO _r SELECT 'UPDATE em employee_documents',
-                        CASE WHEN count(*) = 0 THEN 'OK' ELSE 'FALHA: escreveu' END,
-                        count(*)::text FROM x;
-
-  -- INSERT de visualizacao forjada (dizer que viu sem ter visto)
-  BEGIN
-    INSERT INTO employee_document_views (document_id, user_id, source)
-    SELECT d.id, auth.uid(), 'portal' FROM employee_documents d LIMIT 1;
-    INSERT INTO _r VALUES ('INSERT em employee_document_views', 'FALHA: escreveu', 'inseriu');
-  EXCEPTION WHEN insufficient_privilege OR others THEN
-    INSERT INTO _r VALUES ('INSERT em employee_document_views', 'OK', SQLERRM);
-  END;
-
-  -- DELETE do proprio documento (apagar o contracheque)
-  WITH x AS (DELETE FROM employee_documents WHERE true RETURNING 1)
-  INSERT INTO _r SELECT 'DELETE em employee_documents',
-                        CASE WHEN count(*) = 0 THEN 'OK' ELSE 'FALHA: apagou' END,
-                        count(*)::text FROM x;
-
-  SELECT * FROM _r;
+  WITH tentativa AS (
+    UPDATE employee_documents SET net_pay = 1 WHERE true RETURNING 1
+  )
+  SELECT 'UPDATE em employee_documents' AS verificacao,
+         CASE WHEN count(*) = 0
+              THEN 'OK: 0 linhas afetadas'
+              ELSE 'FALHA: escreveu ' || count(*) || ' linha(s)' END AS status
+    FROM tentativa;
 ROLLBACK;
 */
 
+-- ── 3b. DELETE: apagar o proprio contracheque ───────────────────────────────
+-- ESPERADO: 'OK: 0 linhas afetadas'. O colaborador nao pode sumir com a prova
+-- de que recebeu, nem por engano.
+/*
+BEGIN;
+  SET LOCAL role authenticated;
+  SET LOCAL request.jwt.claims = '{"sub":"<UUID_COLABORADOR>","role":"authenticated"}';
+
+  WITH tentativa AS (
+    DELETE FROM employee_documents WHERE true RETURNING 1
+  )
+  SELECT 'DELETE em employee_documents' AS verificacao,
+         CASE WHEN count(*) = 0
+              THEN 'OK: 0 linhas afetadas'
+              ELSE 'FALHA: apagou ' || count(*) || ' linha(s)' END AS status
+    FROM tentativa;
+ROLLBACK;
+*/
+
+-- ── 3c. INSERT: forjar uma visualizacao ─────────────────────────────────────
+-- `employee_document_views` nasceu sem policy de INSERT: registrar que viu
+-- passa pela RPC, senao "o colaborador viu" viraria um fato que qualquer um
+-- forja.
+--
+-- ESPERADO: **ERRO** do tipo `new row violates row-level security policy`.
+-- Aqui o erro E o resultado positivo. Se devolver linha em vez de erro, e falha.
+/*
+BEGIN;
+  SET LOCAL role authenticated;
+  SET LOCAL request.jwt.claims = '{"sub":"<UUID_COLABORADOR>","role":"authenticated"}';
+
+  INSERT INTO employee_document_views (document_id, user_id, source)
+  SELECT d.id, auth.uid(), 'portal' FROM employee_documents d LIMIT 1
+  RETURNING 'FALHA: conseguiu forjar visualizacao' AS status;
+ROLLBACK;
+*/
 
 -- ============================================================================
 -- PARTE 4 -- Usuario de OUTRO GRUPO nao ve nada.
