@@ -2,8 +2,14 @@
 -- TESTE DE ISOLAMENTO DA RLS DE `employee_documents` (contracheques)
 -- ============================================================================
 -- ONDE RODAR: Supabase Dashboard -> SQL Editor.
--- COMO RODAR: uma PARTE por vez. O editor mostra so o resultado do ultimo
---             statement, e as partes de impersonacao precisam de transacao.
+-- COMO RODAR: cole o arquivo inteiro e rode -- a PARTE 1 ja esta descomentada
+--             e devolve os uuids das cobaias. Depois descomente as partes 2 a
+--             6, UMA POR VEZ, trocando os <UUID_...> pelos valores da parte 1.
+--
+--             As partes 2 a 6 vem comentadas porque cada uma depende de um
+--             uuid que so sai da parte 1, e porque o editor mostra apenas o
+--             resultado do ULTIMO statement: rodar duas partes juntas
+--             esconderia o resultado da primeira.
 --
 -- ============================================================================
 -- POR QUE ESTE SCRIPT EXISTE (leia antes de confiar em qualquer resultado)
@@ -26,47 +32,123 @@
 
 
 -- ============================================================================
--- PARTE 1 -- Escolher as cobaias. Rode sozinho e anote os uuids.
+-- PARTE 1 -- Escolher as cobaias. JA DESCOMENTADA: colar o arquivo roda ISTO.
 -- ============================================================================
--- Precisamos de:
---   (a) um COLABORADOR com conta vinculada e documento proprio;
---   (b) um usuario de OUTRO GRUPO, para o teste cross-tenant.
-/*
--- (a) colaboradores com conta vinculada e documento
-SELECT e.user_id                AS uuid_para_impersonar,
-       e.name                   AS colaborador,
-       h.name                   AS unidade,
-       g.name                   AS grupo,
-       count(d.id)              AS documentos
-  FROM employees e
-  JOIN employee_documents d ON d.employee_id = e.id
-  LEFT JOIN hotels h ON h.id = e.hotel_id
-  LEFT JOIN groups g ON g.id = h.group_id
- WHERE e.user_id IS NOT NULL
- GROUP BY e.user_id, e.name, h.name, g.name
- ORDER BY documentos DESC
- LIMIT 10;
-*/
+-- As partes 2 a 6 estao comentadas de proposito, porque cada uma precisa de um
+-- uuid que so sai daqui. Descomente uma por vez.
+--
+-- Um SELECT unico consolidado, e nao tres consultas soltas: o SQL Editor mostra
+-- apenas o resultado do ULTIMO statement, entao consulta solta esconde as
+-- anteriores. (Armadilha ja registrada no cofre, em 04-Banco-de-Dados.)
+--
+-- Do resultado, anote:
+--   * um `uuid` de linha `COLABORADOR (use na parte 2, 3 e 6)`;
+--   * um `uuid` de linha `OUTRO GRUPO (use na parte 4)`;
+--   * um `uuid` de linha `MESMO GRUPO SEM PERMISSAO (use na parte 5)`.
+--
+-- Se a coluna `atencao` disser algo, leia: conta admin/dev invalida o teste.
 
-/*
--- (b) um usuario por grupo, para achar alguem de fora
-SELECT p.id AS uuid_para_impersonar, p.full_name, g.name AS grupo, p.role
-  FROM profiles p
-  LEFT JOIN groups g ON g.id = p.group_id
- ORDER BY g.name, p.full_name
- LIMIT 30;
-*/
+-- Nenhuma funcao nova e criada aqui: a deteccao de admin/dev vai inline, no
+-- CTE `contas`, replicando o critério de `is_admin()`. Criar helper no banco
+-- para um diagnostico deixaria residuo permanente por um teste de uma tarde.
 
-/*
--- (c) total real de documentos, visto como postgres (a referencia de comparacao)
-SELECT count(*) AS total_na_rede FROM employee_documents;
-*/
+WITH contas AS (
+  SELECT p.id,
+         coalesce(p.full_name, '(sem nome)') AS nome,
+         p.group_id,
+         coalesce(r.name, p.role, '(nenhum)') AS papel_nome,
+         -- Mesmo critério de public.is_admin(): admin e dev passam por cima da
+         -- RLS de proposito, e impersonar uma dessas contas invalida o teste.
+         (r.name ILIKE '%admin%' OR r.name ILIKE '%dev%' OR p.role IN ('admin', 'dev')) AS e_admin,
+         -- `custom_roles.permissions` e JSONB: operador de containment, nao ANY.
+         coalesce(r.permissions ? 'personnel.payslips.view', false)
+           OR coalesce(r.permissions ? 'personnel_department', false) AS tem_permissao
+    FROM profiles p
+    LEFT JOIN custom_roles r ON r.id = p.custom_role_id
+),
+grupo_alvo AS (
+  -- Onde estao os contracheques hoje. Roda como postgres (sem RLS), de
+  -- proposito: e a referencia contra a qual os testes vao comparar.
+  SELECT h.group_id
+    FROM employee_documents d
+    JOIN hotels h ON h.id = d.hotel_id
+   GROUP BY h.group_id
+   ORDER BY count(*) DESC
+   LIMIT 1
+),
+colaboradores AS (
+  SELECT 1 AS ord,
+         'COLABORADOR (partes 2, 3 e 6)' AS papel,
+         e.user_id AS uuid,
+         e.name AS quem,
+         coalesce(g.name, '(sem grupo)') AS grupo,
+         count(d.id)::text || ' doc(s) proprios' AS contexto,
+         CASE WHEN bool_or(c.e_admin) THEN 'e admin/dev: escolha outro' ELSE '' END AS atencao
+    FROM employees e
+    JOIN employee_documents d ON d.employee_id = e.id
+    LEFT JOIN hotels h ON h.id = e.hotel_id
+    LEFT JOIN groups g ON g.id = h.group_id
+    LEFT JOIN contas c ON c.id = e.user_id
+   WHERE e.user_id IS NOT NULL
+   GROUP BY e.user_id, e.name, g.name
+),
+fora_do_grupo AS (
+  SELECT 2 AS ord,
+         'OUTRO GRUPO (parte 4)' AS papel,
+         c.id AS uuid,
+         c.nome AS quem,
+         coalesce(g.name, '(sem grupo)') AS grupo,
+         'papel: ' || c.papel_nome AS contexto,
+         CASE WHEN c.e_admin THEN 'e admin/dev: escolha outro' ELSE '' END AS atencao
+    FROM contas c
+    LEFT JOIN groups g ON g.id = c.group_id
+   WHERE c.group_id IS DISTINCT FROM (SELECT group_id FROM grupo_alvo)
+),
+mesmo_grupo AS (
+  SELECT 3 AS ord,
+         'MESMO GRUPO SEM PERMISSAO (parte 5)' AS papel,
+         c.id AS uuid,
+         c.nome AS quem,
+         coalesce(g.name, '(sem grupo)') AS grupo,
+         'papel: ' || c.papel_nome AS contexto,
+         CASE
+           WHEN c.e_admin THEN 'e admin/dev: escolha outro'
+           WHEN c.tem_permissao THEN 'tem a permissao: escolha outro'
+           ELSE ''
+         END AS atencao
+    FROM contas c
+    LEFT JOIN groups g ON g.id = c.group_id
+   WHERE c.group_id = (SELECT group_id FROM grupo_alvo)
+     AND NOT EXISTS (
+       SELECT 1 FROM employees e
+        JOIN employee_documents d ON d.employee_id = e.id
+        WHERE e.user_id = c.id
+     )
+),
+referencia AS (
+  SELECT 0 AS ord,
+         'REFERENCIA (visto como postgres, sem RLS)' AS papel,
+         NULL::uuid AS uuid,
+         count(*)::text || ' documento(s) na rede' AS quem,
+         '' AS grupo,
+         'os testes devem ver MENOS que isto' AS contexto,
+         '' AS atencao
+    FROM employee_documents
+)
+SELECT papel, uuid, quem, grupo, contexto, atencao FROM (
+  SELECT * FROM referencia
+  UNION ALL SELECT * FROM colaboradores
+  UNION ALL SELECT * FROM fora_do_grupo
+  UNION ALL SELECT * FROM mesmo_grupo
+) t
+ORDER BY ord, atencao, quem
+LIMIT 40;
 
 
 -- ============================================================================
 -- PARTE 2 -- O colaborador ve SO os documentos dele.
 -- ============================================================================
--- Troque <UUID_COLABORADOR> pelo uuid da consulta (a) da parte 1.
+-- Troque <UUID_COLABORADOR> pelo uuid da linha `COLABORADOR` da parte 1.
 -- ESPERADO: `visiveis` = `proprios`, e `de_outros` = 0.
 /*
 BEGIN;
@@ -150,9 +232,9 @@ ROLLBACK;
 -- ============================================================================
 -- PARTE 4 -- Usuario de OUTRO GRUPO nao ve nada.
 -- ============================================================================
--- Troque <UUID_OUTRO_GRUPO> por alguem da consulta (b) cujo grupo NAO seja o
--- dos documentos. Evite conta `dev` ou `admin`: as duas passam por `is_admin()`
--- de propósito e veriam tudo — o teste ficaria sem sentido.
+-- Troque <UUID_OUTRO_GRUPO> pelo uuid de uma linha `OUTRO GRUPO` da parte 1,
+-- cuja coluna `atencao` esteja vazia. Conta `dev`/`admin` passa por
+-- `is_admin()` de proposito e veria tudo: o teste ficaria sem sentido.
 -- ESPERADO: 0 documentos visiveis.
 /*
 BEGIN;
@@ -178,8 +260,8 @@ ROLLBACK;
 -- ============================================================================
 -- PARTE 5 -- Sem a permissao, ninguem do grupo ve documento alheio.
 -- ============================================================================
--- Pegue alguem do MESMO grupo dos documentos, que NAO seja colaborador com
--- documento proprio, e confira se a permissao decide o acesso.
+-- Use o uuid de uma linha `MESMO GRUPO SEM PERMISSAO` da parte 1, com a coluna
+-- `atencao` vazia. Confirma que a permissao, e nao so o grupo, decide o acesso.
 -- ESPERADO: `has_permission` = false -> 0 documentos.
 /*
 BEGIN;
