@@ -1174,7 +1174,11 @@ export const erbonService = {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`Erro ao atualizar hóspede (${res.status})`);
+      // O corpo da resposta e a unica pista do motivo da recusa (a Erbon usa
+      // 400 tanto para credencial quanto para campo invalido). Sem ele, quem
+      // chama so ve o status e nao tem como corrigir o cadastro.
+      const errTxt = await res.text().catch(() => '');
+      throw new Error(`Erro ao atualizar hóspede (${res.status})${errTxt ? `: ${errTxt.slice(0, 300)}` : ''}`);
     }
     return await res.json().catch(() => ({}));
   },

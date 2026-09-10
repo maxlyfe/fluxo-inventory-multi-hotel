@@ -26,6 +26,7 @@ import {
 /** Subconjunto de `wci_checkin_guests` que o reenvio precisa. */
 export interface ResendGuest {
   id: string;
+  is_main_guest?: boolean;
   erbon_guest_id?: number | null;
   name: string;
   email?: string | null;
@@ -61,7 +62,7 @@ export interface ResendFicha {
 export type ResendStepStatus = 'ok' | 'error' | 'skipped';
 
 export interface ResendStep {
-  key: 'guest' | 'signature' | 'rules' | 'lgpd' | 'docFront' | 'docBack';
+  key: 'guest' | 'attach' | 'signature' | 'rules' | 'lgpd' | 'docFront' | 'docBack';
   label: string;
   status: ResendStepStatus;
   detail?: string;
@@ -197,7 +198,11 @@ export async function resendGuestToErbon(
       erbonGuestId = await saveGuestFNRH(hotelId, bookingInternalId, existingId, { ...payload, genderID: undefined });
       guestOk = true;
     } catch (e2) {
-      guestError = (e2 as Error)?.message || (e1 as Error)?.message || 'falha ao enviar cadastro';
+      // As duas mensagens, porque as tentativas falham por motivos diferentes:
+      // a 1ª costuma trazer o campo recusado, a 2ª confirma que não era o gênero.
+      const m1 = (e1 as Error)?.message || 'erro sem mensagem';
+      const m2 = (e2 as Error)?.message || 'erro sem mensagem';
+      guestError = m1 === m2 ? m1 : `${m1} | sem genero: ${m2}`;
     }
   }
   steps.push({
@@ -207,7 +212,48 @@ export async function resendGuestToErbon(
     detail: guestOk ? (erbonGuestId ? `ID Erbon ${erbonGuestId}` : 'enviado') : guestError,
   });
 
-  // ── 2. Assinatura ─────────────────────────────────────────────────────────
+  // ── 2. Vínculo com a reserva ──────────────────────────────────────────────
+  // `guests/update` grava no cadastro geral do hotel, não na reserva. Um
+  // hóspede pode estar atualizado e continuar invisível na reserva se o
+  // `attach` nunca aconteceu — o `addGuestToBooking` engole falha de vínculo
+  // de propósito (o hóspede foi criado, só não ficou ligado). É exatamente o
+  // caso em que a recepção aperta "enviar", recebe OK e não vê nada no PMS.
+  // Por isso aqui a reserva é lida de volta e o vínculo é refeito se faltar.
+  if (guestOk) {
+    try {
+      const booking = await erbonService.fetchBookingByInternalId(hotelId, bookingInternalId);
+      if (!booking) {
+        steps.push({
+          key: 'attach', label: 'Vínculo com a reserva', status: 'error',
+          detail: 'não foi possível ler a reserva na Erbon para conferir',
+        });
+      } else {
+        const list = (booking.guestList || []) as Array<{ id?: number }>;
+        const attached = !!erbonGuestId && list.some(g => Number(g.id) === Number(erbonGuestId));
+        if (attached) {
+          steps.push({ key: 'attach', label: 'Vínculo com a reserva', status: 'ok', detail: 'já consta na reserva' });
+        } else if (erbonGuestId && erbonGuestId > 0) {
+          try {
+            await erbonService.attachGuestToBooking(hotelId, bookingInternalId, erbonGuestId, !!guest.is_main_guest);
+            steps.push({ key: 'attach', label: 'Vínculo com a reserva', status: 'ok', detail: 'hóspede vinculado agora' });
+          } catch (e) {
+            steps.push({ key: 'attach', label: 'Vínculo com a reserva', status: 'error', detail: (e as Error)?.message });
+          }
+        } else {
+          steps.push({
+            key: 'attach', label: 'Vínculo com a reserva', status: 'error',
+            detail: 'a Erbon não devolveu o ID do hóspede, não há como vincular',
+          });
+        }
+      }
+    } catch (e) {
+      steps.push({ key: 'attach', label: 'Vínculo com a reserva', status: 'error', detail: (e as Error)?.message });
+    }
+  } else {
+    steps.push({ key: 'attach', label: 'Vínculo com a reserva', status: 'skipped', detail: 'cadastro não subiu' });
+  }
+
+  // ── 3. Assinatura ─────────────────────────────────────────────────────────
   if (ficha.signature_data) {
     try {
       const sigBase64 = ficha.signature_data.replace(/^data:image\/\w+;base64,/, '');
@@ -220,7 +266,7 @@ export async function resendGuestToErbon(
     steps.push({ key: 'signature', label: 'Assinatura', status: 'skipped', detail: 'hóspede não assinou' });
   }
 
-  // ── 3-6. Anexos (termos assinados + fotos do documento) ───────────────────
+  // ── 4-7. Anexos (termos assinados + fotos do documento) ───────────────────
   const attachments: Array<{ key: ResendStep['key']; label: string; url: string | null | undefined; file: string }> = [
     { key: 'rules',    label: 'Regulamento assinado', url: ficha.hotel_rules_doc_url, file: `Regulamento_${fileBase}_${ts}` },
     { key: 'lgpd',     label: 'Termo LGPD assinado',  url: ficha.lgpd_doc_url,        file: `LGPD_${fileBase}_${ts}` },

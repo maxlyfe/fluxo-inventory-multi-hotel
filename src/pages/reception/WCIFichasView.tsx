@@ -312,15 +312,22 @@ function ErbonResendButton({
             ? 'border-green-200 dark:border-green-800/60 bg-green-50 dark:bg-green-900/20'
             : 'border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20'
         }`}>
-          <p className={`text-[10px] font-semibold uppercase tracking-wide ${result.ok ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
-            {result.ok ? 'Reenvio concluido' : 'Reenvio com falhas'}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className={`text-[10px] font-semibold uppercase tracking-wide ${result.ok ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+              {result.ok ? 'Reenvio concluido' : 'Reenvio com falhas'}
+            </p>
+            {/* A recusa da Erbon vem no texto da etapa: copiar o relatorio e o
+                que permite mandar o motivo exato para quem vai corrigir. */}
+            {!result.ok && (
+              <CopyBtn value={result.steps.map(st => `${st.status.toUpperCase()} ${st.label}${st.detail ? `: ${st.detail}` : ''}`).join('\n')} />
+            )}
+          </div>
           {result.steps.map(step => (
             <div key={step.key} className="flex items-start gap-1.5 text-left">
               <span className="mt-0.5 shrink-0">{STEP_ICON[step.status]}</span>
-              <span className="text-[11px] text-slate-600 dark:text-slate-300">
+              <span className="text-[11px] text-slate-600 dark:text-slate-300 break-words min-w-0">
                 {step.label}
-                {step.detail && <span className="text-slate-400 dark:text-slate-500"> — {step.detail}</span>}
+                {step.detail && <span className="text-slate-400 dark:text-slate-500 select-text"> — {step.detail}</span>}
               </span>
             </div>
           ))}
