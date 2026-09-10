@@ -16,19 +16,38 @@ import {
   parseBrNumber,
   resolveColumns,
   HIGH_CONFIDENCE,
+  findSignatureAnchor,
   type MatchableEmployee,
 } from './payslipParser';
 import type { PdfTextLine } from './pdfjsLoader';
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
-/** Monta uma linha a partir de pares [x, texto], como o loader devolveria. */
+// Pagina do fixture, em pontos, para as coordenadas normalizadas baterem.
+const PAGE_W = 800;
+const PAGE_H = 780;
+
+/**
+ * Monta uma linha a partir de pares [x, texto], como o loader devolveria.
+ *
+ * Normaliza x/y do mesmo jeito que `groupTextItemsIntoLines`, inclusive a
+ * inversao do eixo Y (no PDF cresce para cima, na imagem para baixo). A largura
+ * do fragmento e estimada em 5pt por caractere, o suficiente para o calculo do
+ * CENTRO do rotulo, que e o que a ancora usa.
+ */
 function line(y: number, parts: [number, string][]): PdfTextLine {
-  const mapped = parts.map(([x, text]) => ({ x, text }));
+  const mapped = parts.map(([x, text]) => ({
+    x,
+    text,
+    xNorm: x / PAGE_W,
+    widthNorm: (text.length * 5) / PAGE_W,
+    heightNorm: 7 / PAGE_H,
+  }));
   return {
     y,
     parts: mapped,
     text: mapped.map(p => p.text).join(' ').replace(/\s+/g, ' ').trim(),
+    yNorm: 1 - y / PAGE_H,
   };
 }
 
@@ -65,6 +84,8 @@ function payslipFixture(): PdfTextLine[] {
     ]),
     line(244, [[62, '2.625,00'], [152, '3.675,00'], [230, '8,97'], [292, '3.675,00'], [440, '294,00'], [545, '3.067,80']]),
     line(220, [[40, 'DECLARO TER RECEBIDO A IMPORTÂNCIA LÍQUIDA DISCRIMINADA NESTE RECIBO']]),
+    // Rodape do recibo: campo de data a esquerda, rotulo da assinatura sob o traco.
+    line(196, [[95, 'DATA'], [470, 'ASSINATURA DO FUNCIONÁRIO']]),
   ];
 }
 
@@ -191,6 +212,71 @@ describe('parsePayslip', () => {
     expect(result.employeeName).toBeNull();
     expect(result.lines).toEqual([]);
     expect(result.warnings[0]).toContain('sem camada de texto');
+  });
+});
+
+// ── findSignatureAnchor ──────────────────────────────────────────────────────
+
+describe('findSignatureAnchor', () => {
+  it('acha a linha de assinatura pelo rótulo do próprio documento', () => {
+    const anchor = findSignatureAnchor(payslipFixture());
+    expect(anchor).not.toBeNull();
+
+    // Centro do rótulo, não onde ele começa: o rótulo é centrado sob o traço,
+    // então ancorar no início jogaria a rubrica para a direita da linha.
+    const labelStart = 470 / PAGE_W;
+    expect(anchor!.signatureCenterX).toBeGreaterThan(labelStart);
+    expect(anchor!.signatureCenterX).toBeLessThan(1);
+
+    // Y invertido: o rodapé fica na parte de baixo da imagem.
+    expect(anchor!.signatureBaselineY).toBeCloseTo(1 - 196 / PAGE_H, 5);
+    expect(anchor!.signatureBaselineY).toBeGreaterThan(0.5);
+  });
+
+  it('acha o campo DATA na mesma faixa do rodapé', () => {
+    const anchor = findSignatureAnchor(payslipFixture());
+    expect(anchor!.dateCenterX).not.toBeNull();
+    // O campo de data fica à esquerda da assinatura.
+    expect(anchor!.dateCenterX!).toBeLessThan(anchor!.signatureCenterX);
+  });
+
+  it('ignora "data" fora da faixa do rodapé', () => {
+    // Um rótulo "Data" no cabeçalho não é o campo de assinar.
+    const lines = [
+      line(760, [[40, 'Data de emissão']]),
+      line(196, [[470, 'ASSINATURA DO FUNCIONÁRIO']]),
+    ];
+    const anchor = findSignatureAnchor(lines);
+    expect(anchor).not.toBeNull();
+    expect(anchor!.dateCenterX).toBeNull();
+  });
+
+  it('aceita variações do rótulo', () => {
+    const anchor = findSignatureAnchor([line(196, [[400, 'Assinatura do Colaborador']])]);
+    expect(anchor).not.toBeNull();
+  });
+
+  it('devolve null sem camada de texto', () => {
+    expect(findSignatureAnchor([])).toBeNull();
+  });
+
+  it('devolve null quando o documento não tem linha de assinatura', () => {
+    expect(findSignatureAnchor([line(400, [[40, 'Relatório qualquer']])])).toBeNull();
+  });
+});
+
+describe('parsePayslip — âncora de assinatura', () => {
+  it('expõe a âncora no resultado, sem aviso', () => {
+    const parsed = parsePayslip(payslipFixture());
+    expect(parsed.signatureAnchor).not.toBeNull();
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it('avisa quando não localiza a linha de assinatura', () => {
+    const withoutFooter = payslipFixture().filter(l => !l.text.includes('ASSINATURA'));
+    const parsed = parsePayslip(withoutFooter);
+    expect(parsed.signatureAnchor).toBeNull();
+    expect(parsed.warnings.some(w => w.includes('assinatura'))).toBe(true);
   });
 });
 

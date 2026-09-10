@@ -35,6 +35,22 @@ export interface PayslipLine {
   deduction: number | null;
 }
 
+/**
+ * Onde estampar a assinatura no proprio documento.
+ *
+ * Tudo normalizado (0 a 1 da pagina), porque o PDF final e A4 e o documento
+ * original nao necessariamente e. Origem no canto superior esquerdo.
+ */
+export interface SignatureAnchor {
+  /** Centro horizontal da linha de assinatura */
+  signatureCenterX: number;
+  /** Linha de base do rotulo "ASSINATURA DO FUNCIONARIO" */
+  signatureBaselineY: number;
+  /** Centro horizontal do campo de data, quando o documento tem um */
+  dateCenterX: number | null;
+  dateBaselineY: number | null;
+}
+
 export interface ParsedPayslip {
   employerName: string | null;
   employerCnpj: string | null;
@@ -54,6 +70,11 @@ export interface ParsedPayslip {
   fgtsMonth: number | null;
   baseIrrf: number | null;
   irrfBracket: string | null;
+  /**
+   * Posicao da linha de assinatura no documento, quando encontrada. Null em
+   * imagem ou PDF escaneado (sem camada de texto).
+   */
+  signatureAnchor: SignatureAnchor | null;
   /** Sinais de leitura incompleta, mostrados na tela de conciliação. */
   warnings: string[];
 }
@@ -197,6 +218,7 @@ export function parsePayslip(lines: PdfTextLine[]): ParsedPayslip {
     totalEarnings: null, totalDeductions: null, netPay: null,
     baseSalary: null, baseInss: null, baseFgts: null,
     fgtsMonth: null, baseIrrf: null, irrfBracket: null,
+    signatureAnchor: null,
     warnings,
   };
 
@@ -349,6 +371,12 @@ export function parsePayslip(lines: PdfTextLine[]): ParsedPayslip {
   result.baseIrrf = footer.baseIrrf;
   result.irrfBracket = footer.irrfBracket;
 
+  // ── Onde assinar ──────────────────────────────────────────────────────────
+  result.signatureAnchor = findSignatureAnchor(lines);
+  if (!result.signatureAnchor) {
+    warnings.push('Linha de assinatura não localizada — a rubrica irá num bloco ao pé da página.');
+  }
+
   // ── Conferência aritmética ────────────────────────────────────────────────
   // Se as verbas somam o total impresso, a leitura das colunas está certa.
   // É a checagem que pega inversão de coluna, que é o erro silencioso perigoso.
@@ -497,6 +525,68 @@ function readFooterBases(lines: PdfTextLine[]): {
     fgtsMonth: valueUnder('f.g.t.s') ?? valueUnder('fgts', 'mes'),
     baseIrrf: valueUnder('irrf', 'calc') ?? valueUnder('irrf', 'base'),
     irrfBracket: null,
+  };
+}
+
+// ── Onde assinar ─────────────────────────────────────────────────────────────
+
+/**
+ * Localiza a linha de assinatura do documento.
+ *
+ * O contracheque ja tem um rodape proprio para isso: "DECLARO TER RECEBIDO A
+ * IMPORTANCIA LIQUIDA DISCRIMINADA NESTE RECIBO", com um campo DATA e o rotulo
+ * ASSINATURA DO FUNCIONARIO sob um traco. A rubrica tem de cair ali, no papel
+ * que o colaborador reconhece, e nao numa folha extra.
+ *
+ * Auto-calibracao, mesma ideia de `resolveColumns`: em vez de fixar "assinatura
+ * fica a 93% da altura", le onde o proprio documento imprimiu o rotulo. Layout
+ * com margem diferente, ou contracheque de duas paginas, acompanha sozinho.
+ *
+ * Usa o CENTRO do rotulo (`xNorm + widthNorm / 2`), nao o inicio: o rotulo e
+ * centrado sob o traco, entao ancorar no inicio jogaria a rubrica para a
+ * direita da linha.
+ */
+export function findSignatureAnchor(lines: PdfTextLine[]): SignatureAnchor | null {
+  if (lines.length === 0) return null;
+
+  /** Primeiro fragmento cujo texto normalizado contem todos os termos. */
+  const findPart = (...needles: string[]) => {
+    for (const line of lines) {
+      for (const part of line.parts) {
+        const t = normalizeText(part.text);
+        if (needles.every(n => t.includes(n))) return { line, part };
+      }
+    }
+    return null;
+  };
+
+  // "ASSINATURA DO FUNCIONARIO" e o rotulo do layout atual. "assinatura"
+  // sozinho e o fallback para variacoes ("Assinatura do Colaborador", "Ass. do
+  // Empregado"), que erram menos que nao estampar nada.
+  const signature = findPart('assinatura', 'funcionario')
+    ?? findPart('assinatura', 'colaborador')
+    ?? findPart('assinatura', 'empregado')
+    ?? findPart('assinatura');
+
+  if (!signature) return null;
+
+  const center = (p: { xNorm: number; widthNorm: number }) =>
+    p.xNorm + p.widthNorm / 2;
+
+  const date = findPart('data');
+
+  return {
+    signatureCenterX: center(signature.part),
+    signatureBaselineY: signature.line.yNorm,
+    // O campo DATA fica ao lado da assinatura, na mesma faixa do rodape. Um
+    // "data" achado muito acima (o periodo de competencia, por exemplo) nao e
+    // o campo de assinar: exige estar a menos de 3% de altura do rotulo.
+    dateCenterX: date && Math.abs(date.line.yNorm - signature.line.yNorm) < 0.03
+      ? center(date.part)
+      : null,
+    dateBaselineY: date && Math.abs(date.line.yNorm - signature.line.yNorm) < 0.03
+      ? date.line.yNorm
+      : null,
   };
 }
 

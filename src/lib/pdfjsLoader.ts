@@ -15,11 +15,23 @@
 const PDFJS_VERSION = '3.11.174';
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
 
-/** Um fragmento de texto com a posição horizontal em que foi desenhado. */
+/** Um fragmento de texto com a posição em que foi desenhado. */
 export interface PdfTextPart {
   /** Coordenada X do PDF (pontos, origem à esquerda) */
   x: number;
   text: string;
+  /**
+   * X do início do fragmento, de 0 (borda esquerda) a 1 (borda direita).
+   *
+   * Normalizado porque quem consome quer estampar algo em cima da página
+   * depois, num tamanho de papel que não é o do PDF original. Ponto de PDF só
+   * serve dentro daquele PDF; fração da página sobrevive a qualquer escala.
+   */
+  xNorm: number;
+  /** Largura do fragmento como fração da largura da página */
+  widthNorm: number;
+  /** Altura do fragmento como fração da altura da página */
+  heightNorm: number;
 }
 
 /**
@@ -35,6 +47,12 @@ export interface PdfTextLine {
   parts: PdfTextPart[];
   /** Os fragmentos já unidos, da esquerda para a direita */
   text: string;
+  /**
+   * Y da linha de base, de 0 (topo) a 1 (rodapé) — **invertido** em relação ao
+   * eixo do PDF, para casar com o sistema de coordenadas de canvas e de imagem,
+   * que é onde a assinatura vai ser estampada.
+   */
+  yNorm: number;
 }
 
 /** Página de um PDF já rasterizada, com o texto extraído quando existe. */
@@ -140,7 +158,7 @@ export async function renderPdfPages(
     let lines: PdfTextLine[] = [];
     try {
       const content = await page.getTextContent();
-      lines = groupTextItemsIntoLines(content.items);
+      lines = groupTextItemsIntoLines(content.items, viewport);
     } catch {
       // PDF sem camada de texto (escaneado): segue sem texto, e a tela de
       // conciliação cai em atribuição manual.
@@ -170,23 +188,64 @@ const LINE_TOLERANCE = 2;
  * Ordena por Y descendente (o eixo do PDF cresce para cima) e, dentro da linha,
  * por X, o que preserva a ordem das colunas do contracheque.
  */
-function groupTextItemsIntoLines(items: any[]): PdfTextLine[] {
+function groupTextItemsIntoLines(items: any[], viewport: any): PdfTextLine[] {
+  const pageWidth = viewport?.width || 1;
+  const pageHeight = viewport?.height || 1;
+
+  /**
+   * Converte ponto do PDF para pixel da imagem renderizada.
+   *
+   * `item.transform` vem em espaço do PDF (escala 1, Y crescendo para cima), e
+   * a imagem está na escala do render com Y crescendo para baixo. Usar
+   * `convertToViewportPoint` do próprio PDF.js em vez de dividir pela escala à
+   * mão resolve os dois de uma vez e ainda cobre página rotacionada, que uma
+   * conta manual erraria em 90°.
+   */
+  const toViewport = (x: number, y: number): [number, number] => {
+    if (typeof viewport?.convertToViewportPoint === 'function') {
+      const [vx, vy] = viewport.convertToViewportPoint(x, y);
+      return [vx, vy];
+    }
+    return [x, pageHeight - y];
+  };
+
   const positioned = items
     .filter(it => typeof it?.str === 'string' && it.str.trim().length > 0)
-    .map(it => ({
-      text: it.str as string,
-      x: it.transform?.[4] ?? 0,
-      y: it.transform?.[5] ?? 0,
-    }));
+    .map(it => {
+      const x = it.transform?.[4] ?? 0;
+      const y = it.transform?.[5] ?? 0;
+      const [vx, vy] = toViewport(x, y);
+      const scale = viewport?.scale || 1;
+      return {
+        text: it.str as string,
+        x,
+        y,
+        xNorm: vx / pageWidth,
+        yNorm: vy / pageHeight,
+        // `width`/`height` vêm do PDF.js em ponto de PDF, então precisam da
+        // escala para virar pixel antes de normalizar. São o que permite achar
+        // o CENTRO de um rótulo, e não só onde ele começa — a diferença entre
+        // a assinatura sair centrada na linha ou deslocada para a direita.
+        widthNorm: ((it.width ?? 0) * scale) / pageWidth,
+        heightNorm: ((it.height ?? 0) * scale) / pageHeight,
+      };
+    });
 
   if (positioned.length === 0) return [];
 
   const grouped: PdfTextLine[] = [];
 
   for (const item of positioned) {
+    const part: PdfTextPart = {
+      x: item.x,
+      text: item.text,
+      xNorm: item.xNorm,
+      widthNorm: item.widthNorm,
+      heightNorm: item.heightNorm,
+    };
     const line = grouped.find(l => Math.abs(l.y - item.y) <= LINE_TOLERANCE);
-    if (line) line.parts.push({ x: item.x, text: item.text });
-    else grouped.push({ y: item.y, parts: [{ x: item.x, text: item.text }], text: '' });
+    if (line) line.parts.push(part);
+    else grouped.push({ y: item.y, parts: [part], text: '', yNorm: item.yNorm });
   }
 
   return grouped

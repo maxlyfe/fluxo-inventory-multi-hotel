@@ -78,6 +78,16 @@ export interface EmployeeDocument {
   signature_data: string | null;
   signed_at: string | null;
   signed_file_path: string | null;
+  /**
+   * Onde estampar a rubrica no proprio documento, 0 a 1 da pagina (origem no
+   * canto superior esquerdo). Descoberto na leitura do arquivo e guardado
+   * porque, na hora de assinar, so existe o JPEG da pagina — sem camada de
+   * texto para consultar de novo.
+   */
+  signature_anchor_x: number | null;
+  signature_anchor_y: number | null;
+  date_anchor_x: number | null;
+  date_anchor_y: number | null;
   created_at: string;
   /** Vem do join quando pedido */
   employee_document_types?: { name: string; slug: string } | null;
@@ -119,6 +129,7 @@ const DOCUMENT_COLUMNS = `
   total_earnings, total_deductions, net_pay,
   base_salary, base_inss, base_fgts, fgts_month, base_irrf, irrf_bracket,
   requires_signature, signature_status, signature_data, signed_at, signed_file_path,
+  signature_anchor_x, signature_anchor_y, date_anchor_x, date_anchor_y,
   created_at
 `;
 
@@ -462,6 +473,13 @@ export interface NewDocumentInput {
     irrfBracket?: string | null;
   };
   lines?: PayslipLine[];
+  /** Posicao da linha de assinatura no documento (normalizada 0..1). */
+  signatureAnchor?: {
+    signatureCenterX: number;
+    signatureBaselineY: number;
+    dateCenterX: number | null;
+    dateBaselineY: number | null;
+  } | null;
 }
 
 /**
@@ -518,6 +536,10 @@ export async function createDocumentWithFile(
       base_irrf: input.totals?.baseIrrf ?? null,
       irrf_bracket: input.totals?.irrfBracket ?? null,
       requires_signature: input.requiresSignature,
+      signature_anchor_x: input.signatureAnchor?.signatureCenterX ?? null,
+      signature_anchor_y: input.signatureAnchor?.signatureBaselineY ?? null,
+      date_anchor_x: input.signatureAnchor?.dateCenterX ?? null,
+      date_anchor_y: input.signatureAnchor?.dateBaselineY ?? null,
       uploaded_by: userId,
     })
     .select(DOCUMENT_COLUMNS)

@@ -280,6 +280,9 @@ function SendTab() {
               irrfBracket: row.parsed.irrfBracket,
             },
             lines: row.parsed.lines,
+            // Onde a rubrica vai ser estampada. Descoberto agora, na leitura,
+            // porque depois so sobra a imagem da pagina.
+            signatureAnchor: row.parsed.signatureAnchor,
           },
           user?.id ?? null,
         );
@@ -933,6 +936,7 @@ function emptyParsed(warning: string): ParsedPayslip {
     totalEarnings: null, totalDeductions: null, netPay: null,
     baseSalary: null, baseInss: null, baseFgts: null,
     fgtsMonth: null, baseIrrf: null, irrfBracket: null,
+    signatureAnchor: null,
     warnings: [warning],
   };
 }
