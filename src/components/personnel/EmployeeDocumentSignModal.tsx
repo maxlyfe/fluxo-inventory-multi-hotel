@@ -18,6 +18,7 @@ import {
   signDocument,
   uploadSignedPdf,
   signedPdfPath,
+  registerDocumentView,
   type EmployeeDocument,
 } from '../../lib/employeeDocumentsService';
 import { buildSignedPdf } from '../../lib/signedDocumentPdf';
@@ -48,7 +49,14 @@ export default function EmployeeDocumentSignModal({
     (async () => {
       try {
         const url = await getSignedUrl(doc.file_path);
-        if (active) setPreviewUrl(url);
+        if (!active) return;
+        setPreviewUrl(url);
+
+        // Registra a visualização só quando o documento de fato pôde ser
+        // carregado. Marcar na abertura do modal diria "viu" para quem só
+        // encontrou um erro na tela — e o DP cobraria a assinatura de quem
+        // nunca conseguiu ver o contracheque.
+        if (url) await registerDocumentView(doc.id, 'signature');
       } catch (err) {
         if (active) setError(sanitizeError(err));
       } finally {

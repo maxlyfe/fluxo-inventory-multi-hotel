@@ -19,6 +19,7 @@ import {
   listEmployeeDocuments,
   listDocumentLines,
   getSignedUrl,
+  registerDocumentView,
   type EmployeeDocument,
   type DocumentLine,
   type GroupEmployee,
@@ -72,11 +73,22 @@ export default function MyPayslips() {
     }
   }
 
-  async function openFile(path: string | null) {
+  /**
+   * Abre o arquivo numa aba nova e registra a visualização.
+   *
+   * `documentId` só vem quando o que está sendo aberto é o documento em si;
+   * abrir o comprovante já assinado não é um evento de visualização novo.
+   */
+  async function openFile(path: string | null, documentId?: string) {
     if (!path) return;
     try {
       const url = await getSignedUrl(path);
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      if (!url) return;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      if (documentId) {
+        await registerDocumentView(documentId, 'download');
+        await load();
+      }
     } catch (err) {
       setError(sanitizeError(err));
     }
@@ -206,7 +218,7 @@ interface CardProps {
   lines: DocumentLine[] | undefined;
   onToggle: () => void;
   onSign: () => void;
-  onOpen: (path: string | null) => void;
+  onOpen: (path: string | null, documentId?: string) => void;
 }
 
 function DocumentCard({ doc, expanded, lines, onToggle, onSign, onOpen }: CardProps) {
@@ -309,7 +321,7 @@ function DocumentCard({ doc, expanded, lines, onToggle, onSign, onOpen }: CardPr
           {/* Ações */}
           <div className="flex flex-wrap gap-2 pt-1">
             <button
-              onClick={() => onOpen(doc.file_path)}
+              onClick={() => onOpen(doc.file_path, doc.id)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               <ExternalLink className="h-3.5 w-3.5" /> Ver documento
@@ -333,6 +345,15 @@ function DocumentCard({ doc, expanded, lines, onToggle, onSign, onOpen }: CardPr
               </button>
             )}
           </div>
+
+          {/* Transparência com o colaborador: ele vê o mesmo registro que o
+              DP vê. Esconder isso seria vigiar às escondidas. */}
+          {doc.first_viewed_at && doc.signature_status === 'pending' && (
+            <p className="text-xs text-sky-600 dark:text-sky-400 pt-1">
+              O sistema registrou que você abriu este documento em{' '}
+              {new Date(doc.first_viewed_at).toLocaleString('pt-BR')}. A assinatura segue pendente.
+            </p>
+          )}
 
           {/* Emitido por outra unidade — informação, não erro */}
           {doc.employer_name && (

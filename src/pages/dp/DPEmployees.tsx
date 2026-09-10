@@ -10,7 +10,7 @@ import {
   Users, Plus, Search, X, Loader2, AlertTriangle, ChevronDown,
   Building2, Phone, Calendar, Briefcase, UserCheck, UserX,
   Filter, Edit2, Eye, CheckCircle, Clock, AlertCircle,
-  ArrowRightLeft, FileText, Check, Trash2, PenLine,
+  ArrowRightLeft, FileText, Check, Trash2, PenLine, EyeOff,
 } from 'lucide-react';
 import EmployeesReportModal from '../../components/EmployeesReportModal';
 import { format, differenceInDays, isAfter } from 'date-fns';
@@ -222,7 +222,7 @@ export default function DPEmployees() {
   // quem pode ver documento — sem a permissão a RLS devolveria lista vazia de
   // qualquer forma, e a subscrição seria desperdício.
   const canSeeDocs = canAny(['personnel_department', 'personnel.payslips.view']);
-  const { countByEmployee: pendingSignatures } = usePendingSignatures(canSeeDocs);
+  const { byEmployee: pendingSignatures } = usePendingSignatures(canSeeDocs);
   const navigate = useNavigate();
 
   const canChangeHotel = ['admin', 'management'].includes(user?.role || '');
@@ -1532,7 +1532,9 @@ export default function DPEmployees() {
             const sCfg = STATUS_CONFIG[emp.status] ?? STATUS_CONFIG.active;
             const StatusIcon = sCfg.icon;
             const initials = emp.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
-            const pendingCount = pendingSignatures.get(emp.id) ?? 0;
+            const docState = pendingSignatures.get(emp.id);
+            const pendingCount = docState?.pending ?? 0;
+            const viewedCount = docState?.viewed ?? 0;
 
             return (
               <div key={emp.id}
@@ -1553,6 +1555,33 @@ export default function DPEmployees() {
                     {/* Contracheque aguardando assinatura. Reativo: o hook
                         escuta `employee_documents` e o indicador apaga assim
                         que a pessoa assina pelo celular, sem recarregar. */}
+                    {/* Visualização: separa "não viu" de "viu e não assinou".
+                        Só aparece junto da caneta, porque fora de um documento
+                        pendente a informação não gera ação nenhuma. */}
+                    {pendingCount > 0 && (
+                      <span
+                        title={
+                          viewedCount === 0
+                            ? 'Não abriu o documento'
+                            : viewedCount === pendingCount
+                              ? `Abriu o documento${docState?.firstViewedAt ? ` em ${new Date(docState.firstViewedAt).toLocaleDateString('pt-BR')}` : ''} e não assinou`
+                              : `Abriu ${viewedCount} de ${pendingCount} documentos pendentes`
+                        }
+                        aria-label={viewedCount === 0
+                          ? `${emp.name} não abriu o documento pendente`
+                          : `${emp.name} abriu o documento pendente e não assinou`}
+                        className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                          viewedCount === 0
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-400'
+                            : 'bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400'
+                        }`}
+                      >
+                        {viewedCount === 0
+                          ? <EyeOff className="h-3.5 w-3.5" />
+                          : <Eye className="h-3.5 w-3.5" />}
+                      </span>
+                    )}
+
                     {pendingCount > 0 && (
                       <button
                         onClick={() => navigate(`/dp/employee/${emp.id}?tab=docs`)}

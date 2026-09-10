@@ -32,7 +32,7 @@ import {
 import DPDocumentTypes from './DPDocumentTypes';
 import {
   Upload, FileText, Loader2, AlertTriangle, CheckCircle2, X, Search,
-  Settings, PenLine, Building2, ChevronRight,
+  Settings, PenLine, Building2, ChevronRight, Eye, EyeOff,
 } from 'lucide-react';
 
 type SubTab = 'send' | 'panel' | 'types';
@@ -733,6 +733,11 @@ function PanelTab() {
 
   const pending = documents.filter(d => d.requires_signature && d.signature_status === 'pending').length;
   const signed = documents.filter(d => d.signature_status === 'signed').length;
+  // Pendente e já visto é o estado acionável: a pessoa sabe que existe e não
+  // assinou. Diferente de pendente e nunca aberto, que é cobrar que abra.
+  const seenNotSigned = documents.filter(
+    d => d.requires_signature && d.signature_status === 'pending' && d.first_viewed_at,
+  ).length;
 
   const hotelNames = useMemo(() => new Map(hotels.map(h => [h.id, h.name])), [hotels]);
 
@@ -786,6 +791,9 @@ function PanelTab() {
           <Chip tone="neutral">{documents.length} documento(s)</Chip>
           <Chip tone="ok">{signed} assinado(s)</Chip>
           <Chip tone="warn">{pending} pendente(s)</Chip>
+          {seenNotSigned > 0 && (
+            <Chip tone="warn">{seenNotSigned} viu e nao assinou</Chip>
+          )}
         </div>
       </div>
 
@@ -811,6 +819,7 @@ function PanelTab() {
                   <th className="text-left px-4 py-3">Unidade</th>
                   <th className="text-left px-4 py-3">Competência</th>
                   <th className="text-right px-4 py-3">Líquido</th>
+                  <th className="text-left px-4 py-3">Visualizou</th>
                   <th className="text-left px-4 py-3">Assinatura</th>
                 </tr>
               </thead>
@@ -834,6 +843,21 @@ function PanelTab() {
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-900 dark:text-white">
                       {d.net_pay !== null ? formatCurrency(d.net_pay) : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {d.first_viewed_at ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 dark:text-sky-400"
+                          title={`Aberto em ${new Date(d.first_viewed_at).toLocaleString('pt-BR')}`}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          {new Date(d.first_viewed_at).toLocaleDateString('pt-BR')}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-400" title="Nunca aberto">
+                          <EyeOff className="h-3.5 w-3.5" /> nao abriu
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {!d.requires_signature ? (

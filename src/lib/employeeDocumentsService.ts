@@ -88,10 +88,27 @@ export interface EmployeeDocument {
   signature_anchor_y: number | null;
   date_anchor_x: number | null;
   date_anchor_y: number | null;
+  /**
+   * Registro de visualizacao. Separa dois estados que antes eram um so
+   * "pendente": nao viu (cobrar que abra) e viu e nao assinou (cobrar a
+   * assinatura). Nao substitui a assinatura.
+   */
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  view_count: number;
   created_at: string;
   /** Vem do join quando pedido */
   employee_document_types?: { name: string; slug: string } | null;
   employees?: { name: string; sector: string | null; hotel_id: string | null } | null;
+}
+
+/** Uma sessao de visualizacao do documento pelo colaborador. */
+export interface DocumentView {
+  id: string;
+  viewed_at: string;
+  /** User agent cru; use `describeDevice` para exibir. */
+  user_agent: string | null;
+  source: 'portal' | 'download' | 'signature';
 }
 
 export interface DocumentLine {
@@ -130,6 +147,7 @@ const DOCUMENT_COLUMNS = `
   base_salary, base_inss, base_fgts, fgts_month, base_irrf, irrf_bracket,
   requires_signature, signature_status, signature_data, signed_at, signed_file_path,
   signature_anchor_x, signature_anchor_y, date_anchor_x, date_anchor_y,
+  first_viewed_at, last_viewed_at, view_count,
   created_at
 `;
 
@@ -374,6 +392,47 @@ export async function notifyPendingDocumentsAfterLink(
   } catch {
     return 0;
   }
+}
+
+/**
+ * Registra que o colaborador abriu o documento.
+ *
+ * Passa por RPC pelo mesmo motivo da assinatura: `employee_documents` nao tem
+ * policy de UPDATE, e `employee_document_views` nao tem policy de INSERT. Se o
+ * cliente pudesse gravar direto, "o colaborador viu" viraria um fato que
+ * qualquer um forja — e o valor dele e justamente ser um fato do servidor.
+ *
+ * A RPC deduplica numa janela de 30 minutos, entao chamar a cada abertura de
+ * modal e barato e nao polui o historico.
+ *
+ * Melhor esforco e nunca lanca: falhar ao registrar a visualizacao nao pode
+ * impedir o colaborador de VER ou de assinar o proprio contracheque.
+ */
+export async function registerDocumentView(
+  documentId: string,
+  source: 'portal' | 'download' | 'signature' = 'portal',
+): Promise<void> {
+  try {
+    await supabase.rpc('register_employee_document_view', {
+      p_document_id: documentId,
+      p_user_agent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 400) : null,
+      p_source: source,
+    });
+  } catch {
+    // Silencioso de proposito — ver comentario acima.
+  }
+}
+
+/** Historico de visualizacoes de um documento, do mais recente para o antigo. */
+export async function listDocumentViews(documentId: string): Promise<DocumentView[]> {
+  const { data, error } = await supabase
+    .from('employee_document_views')
+    .select('id, viewed_at, user_agent, source')
+    .eq('document_id', documentId)
+    .order('viewed_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as DocumentView[];
 }
 
 /** Quantos documentos do colaborador aguardam assinatura (para o widget). */

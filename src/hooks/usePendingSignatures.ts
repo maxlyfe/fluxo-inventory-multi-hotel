@@ -29,9 +29,19 @@ import { supabase } from '../lib/supabase';
 /** Espera antes de refazer a consulta, para um lote de eventos virar uma. */
 const DEBOUNCE_MS = 400;
 
+/** Situação dos documentos pendentes de um colaborador. */
+export interface PendingState {
+  /** Quantos documentos aguardam assinatura */
+  pending: number;
+  /** Quantos desses o colaborador já abriu */
+  viewed: number;
+  /** Data da visualização mais antiga entre os pendentes (ISO), se houver */
+  firstViewedAt: string | null;
+}
+
 export interface PendingSignatures {
-  /** employee_id → quantos documentos aguardam assinatura */
-  countByEmployee: Map<string, number>;
+  /** employee_id → situação dos documentos pendentes */
+  byEmployee: Map<string, PendingState>;
   /** Total de documentos pendentes visíveis */
   total: number;
   loading: boolean;
@@ -40,7 +50,7 @@ export interface PendingSignatures {
 }
 
 export function usePendingSignatures(enabled = true): PendingSignatures {
-  const [countByEmployee, setCountByEmployee] = useState<Map<string, number>>(new Map());
+  const [byEmployee, setByEmployee] = useState<Map<string, PendingState>>(new Map());
   const [loading, setLoading] = useState(enabled);
 
   // Guarda o timer entre renders sem provocar re-render nem recriar o canal.
@@ -49,25 +59,41 @@ export function usePendingSignatures(enabled = true): PendingSignatures {
 
   const fetchPending = useCallback(async () => {
     try {
+      // `first_viewed_at` entra no mesmo select porque o indicador de olho e o
+      // de caneta contam a mesma história: entre os documentos pendentes, o que
+      // o colaborador já abriu. Duas consultas separadas poderiam divergir
+      // entre si por uma fração de segundo e piscar na tela.
       const { data, error } = await supabase
         .from('employee_documents')
-        .select('employee_id')
+        .select('employee_id, first_viewed_at')
         .eq('requires_signature', true)
         .eq('signature_status', 'pending');
 
       if (error) throw error;
       if (!activeRef.current) return;
 
-      const map = new Map<string, number>();
-      for (const row of data || []) {
-        const id = (row as { employee_id: string }).employee_id;
-        map.set(id, (map.get(id) || 0) + 1);
+      const map = new Map<string, PendingState>();
+      for (const row of (data || []) as { employee_id: string; first_viewed_at: string | null }[]) {
+        const current = map.get(row.employee_id)
+          ?? { pending: 0, viewed: 0, firstViewedAt: null };
+
+        current.pending += 1;
+        if (row.first_viewed_at) {
+          current.viewed += 1;
+          // A mais antiga entre os pendentes: é a que diz há quanto tempo a
+          // pessoa está sabendo e não assinou.
+          if (!current.firstViewedAt || row.first_viewed_at < current.firstViewedAt) {
+            current.firstViewedAt = row.first_viewed_at;
+          }
+        }
+
+        map.set(row.employee_id, current);
       }
-      setCountByEmployee(map);
+      setByEmployee(map);
     } catch {
       // Indicador é informação acessória: falhar calado é melhor que derrubar
       // a lista de colaboradores inteira por causa dele.
-      if (activeRef.current) setCountByEmployee(new Map());
+      if (activeRef.current) setByEmployee(new Map());
     } finally {
       if (activeRef.current) setLoading(false);
     }
@@ -83,7 +109,7 @@ export function usePendingSignatures(enabled = true): PendingSignatures {
 
     if (!enabled) {
       setLoading(false);
-      setCountByEmployee(new Map());
+      setByEmployee(new Map());
       return () => { activeRef.current = false; };
     }
 
@@ -109,7 +135,7 @@ export function usePendingSignatures(enabled = true): PendingSignatures {
   }, [enabled, fetchPending, scheduleFetch]);
 
   let total = 0;
-  countByEmployee.forEach(n => { total += n; });
+  byEmployee.forEach(state => { total += state.pending; });
 
-  return { countByEmployee, total, loading, reload: fetchPending };
+  return { byEmployee, total, loading, reload: fetchPending };
 }

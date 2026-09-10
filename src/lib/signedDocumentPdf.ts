@@ -251,6 +251,11 @@ function renderProofFootnote(pdf: any, input: SignedPdfInput, top: number) {
     (input.employee.payroll_code || input.document.payroll_code)
       ? `matrícula ${input.employee.payroll_code || input.document.payroll_code}`
       : null,
+    // A visualização vem antes da assinatura na linha porque é o que aconteceu
+    // antes: o comprovante conta a sequência, não só o desfecho.
+    input.document.first_viewed_at
+      ? `aberto em ${new Date(input.document.first_viewed_at).toLocaleString('pt-BR')}`
+      : null,
     `assinado em ${input.signedAt.toLocaleString('pt-BR')}`,
   ].filter(Boolean).join(' · ');
 

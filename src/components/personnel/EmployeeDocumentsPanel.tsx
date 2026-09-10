@@ -16,12 +16,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { usePermissions } from '../../hooks/usePermissions';
 import { sanitizeError } from '../../utils/errorHandler';
 import {
-  listEmployeeDocuments, listDocumentLines, getSignedUrl, deleteDocument,
-  type EmployeeDocument, type DocumentLine,
+  listEmployeeDocuments, listDocumentLines, listDocumentViews,
+  getSignedUrl, deleteDocument,
+  type EmployeeDocument, type DocumentLine, type DocumentView,
 } from '../../lib/employeeDocumentsService';
+import { describeDevice } from '../../lib/describeDevice';
 import {
   FileText, Loader2, AlertTriangle, ExternalLink, FileCheck2, Trash2,
-  PenLine, CheckCircle2, ChevronDown, ChevronUp, X, ShieldAlert,
+  PenLine, CheckCircle2, ChevronDown, ChevronUp, X, ShieldAlert, Eye, EyeOff,
 } from 'lucide-react';
 
 interface Props {
@@ -41,6 +43,7 @@ export default function EmployeeDocumentsPanel({ employeeId, employeeName }: Pro
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lines, setLines] = useState<Record<string, DocumentLine[]>>({});
+  const [views, setViews] = useState<Record<string, DocumentView[]>>({});
   const [deleting, setDeleting] = useState<EmployeeDocument | null>(null);
 
   const load = useCallback(async () => {
@@ -61,11 +64,18 @@ export default function EmployeeDocumentsPanel({ employeeId, employeeName }: Pro
     if (expandedId === doc.id) { setExpandedId(null); return; }
     setExpandedId(doc.id);
     if (lines[doc.id]) return;
+    // Verbas e visualizações juntas: as duas só interessam com o card aberto,
+    // e uma requisição a mais por documento na lista seria desperdício.
     try {
-      const rows = await listDocumentLines(doc.id);
+      const [rows, viewRows] = await Promise.all([
+        listDocumentLines(doc.id),
+        listDocumentViews(doc.id).catch(() => [] as DocumentView[]),
+      ]);
       setLines(prev => ({ ...prev, [doc.id]: rows }));
+      setViews(prev => ({ ...prev, [doc.id]: viewRows }));
     } catch {
       setLines(prev => ({ ...prev, [doc.id]: [] }));
+      setViews(prev => ({ ...prev, [doc.id]: [] }));
     }
   }
 
@@ -154,6 +164,21 @@ export default function EmployeeDocumentsPanel({ employeeId, employeeName }: Pro
                 </button>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  {/* Visualização: informa sem competir com a assinatura. */}
+                  <span
+                    title={doc.first_viewed_at
+                      ? `Aberto pelo colaborador em ${new Date(doc.first_viewed_at).toLocaleString('pt-BR')}`
+                      : 'O colaborador ainda não abriu este documento'}
+                    className={`inline-flex items-center justify-center w-8 h-8 rounded-xl ${
+                      doc.first_viewed_at
+                        ? 'text-sky-500'
+                        : 'text-gray-300 dark:text-gray-600'
+                    }`}
+                  >
+                    {doc.first_viewed_at
+                      ? <Eye className="h-4 w-4" />
+                      : <EyeOff className="h-4 w-4" />}
+                  </span>
                   <IconButton title="Abrir documento" onClick={() => openFile(doc.file_path)}>
                     <ExternalLink className="h-4 w-4" />
                   </IconButton>
@@ -216,6 +241,44 @@ export default function EmployeeDocumentsPanel({ employeeId, employeeName }: Pro
                     <Cell label="Descontos" value={doc.total_deductions} />
                     <Cell label="Líquido" value={doc.net_pay} />
                     <Cell label="Base FGTS" value={doc.base_fgts} />
+                  </div>
+
+                  {/* Histórico de visualização */}
+                  <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5">
+                      Visualização pelo colaborador
+                    </p>
+                    {!doc.first_viewed_at ? (
+                      <p className="flex items-center gap-1.5 text-xs text-gray-400">
+                        <EyeOff className="h-3.5 w-3.5 shrink-0" />
+                        Nunca abriu este documento.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        <p className="flex items-center gap-1.5 text-xs text-sky-600 dark:text-sky-400">
+                          <Eye className="h-3.5 w-3.5 shrink-0" />
+                          {doc.view_count === 1
+                            ? 'Abriu 1 vez'
+                            : `Abriu ${doc.view_count} vezes`}
+                          {' · primeira em '}
+                          {new Date(doc.first_viewed_at).toLocaleString('pt-BR')}
+                        </p>
+                        {(views[doc.id] ?? []).slice(0, 5).map(v => (
+                          <p key={v.id} className="text-xs text-gray-400 pl-5">
+                            {new Date(v.viewed_at).toLocaleString('pt-BR')}
+                            {' · '}
+                            {describeDevice(v.user_agent) ?? 'dispositivo não registrado'}
+                            {v.source === 'signature' && ' · tela de assinatura'}
+                            {v.source === 'download' && ' · abriu o arquivo'}
+                          </p>
+                        ))}
+                        {(views[doc.id]?.length ?? 0) > 5 && (
+                          <p className="text-xs text-gray-400 pl-5">
+                            e mais {(views[doc.id]!.length) - 5} registro(s)
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <p className="text-xs text-gray-400 pt-1 border-t border-gray-200 dark:border-gray-700">
